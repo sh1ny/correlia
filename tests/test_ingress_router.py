@@ -1,4 +1,7 @@
 from collections.abc import AsyncIterator
+from pathlib import Path
+
+import yaml
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -345,3 +348,159 @@ def test_processing_ingress_does_not_import_persistence() -> None:
     source = inspect.getsource(ingress_module)
     assert "app.persistence" not in source
     assert "AsyncSession" not in source
+
+# ---------------------------------------------------------------------------
+# Topology enrichment integration via HTTP entrypoint
+# ---------------------------------------------------------------------------
+async def test_response_with_no_topology_match_and_no_ip_returns_source_tags(
+    tmp_path: Path,
+) -> None:
+    topology_path = tmp_path / "topology.yaml"
+    topology_path.write_text(
+        yaml.safe_dump(
+            {
+                "hostname_rules": [
+                    {
+                        "id": "web-servers",
+                        "name": "Web Servers",
+                        "hostname_pattern": "^web-.*",
+                        "tags": {"topology.role": "web"},
+                    }
+                ],
+                "subnet_rules": [],
+            }
+        )
+    )
+    processor = build_icinga2_processor(topology_path=topology_path)
+    app = create_app(
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        sessionmaker=lambda: object(),
+        icinga2_processor=processor,
+    )
+    payload = {
+        "source_id": "icinga2:service:db-01:http",
+        "host": "db-01",
+        "service": "http",
+        "state": "CRITICAL",
+        "state_type": "HARD",
+        "timestamp": "2026-06-08T12:00:00+00:00",
+        "check_output": "HTTP 503",
+        "ip_address": None,
+        "tags": {"team.name": "platform"},
+    }
+    async for client in get_client(app):
+        response = await client.post("/webhooks/icinga2", json=payload)
+    body = response.json()
+    assert body["state_accepted"] is True
+    assert body["final_tags"] == {"team.name": "platform"}
+    assert body["enrichment_diagnostics"] == []
+
+
+async def test_response_with_subnet_fallback_from_http(tmp_path: Path) -> None:
+    topology_path = tmp_path / "topology.yaml"
+    topology_path.write_text(
+        yaml.safe_dump(
+            {
+                "hostname_rules": [
+                    {
+                        "id": "web-servers",
+                        "name": "Web Servers",
+                        "hostname_pattern": "^web-.*",
+                        "tags": {"topology.role": "web"},
+                    }
+                ],
+                "subnet_rules": [
+                    {
+                        "id": "dc1-subnet",
+                        "name": "DC1 Subnet",
+                        "subnet": "192.0.2.0/24",
+                        "tags": {"topology.site": "dc1"},
+                    }
+                ],
+            }
+        )
+    )
+    processor = build_icinga2_processor(topology_path=topology_path)
+    app = create_app(
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        sessionmaker=lambda: object(),
+        icinga2_processor=processor,
+    )
+    payload = {
+        "source_id": "icinga2:service:db-01:http",
+        "host": "db-01",
+        "service": "http",
+        "state": "CRITICAL",
+        "state_type": "HARD",
+        "timestamp": "2026-06-08T12:00:00+00:00",
+        "check_output": "HTTP 503",
+        "ip_address": "192.0.2.10",
+        "tags": {"team.name": "platform"},
+    }
+    async for client in get_client(app):
+        response = await client.post("/webhooks/icinga2", json=payload)
+    body = response.json()
+    assert body["state_accepted"] is True
+    assert body["final_tags"]["topology.site"] == "dc1"
+    assert body["final_tags"]["team.name"] == "platform"
+    assert len(body["enrichment_diagnostics"]) == 1
+    diag = body["enrichment_diagnostics"][0]
+    assert diag["match_source"] == "subnet"
+    assert diag["rule_id"] == "dc1-subnet"
+
+
+async def test_response_conflict_diagnostic_only_includes_matched_rule(
+    tmp_path: Path,
+) -> None:
+    topology_path = tmp_path / "topology.yaml"
+    topology_path.write_text(
+        yaml.safe_dump(
+            {
+                "hostname_rules": [
+                    {
+                        "id": "web-servers",
+                        "name": "Web Servers",
+                        "hostname_pattern": "^web-.*",
+                        "tags": {"topology.role": "web"},
+                    },
+                    {
+                        "id": "db-servers",
+                        "name": "DB Servers",
+                        "hostname_pattern": "^db-.*",
+                        "tags": {"topology.role": "db"},
+                    },
+                ],
+                "subnet_rules": [],
+            }
+        )
+    )
+    processor = build_icinga2_processor(topology_path=topology_path)
+    app = create_app(
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        sessionmaker=lambda: object(),
+        icinga2_processor=processor,
+    )
+    payload = {
+        "source_id": "icinga2:service:web-01:http",
+        "host": "web-01",
+        "service": "http",
+        "state": "CRITICAL",
+        "state_type": "HARD",
+        "timestamp": "2026-06-08T12:00:00+00:00",
+        "check_output": "HTTP 503",
+        "ip_address": "192.0.2.10",
+        "tags": {"team.name": "platform", "topology.role": "old"},
+    }
+    async for client in get_client(app):
+        response = await client.post("/webhooks/icinga2", json=payload)
+    body = response.json()
+    assert body["state_accepted"] is True
+    diagnostics = body["enrichment_diagnostics"]
+    assert len(diagnostics) == 1
+    diag = diagnostics[0]
+    assert diag["rule_id"] == "web-servers"
+    assert diag["rule_name"] == "Web Servers"
+    assert diag["match_source"] == "hostname"
+    assert diag["tags_added"] == {}
+    assert diag["tags_overridden"] == [["topology.role", "old", "web"]]
+    assert diag["conflicts"] == [["topology.role", "old", "web"]]

@@ -516,3 +516,9 @@ async def test_diagnostics_only_include_matched_rule(tmp_path: Path) -> None:
 
     assert len(result.diagnostics) == 1
     assert result.diagnostics[0].rule_id == "web-servers"
+
+def test_enrich_method_has_no_persistence_or_rule_engine_refs() -> None:
+    source = inspect.getsource(StaticTopologyEnricher.enrich)
+    assert "app.persistence" not in source
+    assert "AsyncSession" not in source
+    assert "RuleEngine" not in source
