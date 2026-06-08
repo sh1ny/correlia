@@ -13,7 +13,7 @@ Correlia v1 builds one coherent API-first alert aggregation backend: first estab
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Foundations, Contracts, and Database Invariant** - Maintainers can run Correlia with strict domain/config contracts and PostgreSQL-enforced incident state.
+- [x] **Phase 1: Foundations, Contracts, and Database Invariant** - Maintainers can run Correlia with strict domain/config contracts and PostgreSQL-enforced incident state. (completed 2026-06-08)
 - [ ] **Phase 2: Icinga2 Ingress, Topology, and Rule Decisions** - Operators can send real Icinga2 alerts through normalization, enrichment, and deterministic rule evaluation.
 - [ ] **Phase 3: Problem Aggregation and Notification Dispatch** - Problem events become durable topology-aware incidents and threshold transitions dispatch through pluggable tasks/outputs.
 - [ ] **Phase 4: Lifecycle, Operator APIs, and Operability** - Recovery, expiration, REST workflows, logs, readiness, metrics, and verification complete the v1 operational surface.
@@ -33,7 +33,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Malformed domain/config data fails with explicit validation errors instead of silently accepting partial or coerced state.
   4. PostgreSQL enforces one active incident per rule/group and supports atomic incident upsert without SELECT-then-INSERT behavior.
 
-**Plans:** 5/5 plans executed
+**Plans:** 5/5 plans complete
 
 **Wave 1**
 
@@ -51,6 +51,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Wave 4** *(blocked on Wave 3 completion)*
 
 - [x] 01-04-PLAN.md — atomic PostgreSQL open-incident upsert repository with max severity, bounded JSONB set merge, and Testcontainers verification.
+
 ### Phase 2: Icinga2 Ingress, Topology, and Rule Decisions
 
 **Goal:** Operators can send real Icinga2 alerts through normalization, enrichment, and deterministic rule evaluation.
@@ -116,7 +117,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundations, Contracts, and Database Invariant | 5/5 | Complete | 2026-06-08 |
+| 1. Foundations, Contracts, and Database Invariant | 5/5 | Complete    | 2026-06-08 |
 | 2. Icinga2 Ingress, Topology, and Rule Decisions | 0/TBD | Not started | - |
 | 3. Problem Aggregation and Notification Dispatch | 0/TBD | Not started | - |
 | 4. Lifecycle, Operator APIs, and Operability | 0/TBD | Not started | - |
