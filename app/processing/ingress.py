@@ -13,14 +13,14 @@ from app.plugins.inputs.icinga2 import (
     Icinga2Rejection,
     Icinga2WebhookPayload,
 )
-from app.plugins.interfaces import TopologyEnricher
+from app.plugins.interfaces import InputPlugin, TopologyEnricher
 from app.processing.rule_engine import RuleEngine
 
 
 class Icinga2DecisionProcessor:
     def __init__(
         self,
-        plugin: Icinga2InputPlugin,
+        plugin: InputPlugin,
         topology_enricher: TopologyEnricher | None = None,
         rule_engine: RuleEngine | None = None,
     ) -> None:

@@ -153,17 +153,20 @@ def test_fingerprint_is_stable_for_replay() -> None:
     assert len(fp1) == 32  # truncated hex
 
 
-def test_fingerprint_excludes_timestamp_and_check_output() -> None:
-    base = {
-        "source_id": "icinga2:service:web-01:http",
-        "host": "web-01",
-        "service": "http",
-        "event_type": EventType.PROBLEM,
-        "severity": Severity.CRITICAL,
-    }
-    fp1 = fingerprint_icinga_event(**base)
-    # These are not part of the fingerprint per D-05
-    assert fp1 == fingerprint_icinga_event(**base)
+async def test_fingerprint_excludes_timestamp_and_check_output() -> None:
+    plugin = Icinga2InputPlugin()
+    first_payload = Icinga2WebhookPayload.model_validate(valid_service_payload())
+    second_payload_data = valid_service_payload()
+    second_payload_data["timestamp"] = "2026-06-08T12:05:00+00:00"
+    second_payload_data["check_output"] = "Different output text"
+    second_payload = Icinga2WebhookPayload.model_validate(second_payload_data)
+
+    first = await plugin.process_payload(first_payload)
+    second = await plugin.process_payload(second_payload)
+
+    assert not isinstance(first, Icinga2Rejection)
+    assert not isinstance(second, Icinga2Rejection)
+    assert first.fingerprint == second.fingerprint
 
 
 def test_fingerprint_changes_when_severity_changes() -> None:
