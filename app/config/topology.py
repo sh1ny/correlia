@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from ipaddress import ip_network
+from ipaddress import IPv4Network, IPv6Network, ip_network
 from pathlib import Path
-from typing import Any
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -52,7 +51,7 @@ class TopologyConfig(BaseModel):
 
     @model_validator(mode="after")
     def _reject_overlapping_conflicting_subnets(self) -> "TopologyConfig":
-        subnets: list[tuple[str, Any, dict[str, str]]] = []
+        subnets: list[tuple[str, IPv4Network | IPv6Network, dict[str, str]]] = []
         for rule in self.subnet_rules:
             try:
                 network = ip_network(rule.subnet, strict=False)
@@ -64,7 +63,7 @@ class TopologyConfig(BaseModel):
 
         for i, (id_a, net_a, tags_a) in enumerate(subnets):
             for id_b, net_b, tags_b in subnets[i + 1 :]:
-                if net_a.overlaps(net_b):
+                if net_a.version == net_b.version and net_a.overlaps(net_b):
                     if tags_a != tags_b:
                         raise ValueError(
                             f"Overlapping subnet rules '{id_a}' ({net_a}) and "
@@ -85,7 +84,7 @@ class CompiledHostnameRule:
 class CompiledSubnetRule:
     id: str
     name: str
-    network: Any  # ipaddress.IPv4Network | IPv6Network
+    network: IPv4Network | IPv6Network
     tags: dict[str, str]
 
 

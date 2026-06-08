@@ -87,6 +87,13 @@ def test_compiled_rule_has_compiled_patterns(tmp_path: Path) -> None:
     assert rule.service_pattern.match("http")
 
 
+def test_match_criteria_rejects_empty_host_pattern() -> None:
+    with pytest.raises(ValueError, match="host_pattern"):
+        MatchCriteriaConfig.model_validate(
+            {"severities": ["CRITICAL"], "host_pattern": ""}
+        )
+
+
 # ---------------------------------------------------------------------------
 # RUL-02: invalid YAML rejected at load time
 # ---------------------------------------------------------------------------

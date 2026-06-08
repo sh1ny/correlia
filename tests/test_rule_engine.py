@@ -526,6 +526,39 @@ async def test_events_outside_window_are_not_counted(tmp_path: Path) -> None:
     assert decision.threshold_decision.counted == 1
     assert decision.threshold_decision.crossed is False
 
+async def test_future_events_remain_counted_for_out_of_order_delivery(
+    tmp_path: Path,
+) -> None:
+    engine = _build_engine(
+        tmp_path,
+        {
+            "rules": [
+                {
+                    "name": "thresh",
+                    "priority": 10,
+                    "match": {"severities": ["CRITICAL"], "host_pattern": ".*"},
+                    "window": {
+                        "duration_seconds": 300,
+                        "group_by": ["host"],
+                        "trigger_threshold": 2,
+                    },
+                    "output_summary": "x",
+                    "actions": [{"name": "create_incident", "plugin": "default_output"}],
+                }
+            ]
+        },
+    )
+    base = datetime(2026, 6, 8, 12, 0, 0, tzinfo=UTC)
+    await engine.evaluate(_event(fingerprint="future", timestamp=base))
+    decision = await engine.evaluate(
+        _event(fingerprint="older", timestamp=base - timedelta(seconds=30))
+    )
+
+    assert isinstance(decision, RuleDecision)
+    assert decision.threshold_decision.counted == 2
+    assert decision.threshold_decision.crossed is True
+
+
 
 async def test_threshold_window_bounds_are_correct(tmp_path: Path) -> None:
     engine = _build_engine(
@@ -554,6 +587,35 @@ async def test_threshold_window_bounds_are_correct(tmp_path: Path) -> None:
     assert td.window_start == base - timedelta(seconds=300)
     assert td.window_end == base
     assert td.threshold == 1
+
+async def test_summary_uses_normalized_fields_before_same_named_tags(
+    tmp_path: Path,
+) -> None:
+    engine = _build_engine(
+        tmp_path,
+        {
+            "rules": [
+                {
+                    "name": "summary",
+                    "priority": 10,
+                    "match": {"severities": ["CRITICAL"], "host_pattern": ".*"},
+                    "window": {
+                        "duration_seconds": 300,
+                        "group_by": ["host"],
+                        "trigger_threshold": 1,
+                    },
+                    "output_summary": "Host {host} from {team.name}",
+                    "actions": [{"name": "create_incident", "plugin": "default_output"}],
+                }
+            ]
+        },
+    )
+    decision = await engine.evaluate(
+        _event(tags={"host": "shadow-host", "team.name": "platform"})
+    )
+
+    assert isinstance(decision, RuleDecision)
+    assert decision.summary == "Host web-01 from platform"
 
 
 # ---------------------------------------------------------------------------

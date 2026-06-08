@@ -108,9 +108,7 @@ class RuleEngine:
 
         state = self._window_state.setdefault(key, {})
         # Prune old fingerprints outside the window
-        stale = [
-            fp for fp, ts in state.items() if ts < window_start or ts > window_end
-        ]
+        stale = [fp for fp, ts in state.items() if ts < window_start]
         for fp in stale:
             del state[fp]
 
@@ -139,7 +137,7 @@ class RuleEngine:
         )
 
     def _render_summary(self, template: str, event: NormalizedEvent) -> str:
-        context: dict[str, str | None] = {
+        normalized_fields: dict[str, str | None] = {
             "host": event.host,
             "service": event.service,
             "message": event.message,
@@ -150,7 +148,8 @@ class RuleEngine:
             "timestamp": event.timestamp.isoformat(),
             "ip_address": event.ip_address,
         }
-        context.update(event.tags)
+        context: dict[str, str | None] = dict(event.tags)
+        context.update(normalized_fields)
         # Safe substitution: missing keys leave the placeholder
         result = template
         for key, value in context.items():

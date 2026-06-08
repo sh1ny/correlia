@@ -100,8 +100,10 @@ def fingerprint_icinga_event(
 
 class Icinga2InputPlugin:
     async def process_payload(
-        self, payload: Icinga2WebhookPayload
+        self, payload: object
     ) -> NormalizedEvent | Icinga2Rejection:
+        if not isinstance(payload, Icinga2WebhookPayload):
+            payload = Icinga2WebhookPayload.model_validate(payload)
         if payload.state_type == "SOFT":
             return Icinga2Rejection(
                 reason="SOFT state is non-actionable",
