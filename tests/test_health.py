@@ -1,6 +1,5 @@
 from collections.abc import AsyncIterator
 
-import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.config.settings import Settings
@@ -38,8 +37,6 @@ class FailingSession:
         raise self.failure
 
 
-async def sessionmaker_with(session: object) -> AsyncIterator[object]:
-    yield session
 
 
 async def get_client(app) -> AsyncIterator[AsyncClient]:
