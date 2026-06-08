@@ -25,7 +25,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [x] **PRS-01**: Correlia persists aggregated incidents in PostgreSQL with rule name, group key, lifecycle status, severity, timestamps, summary, event count, and affected hosts.
 - [x] **PRS-02**: Correlia enforces one active incident per rule and group key at the database layer.
-- [ ] **PRS-03**: Correlia updates active incidents with an atomic PostgreSQL upsert instead of SELECT-then-INSERT logic.
+- [x] **PRS-03**: Correlia updates active incidents with an atomic PostgreSQL upsert instead of SELECT-then-INSERT logic.
 - [x] **PRS-04**: Maintainer can optionally persist raw/debug event or decision metadata needed to explain incident behavior.
 
 ### Icinga2 Ingress
@@ -153,7 +153,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DOM-04 | Phase 1: Foundations, Contracts, and Database Invariant | Pending |
 | PRS-01 | Phase 1: Foundations, Contracts, and Database Invariant | Complete |
 | PRS-02 | Phase 1: Foundations, Contracts, and Database Invariant | Complete |
-| PRS-03 | Phase 1: Foundations, Contracts, and Database Invariant | Pending |
+| PRS-03 | Phase 1: Foundations, Contracts, and Database Invariant | Complete |
 | PRS-04 | Phase 1: Foundations, Contracts, and Database Invariant | Complete |
 | ING-01 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
 | ING-02 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
