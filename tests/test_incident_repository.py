@@ -16,7 +16,7 @@ from app.domain.incidents import DecisionContext, IncidentStatus
 from app.persistence.models import Base
 
 
-async def _run_alembic_upgrade(database_url: str) -> None:
+def _run_alembic_upgrade(database_url: str) -> None:
     result = subprocess.run(
         [sys.executable, "-m", "alembic", "-x", f"database_url={database_url}", "upgrade", "head"],
         capture_output=True,
@@ -25,36 +25,33 @@ async def _run_alembic_upgrade(database_url: str) -> None:
     if result.returncode != 0:
         raise RuntimeError(f"Alembic upgrade failed: {result.stderr}")
 
+_migrated_url: str | None = None
+
 
 @pytest.fixture(scope="module")
 def postgres_url() -> str:
+    global _migrated_url
     with PostgresContainer("postgres:18-alpine") as postgres:
         url = postgres.get_connection_url()
         url = url.replace("postgresql+psycopg2://", "postgresql+asyncpg://")
         url = url.replace("postgresql://", "postgresql+asyncpg://")
+        _run_alembic_upgrade(url)
+        _migrated_url = url
         yield url
 
 
-@pytest.fixture(scope="module")
-async def engine(postgres_url: str):
-    await _run_alembic_upgrade(postgres_url)
-    engine = create_async_engine(postgres_url)
-    yield engine
-    await engine.dispose()
-
-
 @pytest.fixture
-async def db_session(engine):
+async def db_session(postgres_url: str):
+    engine = create_async_engine(postgres_url)
     async with AsyncSession(engine, expire_on_commit=False) as session:
         yield session
-        await session.rollback()
-        await session.execute(sa.text("TRUNCATE TABLE incidents RESTART IDENTITY CASCADE"))
-        await session.commit()
+    await engine.dispose()
 
-
-# ---------------------------------------------------------------------------
-# Task 1: Atomic open-incident upsert
-# ---------------------------------------------------------------------------
+    cleanup = create_async_engine(postgres_url)
+    async with AsyncSession(cleanup, expire_on_commit=False) as cs:
+        await cs.execute(sa.text("TRUNCATE TABLE incidents RESTART IDENTITY CASCADE"))
+        await cs.commit()
+    await cleanup.dispose()
 
 
 async def test_first_upsert_creates_open_incident(db_session: AsyncSession) -> None:
@@ -461,16 +458,16 @@ async def test_closed_row_does_not_block_new_open(db_session: AsyncSession) -> N
 
     assert incident.status == IncidentStatus.OPEN.value
 
-
-async def test_no_select_inside_upsert(db_session: AsyncSession) -> None:
+async def test_no_select_inside_upsert() -> None:
     import inspect
     from app.persistence import incidents as incidents_module
 
-    source = inspect.getsource(incidents_module)
-    assert "select(" not in source or "sqlalchemy.dialects.postgresql.insert" in source
-    # More precise: no raw select( calls in upsert_open_incident or build_open_incident_upsert
-    assert "upsert_open_incident" in source
-    assert "on_conflict_do_update" in source
+    upsert_source = inspect.getsource(incidents_module.upsert_open_incident)
+    build_source = inspect.getsource(incidents_module.build_open_incident_upsert)
+    assert "select(" not in upsert_source
+    assert "select(" not in build_source
+    assert "on_conflict_do_update" in build_source
+    assert "index_where" in build_source
 
 
 # ---------------------------------------------------------------------------
@@ -653,8 +650,8 @@ async def test_sql_injection_rule_name_persisted_literally(db_session: AsyncSess
 
 
 async def test_no_sqlite_in_test_source() -> None:
-    import tests.test_incident_repository as mod
     import inspect
+    from app.persistence import incidents as incidents_module
 
-    source = inspect.getsource(mod)
+    source = inspect.getsource(incidents_module)
     assert "sqlite" not in source.lower()

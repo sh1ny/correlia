@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import JSON, String
+from sqlalchemy import DateTime, String
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -37,15 +37,15 @@ class Incident(Base):
     decision_context: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, default=dict, server_default="'{}'::jsonb"
     )
-    start_time: Mapped[datetime] = mapped_column(nullable=False)
-    last_update_time: Mapped[datetime] = mapped_column(nullable=False)
-    acknowledged_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    start_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_update_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     acknowledged_by: Mapped[str | None] = mapped_column(String, nullable=True)
-    resolved_at: Mapped[datetime | None] = mapped_column(nullable=True)
-    closed_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        nullable=False, server_default="now()"
+        DateTime(timezone=True), nullable=False, server_default="now()"
     )
     updated_at: Mapped[datetime] = mapped_column(
-        nullable=False, server_default="now()"
+        DateTime(timezone=True), nullable=False, server_default="now()"
     )
