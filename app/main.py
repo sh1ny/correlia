@@ -24,7 +24,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     if not hasattr(app.state, "icinga2_processor"):
         topology_path = getattr(app.state.settings, "topology_path", None)
-        app.state.icinga2_processor = build_icinga2_processor(topology_path=topology_path)
+        rules_path = getattr(app.state.settings, "rules_path", None)
+        app.state.icinga2_processor = build_icinga2_processor(
+            topology_path=topology_path,
+            rules_path=rules_path,
+        )
 
     try:
         yield
