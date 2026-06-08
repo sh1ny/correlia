@@ -11,7 +11,6 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import create_async_engine
 from testcontainers.postgres import PostgresContainer
 
-from app.persistence.models import Base
 
 
 pytestmark = pytest.mark.anyio
