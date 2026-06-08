@@ -637,3 +637,44 @@ def test_rule_engine_has_no_icinga2_raw_state_refs() -> None:
     source = inspect.getsource(rule_engine_module)
     assert "state_type" not in source
     assert "check_output" not in source
+
+# ---------------------------------------------------------------------------
+# Task 3: group-key collision resistance
+# ---------------------------------------------------------------------------
+async def test_group_keys_are_collision_resistant_for_swapped_values(
+    tmp_path: Path,
+) -> None:
+    engine = _build_engine(
+        tmp_path,
+        {
+            "rules": [
+                {
+                    "name": "group-test",
+                    "priority": 10,
+                    "match": {"severities": ["CRITICAL"], "host_pattern": ".*"},
+                    "window": {
+                        "duration_seconds": 60,
+                        "group_by": ["host", "service"],
+                        "trigger_threshold": 1,
+                    },
+                    "output_summary": "x",
+                    "actions": [{"name": "create_incident", "plugin": "default_output"}],
+                }
+            ]
+        },
+    )
+    decision_a = await engine.evaluate(_event(host="a", service="b"))
+    decision_b = await engine.evaluate(_event(host="b", service="a"))
+    assert isinstance(decision_a, RuleDecision)
+    assert isinstance(decision_b, RuleDecision)
+    assert decision_a.group_key != decision_b.group_key
+    assert decision_a.group_key == "host=a|service=b"
+    assert decision_b.group_key == "host=b|service=a"
+# ---------------------------------------------------------------------------
+# Task 3: config.rules module boundary
+# ---------------------------------------------------------------------------
+def test_config_rules_has_no_persistence_import() -> None:
+    import app.config.rules as rules_config_module
+    source = inspect.getsource(rules_config_module)
+    assert "app.persistence" not in source
+    assert "AsyncSession" not in source

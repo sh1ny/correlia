@@ -657,3 +657,13 @@ async def test_response_with_rule_match_contains_group_key_and_threshold(
     assert body["incident_effects"]["updated"] == 0
     assert body["closure_count"] == 0
     assert body["notification_count"] == 0
+
+# ---------------------------------------------------------------------------
+# Task 3: ingress processor must not import raw Icinga2 fields
+# ---------------------------------------------------------------------------
+def test_processing_ingress_has_no_icinga2_raw_state_refs() -> None:
+    import inspect
+    import app.processing.ingress as ingress_module
+    source = inspect.getsource(ingress_module)
+    assert "state_type" not in source
+    assert "check_output" not in source

@@ -305,3 +305,30 @@ def test_rule_window_config_rejects_zero_threshold() -> None:
 def test_rule_action_config_rejects_empty_name() -> None:
     with pytest.raises(ValueError):
         RuleActionConfig.model_validate({"name": "", "plugin": "default_output"})
+
+# ---------------------------------------------------------------------------
+# Task 3: known_plugins acceptance and rejection
+# ---------------------------------------------------------------------------
+def test_load_rules_config_accepts_known_plugin_reference(tmp_path: Path) -> None:
+    data = _valid_rule_yaml()
+    path = tmp_path / "rules.yaml"
+    path.write_text(yaml.safe_dump(data))
+    config = load_rules_config(
+        path,
+        known_actions=frozenset({"create_incident"}),
+        known_plugins=frozenset({"default_output"}),
+    )
+    assert config.rules[0].definition.actions[0].plugin == "default_output"
+
+
+def test_load_rules_config_rejects_missing_plugin_reference(tmp_path: Path) -> None:
+    data = _valid_rule_yaml()
+    data["rules"][0]["actions"][0]["plugin"] = "missing_plugin"
+    path = tmp_path / "rules.yaml"
+    path.write_text(yaml.safe_dump(data))
+    with pytest.raises(ValueError, match="unknown plugin"):
+        load_rules_config(
+            path,
+            known_actions=frozenset({"create_incident"}),
+            known_plugins=frozenset({"default_output"}),
+        )
