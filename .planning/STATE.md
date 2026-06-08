@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: milestone
 status: planning
 stopped_at: Phase 1 context gathered
-last_updated: "2026-06-08T11:26:43.568Z"
-last_activity: 2026-06-08 — Initial coarse MVP roadmap created from requirements and research.
+last_updated: "2026-06-08T11:39:47.761Z"
+last_activity: 2026-06-08 — Completed quick task 260608-kd5: Update documented Python requirement to Python 3.14+.
 progress:
   total_phases: 4
   completed_phases: 0
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-06-08)
 Phase: 1 of 4 (Foundations, Contracts, and Database Invariant)
 Plan: 0 of TBD in current phase
 Status: Ready to plan
-Last activity: 2026-06-08 — Initial coarse MVP roadmap created from requirements and research.
+Last activity: 2026-06-08 — Completed quick task 260608-kd5: Update documented Python requirement to Python 3.14+.
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -86,6 +86,12 @@ None yet.
 - Phase 2 planning must settle rule multi-match/stop-processing and threshold counting semantics.
 - Phase 3 planning must settle notification durability boundaries for v1.
 - Phase 4 planning must settle recovery matching behavior for topology-level incidents and operator API exposure/auth assumptions.
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260608-kd5 | Update documented Python requirement to Python 3.14+ | 2026-06-08 | 854a052 | [260608-kd5-update-the-requirements-to-use-the-lates](./quick/260608-kd5-update-the-requirements-to-use-the-lates/) |
 
 ## Deferred Items
 
