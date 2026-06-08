@@ -140,68 +140,68 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FND-01 | TBD | Pending |
-| FND-02 | TBD | Pending |
-| FND-03 | TBD | Pending |
-| FND-04 | TBD | Pending |
-| DOM-01 | TBD | Pending |
-| DOM-02 | TBD | Pending |
-| DOM-03 | TBD | Pending |
-| DOM-04 | TBD | Pending |
-| PRS-01 | TBD | Pending |
-| PRS-02 | TBD | Pending |
-| PRS-03 | TBD | Pending |
-| PRS-04 | TBD | Pending |
-| ING-01 | TBD | Pending |
-| ING-02 | TBD | Pending |
-| ING-03 | TBD | Pending |
-| ING-04 | TBD | Pending |
-| ING-05 | TBD | Pending |
-| TOP-01 | TBD | Pending |
-| TOP-02 | TBD | Pending |
-| TOP-03 | TBD | Pending |
-| TOP-04 | TBD | Pending |
-| TOP-05 | TBD | Pending |
-| RUL-01 | TBD | Pending |
-| RUL-02 | TBD | Pending |
-| RUL-03 | TBD | Pending |
-| RUL-04 | TBD | Pending |
-| RUL-05 | TBD | Pending |
-| RUL-06 | TBD | Pending |
-| AGG-01 | TBD | Pending |
-| AGG-02 | TBD | Pending |
-| AGG-03 | TBD | Pending |
-| AGG-04 | TBD | Pending |
-| AGG-05 | TBD | Pending |
-| TSK-01 | TBD | Pending |
-| TSK-02 | TBD | Pending |
-| TSK-03 | TBD | Pending |
-| NOT-01 | TBD | Pending |
-| NOT-02 | TBD | Pending |
-| NOT-03 | TBD | Pending |
-| NOT-04 | TBD | Pending |
-| NOT-05 | TBD | Pending |
-| LCY-01 | TBD | Pending |
-| LCY-02 | TBD | Pending |
-| LCY-03 | TBD | Pending |
-| LCY-04 | TBD | Pending |
-| LCY-05 | TBD | Pending |
-| LCY-06 | TBD | Pending |
-| API-01 | TBD | Pending |
-| API-02 | TBD | Pending |
-| API-03 | TBD | Pending |
-| API-04 | TBD | Pending |
-| API-05 | TBD | Pending |
-| OPS-01 | TBD | Pending |
-| OPS-02 | TBD | Pending |
-| OPS-03 | TBD | Pending |
-| OPS-04 | TBD | Pending |
+| FND-01 | Phase 1: Foundations, Contracts, and Database Invariant | Pending |
+| FND-02 | Phase 1: Foundations, Contracts, and Database Invariant | Pending |
+| FND-03 | Phase 1: Foundations, Contracts, and Database Invariant | Pending |
+| FND-04 | Phase 1: Foundations, Contracts, and Database Invariant | Pending |
+| DOM-01 | Phase 1: Foundations, Contracts, and Database Invariant | Pending |
+| DOM-02 | Phase 1: Foundations, Contracts, and Database Invariant | Pending |
+| DOM-03 | Phase 1: Foundations, Contracts, and Database Invariant | Pending |
+| DOM-04 | Phase 1: Foundations, Contracts, and Database Invariant | Pending |
+| PRS-01 | Phase 1: Foundations, Contracts, and Database Invariant | Pending |
+| PRS-02 | Phase 1: Foundations, Contracts, and Database Invariant | Pending |
+| PRS-03 | Phase 1: Foundations, Contracts, and Database Invariant | Pending |
+| PRS-04 | Phase 1: Foundations, Contracts, and Database Invariant | Pending |
+| ING-01 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
+| ING-02 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
+| ING-03 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
+| ING-04 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
+| ING-05 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
+| TOP-01 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
+| TOP-02 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
+| TOP-03 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
+| TOP-04 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
+| TOP-05 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
+| RUL-01 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
+| RUL-02 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
+| RUL-03 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
+| RUL-04 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
+| RUL-05 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
+| RUL-06 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
+| AGG-01 | Phase 3: Problem Aggregation and Notification Dispatch | Pending |
+| AGG-02 | Phase 3: Problem Aggregation and Notification Dispatch | Pending |
+| AGG-03 | Phase 3: Problem Aggregation and Notification Dispatch | Pending |
+| AGG-04 | Phase 3: Problem Aggregation and Notification Dispatch | Pending |
+| AGG-05 | Phase 3: Problem Aggregation and Notification Dispatch | Pending |
+| TSK-01 | Phase 3: Problem Aggregation and Notification Dispatch | Pending |
+| TSK-02 | Phase 3: Problem Aggregation and Notification Dispatch | Pending |
+| TSK-03 | Phase 3: Problem Aggregation and Notification Dispatch | Pending |
+| NOT-01 | Phase 3: Problem Aggregation and Notification Dispatch | Pending |
+| NOT-02 | Phase 3: Problem Aggregation and Notification Dispatch | Pending |
+| NOT-03 | Phase 3: Problem Aggregation and Notification Dispatch | Pending |
+| NOT-04 | Phase 3: Problem Aggregation and Notification Dispatch | Pending |
+| NOT-05 | Phase 3: Problem Aggregation and Notification Dispatch | Pending |
+| LCY-01 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
+| LCY-02 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
+| LCY-03 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
+| LCY-04 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
+| LCY-05 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
+| LCY-06 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
+| API-01 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
+| API-02 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
+| API-03 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
+| API-04 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
+| API-05 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
+| OPS-01 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
+| OPS-02 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
+| OPS-03 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
+| OPS-04 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
 
 **Coverage:**
 - v1 requirements: 56 total
-- Mapped to phases: 0
-- Unmapped: 56 ⚠️
+- Mapped to phases: 56
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-06-08*
-*Last updated: 2026-06-08 after initial definition*
+*Last updated: 2026-06-08 after roadmap creation*
