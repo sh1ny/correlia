@@ -1,13 +1,13 @@
 # Architecture Research
 
 **Domain:** API-first infrastructure alert aggregation backend
-**Project:** Vigilo
+**Project:** Correlia
 **Researched:** 2026-06-08
 **Confidence:** HIGH
 
 ## Recommendation
 
-Build Vigilo as an async Python modular monolith with strict port/adaptor boundaries. Keep the first deployable service in one FastAPI process and one PostgreSQL database, but make inputs, outputs, task execution, and configuration loading swappable behind interfaces. This fits the current contract: Icinga2 first, REST APIs as the product surface, stateless processing logic, durable incident state in PostgreSQL, and a clean future cutover from in-process asyncio tasks to Celery/Redis.
+Build Correlia as an async Python modular monolith with strict port/adaptor boundaries. Keep the first deployable service in one FastAPI process and one PostgreSQL database, but make inputs, outputs, task execution, and configuration loading swappable behind interfaces. This fits the current contract: Icinga2 first, REST APIs as the product surface, stateless processing logic, durable incident state in PostgreSQL, and a clean future cutover from in-process asyncio tasks to Celery/Redis.
 
 The core architecture should be a one-way alert processing pipeline:
 
@@ -546,15 +546,15 @@ Log one event-processing summary per ingress request:
 
 Recommended low-cardinality metrics:
 
-- `vigilo_ingress_events_total{source,event_type,severity}`
-- `vigilo_rule_matches_total{rule}` if rule cardinality is bounded by config
-- `vigilo_incident_upserts_total{rule,outcome}` where outcome is inserted/updated
-- `vigilo_open_incidents{rule}` gauge if rule count is bounded
-- `vigilo_recoveries_total{outcome}`
-- `vigilo_expired_incidents_total{rule}`
-- `vigilo_notifications_total{plugin,outcome}`
-- `vigilo_processing_duration_seconds`
-- `vigilo_plugin_errors_total{plugin,type}`
+- `correlia_ingress_events_total{source,event_type,severity}`
+- `correlia_rule_matches_total{rule}` if rule cardinality is bounded by config
+- `correlia_incident_upserts_total{rule,outcome}` where outcome is inserted/updated
+- `correlia_open_incidents{rule}` gauge if rule count is bounded
+- `correlia_recoveries_total{outcome}`
+- `correlia_expired_incidents_total{rule}`
+- `correlia_notifications_total{plugin,outcome}`
+- `correlia_processing_duration_seconds`
+- `correlia_plugin_errors_total{plugin,type}`
 
 Avoid host, fingerprint, group key, or incident ID as metric labels.
 
@@ -752,8 +752,8 @@ Observability
 
 ## Sources
 
-- `.planning/PROJECT.md` — Vigilo product intent, constraints, active requirements, and concurrency invariant.
-- `idea.md` — Vigilo technical design v1.2, normalized event model, PostgreSQL schema, plugin/task abstractions, processing phases, recovery and expiration lifecycle.
+- `.planning/PROJECT.md` — Correlia product intent, constraints, active requirements, and concurrency invariant.
+- `idea.md` — Correlia technical design v1.2, normalized event model, PostgreSQL schema, plugin/task abstractions, processing phases, recovery and expiration lifecycle.
 - `.claude/gsd-core/templates/research-project/ARCHITECTURE.md` — expected architecture research structure.
 - FastAPI official docs: Bigger Applications / `APIRouter` — https://fastapi.tiangolo.com/tutorial/bigger-applications/
 - FastAPI official docs: Lifespan Events — https://fastapi.tiangolo.com/advanced/events/
@@ -765,5 +765,5 @@ Observability
 - OpenTelemetry Python contrib docs: FastAPI instrumentation — https://opentelemetry-python-contrib.readthedocs.io/en/latest/instrumentation/fastapi/fastapi.html
 
 ---
-*Architecture research for: Vigilo API-first alert aggregation backend*
+*Architecture research for: Correlia API-first alert aggregation backend*
 *Researched: 2026-06-08*

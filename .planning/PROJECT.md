@@ -1,8 +1,8 @@
-# Vigilo
+# Correlia
 
 ## What This Is
 
-Vigilo is a modular, API-first event aggregation system for infrastructure alerts. It starts with Icinga2 webhook ingestion, then normalizes events into a plugin-agnostic model, enriches them with topology context, aggregates them into incidents with PostgreSQL-backed state, and dispatches notifications through pluggable output channels. It intentionally ships without a built-in frontend; REST APIs are the product surface.
+Correlia is a modular, API-first event aggregation system for infrastructure alerts. It starts with Icinga2 webhook ingestion, then normalizes events into a plugin-agnostic model, enriches them with topology context, aggregates them into incidents with PostgreSQL-backed state, and dispatches notifications through pluggable output channels. It intentionally ships without a built-in frontend; REST APIs are the product surface.
 
 ## Core Value
 
@@ -39,7 +39,7 @@ Operators receive one accurate, topology-aware incident for a related alert stor
 
 ## Context
 
-The idea document defines Vigilo as a Python 3.13+ backend service using FastAPI, SQLAlchemy 2.0+, asyncpg, PostgreSQL, Pydantic v2, PyYAML, and uv. Its core architecture is stateless business logic backed by stateful PostgreSQL storage. Configuration is intentionally externalized to YAML for rules, topology, and plugin registry definitions.
+The idea document defines Correlia as a Python 3.13+ backend service using FastAPI, SQLAlchemy 2.0+, asyncpg, PostgreSQL, Pydantic v2, PyYAML, and uv. Its core architecture is stateless business logic backed by stateful PostgreSQL storage. Configuration is intentionally externalized to YAML for rules, topology, and plugin registry definitions.
 
 The domain is alert aggregation for monitoring systems. The initial integration target is Icinga2, including host and service states mapped to plugin-agnostic `PROBLEM` and `RECOVERY` events. Future systems such as Prometheus Alertmanager should fit through the same input plugin contract.
 
@@ -71,7 +71,7 @@ Testing should use Testcontainers for Python for PostgreSQL-backed integration t
 | Partial unique index for open incidents | Prevents duplicate open incidents per rule/group under concurrent ingestion | — Pending |
 | YAML rules, topology, and plugin registry | Operators can adjust behavior without changing Python code | — Pending |
 | Topology enrichment plugin interface | Static YAML enrichment ships first, but later enrichers such as an AI-driven topology enricher should plug into the same boundary | — Pending |
-| Testcontainers for Python for PostgreSQL tests | Vigilo depends on PostgreSQL-specific behavior that SQLite cannot validate | — Pending |
+| Testcontainers for Python for PostgreSQL tests | Correlia depends on PostgreSQL-specific behavior that SQLite cannot validate | — Pending |
 | `TaskRunner` abstraction with asyncio default | Supports v1 simplicity while preserving a clean path to Celery/Redis | — Pending |
 | Vertical MVP roadmap mode | Auto mode defaults to end-to-end slices that prove product behavior early | — Pending |
 

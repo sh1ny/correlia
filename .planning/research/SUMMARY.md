@@ -1,13 +1,13 @@
 # Project Research Summary
 
-**Project:** Vigilo
+**Project:** Correlia
 **Domain:** Python API-first infrastructure alert aggregation / incident management backend
 **Researched:** 2026-06-08
 **Confidence:** HIGH
 
 ## Executive Summary
 
-Vigilo is a modular, API-first alert aggregation backend. It should not become a monitoring system, on-call scheduler, workflow-builder, or frontend product. Experts build this class of system as a deterministic event-correlation pipeline: accept source-specific monitoring events, normalize them into a stable event model, enrich with topology, evaluate simple ordered rules, persist one durable incident per correlation group, and dispatch notifications only from state transitions.
+Correlia is a modular, API-first alert aggregation backend. It should not become a monitoring system, on-call scheduler, workflow-builder, or frontend product. Experts build this class of system as a deterministic event-correlation pipeline: accept source-specific monitoring events, normalize them into a stable event model, enrich with topology, evaluate simple ordered rules, persist one durable incident per correlation group, and dispatch notifications only from state transitions.
 
 The recommended approach is a lean async Python modular monolith: FastAPI, Pydantic v2, SQLAlchemy 2.0 with asyncpg, PostgreSQL, Alembic, PyYAML plus strict Pydantic config validation, and an explicit `TaskRunner` abstraction backed by asyncio in v1. PostgreSQL must own incident correctness through a partial unique index and atomic `INSERT ... ON CONFLICT DO UPDATE`; plugins translate only at the edges and must never own rule decisions, incident transactions, or lifecycle state.
 
@@ -41,7 +41,7 @@ PyYAML should be parser-only: `safe_load()` into plain data, then Pydantic v2 mo
 
 ### Expected Features
 
-Vigilo's launch scope is one end-to-end Icinga2-to-incident-to-notification path that proves the core promise: one alert storm becomes one accurate, topology-aware incident with a durable lifecycle. Feature breadth must not outrun the first concrete integration. Build seams for future inputs, outputs, and task runners, but ship only Icinga2 input and one email-style output channel in v1.
+Correlia's launch scope is one end-to-end Icinga2-to-incident-to-notification path that proves the core promise: one alert storm becomes one accurate, topology-aware incident with a durable lifecycle. Feature breadth must not outrun the first concrete integration. Build seams for future inputs, outputs, and task runners, but ship only Icinga2 input and one email-style output channel in v1.
 
 **Must have (table stakes):**
 - Icinga2 webhook ingress with validation/auth — proves the first concrete source path.
@@ -83,7 +83,7 @@ Vigilo's launch scope is one end-to-end Icinga2-to-incident-to-notification path
 
 ### Architecture Approach
 
-Build Vigilo as an async Python modular monolith with strict ports/adapters boundaries. The pipeline should be one-way and explicit: HTTP ingress -> input plugin normalization -> topology enrichment -> rule evaluation -> incident manager -> PostgreSQL atomic upsert/lifecycle state -> task runner submission -> output plugin dispatch. Route handlers handle HTTP; plugins translate edges; config loaders produce typed immutable config; the core processor owns normalized semantics; PostgreSQL owns concurrency correctness.
+Build Correlia as an async Python modular monolith with strict ports/adapters boundaries. The pipeline should be one-way and explicit: HTTP ingress -> input plugin normalization -> topology enrichment -> rule evaluation -> incident manager -> PostgreSQL atomic upsert/lifecycle state -> task runner submission -> output plugin dispatch. Route handlers handle HTTP; plugins translate edges; config loaders produce typed immutable config; the core processor owns normalized semantics; PostgreSQL owns concurrency correctness.
 
 **Major components:**
 1. FastAPI application and routers — API wiring, dependency injection, lifespan startup/shutdown, ingress, incidents, health/readiness, optional config introspection.
@@ -180,7 +180,7 @@ Based on research, suggested phase structure:
 **Open questions to settle:** recovery matching for topology-level incidents with many affected services; late event behavior after expiration; whether acknowledged incidents auto-resolve and how that is surfaced.
 
 ### Phase 7: Operator REST APIs and Operability Hardening
-**Rationale:** REST APIs are the product surface, and Vigilo itself is critical alerting infrastructure. Operators need inspection, mutation, and health signals before production use.
+**Rationale:** REST APIs are the product surface, and Correlia itself is critical alerting infrastructure. Operators need inspection, mutation, and health signals before production use.
 **Delivers:** incident list/detail filters, ack/close APIs, rules/topology/plugin summary endpoints with secret redaction, health/readiness, structured logs, metrics, config/plugin/task status, pagination/filtering.
 **Addresses:** API-first operator workflows, observability endpoints, audit/debug traceability, external automation readiness.
 **Avoids:** API consumers getting only `accepted`, missing health signals, unexplainable incidents, high-cardinality metric mistakes.
@@ -197,7 +197,7 @@ Based on research, suggested phase structure:
 
 - Domain contracts and PostgreSQL invariants come first because every later behavior depends on normalized lifecycle fields and one active incident per rule/group.
 - Icinga2 ingress arrives early to prevent abstract plugin over-design and to validate host/service PROBLEM/RECOVERY semantics against real payloads.
-- Topology precedes rule aggregation because Vigilo's main value is topology-aware grouping; rule grouping without enrichment degrades to ordinary host/service deduplication.
+- Topology precedes rule aggregation because Correlia's main value is topology-aware grouping; rule grouping without enrichment degrades to ordinary host/service deduplication.
 - Rules precede notification because notification actions, summaries, thresholds, and suppression decisions originate in validated rule config.
 - Durable incident upsert precedes dispatch because notifications must reference persisted incidents and threshold transitions, not transient processor memory.
 - Recovery and expiration follow problem aggregation but must land before broad operator adoption; otherwise incidents remain open or close for the wrong reason.
@@ -217,16 +217,16 @@ Phases likely needing deeper research during planning:
 Phases with standard patterns where research can usually be skipped or kept light:
 - **Phase 1:** Python/FastAPI/Pydantic/Alembic scaffolding and PostgreSQL partial unique index patterns are well documented; focus on project-specific invariant choices.
 - **Phase 4:** PostgreSQL upsert implementation is documented; the main need is correctness verification against the chosen schema, not broad research.
-- **Phase 7:** FastAPI routers, pagination, health/readiness, and low-cardinality metrics have established patterns; adapt to Vigilo domain fields.
+- **Phase 7:** FastAPI routers, pagination, health/readiness, and low-cardinality metrics have established patterns; adapt to Correlia domain fields.
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
 | Stack | HIGH | Project constraints and current official package/docs metadata align: Python 3.13, FastAPI/Pydantic v2, SQLAlchemy 2.0, asyncpg, PostgreSQL, Alembic, PyYAML, uv. Optional email/performance libraries remain demand-driven. |
-| Features | MEDIUM-HIGH | Core alert-management table stakes are supported by Icinga2, Alertmanager, PagerDuty, Grafana OnCall references and project scope. Vigilo-specific prioritization is less certain until users validate workflows. |
+| Features | MEDIUM-HIGH | Core alert-management table stakes are supported by Icinga2, Alertmanager, PagerDuty, Grafana OnCall references and project scope. Correlia-specific prioritization is less certain until users validate workflows. |
 | Architecture | HIGH | Modular monolith with ports/adapters, typed config, PostgreSQL-owned state, FastAPI lifespan, and task-runner boundary follows project constraints and established backend patterns. Acknowledgement modeling is the main unresolved design adjustment. |
-| Pitfalls | HIGH | Concurrency, recovery, YAML safety, async task, and observability risks are grounded in official PostgreSQL/SQLAlchemy/Icinga2/FastAPI/PyYAML/Pydantic/SRE references and directly map to Vigilo requirements. |
+| Pitfalls | HIGH | Concurrency, recovery, YAML safety, async task, and observability risks are grounded in official PostgreSQL/SQLAlchemy/Icinga2/FastAPI/PyYAML/Pydantic/SRE references and directly map to Correlia requirements. |
 
 **Overall confidence:** HIGH for the v1 technical direction; MEDIUM-HIGH for exact roadmap cut lines and operator-experience prioritization before real user validation.
 
@@ -246,7 +246,7 @@ Phases with standard patterns where research can usually be skipped or kept ligh
 ## Sources
 
 ### Primary (HIGH confidence)
-- `.planning/PROJECT.md` — Vigilo scope, active requirements, constraints, data flow, key decisions, and concurrency invariant.
+- `.planning/PROJECT.md` — Correlia scope, active requirements, constraints, data flow, key decisions, and concurrency invariant.
 - `.planning/research/STACK.md` — recommended Python/FastAPI/Pydantic/PostgreSQL/SQLAlchemy/asyncpg/Alembic/PyYAML/asyncio stack and versions.
 - `.planning/research/FEATURES.md` — table stakes, differentiators, anti-features, feature dependencies, MVP definition, and competitor/reference feature analysis.
 - `.planning/research/ARCHITECTURE.md` — modular monolith design, boundaries, data flow, build order, incident state model, REST/task/output/topology/rule/observability architecture.

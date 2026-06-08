@@ -2,9 +2,9 @@
 
 ## Project
 
-**Vigilo**
+**Correlia**
 
-Vigilo is a modular, API-first event aggregation system for infrastructure alerts. It starts with Icinga2 webhook ingestion, then normalizes events into a plugin-agnostic model, enriches them with topology context, aggregates them into incidents with PostgreSQL-backed state, and dispatches notifications through pluggable output channels. It intentionally ships without a built-in frontend; REST APIs are the product surface.
+Correlia is a modular, API-first event aggregation system for infrastructure alerts. It starts with Icinga2 webhook ingestion, then normalizes events into a plugin-agnostic model, enriches them with topology context, aggregates them into incidents with PostgreSQL-backed state, and dispatches notifications through pluggable output channels. It intentionally ships without a built-in frontend; REST APIs are the product surface.
 
 **Core Value:** Operators receive one accurate, topology-aware incident for a related alert storm instead of many disconnected raw alerts.
 
@@ -35,11 +35,11 @@ Vigilo is a modular, API-first event aggregation system for infrastructure alert
 |------------|----------------|------------|---------|-----------------|
 | Python | 3.13.x baseline; allow 3.14.x only after CI proves all dependencies | HIGH | Runtime | Project intent requires Python 3.13+. Python 3.13 and 3.14 are both in bugfix/stable status, but 3.13 is the safer baseline for greenfield dependencies while still modern. |
 | uv | 0.11.x | HIGH | Project/dependency manager, lockfile, virtualenv, Python pinning | uv is the current Astral project manager with lockfiles, Python version management, tool execution, and fast resolution. Use one `uv.lock`; do not maintain parallel `requirements.txt` in v1. |
-| FastAPI | 0.136.x | HIGH | REST API, OpenAPI, request/response validation | FastAPI is still the standard Python API-first choice for typed async services and is built on Starlette + Pydantic. It directly matches Vigilo's no-frontend REST product surface. |
-| Uvicorn | 0.49.x, `uvicorn[standard]` | HIGH | ASGI server | Uvicorn is FastAPI's normal ASGI runtime. `standard` extras add production/dev protocol and reload support where available. Keep process management outside Vigilo. |
+| FastAPI | 0.136.x | HIGH | REST API, OpenAPI, request/response validation | FastAPI is still the standard Python API-first choice for typed async services and is built on Starlette + Pydantic. It directly matches Correlia's no-frontend REST product surface. |
+| Uvicorn | 0.49.x, `uvicorn[standard]` | HIGH | ASGI server | Uvicorn is FastAPI's normal ASGI runtime. `standard` extras add production/dev protocol and reload support where available. Keep process management outside Correlia. |
 | Pydantic | 2.13.x | HIGH | Normalized events, rule config, topology config, API schemas | Pydantic v2 is the current FastAPI data layer. Use `BaseModel`, `model_validate`, `model_dump`, strict fields where ambiguity is dangerous, and `extra="forbid"` for config/rules. |
 | pydantic-settings | 2.14.x | HIGH | Environment/application settings | Use for deployment settings (`DATABASE_URL`, plugin config paths, log level). Keep rule/topology/plugin registries as explicit YAML files, not environment blobs. |
-| PostgreSQL | 18.x preferred; 17.x acceptable on managed hosting | HIGH | Authoritative incident state | PostgreSQL 18 is the current supported major. Vigilo needs `JSONB`, partial unique indexes, `INSERT ... ON CONFLICT`, row-level transactions, and durable lifecycle state. |
+| PostgreSQL | 18.x preferred; 17.x acceptable on managed hosting | HIGH | Authoritative incident state | PostgreSQL 18 is the current supported major. Correlia needs `JSONB`, partial unique indexes, `INSERT ... ON CONFLICT`, row-level transactions, and durable lifecycle state. |
 | SQLAlchemy | 2.0.x | HIGH | Database model, query construction, PostgreSQL upsert | SQLAlchemy 2.0 is current and gives typed declarative models plus PostgreSQL-specific Core inserts. Use `sqlalchemy.dialects.postgresql.insert(...).on_conflict_do_update(index_elements=..., index_where=...)` for open-incident upserts. |
 | asyncpg | 0.31.x | HIGH | Async PostgreSQL driver | Project intent specifies asyncpg. It is asyncio-native, supports PostgreSQL 18, and integrates with SQLAlchemy's async PostgreSQL dialect. |
 | Alembic | 1.18.x | HIGH | Schema migrations | Use Alembic from day one. Hand-author migrations for partial unique indexes, PostgreSQL enum changes, and any non-trivial indexes; autogenerate is a draft, not the final migration. |
@@ -122,14 +122,14 @@ Vigilo is a modular, API-first event aggregation system for infrastructure alert
 
 | Recommended | Alternative | Decision |
 |-------------|-------------|----------|
-| FastAPI | Django REST Framework | Do not use for v1. Vigilo is API-first without a frontend/admin surface; Django adds a synchronous framework, ORM assumptions, and project weight that do not help alert aggregation. |
-| FastAPI | Flask | Do not use for v1. Flask is viable for small sync APIs, but Vigilo benefits from native async endpoints, OpenAPI generation, and Pydantic integration. |
+| FastAPI | Django REST Framework | Do not use for v1. Correlia is API-first without a frontend/admin surface; Django adds a synchronous framework, ORM assumptions, and project weight that do not help alert aggregation. |
+| FastAPI | Flask | Do not use for v1. Flask is viable for small sync APIs, but Correlia benefits from native async endpoints, OpenAPI generation, and Pydantic integration. |
 | FastAPI | Litestar | Possible later, but not recommended. FastAPI has stronger project alignment, existing idea-doc fit, and broader ecosystem familiarity. |
 | SQLAlchemy 2.0 | SQLModel | Do not use for core persistence. SQLModel is convenient for CRUD schemas but obscures SQLAlchemy Core control needed for PostgreSQL partial-index upserts. |
-| SQLAlchemy + asyncpg | Tortoise ORM / GINO | Do not use. Vigilo needs explicit PostgreSQL DML, migrations, and long-lived maintainability more than a lighter async ORM. |
+| SQLAlchemy + asyncpg | Tortoise ORM / GINO | Do not use. Correlia needs explicit PostgreSQL DML, migrations, and long-lived maintainability more than a lighter async ORM. |
 | asyncpg | psycopg3 async | psycopg3 is viable, but project intent and SQLAlchemy asyncpg dialect support make asyncpg the v1 choice. Revisit only if deployment or driver bugs require it. |
-| PostgreSQL | SQLite | Never for incident state. SQLite cannot validate Vigilo's required partial unique index + concurrent `ON CONFLICT` behavior. |
-| PyYAML + Pydantic | ruamel.yaml | Use ruamel only if preserving comments/format during write-back becomes a requirement. Vigilo v1 reads config; it does not need a YAML editor. |
+| PostgreSQL | SQLite | Never for incident state. SQLite cannot validate Correlia's required partial unique index + concurrent `ON CONFLICT` behavior. |
+| PyYAML + Pydantic | ruamel.yaml | Use ruamel only if preserving comments/format during write-back becomes a requirement. Correlia v1 reads config; it does not need a YAML editor. |
 | asyncio TaskRunner | Celery/Redis | Keep out of v1. The abstraction should permit Celery later, but adding broker operations now increases deployment and failure modes before the product proves value. |
 | Ruff | Black + isort + Flake8 stack | Use Ruff. One fast tool reduces config surface and matches modern Python project practice. |
 

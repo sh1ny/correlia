@@ -1,8 +1,8 @@
-# Roadmap: Vigilo
+# Roadmap: Correlia
 
 ## Overview
 
-Vigilo v1 builds one coherent API-first alert aggregation backend: first establish stable domain contracts and PostgreSQL-owned incident invariants, then prove Icinga2 ingestion with topology-aware rule decisions, then turn problem events into durable incidents and transition-controlled notifications, and finally complete lifecycle closure, REST operator workflows, and operability signals. The roadmap uses coarse MVP phases so each phase delivers a broad, verifiable capability without splitting the product into disconnected technical layers.
+Correlia v1 builds one coherent API-first alert aggregation backend: first establish stable domain contracts and PostgreSQL-owned incident invariants, then prove Icinga2 ingestion with topology-aware rule decisions, then turn problem events into durable incidents and transition-controlled notifications, and finally complete lifecycle closure, REST operator workflows, and operability signals. The roadmap uses coarse MVP phases so each phase delivers a broad, verifiable capability without splitting the product into disconnected technical layers.
 
 ## Phases
 
@@ -12,7 +12,7 @@ Vigilo v1 builds one coherent API-first alert aggregation backend: first establi
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Foundations, Contracts, and Database Invariant** - Maintainers can run Vigilo with strict domain/config contracts and PostgreSQL-enforced incident state.
+- [ ] **Phase 1: Foundations, Contracts, and Database Invariant** - Maintainers can run Correlia with strict domain/config contracts and PostgreSQL-enforced incident state.
 - [ ] **Phase 2: Icinga2 Ingress, Topology, and Rule Decisions** - Operators can send real Icinga2 alerts through normalization, enrichment, and deterministic rule evaluation.
 - [ ] **Phase 3: Problem Aggregation and Notification Dispatch** - Problem events become durable topology-aware incidents and threshold transitions dispatch through pluggable tasks/outputs.
 - [ ] **Phase 4: Lifecycle, Operator APIs, and Operability** - Recovery, expiration, REST workflows, logs, readiness, metrics, and verification complete the v1 operational surface.
@@ -20,7 +20,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 ## Phase Details
 
 ### Phase 1: Foundations, Contracts, and Database Invariant
-**Goal:** Maintainers can run Vigilo with strict domain/config contracts and PostgreSQL-enforced incident state.
+**Goal:** Maintainers can run Correlia with strict domain/config contracts and PostgreSQL-enforced incident state.
 **Mode:** mvp
 **Depends on:** Nothing (first phase)
 **Requirements:** FND-01, FND-02, FND-03, FND-04, DOM-01, DOM-02, DOM-03, DOM-04, PRS-01, PRS-02, PRS-03, PRS-04
@@ -38,7 +38,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Requirements:** ING-01, ING-02, ING-03, ING-04, ING-05, TOP-01, TOP-02, TOP-03, TOP-04, TOP-05, TOP-06, RUL-01, RUL-02, RUL-03, RUL-04, RUL-05, RUL-06
 **Success Criteria** (what must be TRUE):
   1. Icinga2 can POST validated host and service alert payloads and receive a response identifying the accepted event, fingerprint, event type, enrichment tags, matched rules, incident effects, closures, and notification count.
-  2. Vigilo maps Icinga2 states into stable normalized severity and PROBLEM/RECOVERY values with replay-tolerant fingerprints.
+  2. Correlia maps Icinga2 states into stable normalized severity and PROBLEM/RECOVERY values with replay-tolerant fingerprints.
   3. Topology enrichment runs through a pluggable interface; the static YAML plugin enriches events with hostname rules before IP subnet fallback, with conflict handling and diagnostics that explain which rule affected an event.
   4. Operator-defined YAML rules load strictly, reject invalid references/placeholders/window values/actions, evaluate in deterministic priority order, and produce inspectable matches, group keys, and threshold/window decisions.
 **Plans:** TBD
@@ -50,7 +50,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Requirements:** AGG-01, AGG-02, AGG-03, AGG-04, AGG-05, TSK-01, TSK-02, TSK-03, NOT-01, NOT-02, NOT-03, NOT-04, NOT-05
 **Success Criteria** (what must be TRUE):
   1. A PROBLEM event flows through enrichment, rule matching, group key generation, and durable incident mutation end to end.
-  2. Vigilo creates a new active incident for the first matching group and atomically updates the existing active incident for later events in the same group.
+  2. Correlia creates a new active incident for the first matching group and atomically updates the existing active incident for later events in the same group.
   3. Incident severity, last update time, event count, summary, affected hosts, and processing outcomes accurately distinguish inserted, updated, threshold-crossed, and notification-triggered decisions.
   4. Notification work is submitted only through the asyncio-backed TaskRunner after durable incident state transitions, with no repeated notification for the same durable threshold/status transition.
   5. Configured output plugins can be loaded, cached, listed, invoked through an email-style channel, and report missing plugin, missing incident, plugin exception, and notification failure cases.
