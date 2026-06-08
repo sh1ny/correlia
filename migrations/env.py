@@ -18,9 +18,12 @@ target_metadata = Base.metadata
 
 
 def get_database_url() -> str:
-    runtime_url = config.cmd_opts.x.get("database_url") if (
-        hasattr(config.cmd_opts, "x") and config.cmd_opts.x is not None
-    ) else None
+    runtime_url = None
+    if hasattr(config.cmd_opts, "x") and config.cmd_opts.x is not None:
+        for item in config.cmd_opts.x:
+            if isinstance(item, str) and item.startswith("database_url="):
+                runtime_url = item.split("=", 1)[1]
+                break
     if runtime_url:
         return str(runtime_url)
     return str(get_settings().database_url)
