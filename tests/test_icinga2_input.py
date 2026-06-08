@@ -125,22 +125,16 @@ def test_service_payload_with_host_state_is_rejected() -> None:
 
 # D-01: SOFT states are non-actionable diagnostics
 
-
-def test_soft_state_returns_rejection() -> None:
+async def test_soft_state_returns_rejection() -> None:
     plugin = Icinga2InputPlugin()
     data = valid_service_payload()
     data["state_type"] = "SOFT"
     payload = Icinga2WebhookPayload.model_validate(data)
-    result = plugin.process_payload(payload)
+    result = await plugin.process_payload(payload)
     assert isinstance(result, Icinga2Rejection)
     assert result.state_accepted is False
     assert result.state_type == "SOFT"
     assert result.host == "web-01"
-
-
-# ING-04 / D-05: fingerprint stability and sensitivity
-
-
 def test_fingerprint_is_stable_for_replay() -> None:
     fp1 = fingerprint_icinga_event(
         source_id="icinga2:service:web-01:http",
@@ -211,11 +205,10 @@ def test_fingerprint_changes_when_event_type_changes() -> None:
 
 # ING-01: plugin produces NormalizedEvent for HARD states
 
-
-def test_plugin_produces_normalized_event_for_hard_problem() -> None:
+async def test_plugin_produces_normalized_event_for_hard_problem() -> None:
     plugin = Icinga2InputPlugin()
     payload = Icinga2WebhookPayload.model_validate(valid_service_payload())
-    result = plugin.process_payload(payload)
+    result = await plugin.process_payload(payload)
     assert hasattr(result, "fingerprint")
     assert result.source_id == "icinga2:service:web-01:http"
     assert result.host == "web-01"
@@ -223,19 +216,17 @@ def test_plugin_produces_normalized_event_for_hard_problem() -> None:
     assert result.severity is Severity.CRITICAL
     assert result.event_type is EventType.PROBLEM
 
-
-def test_plugin_produces_normalized_event_for_hard_recovery() -> None:
+async def test_plugin_produces_normalized_event_for_hard_recovery() -> None:
     plugin = Icinga2InputPlugin()
     data = valid_host_payload()
     data["state"] = "UP"
     payload = Icinga2WebhookPayload.model_validate(data)
-    result = plugin.process_payload(payload)
+    result = await plugin.process_payload(payload)
     assert result.severity is Severity.OK
     assert result.event_type is EventType.RECOVERY
 
-
-def test_plugin_message_uses_check_output() -> None:
+async def test_plugin_message_uses_check_output() -> None:
     plugin = Icinga2InputPlugin()
     payload = Icinga2WebhookPayload.model_validate(valid_service_payload())
-    result = plugin.process_payload(payload)
+    result = await plugin.process_payload(payload)
     assert result.message == "HTTP 503"
