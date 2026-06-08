@@ -30,29 +30,29 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Icinga2 Ingress
 
-- [ ] **ING-01**: Icinga2 can POST host and service alert payloads to a Correlia webhook endpoint.
-- [ ] **ING-02**: Correlia validates Icinga2 webhook payloads before processing.
-- [ ] **ING-03**: Correlia maps Icinga2 host and service states into normalized severity and `PROBLEM`/`RECOVERY` event type values.
-- [ ] **ING-04**: Correlia derives stable fingerprints for Icinga2 events so repeated deliveries are replay-tolerant.
-- [ ] **ING-05**: Correlia returns an API response that identifies the accepted event, event type, enrichment tags, matched rules, incident updates, closures, and notification count.
+- [x] **ING-01**: Icinga2 can POST host and service alert payloads to a Correlia webhook endpoint.
+- [x] **ING-02**: Correlia validates Icinga2 webhook payloads before processing.
+- [x] **ING-03**: Correlia maps Icinga2 host and service states into normalized severity and `PROBLEM`/`RECOVERY` event type values.
+- [x] **ING-04**: Correlia derives stable fingerprints for Icinga2 events so repeated deliveries are replay-tolerant.
+- [x] **ING-05**: Correlia returns an API response that identifies the accepted event, event type, enrichment tags, matched rules, incident updates, closures, and notification count.
 
 ### Topology Enrichment
 
-- [ ] **TOP-01**: Operator can define hostname pattern enrichment rules in YAML.
-- [ ] **TOP-02**: Operator can define IP subnet enrichment rules in YAML.
-- [ ] **TOP-03**: Correlia enriches events with topology tags using hostname matches before IP subnet fallback.
-- [ ] **TOP-04**: Correlia preserves or explicitly resolves conflicts between source-provided tags and enrichment-derived tags.
-- [ ] **TOP-05**: Operator can see enrichment diagnostics sufficient to explain which topology rule affected an event.
-- [ ] **TOP-06**: Maintainer can add new topology enricher implementations behind a topology enrichment plugin interface without changing rule evaluation or incident processing.
+- [x] **TOP-01**: Operator can define hostname pattern enrichment rules in YAML.
+- [x] **TOP-02**: Operator can define IP subnet enrichment rules in YAML.
+- [x] **TOP-03**: Correlia enriches events with topology tags using hostname matches before IP subnet fallback.
+- [x] **TOP-04**: Correlia preserves or explicitly resolves conflicts between source-provided tags and enrichment-derived tags.
+- [x] **TOP-05**: Operator can see enrichment diagnostics sufficient to explain which topology rule affected an event.
+- [x] **TOP-06**: Maintainer can add new topology enricher implementations behind a topology enrichment plugin interface without changing rule evaluation or incident processing.
 
 ### Rule Engine
 
-- [ ] **RUL-01**: Operator can define aggregation rules in YAML with name, priority, match criteria, window duration, group-by fields, trigger threshold, output summary, and actions.
-- [ ] **RUL-02**: Correlia validates rule YAML strictly, including references to tags, actions, plugins, window values, and summary placeholders.
-- [ ] **RUL-03**: Correlia evaluates rules in deterministic priority order.
-- [ ] **RUL-04**: Correlia matches events by severity, host/service fields, and tag criteria.
-- [ ] **RUL-05**: Correlia generates deterministic, human-readable group keys from configured group-by fields.
-- [ ] **RUL-06**: Correlia calculates threshold/window aggregation decisions in a way that can be inspected during tests and operator debugging.
+- [x] **RUL-01**: Operator can define aggregation rules in YAML with name, priority, match criteria, window duration, group-by fields, trigger threshold, output summary, and actions.
+- [x] **RUL-02**: Correlia validates rule YAML strictly, including references to tags, actions, plugins, window values, and summary placeholders.
+- [x] **RUL-03**: Correlia evaluates rules in deterministic priority order.
+- [x] **RUL-04**: Correlia matches events by severity, host/service fields, and tag criteria.
+- [x] **RUL-05**: Correlia generates deterministic, human-readable group keys from configured group-by fields.
+- [x] **RUL-06**: Correlia calculates threshold/window aggregation decisions in a way that can be inspected during tests and operator debugging.
 
 ### Problem Aggregation
 
@@ -155,23 +155,23 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PRS-02 | Phase 1: Foundations, Contracts, and Database Invariant | Complete |
 | PRS-03 | Phase 1: Foundations, Contracts, and Database Invariant | Complete |
 | PRS-04 | Phase 1: Foundations, Contracts, and Database Invariant | Complete |
-| ING-01 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
-| ING-02 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
-| ING-03 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
-| ING-04 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
-| ING-05 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
-| TOP-01 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
-| TOP-02 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
-| TOP-03 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
-| TOP-04 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
-| TOP-05 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
-| TOP-06 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
-| RUL-01 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
-| RUL-02 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
-| RUL-03 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
-| RUL-04 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
-| RUL-05 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
-| RUL-06 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
+| ING-01 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Complete |
+| ING-02 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Complete |
+| ING-03 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Complete |
+| ING-04 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Complete |
+| ING-05 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Complete |
+| TOP-01 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Complete |
+| TOP-02 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Complete |
+| TOP-03 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Complete |
+| TOP-04 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Complete |
+| TOP-05 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Complete |
+| TOP-06 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Complete |
+| RUL-01 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Complete |
+| RUL-02 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Complete |
+| RUL-03 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Complete |
+| RUL-04 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Complete |
+| RUL-05 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Complete |
+| RUL-06 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Complete |
 | AGG-01 | Phase 3: Problem Aggregation and Notification Dispatch | Pending |
 | AGG-02 | Phase 3: Problem Aggregation and Notification Dispatch | Pending |
 | AGG-03 | Phase 3: Problem Aggregation and Notification Dispatch | Pending |
