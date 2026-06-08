@@ -14,7 +14,7 @@ Correlia v1 builds one coherent API-first alert aggregation backend: first estab
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundations, Contracts, and Database Invariant** - Maintainers can run Correlia with strict domain/config contracts and PostgreSQL-enforced incident state. (completed 2026-06-08)
-- [ ] **Phase 2: Icinga2 Ingress, Topology, and Rule Decisions** - Operators can send real Icinga2 alerts through normalization, enrichment, and deterministic rule evaluation.
+- [x] **Phase 2: Icinga2 Ingress, Topology, and Rule Decisions** - Operators can send real Icinga2 alerts through normalization, enrichment, and deterministic rule evaluation. (completed 2026-06-08)
 - [ ] **Phase 3: Problem Aggregation and Notification Dispatch** - Problem events become durable topology-aware incidents and threshold transitions dispatch through pluggable tasks/outputs.
 - [ ] **Phase 4: Lifecycle, Operator APIs, and Operability** - Recovery, expiration, REST workflows, logs, readiness, metrics, and verification complete the v1 operational surface.
 
@@ -68,12 +68,15 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans:** 3/3 plans complete
 
 **Wave 1** *(blocked on Phase 1 completion)*
+
 - [x] 02-01-PLAN.md — Icinga2 webhook ingress with strict payload validation, state mapping, fingerprinting, and decision envelope.
 
 **Wave 2** *(blocked on Wave 1 completion)*
+
 - [x] 02-02-PLAN.md — Topology YAML loading and pure enrichment with hostname precedence, subnet fallback, and conflict diagnostics.
 
 **Wave 3** *(blocked on Wave 2 completion)*
+
 - [x] 02-03-PLAN.md — Rule YAML loading, deterministic priority-ordered evaluation, group keys, and threshold/window decisions.
 
 ### Phase 3: Problem Aggregation and Notification Dispatch
