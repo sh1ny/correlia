@@ -12,14 +12,14 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **FND-01**: Maintainer can install and run Correlia with Python 3.14+, uv-managed dependencies, and a single locked project environment.
 - [x] **FND-02**: Maintainer can configure Correlia settings without code changes using validated application settings.
 - [x] **FND-03**: Maintainer can evolve the PostgreSQL schema through Alembic migrations.
-- [ ] **FND-04**: Operator can check basic service health through a REST health endpoint.
+- [x] **FND-04**: Operator can check basic service health through a REST health endpoint.
 
 ### Domain Contracts
 
-- [ ] **DOM-01**: Input plugins can convert source payloads into a `NormalizedEvent` with fingerprint, source ID, host, optional service, severity, event type, timestamp, tags, message, and optional IP address.
-- [ ] **DOM-02**: Correlia classifies events as `PROBLEM` or `RECOVERY` independently of the source monitoring system.
-- [ ] **DOM-03**: Correlia represents incidents with stable lifecycle states for active, manually acknowledged, source-resolved, and expired/manually closed incidents.
-- [ ] **DOM-04**: Correlia rejects malformed domain/config data with explicit validation errors instead of accepting partial or coerced state.
+- [x] **DOM-01**: Input plugins can convert source payloads into a `NormalizedEvent` with fingerprint, source ID, host, optional service, severity, event type, timestamp, tags, message, and optional IP address.
+- [x] **DOM-02**: Correlia classifies events as `PROBLEM` or `RECOVERY` independently of the source monitoring system.
+- [x] **DOM-03**: Correlia represents incidents with stable lifecycle states for active, manually acknowledged, source-resolved, and expired/manually closed incidents.
+- [x] **DOM-04**: Correlia rejects malformed domain/config data with explicit validation errors instead of accepting partial or coerced state.
 
 ### Persistence
 
@@ -146,11 +146,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FND-01 | Phase 1: Foundations, Contracts, and Database Invariant | Complete |
 | FND-02 | Phase 1: Foundations, Contracts, and Database Invariant | Complete |
 | FND-03 | Phase 1: Foundations, Contracts, and Database Invariant | Complete |
-| FND-04 | Phase 1: Foundations, Contracts, and Database Invariant | Pending |
-| DOM-01 | Phase 1: Foundations, Contracts, and Database Invariant | Pending |
-| DOM-02 | Phase 1: Foundations, Contracts, and Database Invariant | Pending |
-| DOM-03 | Phase 1: Foundations, Contracts, and Database Invariant | Pending |
-| DOM-04 | Phase 1: Foundations, Contracts, and Database Invariant | Pending |
+| FND-04 | Phase 1: Foundations, Contracts, and Database Invariant | Complete |
+| DOM-01 | Phase 1: Foundations, Contracts, and Database Invariant | Complete |
+| DOM-02 | Phase 1: Foundations, Contracts, and Database Invariant | Complete |
+| DOM-03 | Phase 1: Foundations, Contracts, and Database Invariant | Complete |
+| DOM-04 | Phase 1: Foundations, Contracts, and Database Invariant | Complete |
 | PRS-01 | Phase 1: Foundations, Contracts, and Database Invariant | Complete |
 | PRS-02 | Phase 1: Foundations, Contracts, and Database Invariant | Complete |
 | PRS-03 | Phase 1: Foundations, Contracts, and Database Invariant | Complete |
