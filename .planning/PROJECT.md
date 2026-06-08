@@ -13,13 +13,10 @@ Operators receive one accurate, topology-aware incident for a related alert stor
 ### Validated
 
 - [x] Phase 1 validated the Python 3.14+ uv/FastAPI foundation, strict Pydantic settings, normalized event and incident contracts, Alembic/PostgreSQL schema invariant, and atomic open-incident upsert path.
+- [x] Phase 2 validated Icinga2 webhook ingestion, strict input normalization, static YAML topology enrichment, strict YAML rule loading, deterministic first-match rule evaluation, group-key rendering, and inspectable threshold/window decisions.
 
 ### Active
 
-- [ ] Accept Icinga2 alert payloads through a REST webhook.
-- [ ] Normalize every input into a consistent event model with fingerprint, source, host, service, severity, event type, timestamp, tags, message, and optional IP address.
-- [ ] Enrich events through a topology enrichment plugin, with a static YAML hostname/IP plugin as the first implementation.
-- [ ] Load rule configuration from YAML with priority, match criteria, grouping window, threshold, output summary, and actions.
 - [ ] Aggregate matching problem events into PostgreSQL-backed incidents.
 - [ ] Maintain concurrency-safe incident state with one open incident per rule and group key.
 - [ ] Dispatch threshold-crossing incidents through pluggable output channels.
@@ -64,13 +61,13 @@ Testing should use Testcontainers for Python for PostgreSQL-backed integration t
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | API-first backend with no built-in frontend | Keeps v1 focused on alert ingestion, aggregation, state, and REST contracts | — Pending |
-| Icinga2 as first input plugin | The project needs one concrete monitoring integration before generalizing | — Pending |
-| Plugin-agnostic `NormalizedEvent` model | Core processing should not depend on source-specific payload shapes | Validated in Phase 1 |
-| `PROBLEM` / `RECOVERY` event classification | Incident lifecycle cannot be correct if OK/resolved source states are treated like ordinary alerts | Validated in Phase 1 |
+| Icinga2 as first input plugin | The project needs one concrete monitoring integration before generalizing | Validated in Phase 2 |
+| Plugin-agnostic `NormalizedEvent` model | Core processing should not depend on source-specific payload shapes | Validated in Phase 2 |
+| `PROBLEM` / `RECOVERY` event classification | Incident lifecycle cannot be correct if OK/resolved source states are treated like ordinary alerts | Validated in Phase 2 |
 | PostgreSQL as authoritative incident state | Aggregation correctness needs durable, queryable state and database constraints | Validated in Phase 1 |
 | Partial unique index for open incidents | Prevents duplicate open incidents per rule/group under concurrent ingestion | Validated in Phase 1 |
-| YAML rules, topology, and plugin registry | Operators can adjust behavior without changing Python code | — Pending |
-| Topology enrichment plugin interface | Static YAML enrichment ships first, but later enrichers such as an AI-driven topology enricher should plug into the same boundary | — Pending |
+| YAML rules, topology, and plugin registry | Operators can adjust behavior without changing Python code | Rules and topology validated in Phase 2 |
+| Topology enrichment plugin interface | Static YAML enrichment ships first, but later enrichers such as an AI-driven topology enricher should plug into the same boundary | Validated in Phase 2 |
 | Testcontainers for Python for PostgreSQL tests | Correlia depends on PostgreSQL-specific behavior that SQLite cannot validate | Validated in Phase 1 |
 | `TaskRunner` abstraction with asyncio default | Supports v1 simplicity while preserving a clean path to Celery/Redis | — Pending |
 | Vertical MVP roadmap mode | Auto mode defaults to end-to-end slices that prove product behavior early | — Pending |
@@ -93,4 +90,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-08 after Phase 1 completion*
+*Last updated: 2026-06-08 after Phase 2 completion*
