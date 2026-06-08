@@ -41,6 +41,8 @@ class StaticTopologyEnricher:
                 # Malformed IP address — skip subnet matching
                 return EnrichmentResult(event=event, diagnostics=[])
             for subnet_rule in self._config.subnet_rules:
+                if addr.version != subnet_rule.network.version:
+                    continue
                 if addr in subnet_rule.network:
                     return self._apply_rule(event, subnet_rule, "subnet")
 

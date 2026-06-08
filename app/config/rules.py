@@ -16,7 +16,7 @@ class MatchCriteriaConfig(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
 
     severities: list[str]
-    host_pattern: str
+    host_pattern: str = Field(min_length=1)
     service_pattern: str | None = None
     tags: dict[str, str] = Field(default_factory=dict)
 

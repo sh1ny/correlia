@@ -150,6 +150,35 @@ def test_load_topology_config_accepts_valid_subnet_rules(tmp_path: Path) -> None
     assert rule.tags == {"topology.site": "dc1"}
 
 
+
+def test_load_topology_config_allows_mixed_ipv4_ipv6_subnets(tmp_path: Path) -> None:
+    path = tmp_path / "topology.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "hostname_rules": [],
+                "subnet_rules": [
+                    {
+                        "id": "ipv4",
+                        "name": "IPv4",
+                        "subnet": "192.0.2.0/24",
+                        "tags": {"topology.site": "v4"},
+                    },
+                    {
+                        "id": "ipv6",
+                        "name": "IPv6",
+                        "subnet": "2001:db8::/32",
+                        "tags": {"topology.site": "v6"},
+                    },
+                ],
+            }
+        )
+    )
+
+    config = load_topology_config(path)
+
+    assert len(config.subnet_rules) == 2
+
 def test_load_topology_config_rejects_invalid_cidr(tmp_path: Path) -> None:
     path = tmp_path / "topology.yaml"
     path.write_text(
@@ -327,6 +356,37 @@ async def test_subnet_fallback_when_no_hostname_match(tmp_path: Path) -> None:
     assert len(result.diagnostics) == 1
     assert result.diagnostics[0].match_source == "subnet"
 
+
+async def test_subnet_matching_skips_different_ip_families(tmp_path: Path) -> None:
+    path = tmp_path / "topology.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "hostname_rules": [],
+                "subnet_rules": [
+                    {
+                        "id": "ipv6",
+                        "name": "IPv6",
+                        "subnet": "2001:db8::/32",
+                        "tags": {"topology.site": "v6"},
+                    },
+                    {
+                        "id": "ipv4",
+                        "name": "IPv4",
+                        "subnet": "192.0.2.0/24",
+                        "tags": {"topology.site": "v4"},
+                    },
+                ],
+            }
+        )
+    )
+    enricher = StaticTopologyEnricher(load_topology_config(path))
+    event = _event(host="unknown", ip_address="192.0.2.10")
+
+    result = await enricher.enrich(event)
+
+    assert result.event.tags["topology.site"] == "v4"
+    assert result.diagnostics[0].rule_id == "ipv4"
 
 async def test_no_match_returns_original_event(tmp_path: Path) -> None:
     path = tmp_path / "topology.yaml"
