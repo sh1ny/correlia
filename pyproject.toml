@@ -1,0 +1,37 @@
+[project]
+name = "correlia"
+version = "0.1.0"
+description = "API-first event aggregation system for infrastructure alerts."
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "alembic",
+    "asyncpg",
+    "fastapi",
+    "pydantic",
+    "pydantic-settings",
+    "PyYAML",
+    "SQLAlchemy",
+    "uvicorn[standard]",
+]
+
+[dependency-groups]
+dev = [
+    "httpx",
+    "mypy",
+    "pytest",
+    "pytest-asyncio",
+    "ruff",
+    "testcontainers",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py314"
+
+[tool.mypy]
+python_version = "3.14"
+files = ["app"]
+strict = true
