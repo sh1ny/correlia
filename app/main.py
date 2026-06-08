@@ -23,7 +23,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.sessionmaker = create_sessionmaker(engine)
 
     if not hasattr(app.state, "icinga2_processor"):
-        app.state.icinga2_processor = build_icinga2_processor()
+        topology_path = getattr(app.state.settings, "topology_path", None)
+        app.state.icinga2_processor = build_icinga2_processor(topology_path=topology_path)
 
     try:
         yield
