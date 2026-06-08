@@ -6,15 +6,12 @@ import pytest
 import yaml
 
 from app.config.rules import (
-    CompiledRule,
-    CompiledRuleConfig,
     MatchCriteriaConfig,
     RuleActionConfig,
     RuleConfig,
     RuleWindowConfig,
     load_rules_config,
 )
-from app.domain.events import Severity
 
 
 # ---------------------------------------------------------------------------

@@ -7,18 +7,12 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.config.settings import Settings
-from app.domain.events import EventType, Severity
 from app.main import create_app
+from app.processing.ingress import build_icinga2_processor
 
 VALID_DATABASE_URL = "postgresql+asyncpg://user:pass@localhost:5432/correlia"
 
 
-# These will fail until Task 2 creates the modules
-from app.processing.ingress import (
-    Icinga2DecisionProcessor,
-    IngressDecisionEnvelope,
-    build_icinga2_processor,
-)
 
 
 async def get_client(app) -> AsyncIterator[AsyncClient]:

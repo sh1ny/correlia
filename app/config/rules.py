@@ -4,10 +4,9 @@ import hashlib
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.domain.events import Severity
 from app.domain.rules import MatchCriteria, RuleAction, RuleDefinition, RuleWindow

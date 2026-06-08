@@ -4,10 +4,9 @@ import inspect
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-import pytest
 import yaml
 
-from app.config.rules import CompiledRule, CompiledRuleConfig, load_rules_config
+from app.config.rules import load_rules_config
 from app.domain.events import EventType, NormalizedEvent, Severity
 from app.domain.rules import NoOpDecision, RuleDecision
 from app.processing.rule_engine import RuleEngine

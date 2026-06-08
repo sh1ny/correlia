@@ -11,16 +11,10 @@ from app.config.topology import (
     CompiledHostnameRule,
     CompiledSubnetRule,
     CompiledTopologyConfig,
-    HostnameTopologyRule,
-    SubnetTopologyRule,
-    TopologyConfig,
     load_topology_config,
 )
 from app.domain.events import EventType, NormalizedEvent, Severity
-from app.plugins.interfaces import TopologyEnricher
 from app.processing.enrichment import (
-    EnrichmentDiagnostic,
-    EnrichmentResult,
     StaticTopologyEnricher,
 )
 
@@ -459,7 +453,6 @@ async def test_diagnostics_contain_matched_rule_info(tmp_path: Path) -> None:
 
 
 def test_static_topology_enricher_implements_protocol() -> None:
-    path = Path("/dev/null")  # dummy; we only check structural typing
     # Structural typing means any object with an `enrich` method matching
     # the signature satisfies TopologyEnricher.
     assert hasattr(StaticTopologyEnricher, "enrich")
