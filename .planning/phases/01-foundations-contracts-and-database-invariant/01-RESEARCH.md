@@ -476,22 +476,19 @@ Source: PostgreSQL partial unique index docs, SQLAlchemy PostgreSQL docs, and D-
 | A3 | A text/check-constraint status column is acceptable instead of a PostgreSQL enum for Phase 1. | Code Examples | If planner chooses native enum, Alembic enum migration complexity increases; invariant is unchanged. |
 | A4 | `affected_hosts`/`affected_services` JSONB arrays are sufficient in Phase 1 if bounded/deduplicated. | Architecture / Code Examples | Large incidents may require a membership table later; D-08 explicitly defers that in Phase 1. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should status/severity be native PostgreSQL enums or text plus check constraints?**
-   - What we know: D-14 requires explicit enums/literals in domain, and D-20 requires enum/status constraints in migration. [CITED: 01-CONTEXT.md]
-   - What's unclear: The context does not explicitly choose PostgreSQL native enum vs text check constraint. [CITED: 01-CONTEXT.md]
-   - Recommendation: Use text plus named check constraints for the initial migration unless the planner wants native enum DDL; it keeps early migrations simpler while still enforcing allowed values. [ASSUMED]
+   - **Resolution:** Use text columns plus named check constraints for status and severity in the initial migration. This is the choice already selected in `01-03-PLAN.md`, which explicitly says to use text/check constraints rather than a native PostgreSQL enum.
+   - Rationale: D-14 requires explicit domain enums/literals, and D-20 requires enum/status constraints in migration; named text check constraints satisfy both while keeping early Alembic migrations straightforward. [CITED: 01-CONTEXT.md]
 
 2. **What exact severity ordering should `max severity` use?**
-   - What we know: D-07 requires current maximum severity while `OPEN`. [CITED: 01-CONTEXT.md]
-   - What's unclear: The canonical order among `OK`, `WARNING`, `CRITICAL`, `UNKNOWN` is not specified for incident aggregation. [CITED: .planning/REQUIREMENTS.md]
-   - Recommendation: Define an explicit rank mapping in `domain/events.py` and store either ranked integer plus display enum, or use a SQL `CASE` expression in upsert. [ASSUMED]
+   - **Resolution:** Use the explicit rank mapping selected in `01-02-PLAN.md` and consumed by `01-04-PLAN.md`: `OK = 0`, `WARNING = 1`, `UNKNOWN = 2`, `CRITICAL = 3`.
+   - Rationale: D-07 requires current maximum severity while `OPEN`; an explicit rank mapping makes max-severity semantics deterministic in both domain helpers and PostgreSQL upsert SQL. [CITED: 01-CONTEXT.md]
 
 3. **Should `/readyz` run migrations or only check current DB state?**
-   - What we know: D-17 says readiness checks database/config readiness; FND-03 says Alembic evolves schema. [CITED: 01-CONTEXT.md] [CITED: .planning/REQUIREMENTS.md]
-   - What's unclear: No decision says the service auto-runs migrations. [CITED: 01-CONTEXT.md]
-   - Recommendation: Do not auto-run migrations in app startup; readiness can fail if the DB is unavailable or schema is not at expected revision, while maintainer runs `alembic upgrade head`/Makefile target explicitly. [ASSUMED]
+   - **Resolution:** `/readyz` checks validated settings plus PostgreSQL connectivity through the fixed database readiness query. It does not auto-run migrations and does not require startup schema revision verification in Phase 1.
+   - Rationale: D-17 scopes readiness to database/config readiness and FND-03 scopes schema evolution to explicit Alembic migrations; `01-01-PLAN.md`, `01-03-PLAN.md`, and `01-05-PLAN.md` all prohibit app startup or `/readyz` from running migrations. [CITED: 01-CONTEXT.md] [CITED: .planning/REQUIREMENTS.md]
 
 ## Environment Availability
 
