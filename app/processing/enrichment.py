@@ -29,9 +29,9 @@ class StaticTopologyEnricher:
 
     async def enrich(self, event: NormalizedEvent) -> EnrichmentResult:
         # Try hostname rules first (D-09: hostname precedence)
-        for rule in self._config.hostname_rules:
-            if rule.pattern.match(event.host):
-                return self._apply_rule(event, rule, "hostname")
+        for hostname_rule in self._config.hostname_rules:
+            if hostname_rule.pattern.match(event.host):
+                return self._apply_rule(event, hostname_rule, "hostname")
 
         # Subnet fallback only if no hostname match and event has an IP
         if event.ip_address is not None:
@@ -40,9 +40,9 @@ class StaticTopologyEnricher:
             except ValueError:
                 # Malformed IP address — skip subnet matching
                 return EnrichmentResult(event=event, diagnostics=[])
-            for rule in self._config.subnet_rules:
-                if addr in rule.network:
-                    return self._apply_rule(event, rule, "subnet")
+            for subnet_rule in self._config.subnet_rules:
+                if addr in subnet_rule.network:
+                    return self._apply_rule(event, subnet_rule, "subnet")
 
         # No match
         return EnrichmentResult(event=event, diagnostics=[])

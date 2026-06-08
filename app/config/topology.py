@@ -102,34 +102,34 @@ def load_topology_config(path: Path) -> CompiledTopologyConfig:
     config = TopologyConfig.model_validate(data)
 
     compiled_hostname_rules: list[CompiledHostnameRule] = []
-    for rule in config.hostname_rules:
+    for hostname_rule in config.hostname_rules:
         try:
-            pattern = re.compile(rule.hostname_pattern)
+            pattern = re.compile(hostname_rule.hostname_pattern)
         except re.error as exc:
             raise ValueError(
-                f"Invalid regex in hostname rule '{rule.id}': "
-                f"{rule.hostname_pattern}"
+                f"Invalid regex in hostname rule '{hostname_rule.id}': "
+                f"{hostname_rule.hostname_pattern}"
             ) from exc
         compiled_hostname_rules.append(
             CompiledHostnameRule(
-                id=rule.id,
-                name=rule.name,
+                id=hostname_rule.id,
+                name=hostname_rule.name,
                 pattern=pattern,
-                tags=dict(rule.tags),
+                tags=dict(hostname_rule.tags),
             )
         )
 
     compiled_subnet_rules: list[CompiledSubnetRule] = []
-    for rule in config.subnet_rules:
+    for subnet_rule in config.subnet_rules:
         # CIDR was already validated by the model validator, but re-parse here
         # to get the network object for the compiled rule.
-        network = ip_network(rule.subnet, strict=False)
+        network = ip_network(subnet_rule.subnet, strict=False)
         compiled_subnet_rules.append(
             CompiledSubnetRule(
-                id=rule.id,
-                name=rule.name,
+                id=subnet_rule.id,
+                name=subnet_rule.name,
                 network=network,
-                tags=dict(rule.tags),
+                tags=dict(subnet_rule.tags),
             )
         )
 
