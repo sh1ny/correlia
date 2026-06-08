@@ -189,9 +189,11 @@ def test_load_rules_config_rejects_unknown_plugin_reference(tmp_path: Path) -> N
         )
 
 
-def test_load_rules_config_rejects_unknown_summary_variable(tmp_path: Path) -> None:
+def test_load_rules_config_rejects_invalid_summary_variable_syntax(
+    tmp_path: Path,
+) -> None:
     data = _valid_rule_yaml()
-    data["rules"][0]["output_summary"] = "Alert on {unknown_var}"
+    data["rules"][0]["output_summary"] = "Alert on {bad var}"
     path = tmp_path / "rules.yaml"
     path.write_text(yaml.safe_dump(data))
     with pytest.raises(ValueError, match="unknown summary variable"):
