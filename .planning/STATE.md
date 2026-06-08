@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-01-PLAN.md
-last_updated: "2026-06-08T13:26:11.159Z"
-last_activity: 2026-06-08 -- Phase 01 execution started
+stopped_at: Completed 01-04-PLAN.md
+last_updated: "2026-06-08T14:00:00.000Z"
+last_activity: 2026-06-08 -- Phase 01 plan 4 completed
 progress:
   total_phases: 4
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 5
-  completed_plans: 4
-  percent: 0
+  completed_plans: 5
+  percent: 25
 ---
 
 # Project State
@@ -54,10 +54,10 @@ Progress: [░░░░░░░░░░] 0%
 - Last 5 plans: None
 - Trend: N/A
 
-*Updated after each plan completion*
 | Phase 01 P01 | 4min | 2 tasks | 11 files |
 | Phase 01-foundations-contracts-and-database-invariant P3 | 10min | 3 tasks | 7 files |
-
+| Phase 01-foundations-contracts-and-database-invariant P4 | 25min | 2 tasks | 3 files |
+## Accumulated Context
 ## Accumulated Context
 
 ### Decisions
@@ -75,8 +75,9 @@ Recent decisions affecting current work:
 - [Phase 01]: Use uv as the sole Python package source of truth with requires-python >=3.14 and no requirements.txt.
 - [Phase 01]: Keep Phase 1 settings to DATABASE_URL, environment, log_level, rules_path, topology_path, and plugins_path only.
 - [Phase 01]: Implement readiness as a fixed SQLAlchemy text("select 1") query with no database URL logging or inspection.
-
-### Pending Todos
+- [Repository]: PostgreSQL ON CONFLICT partial index predicates must be literal strings, not bound parameters, for index inference.
+- [Repository]: ORM identity map returns stale values on upsert UPDATE path; use Core RETURNING columns mapped to fresh instances.
+- [Repository]: Per-test engine creation avoids asyncpg event-loop collisions under pytest-asyncio function-scoped loops.
 
 [From .planning/todos/pending/ — ideas captured during sessions]
 
