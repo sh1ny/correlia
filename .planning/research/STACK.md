@@ -7,7 +7,7 @@
 
 ## Recommendation in One Sentence
 
-Use a lean async Python 3.13 stack: FastAPI + Pydantic v2 for the API and schemas, SQLAlchemy 2.0 Core/ORM + asyncpg against PostgreSQL 18 for durable incident state, Alembic for migrations, PyYAML only as a parser feeding validated Pydantic rule models, and an in-process asyncio `TaskRunner` abstraction for v1 notifications and lifecycle sweeps.
+Use a lean async Python 3.14+ stack: FastAPI + Pydantic v2 for the API and schemas, SQLAlchemy 2.0 Core/ORM + asyncpg against PostgreSQL 18 for durable incident state, Alembic for migrations, PyYAML only as a parser feeding validated Pydantic rule models, and an in-process asyncio `TaskRunner` abstraction for v1 notifications and lifecycle sweeps.
 
 ## Recommended Stack
 
@@ -15,7 +15,7 @@ Use a lean async Python 3.13 stack: FastAPI + Pydantic v2 for the API and schema
 
 | Technology | Version family | Confidence | Purpose | Why Recommended |
 |------------|----------------|------------|---------|-----------------|
-| Python | 3.13.x baseline; allow 3.14.x only after CI proves all dependencies | HIGH | Runtime | Project intent requires Python 3.13+. Python 3.13 and 3.14 are both in bugfix/stable status, but 3.13 is the safer baseline for greenfield dependencies while still modern. |
+| Python | 3.14.x baseline | HIGH | Runtime | Project intent now requires Python 3.14+. Python 3.14 is the latest stable CPython feature release in bugfix support as of 2026-06-08. |
 | uv | 0.11.x | HIGH | Project/dependency manager, lockfile, virtualenv, Python pinning | uv is the current Astral project manager with lockfiles, Python version management, tool execution, and fast resolution. Use one `uv.lock`; do not maintain parallel `requirements.txt` in v1. |
 | FastAPI | 0.136.x | HIGH | REST API, OpenAPI, request/response validation | FastAPI is still the standard Python API-first choice for typed async services and is built on Starlette + Pydantic. It directly matches Correlia's no-frontend REST product surface. |
 | Uvicorn | 0.49.x, `uvicorn[standard]` | HIGH | ASGI server | Uvicorn is FastAPI's normal ASGI runtime. `standard` extras add production/dev protocol and reload support where available. Keep process management outside Correlia. |
@@ -36,7 +36,7 @@ Use a lean async Python 3.13 stack: FastAPI + Pydantic v2 for the API and schema
 | pytest | 9.0.x | HIGH | Test runner | Use for all unit/integration tests. Prefer behavior tests around normalization, rule matching, upsert semantics, recovery, and expiration. |
 | pytest-asyncio | 1.4.x | HIGH | Async test support | Use for pure asyncio service tests. For FastAPI endpoint tests, `pytest.mark.anyio` + HTTPX is also official; do not mix event-loop ownership in the same test module. |
 | testcontainers | 4.14.x | MEDIUM | PostgreSQL integration tests | Use when testing partial unique indexes, `ON CONFLICT`, transaction behavior, and migrations. SQLite cannot validate these paths. |
-| Ruff | 0.15.x | HIGH | Linting and formatting | Use one tool for lint+format. Set target version to `py313`. |
+| Ruff | 0.15.x | HIGH | Linting and formatting | Use one tool for lint+format. Set target version to `py314`. |
 | mypy | 2.x | MEDIUM | Static typing | Use for core interfaces and event/rule models. It is useful but secondary to runtime validation and integration tests for this domain. |
 | aiosmtplib | 5.1.x | MEDIUM | Initial async email-style output plugin | Use only if v1 sends real SMTP mail. If the first output plugin is log/stdout for validation, defer this dependency. |
 | orjson | 3.11.x | MEDIUM | Optional high-speed JSON responses | Defer until API payload size or profiling justifies it. FastAPI supports it, but incident aggregation correctness does not depend on it. |
@@ -108,7 +108,7 @@ Use a lean async Python 3.13 stack: FastAPI + Pydantic v2 for the API and schema
 Recommended initial dependency commands:
 
 ```bash
-uv init --python 3.13
+uv init --python 3.14
 uv add fastapi "uvicorn[standard]" sqlalchemy asyncpg alembic pydantic pydantic-settings pyyaml
 uv add --dev pytest pytest-asyncio httpx ruff mypy testcontainers
 ```
@@ -161,13 +161,13 @@ uv add orjson
 
 | Component | Compatible With | Notes |
 |-----------|-----------------|-------|
-| Python 3.13 | FastAPI 0.136.x, Pydantic 2.13.x, asyncpg 0.31.x, pytest 9.x, PyYAML 6.0.x | Verified from primary package metadata/classifiers. |
+| Python 3.14 | FastAPI 0.136.x, Pydantic 2.13.x, asyncpg 0.31.x, pytest 9.x, PyYAML 6.0.x | Verified from primary package metadata/classifiers and Python release status. |
 | FastAPI 0.136.x | Pydantic >=2.9.0, Starlette >=0.46.0 | FastAPI package metadata declares Pydantic v2 dependency range; keep Pydantic in v2. |
 | SQLAlchemy 2.0.x | asyncpg via `postgresql+asyncpg://` dialect | SQLAlchemy package exposes `postgresql-asyncpg` extra and docs cover asyncpg dialect behavior. |
 | PostgreSQL 18.x | asyncpg 0.31.x | asyncpg metadata states support for PostgreSQL 9.5 through 18. |
-| Alembic 1.18.x | SQLAlchemy >=1.4.23; Python >=3.10 | Compatible with SQLAlchemy 2.0 and Python 3.13. |
+| Alembic 1.18.x | SQLAlchemy >=1.4.23; Python >=3.10 | Compatible with SQLAlchemy 2.0 and Python 3.14. |
 | pytest-asyncio 1.4.x | pytest >=8.4,<10 | pytest 9.0.x is compatible. |
-| Ruff 0.15.x | Python target `py313` | Configure target explicitly; do not rely on default `py310`. |
+| Ruff 0.15.x | Python target `py314` | Configure target explicitly; do not rely on default `py310`. |
 
 ## Stack Patterns by Variant
 
@@ -193,9 +193,9 @@ uv add orjson
 
 | Area | Confidence | Reason |
 |------|------------|--------|
-| Python/FastAPI/Pydantic | HIGH | Project intent plus FastAPI/Pydantic official docs and PyPI metadata agree on Python 3.13+ and Pydantic v2 support. |
+| Python/FastAPI/Pydantic | HIGH | Project intent plus FastAPI/Pydantic official docs and PyPI metadata agree on a Python 3.14+ baseline and Pydantic v2 support. |
 | PostgreSQL/SQLAlchemy/asyncpg | HIGH | PostgreSQL and SQLAlchemy docs explicitly support partial indexes and `ON CONFLICT`; asyncpg metadata supports PostgreSQL 18. |
-| YAML config stack | HIGH | PyYAML 6.0.x supports Python 3.13/3.14; safe parser + Pydantic validation is the conservative pattern. |
+| YAML config stack | HIGH | PyYAML 6.0.x supports Python 3.14; safe parser + Pydantic validation is the conservative pattern. |
 | Task execution | HIGH | Project explicitly constrains v1 to asyncio with a replaceable `TaskRunner`; Celery/Redis is a known non-goal. |
 | Test tooling | MEDIUM-HIGH | pytest/HTTPX patterns are official/common. testcontainers is appropriate but depends on Docker availability in CI. |
 | Optional email/JSON optimization | MEDIUM | aiosmtplib/orjson are credible current packages, but should be pulled only when the corresponding v1 feature/performance need exists. |
@@ -203,7 +203,7 @@ uv add orjson
 ## Sources
 
 - `.planning/PROJECT.md` and `idea.md` — project constraints and product intent.
-- Python Developer's Guide, Status of Python versions — Python 3.13/3.14 support status: https://devguide.python.org/versions/
+- Python Developer's Guide, Status of Python versions — Python 3.14 support status: https://devguide.python.org/versions/
 - uv docs and PyPI — project manager capabilities and latest 0.11.x package: https://docs.astral.sh/uv/ and https://pypi.org/project/uv/
 - FastAPI official docs and PyPI — FastAPI purpose, Pydantic/Starlette dependencies, async test pattern, latest 0.136.x: https://fastapi.tiangolo.com/ and https://pypi.org/project/fastapi/
 - Context7 `/fastapi/fastapi` — FastAPI docs lookup for Pydantic v2 and async testing patterns.

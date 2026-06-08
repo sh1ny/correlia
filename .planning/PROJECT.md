@@ -39,7 +39,7 @@ Operators receive one accurate, topology-aware incident for a related alert stor
 
 ## Context
 
-The idea document defines Correlia as a Python 3.13+ backend service using FastAPI, SQLAlchemy 2.0+, asyncpg, PostgreSQL, Pydantic v2, PyYAML, and uv. Its core architecture is stateless business logic backed by stateful PostgreSQL storage. Configuration is intentionally externalized to YAML for rules, topology, and plugin registry definitions.
+The idea document defines Correlia as a Python 3.14+ backend service using FastAPI, SQLAlchemy 2.0+, asyncpg, PostgreSQL, Pydantic v2, PyYAML, and uv. Its core architecture is stateless business logic backed by stateful PostgreSQL storage. Configuration is intentionally externalized to YAML for rules, topology, and plugin registry definitions.
 
 The domain is alert aggregation for monitoring systems. The initial integration target is Icinga2, including host and service states mapped to plugin-agnostic `PROBLEM` and `RECOVERY` events. Future systems such as Prometheus Alertmanager should fit through the same input plugin contract.
 
@@ -50,7 +50,7 @@ Testing should use Testcontainers for Python for PostgreSQL-backed integration t
 
 ## Constraints
 
-- **Tech stack**: Python 3.13+, uv, FastAPI, PostgreSQL, SQLAlchemy 2.0+, asyncpg, Pydantic v2, PyYAML — specified by the idea document and aligned with the backend/API-first goal.
+- **Tech stack**: Python 3.14+, uv, FastAPI, PostgreSQL, SQLAlchemy 2.0+, asyncpg, Pydantic v2, PyYAML — specified by the idea document and aligned with the backend/API-first goal.
 - **Architecture**: No built-in frontend — REST APIs are the interface and keep the backend independently deployable.
 - **Plugin boundaries**: Inputs, topology enrichers, outputs, storage-adjacent behavior, and task execution must be modular — future integrations should not require rewriting the core processor.
 - **State ownership**: Logic lives in code and YAML rules; durable state lives in PostgreSQL — avoids split-brain state across worker memory or plugin instances.

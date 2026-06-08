@@ -10,7 +10,7 @@
 * **Topology Aware:** Capable of inferring location/context from hostnames or IPs.
 
 ## 2. Technology Stack
-* **Language:** Python 3.13+
+* **Language:** Python 3.14+
 * **Package Manager:** `uv` (for ultra-fast dependency management and venv creation).
 * **Web Framework:** FastAPI (for high-performance Async I/O).
 * **Database:** PostgreSQL (using `SQLAlchemy` 2.0+ with `asyncpg` driver).
