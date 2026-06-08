@@ -551,22 +551,25 @@ class IngressDecisionEnvelope(BaseModel):
 | A4 | Threshold counting state can be kept in-memory for Phase 2 decision objects; durable counting waits for Phase 3 | Threshold Decisions | If Phase 3 needs different counting semantics, Phase 2 tests may need updates |
 | A5 | `topology.*` reserved namespace is sufficient to prevent all meaningful source/topology tag collisions | Topology Enrichment | If operators use `topology.*` in source payloads intentionally, override behavior may surprise them |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Icinga2 webhook payload exact shape**
    - What we know: Icinga2 notification commands pass host/service state, check output, and custom variables via environment variables or stdin. A common webhook integration sends a JSON payload with these fields.
    - What's unclear: The exact field names and nesting of the JSON payload Icinga2 will POST.
    - Recommendation: Define a conservative payload model with required `host`, `state`, `state_type` and optional `service`, `check_output`, `custom_variables`. Document that operators may need to adjust their NotificationCommand template if fields differ.
+   - RESOLVED: Adopt the conservative payload model (`host`, `state`, `state_type` required; `service`, `check_output`, `custom_variables` optional) and document that operators may need to adjust their NotificationCommand template if fields differ.
 
 2. **Rule match criteria expressiveness**
    - What we know: Match by severity list, host pattern, service pattern, and tag equality/wildcard.
    - What's unclear: Whether operators need negation (`not_tag`), range matching, or regex on tag values in v1.
    - Recommendation: Start with equality and wildcard (`*`) only. Negation and regex matching can be added in v1.x without breaking existing rules.
+   - RESOLVED: Equality + wildcard-only for v1; add negation/regex in v1.x only if operator demand proves it is necessary.
 
 3. **Summary template syntax**
    - What we know: Rules should declare an `output_summary` that may reference event fields and tags.
    - What's unclear: Whether to use Python f-string style, Jinja2-style, or a custom minimal template syntax.
    - Recommendation: Use Python `string.Template` with `$field` substitution for v1. It is safe (no code execution), simple, and sufficient for `\${host} - \${topology.site}` style summaries.
+   - RESOLVED: Use Python `string.Template` with `$field` substitution for `output_summary`; no f-string or Jinja-style execution.
 
 ## Environment Availability
 
