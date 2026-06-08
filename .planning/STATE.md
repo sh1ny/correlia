@@ -61,6 +61,8 @@ Recent decisions affecting current work:
 - [Architecture]: API-first backend only; no built-in frontend in v1.
 - [Architecture]: PostgreSQL owns incident correctness through a partial unique index and atomic upsert.
 - [Architecture]: Task execution goes through TaskRunner with asyncio as the v1 runner.
+- [Architecture]: Topology enrichment is a plugin boundary; static YAML ships first, AI-driven enrichment is deferred until that contract is stable.
+- [Testing]: PostgreSQL-specific behavior must be tested with Testcontainers for Python, not SQLite substitutes.
 
 ### Pending Todos
 

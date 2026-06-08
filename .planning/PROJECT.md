@@ -18,7 +18,7 @@ Operators receive one accurate, topology-aware incident for a related alert stor
 
 - [ ] Accept Icinga2 alert payloads through a REST webhook.
 - [ ] Normalize every input into a consistent event model with fingerprint, source, host, service, severity, event type, timestamp, tags, message, and optional IP address.
-- [ ] Enrich events with topology tags derived from hostname patterns or IP subnet mappings.
+- [ ] Enrich events through a topology enrichment plugin, with a static YAML hostname/IP plugin as the first implementation.
 - [ ] Load rule configuration from YAML with priority, match criteria, grouping window, threshold, output summary, and actions.
 - [ ] Aggregate matching problem events into PostgreSQL-backed incidents.
 - [ ] Maintain concurrency-safe incident state with one open incident per rule and group key.
@@ -35,6 +35,7 @@ Operators receive one accurate, topology-aware incident for a related alert stor
 - Non-Icinga2 input plugins in v1 — plugin architecture must allow them, but Icinga2 is the first concrete input.
 - Complex notification transports beyond an initial email-style output plugin — output plugins must be pluggable, but v1 only needs one concrete channel.
 - Long-term raw event retention guarantees — raw events are optional/rotated for debugging and audit, not the primary product value.
+- AI-driven topology enrichment implementation in the initial topology phase — the topology enrichment interface must make this possible later, but v1 proves the static YAML plugin first.
 
 ## Context
 
@@ -42,19 +43,21 @@ The idea document defines Vigilo as a Python 3.13+ backend service using FastAPI
 
 The domain is alert aggregation for monitoring systems. The initial integration target is Icinga2, including host and service states mapped to plugin-agnostic `PROBLEM` and `RECOVERY` events. Future systems such as Prometheus Alertmanager should fit through the same input plugin contract.
 
-The key data flow is: input payload → input plugin normalization → topology enrichment → rule matching → incident upsert/update → task runner submission → output plugin notification. Incident lifecycle management includes open, acknowledged, resolved, and closed states.
+The key data flow is: input payload → input plugin normalization → topology enrichment plugin → rule matching → incident upsert/update → task runner submission → output plugin notification. Incident lifecycle management includes open, acknowledged, resolved, and closed states.
 
 Concurrency safety is a first-class concern. Incident writes must not perform SELECT-then-INSERT for open incident aggregation; PostgreSQL `ON CONFLICT` against a partial unique index on `(rule_name, group_key) WHERE status = 'OPEN'` is required to prevent duplicate open incidents under concurrent alert bursts.
+Testing should use Testcontainers for Python for PostgreSQL-backed integration tests where database behavior matters. SQLite is not an acceptable substitute for partial unique indexes, JSONB, migrations, transaction behavior, or concurrent upsert verification.
 
 ## Constraints
 
 - **Tech stack**: Python 3.13+, uv, FastAPI, PostgreSQL, SQLAlchemy 2.0+, asyncpg, Pydantic v2, PyYAML — specified by the idea document and aligned with the backend/API-first goal.
 - **Architecture**: No built-in frontend — REST APIs are the interface and keep the backend independently deployable.
-- **Plugin boundaries**: Inputs, outputs, storage-adjacent behavior, and task execution must be modular — future integrations should not require rewriting the core processor.
+- **Plugin boundaries**: Inputs, topology enrichers, outputs, storage-adjacent behavior, and task execution must be modular — future integrations should not require rewriting the core processor.
 - **State ownership**: Logic lives in code and YAML rules; durable state lives in PostgreSQL — avoids split-brain state across worker memory or plugin instances.
 - **Task execution**: v1 defaults to asyncio, but all task submission must go through `TaskRunner` — keeps a clean cutover path to Celery/Redis.
 - **Concurrency**: Open incident aggregation must be database-enforced with a partial unique index and atomic upsert — race conditions create duplicate incidents and break the core value.
-- **Topology awareness**: Hostname pattern matching takes priority over IP subnet fallback — explicit naming conventions should win when present.
+- **Topology enrichment**: Enrichment is a plugin boundary; the first concrete plugin is static YAML hostname/IP enrichment with hostname matching before IP subnet fallback.
+- **Testing**: PostgreSQL integration and concurrency behavior must be tested with Testcontainers for Python — no SQLite-backed substitute for database-specific invariants.
 
 ## Key Decisions
 
@@ -67,6 +70,8 @@ Concurrency safety is a first-class concern. Incident writes must not perform SE
 | PostgreSQL as authoritative incident state | Aggregation correctness needs durable, queryable state and database constraints | — Pending |
 | Partial unique index for open incidents | Prevents duplicate open incidents per rule/group under concurrent ingestion | — Pending |
 | YAML rules, topology, and plugin registry | Operators can adjust behavior without changing Python code | — Pending |
+| Topology enrichment plugin interface | Static YAML enrichment ships first, but later enrichers such as an AI-driven topology enricher should plug into the same boundary | — Pending |
+| Testcontainers for Python for PostgreSQL tests | Vigilo depends on PostgreSQL-specific behavior that SQLite cannot validate | — Pending |
 | `TaskRunner` abstraction with asyncio default | Supports v1 simplicity while preserving a clean path to Celery/Redis | — Pending |
 | Vertical MVP roadmap mode | Auto mode defaults to end-to-end slices that prove product behavior early | — Pending |
 

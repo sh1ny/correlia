@@ -12,11 +12,12 @@ Vigilo is a modular, API-first event aggregation system for infrastructure alert
 
 - **Tech stack**: Python 3.13+, uv, FastAPI, PostgreSQL, SQLAlchemy 2.0+, asyncpg, Pydantic v2, PyYAML — specified by the idea document and aligned with the backend/API-first goal.
 - **Architecture**: No built-in frontend — REST APIs are the interface and keep the backend independently deployable.
-- **Plugin boundaries**: Inputs, outputs, storage-adjacent behavior, and task execution must be modular — future integrations should not require rewriting the core processor.
+- **Plugin boundaries**: Inputs, topology enrichers, outputs, storage-adjacent behavior, and task execution must be modular — future integrations should not require rewriting the core processor.
 - **State ownership**: Logic lives in code and YAML rules; durable state lives in PostgreSQL — avoids split-brain state across worker memory or plugin instances.
 - **Task execution**: v1 defaults to asyncio, but all task submission must go through `TaskRunner` — keeps a clean cutover path to Celery/Redis.
 - **Concurrency**: Open incident aggregation must be database-enforced with a partial unique index and atomic upsert — race conditions create duplicate incidents and break the core value.
-- **Topology awareness**: Hostname pattern matching takes priority over IP subnet fallback — explicit naming conventions should win when present.
+- **Topology enrichment**: Enrichment is a plugin boundary; the first concrete plugin is static YAML hostname/IP enrichment with hostname matching before IP subnet fallback.
+- **Testing**: PostgreSQL integration and concurrency behavior must be tested with Testcontainers for Python — no SQLite-backed substitute for database-specific invariants.
 
 <!-- GSD:project-end -->
 

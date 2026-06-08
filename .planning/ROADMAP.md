@@ -35,11 +35,11 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Goal:** Operators can send real Icinga2 alerts through normalization, enrichment, and deterministic rule evaluation.
 **Mode:** mvp
 **Depends on:** Phase 1
-**Requirements:** ING-01, ING-02, ING-03, ING-04, ING-05, TOP-01, TOP-02, TOP-03, TOP-04, TOP-05, RUL-01, RUL-02, RUL-03, RUL-04, RUL-05, RUL-06
+**Requirements:** ING-01, ING-02, ING-03, ING-04, ING-05, TOP-01, TOP-02, TOP-03, TOP-04, TOP-05, TOP-06, RUL-01, RUL-02, RUL-03, RUL-04, RUL-05, RUL-06
 **Success Criteria** (what must be TRUE):
   1. Icinga2 can POST validated host and service alert payloads and receive a response identifying the accepted event, fingerprint, event type, enrichment tags, matched rules, incident effects, closures, and notification count.
   2. Vigilo maps Icinga2 states into stable normalized severity and PROBLEM/RECOVERY values with replay-tolerant fingerprints.
-  3. Operator-defined YAML topology enriches events with hostname rules before IP subnet fallback, with conflict handling and diagnostics that explain which rule affected an event.
+  3. Topology enrichment runs through a pluggable interface; the static YAML plugin enriches events with hostname rules before IP subnet fallback, with conflict handling and diagnostics that explain which rule affected an event.
   4. Operator-defined YAML rules load strictly, reject invalid references/placeholders/window values/actions, evaluate in deterministic priority order, and produce inspectable matches, group keys, and threshold/window decisions.
 **Plans:** TBD
 
@@ -74,11 +74,11 @@ Decimal phases appear between their surrounding integers in numeric order.
 | Requirement Range | Phase |
 |-------------------|-------|
 | FND-01–FND-04, DOM-01–DOM-04, PRS-01–PRS-04 | Phase 1 |
-| ING-01–ING-05, TOP-01–TOP-05, RUL-01–RUL-06 | Phase 2 |
+| ING-01–ING-05, TOP-01–TOP-06, RUL-01–RUL-06 | Phase 2 |
 | AGG-01–AGG-05, TSK-01–TSK-03, NOT-01–NOT-05 | Phase 3 |
 | LCY-01–LCY-06, API-01–API-05, OPS-01–OPS-04 | Phase 4 |
 
-**Coverage:** 56/56 v1 requirements mapped; 0 unmapped.
+**Coverage:** 57/57 v1 requirements mapped; 0 unmapped.
 
 ## Progress
 
