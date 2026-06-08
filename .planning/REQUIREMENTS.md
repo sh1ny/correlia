@@ -11,7 +11,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [x] **FND-01**: Maintainer can install and run Correlia with Python 3.14+, uv-managed dependencies, and a single locked project environment.
 - [x] **FND-02**: Maintainer can configure Correlia settings without code changes using validated application settings.
-- [ ] **FND-03**: Maintainer can evolve the PostgreSQL schema through Alembic migrations.
+- [x] **FND-03**: Maintainer can evolve the PostgreSQL schema through Alembic migrations.
 - [ ] **FND-04**: Operator can check basic service health through a REST health endpoint.
 
 ### Domain Contracts
@@ -23,10 +23,10 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Persistence
 
-- [ ] **PRS-01**: Correlia persists aggregated incidents in PostgreSQL with rule name, group key, lifecycle status, severity, timestamps, summary, event count, and affected hosts.
-- [ ] **PRS-02**: Correlia enforces one active incident per rule and group key at the database layer.
+- [x] **PRS-01**: Correlia persists aggregated incidents in PostgreSQL with rule name, group key, lifecycle status, severity, timestamps, summary, event count, and affected hosts.
+- [x] **PRS-02**: Correlia enforces one active incident per rule and group key at the database layer.
 - [ ] **PRS-03**: Correlia updates active incidents with an atomic PostgreSQL upsert instead of SELECT-then-INSERT logic.
-- [ ] **PRS-04**: Maintainer can optionally persist raw/debug event or decision metadata needed to explain incident behavior.
+- [x] **PRS-04**: Maintainer can optionally persist raw/debug event or decision metadata needed to explain incident behavior.
 
 ### Icinga2 Ingress
 
@@ -145,16 +145,16 @@ Which phases cover which requirements. Updated during roadmap creation.
 |-------------|-------|--------|
 | FND-01 | Phase 1: Foundations, Contracts, and Database Invariant | Complete |
 | FND-02 | Phase 1: Foundations, Contracts, and Database Invariant | Complete |
-| FND-03 | Phase 1: Foundations, Contracts, and Database Invariant | Pending |
+| FND-03 | Phase 1: Foundations, Contracts, and Database Invariant | Complete |
 | FND-04 | Phase 1: Foundations, Contracts, and Database Invariant | Pending |
 | DOM-01 | Phase 1: Foundations, Contracts, and Database Invariant | Pending |
 | DOM-02 | Phase 1: Foundations, Contracts, and Database Invariant | Pending |
 | DOM-03 | Phase 1: Foundations, Contracts, and Database Invariant | Pending |
 | DOM-04 | Phase 1: Foundations, Contracts, and Database Invariant | Pending |
-| PRS-01 | Phase 1: Foundations, Contracts, and Database Invariant | Pending |
-| PRS-02 | Phase 1: Foundations, Contracts, and Database Invariant | Pending |
+| PRS-01 | Phase 1: Foundations, Contracts, and Database Invariant | Complete |
+| PRS-02 | Phase 1: Foundations, Contracts, and Database Invariant | Complete |
 | PRS-03 | Phase 1: Foundations, Contracts, and Database Invariant | Pending |
-| PRS-04 | Phase 1: Foundations, Contracts, and Database Invariant | Pending |
+| PRS-04 | Phase 1: Foundations, Contracts, and Database Invariant | Complete |
 | ING-01 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
 | ING-02 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
 | ING-03 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |

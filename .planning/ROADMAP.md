@@ -33,7 +33,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Malformed domain/config data fails with explicit validation errors instead of silently accepting partial or coerced state.
   4. PostgreSQL enforces one active incident per rule/group and supports atomic incident upsert without SELECT-then-INSERT behavior.
 
-**Plans:** 3/5 plans executed
+**Plans:** 4/5 plans executed
 **Wave 1**
 
 - [x] 01-01-PLAN.md — uv project setup, strict settings, Makefile commands, and reusable database readiness plumbing.
@@ -45,7 +45,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 01-03-PLAN.md — Alembic/PostgreSQL incident migration, SQLAlchemy model, JSONB fields, constraints, and partial unique index verification.
+- [x] 01-03-PLAN.md — Alembic/PostgreSQL incident migration, SQLAlchemy model, JSONB fields, constraints, and partial unique index verification.
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
@@ -116,7 +116,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundations, Contracts, and Database Invariant | 3/5 | In Progress|  |
+| 1. Foundations, Contracts, and Database Invariant | 4/5 | In Progress|  |
 | 2. Icinga2 Ingress, Topology, and Rule Decisions | 0/TBD | Not started | - |
 | 3. Problem Aggregation and Notification Dispatch | 0/TBD | Not started | - |
 | 4. Lifecycle, Operator APIs, and Operability | 0/TBD | Not started | - |
