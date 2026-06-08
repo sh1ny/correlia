@@ -65,7 +65,16 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Topology enrichment runs through a pluggable interface; the static YAML plugin enriches events with hostname rules before IP subnet fallback, with conflict handling and diagnostics that explain which rule affected an event.
   4. Operator-defined YAML rules load strictly, reject invalid references/placeholders/window values/actions, evaluate in deterministic priority order, and produce inspectable matches, group keys, and threshold/window decisions.
 
-**Plans:** TBD
+**Plans:** 3/3 plans complete
+
+**Wave 1** *(blocked on Phase 1 completion)*
+- [x] 02-01-PLAN.md — Icinga2 webhook ingress with strict payload validation, state mapping, fingerprinting, and decision envelope.
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [x] 02-02-PLAN.md — Topology YAML loading and pure enrichment with hostname precedence, subnet fallback, and conflict diagnostics.
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [x] 02-03-PLAN.md — Rule YAML loading, deterministic priority-ordered evaluation, group keys, and threshold/window decisions.
 
 ### Phase 3: Problem Aggregation and Notification Dispatch
 
@@ -118,7 +127,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundations, Contracts, and Database Invariant | 5/5 | Complete    | 2026-06-08 |
-| 2. Icinga2 Ingress, Topology, and Rule Decisions | 0/TBD | Not started | - |
+| 2. Icinga2 Ingress, Topology, and Rule Decisions | 3/3 | Complete    | 2026-06-08 |
 | 3. Problem Aggregation and Notification Dispatch | 0/TBD | Not started | - |
 | 4. Lifecycle, Operator APIs, and Operability | 0/TBD | Not started | - |
 ---
