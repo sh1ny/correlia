@@ -35,30 +35,31 @@ async def _run_alembic_upgrade(database_url: str) -> None:
 @pytest.fixture(scope="module")
 def postgres_url() -> str:
     with PostgresContainer("postgres:18-alpine") as postgres:
-        yield postgres.get_connection_url().replace("postgresql://", "postgresql+asyncpg://")
-
+        url = postgres.get_connection_url()
+        # Force asyncpg driver for SQLAlchemy async engine compatibility
+        url = url.replace("postgresql+psycopg2://", "postgresql+asyncpg://")
+        url = url.replace("postgresql://", "postgresql+asyncpg://")
+        yield url
 
 async def test_migration_creates_incidents_table(postgres_url: str) -> None:
     await _run_alembic_upgrade(postgres_url)
 
     engine = create_async_engine(postgres_url)
     async with engine.connect() as conn:
-        inspector = sa.inspect(conn)
-        # run_sync because inspect is sync-only
-        tables = await conn.run_sync(lambda sync_conn: inspector.get_table_names())
+        tables = await conn.run_sync(
+            lambda sync_conn: sa.inspect(sync_conn).get_table_names()
+        )
 
     assert "incidents" in tables
     await engine.dispose()
-
 
 async def test_incidents_columns_and_types(postgres_url: str) -> None:
     await _run_alembic_upgrade(postgres_url)
 
     engine = create_async_engine(postgres_url)
     async with engine.connect() as conn:
-        inspector = sa.inspect(conn)
         columns_info = await conn.run_sync(
-            lambda sync_conn: inspector.get_columns("incidents")
+            lambda sync_conn: sa.inspect(sync_conn).get_columns("incidents")
         )
         columns = {c["name"]: c for c in columns_info}
 
@@ -82,7 +83,6 @@ async def test_incidents_columns_and_types(postgres_url: str) -> None:
     assert columns["event_count"]["nullable"] is False
 
     await engine.dispose()
-
 
 async def test_check_constraints(postgres_url: str) -> None:
     await _run_alembic_upgrade(postgres_url)
