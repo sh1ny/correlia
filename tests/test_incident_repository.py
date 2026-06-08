@@ -13,7 +13,6 @@ from testcontainers.postgres import PostgresContainer
 
 from app.domain.events import Severity
 from app.domain.incidents import DecisionContext, IncidentStatus
-from app.persistence.models import Base
 
 
 def _run_alembic_upgrade(database_url: str) -> None:

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from uuid import uuid4
+from typing import Any
 
-from sqlalchemy import case, func, select, text
+from sqlalchemy import case, func, literal, select, text
 from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,7 +19,7 @@ MAX_AFFECTED_HOSTS = 100
 MAX_AFFECTED_SERVICES = 100
 
 
-def _severity_rank_expr(column):
+def _severity_rank_expr(column: Any) -> Any:
     return case(
         (column == "OK", 0),
         (column == "WARNING", 1),
@@ -28,7 +29,7 @@ def _severity_rank_expr(column):
     )
 
 
-def _jsonb_sorted_union(existing_column, excluded_name: str, max_items: int):
+def _jsonb_sorted_union(existing_column: Any, excluded_name: str, max_items: int) -> Any:
     existing_elems = select(
         func.jsonb_array_elements_text(existing_column).label("elem")
     ).subquery("e1")
@@ -47,7 +48,7 @@ def _jsonb_sorted_union(existing_column, excluded_name: str, max_items: int):
 
     agg = select(func.jsonb_agg(ordered_limited.c.elem)).select_from(ordered_limited)
 
-    return func.coalesce(agg.scalar_subquery(), func.cast("[]", JSONB))
+    return func.coalesce(agg.scalar_subquery(), literal("[]").cast(JSONB))
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,7 +62,7 @@ class IncidentUpsertInput:
     affected_services: tuple[str, ...] = ()
     decision_context: DecisionContext | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if not self.rule_name or not self.rule_name.strip():
             raise ValueError("rule_name must be non-empty")
         if not self.group_key or not self.group_key.strip():
@@ -103,12 +104,12 @@ class IncidentUpsertInput:
                 )
 
 
-def build_open_incident_upsert(input: IncidentUpsertInput):
-    decision_data = {}
+def build_open_incident_upsert(input: IncidentUpsertInput) -> Any:
+    decision_data: dict[str, Any] = {}
     if input.decision_context is not None:
         decision_data = input.decision_context.model_dump(mode="json")
 
-    stmt = insert(Incident).values(
+    stmt: Any = insert(Incident).values(
         id=uuid4(),
         rule_name=input.rule_name,
         group_key=input.group_key,
