@@ -9,8 +9,8 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Foundation
 
-- [ ] **FND-01**: Maintainer can install and run Correlia with Python 3.14+, uv-managed dependencies, and a single locked project environment.
-- [ ] **FND-02**: Maintainer can configure Correlia settings without code changes using validated application settings.
+- [x] **FND-01**: Maintainer can install and run Correlia with Python 3.14+, uv-managed dependencies, and a single locked project environment.
+- [x] **FND-02**: Maintainer can configure Correlia settings without code changes using validated application settings.
 - [ ] **FND-03**: Maintainer can evolve the PostgreSQL schema through Alembic migrations.
 - [ ] **FND-04**: Operator can check basic service health through a REST health endpoint.
 
@@ -143,8 +143,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FND-01 | Phase 1: Foundations, Contracts, and Database Invariant | Pending |
-| FND-02 | Phase 1: Foundations, Contracts, and Database Invariant | Pending |
+| FND-01 | Phase 1: Foundations, Contracts, and Database Invariant | Complete |
+| FND-02 | Phase 1: Foundations, Contracts, and Database Invariant | Complete |
 | FND-03 | Phase 1: Foundations, Contracts, and Database Invariant | Pending |
 | FND-04 | Phase 1: Foundations, Contracts, and Database Invariant | Pending |
 | DOM-01 | Phase 1: Foundations, Contracts, and Database Invariant | Pending |
@@ -202,6 +202,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | OPS-04 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
 
 **Coverage:**
+
 - v1 requirements: 57 total
 - Mapped to phases: 57
 - Unmapped: 0 ✓
