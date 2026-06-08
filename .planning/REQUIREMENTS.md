@@ -9,7 +9,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Foundation
 
-- [ ] **FND-01**: Maintainer can install and run Correlia with Python 3.13, uv-managed dependencies, and a single locked project environment.
+- [ ] **FND-01**: Maintainer can install and run Correlia with Python 3.14+, uv-managed dependencies, and a single locked project environment.
 - [ ] **FND-02**: Maintainer can configure Correlia settings without code changes using validated application settings.
 - [ ] **FND-03**: Maintainer can evolve the PostgreSQL schema through Alembic migrations.
 - [ ] **FND-04**: Operator can check basic service health through a REST health endpoint.
