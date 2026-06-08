@@ -1,9 +1,9 @@
 # Pitfalls Research
 
 **Domain:** API-first alert aggregation, event correlation, and incident management backend
-**Project:** Vigilo
+**Project:** Correlia
 **Researched:** 2026-06-08
-**Confidence:** HIGH for PostgreSQL concurrency, Icinga2 state mapping, YAML/Pydantic validation, Alertmanager-style grouping concepts, and SRE alerting principles; MEDIUM for Vigilo-specific phase ordering because implementation has not started.
+**Confidence:** HIGH for PostgreSQL concurrency, Icinga2 state mapping, YAML/Pydantic validation, Alertmanager-style grouping concepts, and SRE alerting principles; MEDIUM for Correlia-specific phase ordering because implementation has not started.
 
 ## Critical Pitfalls
 
@@ -91,7 +91,7 @@ Phase 1 model, Phase 2 Icinga2 mapping, Phase 6 lifecycle management.
 Hostname regexes or IP subnet fallbacks assign the wrong datacenter/environment. Events aggregate into the wrong topology incident, leading operators to inspect the wrong failure domain. This is worse than missing enrichment because it gives confident but false context.
 
 **Why it happens:**
-Topology rules are easy to express but hard to reason about at scale: regex precedence, overlapping CIDRs, stale naming conventions, and pre-existing tags compete. The Vigilo design says hostname pattern matching wins over IP subnet fallback; violating or obscuring that rule creates inconsistent group keys.
+Topology rules are easy to express but hard to reason about at scale: regex precedence, overlapping CIDRs, stale naming conventions, and pre-existing tags compete. The Correlia design says hostname pattern matching wins over IP subnet fallback; violating or obscuring that rule creates inconsistent group keys.
 
 **How to avoid:**
 - Enforce deterministic precedence: existing trusted event tags, then hostname pattern rules in configured order, then IP subnet fallback, with explicit conflict behavior.
@@ -140,7 +140,7 @@ Phase 1 interfaces/models, Phase 2 Icinga2 plugin, Phase 3 plugin loader/task ru
 ### Pitfall 6: Notification Storms From Threshold Re-Evaluation and Retry Loops
 
 **What goes wrong:**
-Every event after a threshold crossing sends another notification, or each output retry sends duplicate pages/emails. During a regional outage, Vigilo amplifies the alert storm it was built to reduce.
+Every event after a threshold crossing sends another notification, or each output retry sends duplicate pages/emails. During a regional outage, Correlia amplifies the alert storm it was built to reduce.
 
 **Why it happens:**
 Notification dispatch is treated as a side effect of “incident updated” rather than a state transition. Without a durable notification ledger or threshold-crossing marker, workers cannot distinguish first crossing from repeated updates. Output plugin failures can also trigger naive retry loops.
@@ -244,17 +244,17 @@ Phase 1 schema, Phase 4 processing decisions, Phase 5 notification attempts, Pha
 ### Pitfall 10: Operational Blind Spots in the Aggregator Itself
 
 **What goes wrong:**
-Vigilo becomes a critical alerting dependency but has no clear health surface. Ingestion latency rises, DB upserts block, task failures accumulate, config reload fails, or expiration stops running — and nobody notices until alerts are missing or storms reappear.
+Correlia becomes a critical alerting dependency but has no clear health surface. Ingestion latency rises, DB upserts block, task failures accumulate, config reload fails, or expiration stops running — and nobody notices until alerts are missing or storms reappear.
 
 **Why it happens:**
-Alerting systems are often treated as infrastructure glue, not as production systems needing their own observability. Google SRE guidance emphasizes latency, traffic, errors, and saturation as core monitoring signals; Vigilo has domain-specific versions of all four.
+Alerting systems are often treated as infrastructure glue, not as production systems needing their own observability. Google SRE guidance emphasizes latency, traffic, errors, and saturation as core monitoring signals; Correlia has domain-specific versions of all four.
 
 **How to avoid:**
 - Expose health/readiness endpoints that check database connectivity, loaded config version, plugin registry status, and task runner status.
 - Emit metrics/logs for ingestion rate, parse failures, normalization failures, enrichment misses, rule-match counts, upsert latency/conflicts, notification attempts/failures/suppression, recovery count, expiration count, and task failures.
 - Add dead-letter/audit path for rejected payloads and failed notifications.
 - Distinguish user-caused bad input from system errors in API responses and metrics.
-- Keep alerting on Vigilo itself simple and actionable: failed ingestion, rising notification failures, DB saturation, stalled lifecycle runner.
+- Keep alerting on Correlia itself simple and actionable: failed ingestion, rising notification failures, DB saturation, stalled lifecycle runner.
 
 **Warning signs:**
 - Only web-server HTTP 200/500 counts are observable.
@@ -375,7 +375,7 @@ Phase 1 health skeleton, Phase 2 ingress/enrichment counters, Phase 4 DB/rule me
 - [ ] **YAML loader:** Files parse, but semantic validation must reject bad cross-references before processing events.
 - [ ] **Lifecycle:** Expiration closes stale incidents, but recovery, acknowledgement, late events, and status transition audit must be coherent.
 - [ ] **REST API:** Endpoints return data, but incident timelines and processing explanations must be available for operator trust.
-- [ ] **Observability:** Service starts, but Vigilo must expose its own ingestion, DB, rule, task, notification, and lifecycle health.
+- [ ] **Observability:** Service starts, but Correlia must expose its own ingestion, DB, rule, task, notification, and lifecycle health.
 
 ## Recovery Strategies
 
@@ -423,5 +423,5 @@ Phase 1 health skeleton, Phase 2 ingress/enrichment counters, Phase 4 DB/rule me
 - Google SRE Workbook, Configuration Design and Best Practices: semantic validation, ownership/change tracking, safe config rollout. https://sre.google/workbook/configuration-design/ (HIGH)
 
 ---
-*Pitfalls research for: Vigilo alert aggregation backend*
+*Pitfalls research for: Correlia alert aggregation backend*
 *Researched: 2026-06-08*

@@ -1,4 +1,4 @@
-# Requirements: Vigilo
+# Requirements: Correlia
 
 **Defined:** 2026-06-08
 **Core Value:** Operators receive one accurate, topology-aware incident for a related alert storm instead of many disconnected raw alerts.
@@ -9,78 +9,78 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Foundation
 
-- [ ] **FND-01**: Maintainer can install and run Vigilo with Python 3.13, uv-managed dependencies, and a single locked project environment.
-- [ ] **FND-02**: Maintainer can configure Vigilo settings without code changes using validated application settings.
+- [ ] **FND-01**: Maintainer can install and run Correlia with Python 3.13, uv-managed dependencies, and a single locked project environment.
+- [ ] **FND-02**: Maintainer can configure Correlia settings without code changes using validated application settings.
 - [ ] **FND-03**: Maintainer can evolve the PostgreSQL schema through Alembic migrations.
 - [ ] **FND-04**: Operator can check basic service health through a REST health endpoint.
 
 ### Domain Contracts
 
 - [ ] **DOM-01**: Input plugins can convert source payloads into a `NormalizedEvent` with fingerprint, source ID, host, optional service, severity, event type, timestamp, tags, message, and optional IP address.
-- [ ] **DOM-02**: Vigilo classifies events as `PROBLEM` or `RECOVERY` independently of the source monitoring system.
-- [ ] **DOM-03**: Vigilo represents incidents with stable lifecycle states for active, manually acknowledged, source-resolved, and expired/manually closed incidents.
-- [ ] **DOM-04**: Vigilo rejects malformed domain/config data with explicit validation errors instead of accepting partial or coerced state.
+- [ ] **DOM-02**: Correlia classifies events as `PROBLEM` or `RECOVERY` independently of the source monitoring system.
+- [ ] **DOM-03**: Correlia represents incidents with stable lifecycle states for active, manually acknowledged, source-resolved, and expired/manually closed incidents.
+- [ ] **DOM-04**: Correlia rejects malformed domain/config data with explicit validation errors instead of accepting partial or coerced state.
 
 ### Persistence
 
-- [ ] **PRS-01**: Vigilo persists aggregated incidents in PostgreSQL with rule name, group key, lifecycle status, severity, timestamps, summary, event count, and affected hosts.
-- [ ] **PRS-02**: Vigilo enforces one active incident per rule and group key at the database layer.
-- [ ] **PRS-03**: Vigilo updates active incidents with an atomic PostgreSQL upsert instead of SELECT-then-INSERT logic.
+- [ ] **PRS-01**: Correlia persists aggregated incidents in PostgreSQL with rule name, group key, lifecycle status, severity, timestamps, summary, event count, and affected hosts.
+- [ ] **PRS-02**: Correlia enforces one active incident per rule and group key at the database layer.
+- [ ] **PRS-03**: Correlia updates active incidents with an atomic PostgreSQL upsert instead of SELECT-then-INSERT logic.
 - [ ] **PRS-04**: Maintainer can optionally persist raw/debug event or decision metadata needed to explain incident behavior.
 
 ### Icinga2 Ingress
 
-- [ ] **ING-01**: Icinga2 can POST host and service alert payloads to a Vigilo webhook endpoint.
-- [ ] **ING-02**: Vigilo validates Icinga2 webhook payloads before processing.
-- [ ] **ING-03**: Vigilo maps Icinga2 host and service states into normalized severity and `PROBLEM`/`RECOVERY` event type values.
-- [ ] **ING-04**: Vigilo derives stable fingerprints for Icinga2 events so repeated deliveries are replay-tolerant.
-- [ ] **ING-05**: Vigilo returns an API response that identifies the accepted event, event type, enrichment tags, matched rules, incident updates, closures, and notification count.
+- [ ] **ING-01**: Icinga2 can POST host and service alert payloads to a Correlia webhook endpoint.
+- [ ] **ING-02**: Correlia validates Icinga2 webhook payloads before processing.
+- [ ] **ING-03**: Correlia maps Icinga2 host and service states into normalized severity and `PROBLEM`/`RECOVERY` event type values.
+- [ ] **ING-04**: Correlia derives stable fingerprints for Icinga2 events so repeated deliveries are replay-tolerant.
+- [ ] **ING-05**: Correlia returns an API response that identifies the accepted event, event type, enrichment tags, matched rules, incident updates, closures, and notification count.
 
 ### Topology Enrichment
 
 - [ ] **TOP-01**: Operator can define hostname pattern enrichment rules in YAML.
 - [ ] **TOP-02**: Operator can define IP subnet enrichment rules in YAML.
-- [ ] **TOP-03**: Vigilo enriches events with topology tags using hostname matches before IP subnet fallback.
-- [ ] **TOP-04**: Vigilo preserves or explicitly resolves conflicts between source-provided tags and enrichment-derived tags.
+- [ ] **TOP-03**: Correlia enriches events with topology tags using hostname matches before IP subnet fallback.
+- [ ] **TOP-04**: Correlia preserves or explicitly resolves conflicts between source-provided tags and enrichment-derived tags.
 - [ ] **TOP-05**: Operator can see enrichment diagnostics sufficient to explain which topology rule affected an event.
 - [ ] **TOP-06**: Maintainer can add new topology enricher implementations behind a topology enrichment plugin interface without changing rule evaluation or incident processing.
 
 ### Rule Engine
 
 - [ ] **RUL-01**: Operator can define aggregation rules in YAML with name, priority, match criteria, window duration, group-by fields, trigger threshold, output summary, and actions.
-- [ ] **RUL-02**: Vigilo validates rule YAML strictly, including references to tags, actions, plugins, window values, and summary placeholders.
-- [ ] **RUL-03**: Vigilo evaluates rules in deterministic priority order.
-- [ ] **RUL-04**: Vigilo matches events by severity, host/service fields, and tag criteria.
-- [ ] **RUL-05**: Vigilo generates deterministic, human-readable group keys from configured group-by fields.
-- [ ] **RUL-06**: Vigilo calculates threshold/window aggregation decisions in a way that can be inspected during tests and operator debugging.
+- [ ] **RUL-02**: Correlia validates rule YAML strictly, including references to tags, actions, plugins, window values, and summary placeholders.
+- [ ] **RUL-03**: Correlia evaluates rules in deterministic priority order.
+- [ ] **RUL-04**: Correlia matches events by severity, host/service fields, and tag criteria.
+- [ ] **RUL-05**: Correlia generates deterministic, human-readable group keys from configured group-by fields.
+- [ ] **RUL-06**: Correlia calculates threshold/window aggregation decisions in a way that can be inspected during tests and operator debugging.
 
 ### Problem Aggregation
 
-- [ ] **AGG-01**: Vigilo processes `PROBLEM` events through enrichment, rule matching, group key generation, and incident state mutation.
-- [ ] **AGG-02**: Vigilo creates a new active incident when a matched group has no active incident.
-- [ ] **AGG-03**: Vigilo updates the existing active incident when a matched group already has one.
-- [ ] **AGG-04**: Vigilo maintains incident severity, last update time, event count, summary, and affected hosts as more events arrive.
-- [ ] **AGG-05**: Vigilo records enough processing outcome data to distinguish inserted, updated, threshold-crossed, and notification-triggered decisions.
+- [ ] **AGG-01**: Correlia processes `PROBLEM` events through enrichment, rule matching, group key generation, and incident state mutation.
+- [ ] **AGG-02**: Correlia creates a new active incident when a matched group has no active incident.
+- [ ] **AGG-03**: Correlia updates the existing active incident when a matched group already has one.
+- [ ] **AGG-04**: Correlia maintains incident severity, last update time, event count, summary, and affected hosts as more events arrive.
+- [ ] **AGG-05**: Correlia records enough processing outcome data to distinguish inserted, updated, threshold-crossed, and notification-triggered decisions.
 
 ### Task Execution and Notifications
 
 - [ ] **TSK-01**: Maintainer can register named tasks behind a `TaskRunner` interface.
-- [ ] **TSK-02**: Vigilo provides an asyncio-backed `TaskRunner` implementation for v1.
-- [ ] **TSK-03**: Vigilo submits notification work through `TaskRunner` only after durable incident state transitions.
+- [ ] **TSK-02**: Correlia provides an asyncio-backed `TaskRunner` implementation for v1.
+- [ ] **TSK-03**: Correlia submits notification work through `TaskRunner` only after durable incident state transitions.
 - [ ] **NOT-01**: Operator can configure output plugins in a YAML plugin registry.
-- [ ] **NOT-02**: Vigilo can load, cache, and list configured output plugins.
-- [ ] **NOT-03**: Vigilo dispatches incident notifications to an email-style output plugin when configured thresholds are crossed.
-- [ ] **NOT-04**: Vigilo records or exposes notification failures, missing plugins, missing incidents, and plugin exceptions.
-- [ ] **NOT-05**: Vigilo avoids repeated notifications for the same durable threshold/status transition.
+- [ ] **NOT-02**: Correlia can load, cache, and list configured output plugins.
+- [ ] **NOT-03**: Correlia dispatches incident notifications to an email-style output plugin when configured thresholds are crossed.
+- [ ] **NOT-04**: Correlia records or exposes notification failures, missing plugins, missing incidents, and plugin exceptions.
+- [ ] **NOT-05**: Correlia avoids repeated notifications for the same durable threshold/status transition.
 
 ### Incident Lifecycle
 
-- [ ] **LCY-01**: Vigilo routes `RECOVERY` events to lifecycle resolution instead of problem aggregation.
-- [ ] **LCY-02**: Vigilo resolves active incidents containing the recovered host.
-- [ ] **LCY-03**: Vigilo resolves only matching service-level incidents when a service recovery event arrives.
-- [ ] **LCY-04**: Vigilo appends or records resolution context when incidents move to `RESOLVED`.
-- [ ] **LCY-05**: Vigilo expires stale active incidents after the configured rule window when no further events arrive.
-- [ ] **LCY-06**: Vigilo starts and stops lifecycle background work through FastAPI lifespan handling.
+- [ ] **LCY-01**: Correlia routes `RECOVERY` events to lifecycle resolution instead of problem aggregation.
+- [ ] **LCY-02**: Correlia resolves active incidents containing the recovered host.
+- [ ] **LCY-03**: Correlia resolves only matching service-level incidents when a service recovery event arrives.
+- [ ] **LCY-04**: Correlia appends or records resolution context when incidents move to `RESOLVED`.
+- [ ] **LCY-05**: Correlia expires stale active incidents after the configured rule window when no further events arrive.
+- [ ] **LCY-06**: Correlia starts and stops lifecycle background work through FastAPI lifespan handling.
 
 ### Operator REST API
 
@@ -92,9 +92,9 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Operability
 
-- [ ] **OPS-01**: Vigilo emits structured logs for ingestion, normalization, enrichment, rule matching, incident upsert, notification dispatch, recovery, expiration, and task failures.
-- [ ] **OPS-02**: Vigilo exposes readiness signals for database connectivity, config validity, plugin registry load, and background task health.
-- [ ] **OPS-03**: Vigilo exposes low-cardinality metrics for accepted events, rejected events, matched rules, incident inserts/updates/resolutions/expirations, notification attempts/failures, and task failures.
+- [ ] **OPS-01**: Correlia emits structured logs for ingestion, normalization, enrichment, rule matching, incident upsert, notification dispatch, recovery, expiration, and task failures.
+- [ ] **OPS-02**: Correlia exposes readiness signals for database connectivity, config validity, plugin registry load, and background task health.
+- [ ] **OPS-03**: Correlia exposes low-cardinality metrics for accepted events, rejected events, matched rules, incident inserts/updates/resolutions/expirations, notification attempts/failures, and task failures.
 - [ ] **OPS-04**: Maintainer can run automated tests that cover domain models, config validation, Icinga2 mapping, topology enrichment, rule evaluation, notification dispatch, recovery, and expiration, with PostgreSQL integration/concurrency paths exercised through Testcontainers for Python instead of SQLite.
 
 ## v2 Requirements
@@ -109,7 +109,7 @@ Deferred to future release. Tracked but not in current roadmap.
 ### Distributed Execution
 
 - **RUN-01**: Maintainer can replace the asyncio runner with a Celery/Redis task runner without changing core processing logic.
-- **RUN-02**: Vigilo can retry notification tasks with durable outbox semantics suitable for multi-instance deployments.
+- **RUN-02**: Correlia can retry notification tasks with durable outbox semantics suitable for multi-instance deployments.
 
 ### Advanced Operations
 
@@ -118,7 +118,7 @@ Deferred to future release. Tracked but not in current roadmap.
 - **ADV-03**: Operator can configure API-managed suppressions, silences, or maintenance windows.
 - **ADV-04**: Operator can send notifications through additional output plugins such as Slack, generic webhook, PagerDuty Events API, or Grafana OnCall.
 - **ADV-05**: API clients can subscribe to streaming incident/event updates.
-- **ADV-06**: Vigilo can assist with root-cause hints after enough deterministic incident history exists.
+- **ADV-06**: Correlia can assist with root-cause hints after enough deterministic incident history exists.
 - **ADV-07**: Operator can enable an AI-driven topology enricher plugin after the static YAML topology plugin and plugin boundary are stable.
 
 ## Out of Scope
@@ -127,8 +127,8 @@ Explicitly excluded. Documented to prevent scope creep.
 
 | Feature | Reason |
 |---------|--------|
-| Built-in web frontend | Vigilo is API-first; UI can be a separate client after backend behavior is proven. |
-| Full on-call scheduling or escalation platform | Vigilo dispatches to output integrations rather than replacing PagerDuty/Grafana OnCall. |
+| Built-in web frontend | Correlia is API-first; UI can be a separate client after backend behavior is proven. |
+| Full on-call scheduling or escalation platform | Correlia dispatches to output integrations rather than replacing PagerDuty/Grafana OnCall. |
 | Celery/Redis runner in v1 | The task runner seam is required, but broker-backed execution waits for measured need. |
 | Multiple input plugins at launch | Icinga2 must prove the normalized-event and lifecycle contracts first. |
 | Bidirectional Icinga2 acknowledgement/mutation | Requires source-of-truth and permissions decisions outside v1 aggregation scope. |
