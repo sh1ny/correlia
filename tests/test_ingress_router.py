@@ -504,3 +504,156 @@ async def test_response_conflict_diagnostic_only_includes_matched_rule(
     assert diag["tags_added"] == {}
     assert diag["tags_overridden"] == [["topology.role", "old", "web"]]
     assert diag["conflicts"] == [["topology.role", "old", "web"]]
+
+# ---------------------------------------------------------------------------
+# Rule engine integration via HTTP entrypoint
+# ---------------------------------------------------------------------------
+async def test_response_with_no_rule_match_returns_empty_matched_rules(
+    tmp_path: Path,
+) -> None:
+    rules_path = tmp_path / "rules.yaml"
+    rules_path.write_text(
+        yaml.safe_dump(
+            {
+                "rules": [
+                    {
+                        "name": "db-only",
+                        "priority": 10,
+                        "match": {
+                            "severities": ["CRITICAL"],
+                            "host_pattern": "db-.*",
+                        },
+                        "window": {
+                            "duration_seconds": 60,
+                            "group_by": ["host"],
+                            "trigger_threshold": 1,
+                        },
+                        "output_summary": "x",
+                        "actions": [
+                            {"name": "create_incident", "plugin": "default_output"}
+                        ],
+                    }
+                ]
+            }
+        )
+    )
+    processor = build_icinga2_processor(rules_path=rules_path)
+    app = create_app(
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        sessionmaker=lambda: object(),
+        icinga2_processor=processor,
+    )
+    async for client in get_client(app):
+        response = await client.post(
+            "/webhooks/icinga2",
+            json=valid_icinga2_service_payload(),
+        )
+    body = response.json()
+    assert body["state_accepted"] is True
+    assert body["matched_rules"] == []
+    assert body["group_key"] is None
+    assert body["threshold_decision"] is None
+    assert body["rule_decision"]["reason"] == "no matching rule"
+
+async def test_recovery_event_returns_no_rule_match(tmp_path: Path) -> None:
+    rules_path = tmp_path / "rules.yaml"
+    rules_path.write_text(
+        yaml.safe_dump(
+            {
+                "rules": [
+                    {
+                        "name": "all",
+                        "priority": 10,
+                        "match": {"severities": ["OK"], "host_pattern": ".*"},
+                        "window": {
+                            "duration_seconds": 60,
+                            "group_by": ["host"],
+                            "trigger_threshold": 1,
+                        },
+                        "output_summary": "x",
+                        "actions": [
+                            {"name": "create_incident", "plugin": "default_output"}
+                        ],
+                    }
+                ]
+            }
+        )
+    )
+    processor = build_icinga2_processor(rules_path=rules_path)
+    app = create_app(
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        sessionmaker=lambda: object(),
+        icinga2_processor=processor,
+    )
+    payload = valid_icinga2_host_payload()
+    payload["state"] = "UP"
+    async for client in get_client(app):
+        response = await client.post("/webhooks/icinga2", json=payload)
+    body = response.json()
+    assert body["state_accepted"] is True
+    assert body["event_type"] == "RECOVERY"
+    assert body["severity"] == "OK"
+    assert body["matched_rules"] == []
+    assert body["group_key"] is None
+    assert body["threshold_decision"] is None
+
+async def test_response_with_rule_match_contains_group_key_and_threshold(
+    tmp_path: Path,
+) -> None:
+    rules_path = tmp_path / "rules.yaml"
+    rules_path.write_text(
+        yaml.safe_dump(
+            {
+                "rules": [
+                    {
+                        "name": "web-critical",
+                        "priority": 10,
+                        "match": {
+                            "severities": ["CRITICAL"],
+                            "host_pattern": "web-.*",
+                            "service_pattern": "http",
+                        },
+                        "window": {
+                            "duration_seconds": 300,
+                            "group_by": ["host", "service"],
+                            "trigger_threshold": 1,
+                        },
+                        "output_summary": "Critical {service} on {host}",
+                        "actions": [
+                            {"name": "create_incident", "plugin": "default_output"}
+                        ],
+                    }
+                ]
+            }
+        )
+    )
+    processor = build_icinga2_processor(rules_path=rules_path)
+    app = create_app(
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        sessionmaker=lambda: object(),
+        icinga2_processor=processor,
+    )
+    async for client in get_client(app):
+        response = await client.post(
+            "/webhooks/icinga2",
+            json=valid_icinga2_service_payload(),
+        )
+    body = response.json()
+    assert body["state_accepted"] is True
+    assert body["matched_rules"] == ["web-critical"]
+    assert body["group_key"] == "host=web-01|service=http"
+    assert body["threshold_decision"] is not None
+    td = body["threshold_decision"]
+    assert td["rule_name"] == "web-critical"
+    assert td["group_key"] == "host=web-01|service=http"
+    assert td["threshold"] == 1
+    assert td["counted"] == 1
+    assert td["crossed"] is True
+    assert td["counted_fingerprints"] == [body["fingerprint"]]
+    assert body["rule_decision"]["rule_name"] == "web-critical"
+    assert body["rule_decision"]["priority"] == 10
+    assert body["rule_decision"]["summary"] == "Critical http on web-01"
+    assert body["incident_effects"]["inserted"] == 0
+    assert body["incident_effects"]["updated"] == 0
+    assert body["closure_count"] == 0
+    assert body["notification_count"] == 0
