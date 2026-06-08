@@ -43,6 +43,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **TOP-03**: Vigilo enriches events with topology tags using hostname matches before IP subnet fallback.
 - [ ] **TOP-04**: Vigilo preserves or explicitly resolves conflicts between source-provided tags and enrichment-derived tags.
 - [ ] **TOP-05**: Operator can see enrichment diagnostics sufficient to explain which topology rule affected an event.
+- [ ] **TOP-06**: Maintainer can add new topology enricher implementations behind a topology enrichment plugin interface without changing rule evaluation or incident processing.
 
 ### Rule Engine
 
@@ -94,7 +95,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **OPS-01**: Vigilo emits structured logs for ingestion, normalization, enrichment, rule matching, incident upsert, notification dispatch, recovery, expiration, and task failures.
 - [ ] **OPS-02**: Vigilo exposes readiness signals for database connectivity, config validity, plugin registry load, and background task health.
 - [ ] **OPS-03**: Vigilo exposes low-cardinality metrics for accepted events, rejected events, matched rules, incident inserts/updates/resolutions/expirations, notification attempts/failures, and task failures.
-- [ ] **OPS-04**: Maintainer can run automated tests that cover domain models, config validation, Icinga2 mapping, topology enrichment, rule evaluation, PostgreSQL upsert concurrency, notification dispatch, recovery, and expiration.
+- [ ] **OPS-04**: Maintainer can run automated tests that cover domain models, config validation, Icinga2 mapping, topology enrichment, rule evaluation, notification dispatch, recovery, and expiration, with PostgreSQL integration/concurrency paths exercised through Testcontainers for Python instead of SQLite.
 
 ## v2 Requirements
 
@@ -118,6 +119,7 @@ Deferred to future release. Tracked but not in current roadmap.
 - **ADV-04**: Operator can send notifications through additional output plugins such as Slack, generic webhook, PagerDuty Events API, or Grafana OnCall.
 - **ADV-05**: API clients can subscribe to streaming incident/event updates.
 - **ADV-06**: Vigilo can assist with root-cause hints after enough deterministic incident history exists.
+- **ADV-07**: Operator can enable an AI-driven topology enricher plugin after the static YAML topology plugin and plugin boundary are stable.
 
 ## Out of Scope
 
@@ -130,7 +132,8 @@ Explicitly excluded. Documented to prevent scope creep.
 | Celery/Redis runner in v1 | The task runner seam is required, but broker-backed execution waits for measured need. |
 | Multiple input plugins at launch | Icinga2 must prove the normalized-event and lifecycle contracts first. |
 | Bidirectional Icinga2 acknowledgement/mutation | Requires source-of-truth and permissions decisions outside v1 aggregation scope. |
-| ML/AI correlation in v1 | Deterministic, explainable correlation must exist before probabilistic assistance is useful. |
+| ML/AI incident correlation in v1 | Deterministic, explainable incident correlation must exist before probabilistic assistance is useful. |
+| AI-driven topology enrichment in the initial topology phase | The plugin seam belongs in v1, but the AI implementation should wait until the static YAML enricher proves the contract. |
 | SQLite incident state | Required PostgreSQL partial indexes/upserts are core to correctness. |
 | Unsafe YAML execution or raw plugin code from config | YAML is declarative configuration only; plugins must be trusted Python modules. |
 
@@ -162,6 +165,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TOP-03 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
 | TOP-04 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
 | TOP-05 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
+| TOP-06 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
 | RUL-01 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
 | RUL-02 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
 | RUL-03 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Pending |
@@ -198,8 +202,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | OPS-04 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
 
 **Coverage:**
-- v1 requirements: 56 total
-- Mapped to phases: 56
+- v1 requirements: 57 total
+- Mapped to phases: 57
 - Unmapped: 0 ✓
 
 ---
