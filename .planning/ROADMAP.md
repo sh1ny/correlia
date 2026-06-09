@@ -109,7 +109,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. Operators can inspect loaded rules, topology summaries, plugin registry status, health, readiness, structured logs, and low-cardinality metrics without exposing secrets.
   5. Maintainer can run automated coverage for domain models, config validation, Icinga2 mapping, topology enrichment, rule evaluation, PostgreSQL upsert concurrency, notification dispatch, recovery, and expiration.
 
-**Plans:** 1/5 plans executed
+**Plans:** 2/5 plans executed
 
 ## Requirement Coverage
 
@@ -132,7 +132,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Foundations, Contracts, and Database Invariant | 5/5 | Complete    | 2026-06-08 |
 | 2. Icinga2 Ingress, Topology, and Rule Decisions | 3/3 | Complete    | 2026-06-08 |
 | 3. Problem Aggregation and Notification Dispatch | 3/3 | Complete    | 2026-06-09 |
-| 4. Lifecycle, Operator APIs, and Operability | 1/5 | In Progress|  |
+| 4. Lifecycle, Operator APIs, and Operability | 2/5 | In Progress|  |
 ---
 *Roadmap created: 2026-06-08*
 *Granularity: coarse*

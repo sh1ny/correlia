@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 04-01-PLAN.md
-last_updated: "2026-06-09T14:35:40.394Z"
+stopped_at: Completed 04-02-PLAN.md
+last_updated: "2026-06-09T14:48:24.230Z"
 last_activity: 2026-06-09 -- Phase 04 execution started
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 16
-  completed_plans: 12
-  percent: 75
+  completed_plans: 13
+  percent: 81
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-06-09)
 ## Current Position
 
 Phase: 04 (lifecycle-operator-apis-and-operability) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Last activity: 2026-06-09 -- Phase 04 execution started
 
-Progress: [███████████████░░░░░] 75%
+Progress: [████████░░] 81%
 
 ## Performance Metrics
 
@@ -63,6 +63,7 @@ Progress: [███████████████░░░░░] 75%
 | Phase 02-icinga2-ingress-topology-and-rule-decisions P2 | 18min | 3 tasks | 7 files |
 | Phase 02-icinga2-ingress-topology-and-rule-decisions P3 | 15min | 3 tasks | 7 files |
 | Phase 04-lifecycle-operator-apis-and-operability P1 | 9min | 2 tasks | 8 files |
+| Phase 04-lifecycle-operator-apis-and-operability P2 | 8min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -94,7 +95,9 @@ Recent decisions affecting current work:
 
 [From .planning/todos/pending/ — ideas captured during sessions]
 
-None yet.
+- [Phase 04]: [Phase 04 Plan 02]: Stale expiration uses PostgreSQL func.now() and per-incident window_state.window_seconds; application clocks do not decide staleness.
+- [Phase 04]: [Phase 04 Plan 02]: Expired incidents transition OPEN to CLOSED with lifecycle.reason=expired, never RESOLVED/source_recovery.
+- [Phase 04]: [Phase 04 Plan 02]: LifecycleWorker is owned by FastAPI lifespan and remains separate from TaskRunner notification dispatch.
 
 ### Blockers/Concerns
 
@@ -121,6 +124,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-09T14:35:40.391Z
-Stopped at: Completed 04-01-PLAN.md
+Last session: 2026-06-09T14:48:24.226Z
+Stopped at: Completed 04-02-PLAN.md
 Resume file: None
