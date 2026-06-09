@@ -79,8 +79,8 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **LCY-02**: Correlia resolves active incidents containing the recovered host.
 - [x] **LCY-03**: Correlia resolves only matching service-level incidents when a service recovery event arrives.
 - [x] **LCY-04**: Correlia appends or records resolution context when incidents move to `RESOLVED`.
-- [ ] **LCY-05**: Correlia expires stale active incidents after the configured rule window when no further events arrive.
-- [ ] **LCY-06**: Correlia starts and stops lifecycle background work through FastAPI lifespan handling.
+- [x] **LCY-05**: Correlia expires stale active incidents after the configured rule window when no further events arrive.
+- [x] **LCY-06**: Correlia starts and stops lifecycle background work through FastAPI lifespan handling.
 
 ### Operator REST API
 
@@ -93,9 +93,9 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Operability
 
 - [ ] **OPS-01**: Correlia emits structured logs for ingestion, normalization, enrichment, rule matching, incident upsert, notification dispatch, recovery, expiration, and task failures.
-- [ ] **OPS-02**: Correlia exposes readiness signals for database connectivity, config validity, plugin registry load, and background task health.
+- [x] **OPS-02**: Correlia exposes readiness signals for database connectivity, config validity, plugin registry load, and background task health.
 - [ ] **OPS-03**: Correlia exposes low-cardinality metrics for accepted events, rejected events, matched rules, incident inserts/updates/resolutions/expirations, notification attempts/failures, and task failures.
-- [ ] **OPS-04**: Maintainer can run automated tests that cover domain models, config validation, Icinga2 mapping, topology enrichment, rule evaluation, notification dispatch, recovery, and expiration, with PostgreSQL integration/concurrency paths exercised through Testcontainers for Python instead of SQLite.
+- [x] **OPS-04**: Maintainer can run automated tests that cover domain models, config validation, Icinga2 mapping, topology enrichment, rule evaluation, notification dispatch, recovery, and expiration, with PostgreSQL integration/concurrency paths exercised through Testcontainers for Python instead of SQLite.
 
 ## v2 Requirements
 
@@ -189,17 +189,17 @@ Which phases cover which requirements. Updated during roadmap creation.
 | LCY-02 | Phase 4: Lifecycle, Operator APIs, and Operability | Complete |
 | LCY-03 | Phase 4: Lifecycle, Operator APIs, and Operability | Complete |
 | LCY-04 | Phase 4: Lifecycle, Operator APIs, and Operability | Complete |
-| LCY-05 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
-| LCY-06 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
+| LCY-05 | Phase 4: Lifecycle, Operator APIs, and Operability | Complete |
+| LCY-06 | Phase 4: Lifecycle, Operator APIs, and Operability | Complete |
 | API-01 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
 | API-02 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
 | API-03 | Phase 4: Lifecycle, Operator APIs, and Operability | Complete |
 | API-04 | Phase 4: Lifecycle, Operator APIs, and Operability | Complete |
 | API-05 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
 | OPS-01 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
-| OPS-02 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
+| OPS-02 | Phase 4: Lifecycle, Operator APIs, and Operability | Complete |
 | OPS-03 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
-| OPS-04 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
+| OPS-04 | Phase 4: Lifecycle, Operator APIs, and Operability | Complete |
 
 **Coverage:**
 
