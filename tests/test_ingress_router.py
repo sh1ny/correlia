@@ -520,6 +520,42 @@ def test_recovery_branch_does_not_call_apply_problem_or_raw_state_names() -> Non
 # ING-01: POST /webhooks/icinga2 exists and returns 200
 
 
+async def test_icinga2_ingest_failure_logs_only_safe_structured_fields(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class ExplodingProcessor:
+        async def process_payload(self, payload):
+            raise RuntimeError("token-secret traceback should not be logged")
+
+    app = create_app(
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        sessionmaker=lambda: object(),
+        icinga2_processor=ExplodingProcessor(),
+        lifecycle_worker=NoopLifecycleWorker(),
+    )
+    caplog.set_level(logging.ERROR, logger="app.api.routers.ingress")
+
+    async for client in get_client(app):
+        response = await client.post(
+            "/v1/icinga2/events",
+            json=valid_icinga2_service_payload(),
+        )
+
+    assert response.status_code == 500
+    events = [
+        record.__dict__
+        for record in caplog.records
+        if record.__dict__.get("event") == "ingestion_failed"
+    ]
+    assert len(events) == 1
+    assert events[0]["exception_type"] == "RuntimeError"
+    serialized = "\n".join(
+        record.getMessage() + repr(record.__dict__) for record in caplog.records
+    )
+    for fragment in ("token-secret", "traceback", "Traceback"):
+        assert fragment not in serialized
+
+
 async def test_post_webhook_icinga2_returns_200_for_hard_service() -> None:
     processor = build_icinga2_processor()
     app = create_app(

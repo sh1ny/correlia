@@ -10,6 +10,7 @@ from app.api.deps import get_icinga2_processor
 from app.domain.rules import IngressDecisionEnvelope
 from app.plugins.inputs.icinga2 import Icinga2WebhookPayload
 from app.processing.ingress import Icinga2DecisionProcessor
+from app.processing.logging import safe_log_extra
 
 router = APIRouter(prefix="/v1")
 logger = logging.getLogger(__name__)
@@ -22,7 +23,13 @@ async def ingest_icinga2(
     try:
         return await processor.process_payload(payload)
     except Exception as exc:
-        logger.exception("icinga2 ingest failed")
+        logger.error(
+            "icinga2 ingest failed",
+            extra=safe_log_extra(
+                event="ingestion_failed",
+                exception_type=type(exc).__name__,
+            ),
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="ingest failed",
