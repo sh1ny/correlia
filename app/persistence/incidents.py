@@ -27,6 +27,9 @@ from app.persistence.models import Incident
 MAX_AFFECTED_HOSTS = 100
 MAX_AFFECTED_SERVICES = 100
 MAX_WINDOW_FINGERPRINTS = 100
+MAX_ACTIVE_SERVICE_PAIRS = 100
+SERVICE_PAIR_SEPARATOR = "\x1f"
+
 
 IncidentEffect = Literal["inserted", "updated"]
 
@@ -60,6 +63,31 @@ def _bounded_sorted_union(
     existing: list[str], incoming: tuple[str, ...], max_items: int
 ) -> list[str]:
     return sorted({*existing, *incoming})[:max_items]
+
+
+def _service_pair_key(host: str, service: str) -> str:
+    return f"{host}{SERVICE_PAIR_SEPARATOR}{service}"
+
+
+def _service_pair_parts(pair: str) -> tuple[str, str] | None:
+    host, separator, service = pair.partition(SERVICE_PAIR_SEPARATOR)
+    if not separator or not host or not service:
+        return None
+    return host, service
+
+
+def _service_pair_keys(hosts: tuple[str, ...], services: tuple[str, ...]) -> tuple[str, ...]:
+    if not services:
+        return ()
+    return tuple(
+        sorted(
+            {
+                _service_pair_key(host, service)
+                for host in hosts
+                for service in services
+            }
+        )[:MAX_ACTIVE_SERVICE_PAIRS]
+    )
 
 
 def _jsonb_sorted_union(existing_column: Any, excluded_name: str, max_items: int) -> Any:
@@ -216,6 +244,9 @@ def _window_state_from_json(data: dict[str, Any]) -> IncidentWindowState:
         str(fingerprint): _parse_timestamp(timestamp)
         for fingerprint, timestamp in data.get("counted_fingerprint_timestamps", {}).items()
     }
+    active_service_pairs = tuple(
+        str(pair) for pair in data.get("active_service_pairs", ())
+    )
     return IncidentWindowState(
         window_started_at=_parse_timestamp(data["window_started_at"]),
         window_ended_at=_parse_timestamp(data["window_ended_at"]),
@@ -224,6 +255,18 @@ def _window_state_from_json(data: dict[str, Any]) -> IncidentWindowState:
         counted_fingerprint_timestamps=timestamps,
         counted_count=int(data["counted_count"]),
         max_size=int(data["max_size"]),
+        active_service_pairs=active_service_pairs,
+    )
+
+
+def _active_service_pairs_from_incident(incident: Incident) -> tuple[str, ...]:
+    if incident.window_state:
+        pairs = _window_state_from_json(incident.window_state).active_service_pairs
+        if pairs:
+            return pairs
+    return _service_pair_keys(
+        tuple(incident.affected_hosts),
+        tuple(incident.affected_services),
     )
 
 
@@ -239,6 +282,10 @@ def _initial_window_state(input: IncidentUpsertInput) -> IncidentWindowState:
         counted_fingerprint_timestamps={fingerprint: input.event_time},
         counted_count=1,
         max_size=input.max_window_fingerprints,
+        active_service_pairs=_service_pair_keys(
+            input.affected_hosts,
+            input.affected_services,
+        ),
     )
 
 
@@ -272,6 +319,14 @@ def _next_window_state(
         retained = dict(newest)
 
     retained = dict(sorted(retained.items()))
+    active_service_pairs = tuple(
+        sorted(
+            {
+                *_active_service_pairs_from_incident(existing),
+                *_service_pair_keys(input.affected_hosts, input.affected_services),
+            }
+        )[:MAX_ACTIVE_SERVICE_PAIRS]
+    )
     state = IncidentWindowState(
         window_started_at=window_start,
         window_ended_at=window_end,
@@ -280,6 +335,7 @@ def _next_window_state(
         counted_fingerprint_timestamps=retained,
         counted_count=len(retained),
         max_size=input.max_window_fingerprints,
+        active_service_pairs=active_service_pairs,
     )
     return state, replay, inside_window, counted
 
@@ -728,6 +784,34 @@ def _lifecycle_context(
     candidate["event_count"] = incident.event_count
     return DecisionContext.model_validate(candidate).model_dump(mode="json")
 
+def _window_state_with_active_pairs(
+    incident: Incident,
+    active_service_pairs: tuple[str, ...],
+) -> dict[str, Any]:
+    state = _window_state_from_json(incident.window_state)
+    return _window_state_dump(
+        state.model_copy(
+            update={"active_service_pairs": tuple(sorted(active_service_pairs))}
+        )
+    )
+
+
+def _affected_sets_from_service_pairs(
+    active_service_pairs: tuple[str, ...],
+) -> tuple[list[str], list[str]]:
+    hosts: set[str] = set()
+    services: set[str] = set()
+    for pair in active_service_pairs:
+        parts = _service_pair_parts(pair)
+        if parts is None:
+            continue
+        host, service = parts
+        hosts.add(host)
+        services.add(service)
+    return sorted(hosts), sorted(services)
+
+
+
 
 async def _shrink_affected_sets(
     session: AsyncSession,
@@ -736,17 +820,24 @@ async def _shrink_affected_sets(
     new_hosts: list[str],
     new_services: list[str],
     decision_context: dict[str, Any],
+    active_service_pairs: tuple[str, ...] | None = None,
 ) -> Incident:
+    update_values: dict[str, Any] = {
+        "affected_hosts": new_hosts,
+        "affected_services": new_services,
+        "decision_context": decision_context,
+        "updated_at": func.now(),
+    }
+    if active_service_pairs is not None:
+        update_values["window_state"] = _window_state_with_active_pairs(
+            incident,
+            active_service_pairs,
+        )
     result = await session.execute(
         update(Incident)
         .where(Incident.id == incident.id)
         .where(Incident.status == IncidentStatus.OPEN.value)
-        .values(
-            affected_hosts=new_hosts,
-            affected_services=new_services,
-            decision_context=decision_context,
-            updated_at=func.now(),
-        )
+        .values(**update_values)
         .returning(*Incident.__table__.columns)
     )
     return _incident_from_mapping(result.mappings().one())
@@ -758,6 +849,7 @@ async def _resolve_to_resolved(
     *,
     decision_context: dict[str, Any],
 ) -> Incident:
+    window_state = _window_state_with_active_pairs(incident, ())
     target = validate_incident_transition(IncidentStatus.OPEN, IncidentStatus.RESOLVED)
     result = await session.execute(
         update(Incident)
@@ -768,6 +860,7 @@ async def _resolve_to_resolved(
             affected_hosts=[],
             affected_services=[],
             decision_context=decision_context,
+            window_state=window_state,
             resolved_at=func.now(),
             updated_at=func.now(),
         )
@@ -794,9 +887,24 @@ async def resolve_host_recovery(
     for incident in candidates.scalars():
         previous_host_count = len(incident.affected_hosts)
         previous_service_count = len(incident.affected_services)
-        new_hosts = sorted(item for item in incident.affected_hosts if item != host)
-        if len(new_hosts) == previous_host_count:
-            continue
+        active_service_pairs = _active_service_pairs_from_incident(incident)
+        if active_service_pairs:
+            new_active_service_pairs = tuple(
+                pair
+                for pair in active_service_pairs
+                if (parts := _service_pair_parts(pair)) is not None and parts[0] != host
+            )
+            if len(new_active_service_pairs) == len(active_service_pairs):
+                continue
+            new_hosts, new_services = _affected_sets_from_service_pairs(
+                new_active_service_pairs
+            )
+        else:
+            new_active_service_pairs = None
+            new_hosts = sorted(item for item in incident.affected_hosts if item != host)
+            new_services = list(incident.affected_services)
+            if len(new_hosts) == previous_host_count:
+                continue
         decision_context = _lifecycle_context(
             incident,
             reason="source_recovery",
@@ -807,7 +915,7 @@ async def resolve_host_recovery(
             previous_host_count=previous_host_count,
             previous_service_count=previous_service_count,
         )
-        if not new_hosts and not incident.affected_services:
+        if not new_hosts and not new_services:
             updated = await _resolve_to_resolved(
                 session,
                 incident,
@@ -828,8 +936,9 @@ async def resolve_host_recovery(
             session,
             incident,
             new_hosts=new_hosts,
-            new_services=list(incident.affected_services),
+            new_services=new_services,
             decision_context=decision_context,
+            active_service_pairs=new_active_service_pairs,
         )
         results.append(
             LifecycleWriteResult(
@@ -864,23 +973,16 @@ async def resolve_service_recovery(
     for incident in candidates.scalars():
         previous_host_count = len(incident.affected_hosts)
         previous_service_count = len(incident.affected_services)
-        remaining_services = sorted(item for item in incident.affected_services if item != service)
-        remaining_hosts = sorted(item for item in incident.affected_hosts if item != host)
-        new_services = (
-            remaining_services
-            if previous_host_count == 1
-            else list(incident.affected_services)
-        )
-        new_hosts = (
-            remaining_hosts
-            if previous_service_count == 1
-            else list(incident.affected_hosts)
-        )
-        if (
-            len(new_hosts) == previous_host_count
-            and len(new_services) == previous_service_count
-        ):
+        active_service_pairs = _active_service_pairs_from_incident(incident)
+        recovered_pair = _service_pair_key(host, service)
+        if recovered_pair not in active_service_pairs:
             continue
+        new_active_service_pairs = tuple(
+            pair for pair in active_service_pairs if pair != recovered_pair
+        )
+        new_hosts, new_services = _affected_sets_from_service_pairs(
+            new_active_service_pairs
+        )
         decision_context = _lifecycle_context(
             incident,
             reason="source_recovery",
@@ -915,6 +1017,7 @@ async def resolve_service_recovery(
             new_hosts=new_hosts,
             new_services=new_services,
             decision_context=decision_context,
+            active_service_pairs=new_active_service_pairs,
         )
         results.append(
             LifecycleWriteResult(
