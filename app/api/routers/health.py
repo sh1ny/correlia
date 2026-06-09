@@ -7,7 +7,7 @@ from app.api.deps import get_app_settings, get_sessionmaker
 from app.config.settings import Settings
 from app.persistence.database import check_database_ready
 
-router = APIRouter()
+router = APIRouter(prefix="/v1")
 
 
 @router.get("/health")

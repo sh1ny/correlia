@@ -4,11 +4,14 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.api.routers.config_status import router as config_status_router
 from app.api.routers.health import router as health_router
 from app.api.routers.incidents import router as incidents_router
 from app.api.routers.ingress import router as ingress_router
 from app.api.routers.plugins import router as plugins_router
+from app.config.rules import CompiledRuleConfig, load_rules_config
 from app.config.settings import Settings, get_settings
+from app.config.topology import CompiledTopologyConfig, load_topology_config
 from app.persistence.database import create_engine, create_sessionmaker
 from app.plugins.loader import PluginRegistry, load_plugin_registry
 from app.processing.ingress import Icinga2DecisionProcessor, build_icinga2_processor
@@ -35,6 +38,25 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             load_plugin_registry(plugins_path)
             if plugins_path is not None
             else PluginRegistry((), "")
+        )
+
+    if not hasattr(app.state, "rules_config"):
+        rules_path = getattr(app.state.settings, "rules_path", None)
+        app.state.rules_config = (
+            load_rules_config(
+                rules_path,
+                known_plugins=frozenset(app.state.plugin_registry.names),
+            )
+            if rules_path is not None
+            else CompiledRuleConfig((), "")
+        )
+
+    if not hasattr(app.state, "topology_config"):
+        topology_path = getattr(app.state.settings, "topology_path", None)
+        app.state.topology_config = (
+            load_topology_config(topology_path)
+            if topology_path is not None
+            else CompiledTopologyConfig((), ())
         )
 
     if not hasattr(app.state, "task_runner"):
@@ -107,5 +129,6 @@ def create_app(
     app.include_router(health_router)
     app.include_router(ingress_router)
     app.include_router(plugins_router)
+    app.include_router(config_status_router)
     app.include_router(incidents_router)
     return app

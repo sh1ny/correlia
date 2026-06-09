@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends
 from app.api.deps import get_plugin_registry
 from app.plugins.loader import PluginRegistry
 
-router = APIRouter()
+router = APIRouter(prefix="/v1")
 
 
 @router.get("/plugins")

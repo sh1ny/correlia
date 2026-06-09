@@ -227,11 +227,11 @@ async def test_icinga2_problem_webhook_aggregates_and_submits_notifications_once
 
     async for client in get_client(app):
         first = await client.post(
-            "/webhooks/icinga2",
+            "/v1/icinga2/events",
             json=_payload(host="web-01", source_id="icinga2:service:web-01:http"),
         )
         second = await client.post(
-            "/webhooks/icinga2",
+            "/v1/icinga2/events",
             json=_payload(
                 host="web-02",
                 source_id="icinga2:service:web-02:http",
@@ -239,7 +239,7 @@ async def test_icinga2_problem_webhook_aggregates_and_submits_notifications_once
             ),
         )
         replay = await client.post(
-            "/webhooks/icinga2",
+            "/v1/icinga2/events",
             json=_payload(
                 host="web-02",
                 source_id="icinga2:service:web-02:http",
@@ -247,7 +247,7 @@ async def test_icinga2_problem_webhook_aggregates_and_submits_notifications_once
             ),
         )
         already = await client.post(
-            "/webhooks/icinga2",
+            "/v1/icinga2/events",
             json=_payload(
                 host="web-03",
                 source_id="icinga2:service:web-03:http",
@@ -320,7 +320,7 @@ async def test_recovery_event_does_not_enter_problem_aggregation(
     payload["state"] = "UP"
 
     async for client in get_client(app):
-        response = await client.post("/webhooks/icinga2", json=payload)
+        response = await client.post("/v1/icinga2/events", json=payload)
 
     body = response.json()
     assert body["event_type"] == "RECOVERY"
@@ -368,7 +368,7 @@ async def test_recovery_routes_to_lifecycle_without_problem_upsert(
     payload["state"] = "OK"
 
     async for client in get_client(app):
-        response = await client.post("/webhooks/icinga2", json=payload)
+        response = await client.post("/v1/icinga2/events", json=payload)
 
     body = response.json()
     assert body["event_type"] == "RECOVERY"
@@ -429,7 +429,7 @@ async def test_recovery_response_contains_lifecycle_outcome_without_notification
     payload["state"] = "OK"
 
     async for client in get_client(app):
-        response = await client.post("/webhooks/icinga2", json=payload)
+        response = await client.post("/v1/icinga2/events", json=payload)
         await task_runner.drain()
 
     body = response.json()
@@ -464,7 +464,7 @@ async def test_post_webhook_icinga2_returns_200_for_hard_service() -> None:
     )
     async for client in get_client(app):
         response = await client.post(
-            "/webhooks/icinga2",
+            "/v1/icinga2/events",
             json=valid_icinga2_service_payload(),
         )
     assert response.status_code == 200
@@ -479,7 +479,7 @@ async def test_post_webhook_icinga2_returns_200_for_hard_host() -> None:
     )
     async for client in get_client(app):
         response = await client.post(
-            "/webhooks/icinga2",
+            "/v1/icinga2/events",
             json=valid_icinga2_host_payload(),
         )
     assert response.status_code == 200
@@ -497,7 +497,7 @@ async def test_response_contains_state_accepted_true_for_hard_event() -> None:
     )
     async for client in get_client(app):
         response = await client.post(
-            "/webhooks/icinga2",
+            "/v1/icinga2/events",
             json=valid_icinga2_service_payload(),
         )
     body = response.json()
@@ -513,7 +513,7 @@ async def test_response_contains_event_id_equal_to_fingerprint() -> None:
     )
     async for client in get_client(app):
         response = await client.post(
-            "/webhooks/icinga2",
+            "/v1/icinga2/events",
             json=valid_icinga2_service_payload(),
         )
     body = response.json()
@@ -530,7 +530,7 @@ async def test_response_contains_mapped_event_type_and_severity() -> None:
     )
     async for client in get_client(app):
         response = await client.post(
-            "/webhooks/icinga2",
+            "/v1/icinga2/events",
             json=valid_icinga2_service_payload(),
         )
     body = response.json()
@@ -549,7 +549,7 @@ async def test_response_contains_mapped_recovery_event_type_and_severity() -> No
     )
     async for client in get_client(app):
         response = await client.post(
-            "/webhooks/icinga2",
+            "/v1/icinga2/events",
             json=payload,
         )
     body = response.json()
@@ -566,7 +566,7 @@ async def test_response_contains_final_tags() -> None:
     )
     async for client in get_client(app):
         response = await client.post(
-            "/webhooks/icinga2",
+            "/v1/icinga2/events",
             json=valid_icinga2_service_payload(),
         )
     body = response.json()
@@ -584,7 +584,7 @@ async def test_response_contains_empty_matched_rules() -> None:
     )
     async for client in get_client(app):
         response = await client.post(
-            "/webhooks/icinga2",
+            "/v1/icinga2/events",
             json=valid_icinga2_service_payload(),
         )
     body = response.json()
@@ -600,7 +600,7 @@ async def test_response_contains_none_group_key() -> None:
     )
     async for client in get_client(app):
         response = await client.post(
-            "/webhooks/icinga2",
+            "/v1/icinga2/events",
             json=valid_icinga2_service_payload(),
         )
     body = response.json()
@@ -616,7 +616,7 @@ async def test_response_contains_zero_incident_effects() -> None:
     )
     async for client in get_client(app):
         response = await client.post(
-            "/webhooks/icinga2",
+            "/v1/icinga2/events",
             json=valid_icinga2_service_payload(),
         )
     body = response.json()
@@ -639,7 +639,7 @@ async def test_soft_state_returns_state_accepted_false() -> None:
     payload = valid_icinga2_service_payload()
     payload["state_type"] = "SOFT"
     async for client in get_client(app):
-        response = await client.post("/webhooks/icinga2", json=payload)
+        response = await client.post("/v1/icinga2/events", json=payload)
     assert response.status_code == 200
     body = response.json()
     assert body["state_accepted"] is False
@@ -659,7 +659,7 @@ async def test_extra_field_rejected_with_422() -> None:
     payload = valid_icinga2_service_payload()
     payload["extra"] = "surprise"
     async for client in get_client(app):
-        response = await client.post("/webhooks/icinga2", json=payload)
+        response = await client.post("/v1/icinga2/events", json=payload)
     assert response.status_code == 422
 
 
@@ -673,7 +673,7 @@ async def test_host_with_service_state_rejected_with_422() -> None:
     payload = valid_icinga2_host_payload()
     payload["state"] = "OK"
     async for client in get_client(app):
-        response = await client.post("/webhooks/icinga2", json=payload)
+        response = await client.post("/v1/icinga2/events", json=payload)
     assert response.status_code == 422
 
 
@@ -687,7 +687,7 @@ async def test_naive_timestamp_rejected_with_422() -> None:
     payload = valid_icinga2_service_payload()
     payload["timestamp"] = "2026-06-08T12:00:00"
     async for client in get_client(app):
-        response = await client.post("/webhooks/icinga2", json=payload)
+        response = await client.post("/v1/icinga2/events", json=payload)
     assert response.status_code == 422
 
 
@@ -715,7 +715,7 @@ async def test_response_body_does_not_contain_secrets_or_raw_payload(
     )
     async for client in get_client(app):
         response = await client.post(
-            "/webhooks/icinga2",
+            "/v1/icinga2/events",
             json=valid_icinga2_service_payload(),
         )
     response_body = response.text
@@ -799,7 +799,7 @@ async def test_response_with_no_topology_match_and_no_ip_returns_source_tags(
         "tags": {"team.name": "platform"},
     }
     async for client in get_client(app):
-        response = await client.post("/webhooks/icinga2", json=payload)
+        response = await client.post("/v1/icinga2/events", json=payload)
     body = response.json()
     assert body["state_accepted"] is True
     assert body["final_tags"] == {"team.name": "platform"}
@@ -848,7 +848,7 @@ async def test_response_with_subnet_fallback_from_http(tmp_path: Path) -> None:
         "tags": {"team.name": "platform"},
     }
     async for client in get_client(app):
-        response = await client.post("/webhooks/icinga2", json=payload)
+        response = await client.post("/v1/icinga2/events", json=payload)
     body = response.json()
     assert body["state_accepted"] is True
     assert body["final_tags"]["topology.site"] == "dc1"
@@ -902,7 +902,7 @@ async def test_response_conflict_diagnostic_only_includes_matched_rule(
         "tags": {"team.name": "platform", "topology.role": "old"},
     }
     async for client in get_client(app):
-        response = await client.post("/webhooks/icinga2", json=payload)
+        response = await client.post("/v1/icinga2/events", json=payload)
     body = response.json()
     assert body["state_accepted"] is True
     diagnostics = body["enrichment_diagnostics"]
@@ -955,7 +955,7 @@ async def test_response_with_no_rule_match_returns_empty_matched_rules(
     )
     async for client in get_client(app):
         response = await client.post(
-            "/webhooks/icinga2",
+            "/v1/icinga2/events",
             json=valid_icinga2_service_payload(),
         )
     body = response.json()
@@ -998,7 +998,7 @@ async def test_recovery_event_returns_no_rule_match(tmp_path: Path) -> None:
     payload = valid_icinga2_host_payload()
     payload["state"] = "UP"
     async for client in get_client(app):
-        response = await client.post("/webhooks/icinga2", json=payload)
+        response = await client.post("/v1/icinga2/events", json=payload)
     body = response.json()
     assert body["state_accepted"] is True
     assert body["event_type"] == "RECOVERY"
@@ -1045,7 +1045,7 @@ async def test_response_with_rule_match_contains_group_key_and_threshold(
     )
     async for client in get_client(app):
         response = await client.post(
-            "/webhooks/icinga2",
+            "/v1/icinga2/events",
             json=valid_icinga2_service_payload(),
         )
     body = response.json()
