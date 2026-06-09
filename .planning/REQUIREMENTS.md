@@ -84,11 +84,11 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Operator REST API
 
-- [ ] **API-01**: Operator can list incidents through REST with pagination and useful filters.
-- [ ] **API-02**: Operator can view incident details, including affected hosts, timestamps, current status, summary, and decision context.
+- [x] **API-01**: Operator can list incidents through REST with pagination and useful filters.
+- [x] **API-02**: Operator can view incident details, including affected hosts, timestamps, current status, summary, and decision context.
 - [x] **API-03**: Operator can acknowledge an active incident without allowing duplicate active incidents for the same rule/group.
 - [x] **API-04**: Operator can manually close an incident through REST.
-- [ ] **API-05**: Operator can inspect loaded rules, topology configuration summaries, and plugin registry status through REST without exposing secrets.
+- [x] **API-05**: Operator can inspect loaded rules, topology configuration summaries, and plugin registry status through REST without exposing secrets.
 
 ### Operability
 
@@ -191,11 +191,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | LCY-04 | Phase 4: Lifecycle, Operator APIs, and Operability | Complete |
 | LCY-05 | Phase 4: Lifecycle, Operator APIs, and Operability | Complete |
 | LCY-06 | Phase 4: Lifecycle, Operator APIs, and Operability | Complete |
-| API-01 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
-| API-02 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
+| API-01 | Phase 4: Lifecycle, Operator APIs, and Operability | Complete |
+| API-02 | Phase 4: Lifecycle, Operator APIs, and Operability | Complete |
 | API-03 | Phase 4: Lifecycle, Operator APIs, and Operability | Complete |
 | API-04 | Phase 4: Lifecycle, Operator APIs, and Operability | Complete |
-| API-05 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
+| API-05 | Phase 4: Lifecycle, Operator APIs, and Operability | Complete |
 | OPS-01 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
 | OPS-02 | Phase 4: Lifecycle, Operator APIs, and Operability | Complete |
 | OPS-03 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |

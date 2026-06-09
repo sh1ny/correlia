@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 04-02-PLAN.md
-last_updated: "2026-06-09T14:48:24.230Z"
+stopped_at: Completed 04-03-PLAN.md
+last_updated: "2026-06-09T15:05:52.118Z"
 last_activity: 2026-06-09 -- Phase 04 execution started
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 16
-  completed_plans: 13
-  percent: 81
+  completed_plans: 14
+  percent: 88
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-06-09)
 ## Current Position
 
 Phase: 04 (lifecycle-operator-apis-and-operability) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-06-09 -- Phase 04 execution started
 
-Progress: [████████░░] 81%
+Progress: [█████████░] 88%
 
 ## Performance Metrics
 
@@ -64,6 +64,7 @@ Progress: [████████░░] 81%
 | Phase 02-icinga2-ingress-topology-and-rule-decisions P3 | 15min | 3 tasks | 7 files |
 | Phase 04-lifecycle-operator-apis-and-operability P1 | 9min | 2 tasks | 8 files |
 | Phase 04-lifecycle-operator-apis-and-operability P2 | 8min | 2 tasks | 9 files |
+| Phase 04-lifecycle-operator-apis-and-operability P3 | 11min | 2 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -98,6 +99,9 @@ Recent decisions affecting current work:
 - [Phase 04]: [Phase 04 Plan 02]: Stale expiration uses PostgreSQL func.now() and per-incident window_state.window_seconds; application clocks do not decide staleness.
 - [Phase 04]: [Phase 04 Plan 02]: Expired incidents transition OPEN to CLOSED with lifecycle.reason=expired, never RESOLVED/source_recovery.
 - [Phase 04]: [Phase 04 Plan 02]: LifecycleWorker is owned by FastAPI lifespan and remains separate from TaskRunner notification dispatch.
+- [Phase 04 Plan 03]: Incident listing uses opaque base64url cursors containing `last_update_time` and `id`; repository queries preserve `last_update_time DESC, id DESC`.
+- [Phase 04 Plan 03]: Operator incident actions remain trusted-internal with no auth dependency and reuse lifecycle repository guards for idempotent ACK/CLOSE.
+- [Phase 04 Plan 03]: Rules/topology/plugin status responses are allowlisted summaries with hashes; raw YAML, regex/CIDR match values, plugin options, class paths, and recipient addresses stay out of REST output.
 
 ### Blockers/Concerns
 
@@ -124,6 +128,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-09T14:48:24.226Z
-Stopped at: Completed 04-02-PLAN.md
+Last session: 2026-06-09T15:05:52.114Z
+Stopped at: Completed 04-03-PLAN.md
 Resume file: None
