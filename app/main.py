@@ -1,7 +1,10 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.api.routers.config_status import router as config_status_router
@@ -21,6 +24,27 @@ from app.processing.lifecycle import expire_stale_batch
 from app.processing.lifecycle_worker import LifecycleWorker
 from app.processing.logging import configure_json_logging
 from app.processing.task_runner import AsyncIOTaskRunner, TaskRunner
+
+
+def _safe_validation_errors(exc: RequestValidationError) -> list[dict[str, Any]]:
+    return [
+        {
+            "loc": error.get("loc", ()),
+            "msg": error.get("msg", "invalid request"),
+            "type": error.get("type", "value_error"),
+        }
+        for error in exc.errors()
+    ]
+
+
+async def request_validation_exception_handler(
+    _request: Request,
+    exc: RequestValidationError,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        content={"detail": _safe_validation_errors(exc)},
+    )
 
 
 @asynccontextmanager
@@ -115,6 +139,7 @@ def create_app(
     lifecycle_worker: LifecycleWorker | None = None,
 ) -> FastAPI:
     app = FastAPI(lifespan=lifespan)
+    app.add_exception_handler(RequestValidationError, request_validation_exception_handler)
 
     if settings is not None:
         app.state.settings = settings
