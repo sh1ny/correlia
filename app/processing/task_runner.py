@@ -6,6 +6,7 @@ from collections.abc import Callable, Coroutine, Mapping
 from typing import Any, Protocol
 
 from app.processing.metrics import record_task_failure
+from app.processing.logging import safe_log_extra
 
 logger = logging.getLogger(__name__)
 
@@ -68,13 +69,16 @@ class AsyncIOTaskRunner:
         try:
             exc = task.exception()
         except asyncio.CancelledError:
-            logger.info("async task cancelled", extra={"task_name": task.get_name()})
+            logger.info("async task cancelled", extra=safe_log_extra(event="task_cancelled", task_name=task.get_name()))
             return
         if exc is None:
             return
         record_task_failure(task.get_name())
         logger.error(
             "async task handler failed",
-            extra={"task_name": task.get_name(), "exception_type": type(exc).__name__},
-            exc_info=(type(exc), exc, exc.__traceback__),
+            extra=safe_log_extra(
+                event="task_failed",
+                task_name=task.get_name(),
+                exception_type=type(exc).__name__,
+            ),
         )

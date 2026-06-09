@@ -354,7 +354,7 @@ async def test_ingress_logs_safe_json_events(
         assert expected in events
     assert events["incident_upserted"].__dict__["incident_id"] == response.json()["incident_id"]
     assert events["incident_upserted"].__dict__["rule_name"] == "service-critical"
-    assert events["incident_upserted"].__dict__["group_key"] == "service:http"
+    assert events["incident_upserted"].__dict__["group_key"] == "service=http"
     assert events["notification_decision"].__dict__["notification_count"] == 1
     serialized = "\n".join(record.getMessage() + repr(record.__dict__) for record in caplog.records)
     for fragment in ("token-secret", "raw_payload", "password", "smtp transcript"):

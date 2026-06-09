@@ -1,4 +1,5 @@
 from __future__ import annotations
+import logging
 
 from pathlib import Path
 from typing import Any
@@ -25,8 +26,11 @@ from app.processing.metrics import (
     record_event_rejected,
     record_rule_matched,
 )
+from app.processing.logging import safe_log_extra
 from app.processing.task_runner import TaskRunner
 
+
+logger = logging.getLogger(__name__)
 
 class Icinga2DecisionProcessor:
     def __init__(
@@ -50,10 +54,15 @@ class Icinga2DecisionProcessor:
     async def process_payload(
         self, payload: Icinga2WebhookPayload
     ) -> IngressDecisionEnvelope:
+        logger.info("ingestion received", extra=safe_log_extra(event="ingestion_received"))
         plugin_result = await self._plugin.process_payload(payload)
 
         if isinstance(plugin_result, Icinga2Rejection):
             record_event_rejected(plugin_result.reason)
+            logger.info(
+                "ingestion rejected",
+                extra=safe_log_extra(event="ingestion_rejected", reason=plugin_result.reason),
+            )
             return IngressDecisionEnvelope(
                 state_accepted=False,
                 source_id=plugin_result.source_id,
@@ -64,6 +73,14 @@ class Icinga2DecisionProcessor:
 
         event = plugin_result
         record_event_accepted(event.event_type.value)
+        logger.info(
+            "normalization succeeded",
+            extra=safe_log_extra(
+                event="normalization_succeeded",
+                event_type=event.event_type.value,
+                severity=event.severity.value,
+            ),
+        )
         diagnostics: list[dict[str, object]] = []
         if self._topology_enricher is not None:
             enrichment_result = await self._topology_enricher.enrich(event)
@@ -79,6 +96,14 @@ class Icinga2DecisionProcessor:
                 }
                 for d in enrichment_result.diagnostics
             ]
+            logger.info(
+                "enrichment completed",
+                extra=safe_log_extra(
+                    event="enrichment_completed",
+                    event_type=event.event_type.value,
+                    count=len(diagnostics),
+                ),
+            )
 
         matched_rules: list[str] = []
         rule_decision: dict[str, object] | None = None
@@ -93,6 +118,14 @@ class Icinga2DecisionProcessor:
                 matched_rules = list(decision.matched_rules)
                 for rule_name in matched_rules:
                     record_rule_matched(rule_name)
+                    logger.info(
+                        "rule matched",
+                        extra=safe_log_extra(
+                            event="rule_matched",
+                            rule_name=rule_name,
+                            group_key=decision.group_key,
+                        ),
+                    )
                 group_key = decision.group_key
                 if event.event_type is EventType.PROBLEM:
                     threshold_decision = decision.threshold_decision.model_dump(mode="json")
@@ -102,6 +135,15 @@ class Icinga2DecisionProcessor:
                 matched_rules = list(decision.matched_rules)
             if event.event_type is EventType.RECOVERY and self._sessionmaker is not None:
                 lifecycle_result = await self._apply_recovery(event)
+                logger.info(
+                    "recovery resolved",
+                    extra=safe_log_extra(
+                        event="recovery_resolved",
+                        incident_id=str(lifecycle_result.incident_id) if lifecycle_result.incident_id is not None else None,
+                        effect=lifecycle_result.effect,
+                        closure_count=lifecycle_result.resolved_count,
+                    ),
+                )
                 matched_rules = list(decision.matched_rules)
         else:
             rule_decision = NoOpDecision(reason="no matching rule").model_dump(

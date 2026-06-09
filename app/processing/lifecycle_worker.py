@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.processing.metrics import set_lifecycle_worker_healthy
+from app.processing.logging import safe_log_extra
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +100,12 @@ class LifecycleWorker:
             self._last_error_category = type(exc).__name__
             logger.error(
                 "lifecycle worker sweep failed",
-                extra={"exception_type": self._last_error_category},
+                extra=safe_log_extra(
+                    event="lifecycle_worker_failed",
+                    category=self._last_error_category,
+                    exception_type=self._last_error_category,
+                    healthy=False,
+                ),
             )
             return
         self._expired_total += expired_count
@@ -107,6 +113,14 @@ class LifecycleWorker:
         self._last_error_category = None
         self._healthy = True
         set_lifecycle_worker_healthy(True)
+        logger.info(
+            "lifecycle worker sweep completed",
+            extra=safe_log_extra(
+                event="lifecycle_worker_sweep",
+                expired_count=expired_count,
+                healthy=True,
+            ),
+        )
 
     @staticmethod
     def _retrieve_task_exception(task: asyncio.Task[None]) -> None:

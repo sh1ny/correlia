@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from enum import StrEnum
 from uuid import UUID
 
@@ -22,7 +23,10 @@ from app.processing.metrics import (
     record_notification_attempt,
     record_notification_failure,
 )
+from app.processing.logging import safe_log_extra
 from app.processing.task_runner import TaskRunner
+
+logger = logging.getLogger(__name__)
 
 
 class NoDispatchReason(StrEnum):
@@ -102,6 +106,19 @@ class IncidentManager:
             ),
         )
         record_incident_effect(write_result.effect)
+        logger.info(
+            "incident upserted",
+            extra=safe_log_extra(
+                event="incident_upserted",
+                incident_id=str(write_result.incident.id),
+                rule_name=decision.rule_name,
+                group_key=decision.group_key,
+                status=write_result.incident.status,
+                severity=event.severity.value,
+                effect=write_result.effect,
+                count=write_result.counted_count,
+            ),
+        )
 
         no_dispatch_reason = self._no_dispatch_reason(write_result)
         final_context = self._decision_context(
@@ -122,6 +139,17 @@ class IncidentManager:
         notification_failed = any(not result.success for result in notification_results)
         notification_triggered = any(result.success for result in notification_results)
 
+        logger.info(
+            "notification decision recorded",
+            extra=safe_log_extra(
+                event="notification_decision",
+                incident_id=str(write_result.incident.id),
+                rule_name=decision.rule_name,
+                group_key=decision.group_key,
+                reason=no_dispatch_reason.value if no_dispatch_reason is not None else "dispatched",
+                notification_count=sum(1 for result in notification_results if result.success),
+            ),
+        )
         return IncidentAggregationResult(
             incident_id=write_result.incident.id,
             effect=write_result.effect,
