@@ -14,6 +14,7 @@ from app.domain.rules import NotificationCategory, NotificationResult
 from app.persistence.incidents import record_notification_result
 from app.persistence.models import Incident
 from app.plugins.interfaces import NotificationEnvelope
+from app.processing.metrics import record_notification_attempt, record_notification_failure
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,8 @@ class NotificationDispatcher:
             and task.config_hash != registry_hash
         ):
             result = _result(False, "dispatch_failed", "stale plugin configuration")
+            record_notification_attempt(task.plugin_name, result.category)
+            record_notification_failure(task.plugin_name, result.category)
             await self._record_if_incident_exists(task.incident_id, task.plugin_name, result)
             return result
 
@@ -58,13 +61,18 @@ class NotificationDispatcher:
             plugin = self._plugin_registry.get_plugin(task.plugin_name)
         except KeyError:
             result = _result(False, "missing_plugin", "configured output plugin is missing")
+            record_notification_attempt(task.plugin_name, result.category)
+            record_notification_failure(task.plugin_name, result.category)
             await self._record_if_incident_exists(task.incident_id, task.plugin_name, result)
             return result
 
         async with self._session_factory() as session:
             incident = await _load_incident(session, task.incident_id)
             if incident is None:
-                return _result(False, "missing_incident", "incident is missing")
+                result = _result(False, "missing_incident", "incident is missing")
+                record_notification_attempt(task.plugin_name, result.category)
+                record_notification_failure(task.plugin_name, result.category)
+                return result
             envelope = _envelope_from_incident(incident)
 
         try:
@@ -75,10 +83,13 @@ class NotificationDispatcher:
                 extra={"plugin_name": task.plugin_name, "exception_type": type(exc).__name__},
             )
             result = _result(False, "plugin_exception", f"plugin exception: {type(exc).__name__}")
+            record_notification_attempt(task.plugin_name, result.category)
+            record_notification_failure(task.plugin_name, result.category)
             await self._record_if_incident_exists(task.incident_id, task.plugin_name, result)
             return result
 
         result = _result(True, "dispatched", "notification dispatched")
+        record_notification_attempt(task.plugin_name, result.category)
         await self._record_if_incident_exists(task.incident_id, task.plugin_name, result)
         return result
 

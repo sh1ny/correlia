@@ -5,6 +5,8 @@ import logging
 from collections.abc import Callable, Coroutine, Mapping
 from typing import Any, Protocol
 
+from app.processing.metrics import record_task_failure
+
 logger = logging.getLogger(__name__)
 
 TaskHandler = Callable[[Mapping[str, Any]], Coroutine[Any, Any, Any]]
@@ -70,6 +72,7 @@ class AsyncIOTaskRunner:
             return
         if exc is None:
             return
+        record_task_failure(task.get_name())
         logger.error(
             "async task handler failed",
             extra={"task_name": task.get_name(), "exception_type": type(exc).__name__},

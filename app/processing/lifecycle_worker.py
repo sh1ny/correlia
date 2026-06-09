@@ -6,6 +6,8 @@ from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from typing import Any
 
+from app.processing.metrics import set_lifecycle_worker_healthy
+
 logger = logging.getLogger(__name__)
 
 LifecycleSweep = Callable[[Any, int], Awaitable[int]]
@@ -75,6 +77,7 @@ class LifecycleWorker:
         finally:
             self._task = None
             self._stop_event = None
+            set_lifecycle_worker_healthy(False)
 
     async def _run(self) -> None:
         stop_event = self._stop_event
@@ -92,6 +95,7 @@ class LifecycleWorker:
             expired_count = await self._sweep(self._sessionmaker, self._batch_size)
         except Exception as exc:  # noqa: BLE001 - worker must keep running after sweep failures.
             self._healthy = False
+            set_lifecycle_worker_healthy(False)
             self._last_error_category = type(exc).__name__
             logger.error(
                 "lifecycle worker sweep failed",
@@ -102,6 +106,7 @@ class LifecycleWorker:
         self._last_sweep_at = datetime.now(timezone.utc)
         self._last_error_category = None
         self._healthy = True
+        set_lifecycle_worker_healthy(True)
 
     @staticmethod
     def _retrieve_task_exception(task: asyncio.Task[None]) -> None:
