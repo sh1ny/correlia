@@ -17,6 +17,8 @@ class IncidentStatus(StrEnum):
 
 BoundedString = Annotated[str, Field(min_length=1, max_length=256)]
 BoundedStringTuple = Annotated[tuple[BoundedString, ...], Field(max_length=20)]
+WindowTimestampMap = Annotated[dict[BoundedString, datetime], Field(max_length=100)]
+
 
 _FORBIDDEN_NOTE_FRAGMENTS = (
     "raw_payload",
@@ -56,6 +58,13 @@ class DecisionContext(BaseModel):
     event_count: int | None = Field(default=None, ge=0)
     config_hash: str | None = Field(default=None, max_length=128)
     notes: dict[TagKey, TagValue] = Field(default_factory=dict, max_length=20)
+    threshold_count: int | None = Field(default=None, ge=1)
+    counted_count: int | None = Field(default=None, ge=0)
+    threshold_crossed: bool | None = None
+    first_threshold_transition: bool | None = None
+    replay: bool | None = None
+    action_names: BoundedStringTuple = ()
+
 
     @field_validator("notes", mode="after")
     @classmethod
@@ -67,6 +76,36 @@ class DecisionContext(BaseModel):
                 if fragment in key or fragment in text:
                     raise ValueError("decision context notes must not contain raw payloads or secrets")
         return value
+
+class IncidentWindowState(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    schema_version: Literal[1] = 1
+    window_started_at: datetime
+    window_ended_at: datetime
+    window_seconds: int = Field(ge=1)
+    threshold_count: int = Field(ge=1)
+    counted_fingerprint_timestamps: WindowTimestampMap = Field(default_factory=dict)
+    counted_count: int = Field(ge=0)
+    max_size: int = Field(ge=1, le=100)
+
+    @field_validator("window_started_at", "window_ended_at", mode="after")
+    @classmethod
+    def require_window_timezone(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("window timestamps must be timezone-aware")
+        return value
+
+    @field_validator("counted_fingerprint_timestamps", mode="after")
+    @classmethod
+    def require_counted_timestamp_timezones(
+        cls, value: dict[str, datetime]
+    ) -> dict[str, datetime]:
+        for timestamp in value.values():
+            if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+                raise ValueError("counted fingerprint timestamps must be timezone-aware")
+        return value
+
 
 
 def is_terminal_status(status: IncidentStatus) -> bool:
