@@ -25,7 +25,7 @@ tech-stack:
   patterns:
     - "All async background submission goes through TaskRunner; raw asyncio.create_task is isolated to app/processing/task_runner.py"
     - "Output plugins are trusted declarative YAML entries loaded through app.plugins.outputs.* class-path allowlisting"
-    - "Plugin listing returns configured name/type/status/config_hash only, never options or secrets"
+    - "Plugin listing returns configured name/type/status/ready only, never options, secrets, or secret-derived config hashes"
 
 key-files:
   created:
