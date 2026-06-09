@@ -113,6 +113,197 @@ async def test_second_upsert_updates_same_open_incident(db_session: AsyncSession
     assert incident2.last_update_time >= first.event_time
 
 
+async def test_record_problem_incident_counts_unique_fingerprints(
+    db_session: AsyncSession,
+) -> None:
+    from app.persistence.incidents import IncidentUpsertInput, record_problem_incident
+
+    first = await record_problem_incident(
+        db_session,
+        IncidentUpsertInput(
+            rule_name="rule-a",
+            group_key="host:db-1",
+            severity=Severity.WARNING,
+            event_time=datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+            summary="disk full",
+            affected_hosts=("db-1",),
+            fingerprint="fp-1",
+            threshold_count=3,
+            window_seconds=300,
+        ),
+    )
+    await db_session.commit()
+
+    second = await record_problem_incident(
+        db_session,
+        IncidentUpsertInput(
+            rule_name="rule-a",
+            group_key="host:db-1",
+            severity=Severity.CRITICAL,
+            event_time=datetime(2026, 1, 1, 12, 1, 0, tzinfo=timezone.utc),
+            summary="disk critical",
+            affected_hosts=("db-1", "db-2"),
+            fingerprint="fp-2",
+            threshold_count=3,
+            window_seconds=300,
+        ),
+    )
+    await db_session.commit()
+
+    replay = await record_problem_incident(
+        db_session,
+        IncidentUpsertInput(
+            rule_name="rule-a",
+            group_key="host:db-1",
+            severity=Severity.CRITICAL,
+            event_time=datetime(2026, 1, 1, 12, 2, 0, tzinfo=timezone.utc),
+            summary="disk critical replay",
+            affected_hosts=("db-1", "db-3"),
+            fingerprint="fp-2",
+            threshold_count=3,
+            window_seconds=300,
+        ),
+    )
+    await db_session.commit()
+
+    assert first.effect == "inserted"
+    assert first.incident.event_count == 1
+    assert first.replay is False
+    assert second.effect == "updated"
+    assert second.incident.id == first.incident.id
+    assert second.incident.event_count == 2
+    assert second.replay is False
+    assert replay.effect == "updated"
+    assert replay.replay is True
+    assert replay.incident.event_count == 2
+    assert replay.incident.affected_hosts == ["db-1", "db-2", "db-3"]
+
+
+async def test_record_problem_incident_counts_out_of_order_only_inside_window(
+    db_session: AsyncSession,
+) -> None:
+    from app.persistence.incidents import IncidentUpsertInput, record_problem_incident
+
+    base = await record_problem_incident(
+        db_session,
+        IncidentUpsertInput(
+            rule_name="rule-window",
+            group_key="host:db-1",
+            severity=Severity.WARNING,
+            event_time=datetime(2026, 1, 1, 12, 10, 0, tzinfo=timezone.utc),
+            summary="base",
+            affected_hosts=("db-1",),
+            fingerprint="fp-base",
+            threshold_count=5,
+            window_seconds=300,
+        ),
+    )
+    await db_session.commit()
+
+    inside = await record_problem_incident(
+        db_session,
+        IncidentUpsertInput(
+            rule_name="rule-window",
+            group_key="host:db-1",
+            severity=Severity.WARNING,
+            event_time=datetime(2026, 1, 1, 12, 7, 0, tzinfo=timezone.utc),
+            summary="inside",
+            affected_hosts=("db-2",),
+            fingerprint="fp-inside",
+            threshold_count=5,
+            window_seconds=300,
+        ),
+    )
+    await db_session.commit()
+
+    outside = await record_problem_incident(
+        db_session,
+        IncidentUpsertInput(
+            rule_name="rule-window",
+            group_key="host:db-1",
+            severity=Severity.WARNING,
+            event_time=datetime(2026, 1, 1, 12, 4, 59, tzinfo=timezone.utc),
+            summary="outside",
+            affected_hosts=("db-3",),
+            fingerprint="fp-outside",
+            threshold_count=5,
+            window_seconds=300,
+        ),
+    )
+    await db_session.commit()
+
+    assert inside.inside_window is True
+    assert inside.incident.event_count == 2
+    assert inside.incident.last_update_time == base.incident.last_update_time
+    assert outside.inside_window is False
+    assert outside.counted is False
+    assert outside.incident.event_count == 2
+    assert outside.incident.last_update_time == base.incident.last_update_time
+
+
+async def test_record_problem_incident_reports_first_threshold_transition_once(
+    db_session: AsyncSession,
+) -> None:
+    from app.persistence.incidents import IncidentUpsertInput, record_problem_incident
+
+    first = await record_problem_incident(
+        db_session,
+        IncidentUpsertInput(
+            rule_name="rule-threshold",
+            group_key="host:db-1",
+            severity=Severity.WARNING,
+            event_time=datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+            summary="first",
+            affected_hosts=("db-1",),
+            fingerprint="fp-1",
+            threshold_count=2,
+            window_seconds=300,
+        ),
+    )
+    await db_session.commit()
+
+    second = await record_problem_incident(
+        db_session,
+        IncidentUpsertInput(
+            rule_name="rule-threshold",
+            group_key="host:db-1",
+            severity=Severity.CRITICAL,
+            event_time=datetime(2026, 1, 1, 12, 1, 0, tzinfo=timezone.utc),
+            summary="second",
+            affected_hosts=("db-2",),
+            fingerprint="fp-2",
+            threshold_count=2,
+            window_seconds=300,
+        ),
+    )
+    await db_session.commit()
+
+    third = await record_problem_incident(
+        db_session,
+        IncidentUpsertInput(
+            rule_name="rule-threshold",
+            group_key="host:db-1",
+            severity=Severity.CRITICAL,
+            event_time=datetime(2026, 1, 1, 12, 2, 0, tzinfo=timezone.utc),
+            summary="third",
+            affected_hosts=("db-3",),
+            fingerprint="fp-3",
+            threshold_count=2,
+            window_seconds=300,
+        ),
+    )
+    await db_session.commit()
+
+    assert first.threshold_crossed is False
+    assert first.first_threshold_transition is False
+    assert second.threshold_crossed is True
+    assert second.first_threshold_transition is True
+    assert third.threshold_crossed is True
+    assert third.first_threshold_transition is False
+    assert third.incident.threshold_crossed is True
+
+
+
 async def test_different_rule_or_group_creates_separate_rows(db_session: AsyncSession) -> None:
     from app.persistence.incidents import IncidentUpsertInput, upsert_open_incident
 
