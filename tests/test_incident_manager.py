@@ -88,6 +88,32 @@ def _decision(timestamp: datetime, threshold: int = 2) -> RuleDecision:
         actions=["email-oncall", "audit-log"],
     )
 
+class RecordingRunner:
+    def __init__(self, *, fail: bool = False) -> None:
+        self.fail = fail
+        self.submissions: list[tuple[str, dict[str, object]]] = []
+
+    async def submit(self, task_name: str, payload: dict[str, object]) -> None:
+        if self.fail:
+            raise RuntimeError("runner submission failed")
+        self.submissions.append((task_name, dict(payload)))
+
+
+class PluginNames:
+    def __init__(self, *names: str) -> None:
+        self.names = tuple(sorted(names))
+        self.config_hash = "sha256:plugins"
+
+
+def test_incident_manager_commits_before_notify_submit() -> None:
+    import app.processing.incident_manager as incident_manager
+
+    source = inspect.getsource(incident_manager.IncidentManager.apply_problem)
+    commit_pos = source.index("await self._session.commit()")
+    submit_pos = source.index('await self._task_runner.submit("notify"')
+    assert commit_pos < submit_pos
+
+
 
 async def test_apply_problem_returns_inserted_below_threshold_result(
     db_session: AsyncSession,
@@ -95,11 +121,16 @@ async def test_apply_problem_returns_inserted_below_threshold_result(
     from app.processing.incident_manager import IncidentManager, NoDispatchReason
 
     timestamp = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
-    result = await IncidentManager(db_session, config_hash="sha256:abc").apply_problem(
+    runner = RecordingRunner()
+    result = await IncidentManager(
+        db_session,
+        task_runner=runner,
+        plugin_registry=PluginNames("email-oncall", "audit-log"),
+        config_hash="sha256:abc",
+    ).apply_problem(
         _event("fp-1", timestamp),
         _decision(timestamp, threshold=2),
     )
-    await db_session.commit()
 
     assert result.effect == "inserted"
     assert result.incident_id is not None
@@ -109,6 +140,7 @@ async def test_apply_problem_returns_inserted_below_threshold_result(
     assert result.notification_failed is False
     assert result.no_dispatch_reason == NoDispatchReason.BELOW_THRESHOLD.value
     assert result.notification_results == ()
+    assert runner.submissions == []
 
 
 async def test_apply_problem_reports_updated_threshold_crossed_then_already_notified(
@@ -116,35 +148,44 @@ async def test_apply_problem_reports_updated_threshold_crossed_then_already_noti
 ) -> None:
     from app.processing.incident_manager import IncidentManager, NoDispatchReason
 
-    manager = IncidentManager(db_session)
+    runner = RecordingRunner()
+    manager = IncidentManager(
+        db_session,
+        task_runner=runner,
+        plugin_registry=PluginNames("email-oncall", "audit-log"),
+    )
     first_time = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
     await manager.apply_problem(_event("fp-1", first_time), _decision(first_time, threshold=2))
-    await db_session.commit()
 
     second_time = datetime(2026, 1, 1, 12, 1, tzinfo=timezone.utc)
     crossed = await manager.apply_problem(
         _event("fp-2", second_time, host="db-2"),
         _decision(second_time, threshold=2),
     )
-    await db_session.commit()
 
     third_time = datetime(2026, 1, 1, 12, 2, tzinfo=timezone.utc)
     already = await manager.apply_problem(
         _event("fp-3", third_time, host="db-3"),
         _decision(third_time, threshold=2),
     )
-    await db_session.commit()
 
     assert crossed.effect == "updated"
     assert crossed.threshold_crossed is True
     assert crossed.first_threshold_transition is True
     assert crossed.notification_triggered is True
+    assert crossed.notification_results[0].category == "dispatched"
+    assert crossed.notification_results[1].category == "dispatched"
+    assert len(runner.submissions) == 2
+    assert runner.submissions[0][0] == "notify"
+    assert runner.submissions[0][1]["plugin_name"] == "audit-log"
+    assert runner.submissions[1][1]["plugin_name"] == "email-oncall"
     assert crossed.no_dispatch_reason is None
     assert already.effect == "updated"
     assert already.threshold_crossed is True
     assert already.first_threshold_transition is False
     assert already.notification_triggered is False
     assert already.no_dispatch_reason == NoDispatchReason.ALREADY_NOTIFIED.value
+    assert len(runner.submissions) == 2
 
 
 async def test_apply_problem_reports_replay_without_retriggering(
@@ -152,21 +193,57 @@ async def test_apply_problem_reports_replay_without_retriggering(
 ) -> None:
     from app.processing.incident_manager import IncidentManager, NoDispatchReason
 
-    manager = IncidentManager(db_session)
+    runner = RecordingRunner()
+    manager = IncidentManager(
+        db_session,
+        task_runner=runner,
+        plugin_registry=PluginNames("email-oncall", "audit-log"),
+    )
     first_time = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
     await manager.apply_problem(_event("fp-1", first_time), _decision(first_time, threshold=2))
-    await db_session.commit()
 
     replay_time = datetime(2026, 1, 1, 12, 1, tzinfo=timezone.utc)
     replay = await manager.apply_problem(
         _event("fp-1", replay_time),
         _decision(replay_time, threshold=2),
     )
-    await db_session.commit()
 
     assert replay.replay is True
     assert replay.notification_triggered is False
     assert replay.no_dispatch_reason == NoDispatchReason.REPLAY.value
+    assert runner.submissions == []
+
+
+async def test_apply_problem_returns_missing_plugin_and_submission_failures_after_commit(
+    db_session: AsyncSession,
+) -> None:
+    from app.processing.incident_manager import IncidentManager
+
+    timestamp = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    missing_plugin = await IncidentManager(
+        db_session,
+        task_runner=RecordingRunner(),
+        plugin_registry=PluginNames("email-oncall"),
+    ).apply_problem(_event("fp-missing", timestamp), _decision(timestamp, threshold=1))
+
+    assert missing_plugin.notification_failed is True
+    assert missing_plugin.notification_results[0].category == "missing_plugin"
+
+    row = await db_session.execute(
+        sa.text("SELECT COUNT(*) FROM incidents WHERE id = :id"),
+        {"id": missing_plugin.incident_id},
+    )
+    assert row.scalar_one() == 1
+
+    fail_time = datetime(2026, 1, 1, 12, 10, tzinfo=timezone.utc)
+    submission_failed = await IncidentManager(
+        db_session,
+        task_runner=RecordingRunner(fail=True),
+        plugin_registry=PluginNames("email-oncall", "audit-log"),
+    ).apply_problem(_event("fp-submit", fail_time, host="db-2"), _decision(fail_time, threshold=1))
+
+    assert submission_failed.notification_failed is True
+    assert {r.category for r in submission_failed.notification_results} == {"dispatch_failed"}
 
 
 async def test_apply_problem_persists_only_safe_decision_context(
@@ -175,11 +252,14 @@ async def test_apply_problem_persists_only_safe_decision_context(
     from app.processing.incident_manager import IncidentManager
 
     timestamp = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
-    result = await IncidentManager(db_session, config_hash="sha256:abc").apply_problem(
+    result = await IncidentManager(
+        db_session,
+        plugin_registry=PluginNames("email-oncall", "audit-log"),
+        config_hash="sha256:abc",
+    ).apply_problem(
         _event("fp-safe", timestamp),
         _decision(timestamp, threshold=2),
     )
-    await db_session.commit()
 
     row = await db_session.execute(
         sa.text("SELECT decision_context FROM incidents WHERE id = :id"),
