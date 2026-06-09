@@ -135,12 +135,43 @@ async def test_dispatcher_sends_notification_and_records_safe_success(
     assert plugin.envelopes[0].severity is Severity.CRITICAL
 
     async with session_factory() as session:
-        context = (
-            await session.execute(sa.text("SELECT decision_context FROM incidents WHERE id = :id"), {"id": incident_id})
-        ).scalar_one()
+        row = (
+            await session.execute(
+                sa.text("SELECT decision_context, notified_at FROM incidents WHERE id = :id"),
+                {"id": incident_id},
+            )
+        ).one()
+    context = row.decision_context
+    assert row.notified_at is not None
     assert context["notes"]["notification.0.category"] == "dispatched"
     assert context["notes"]["notification.0.plugin"] == "email-oncall"
 
+
+
+async def test_dispatcher_rejects_stale_plugin_config_without_sending(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    from app.processing.notification_dispatcher import NotificationDispatcher
+
+    incident_id = await _insert_incident(session_factory)
+    plugin = CapturingPlugin()
+    dispatcher = NotificationDispatcher(session_factory, Registry({"email-oncall": plugin}))
+
+    result = await dispatcher.process(
+        {"incident_id": str(incident_id), "plugin_name": "email-oncall", "config_hash": "sha256:stale"}
+    )
+
+    assert result.success is False
+    assert result.category == "dispatch_failed"
+    assert result.message == "stale plugin configuration"
+    assert plugin.envelopes == []
+
+    async with session_factory() as session:
+        context = (
+            await session.execute(sa.text("SELECT decision_context FROM incidents WHERE id = :id"), {"id": incident_id})
+        ).scalar_one()
+    assert context["notes"]["notification.0.category"] == "dispatch_failed"
+    assert context["notes"]["notification.0.message"] == "stale plugin configuration"
 
 async def test_dispatcher_maps_missing_plugin_missing_incident_plugin_exception_and_bad_payload(
     session_factory: async_sessionmaker[AsyncSession],

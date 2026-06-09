@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.domain.events import Severity
-from app.domain.rules import NotificationResult
+from app.domain.rules import NotificationCategory, NotificationResult
 from app.persistence.incidents import record_notification_result
 from app.persistence.models import Incident
 from app.plugins.interfaces import NotificationEnvelope
@@ -43,6 +43,16 @@ class NotificationDispatcher:
             task = NotificationTaskPayload.model_validate(dict(payload))
         except ValidationError:
             return _result(False, "dispatch_failed", "invalid notification task payload")
+
+        registry_hash = getattr(self._plugin_registry, "config_hash", None)
+        if (
+            task.config_hash is not None
+            and registry_hash is not None
+            and task.config_hash != registry_hash
+        ):
+            result = _result(False, "dispatch_failed", "stale plugin configuration")
+            await self._record_if_incident_exists(task.incident_id, task.plugin_name, result)
+            return result
 
         try:
             plugin = self._plugin_registry.get_plugin(task.plugin_name)
@@ -80,7 +90,7 @@ class NotificationDispatcher:
             await session.commit()
 
 
-def _result(success: bool, category: str, message: str) -> NotificationResult:
+def _result(success: bool, category: NotificationCategory, message: str) -> NotificationResult:
     return NotificationResult(success=success, category=category, message=message[:256])
 
 

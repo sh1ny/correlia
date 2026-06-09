@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
+from app.domain.events import NormalizedEvent
 from app.domain.rules import (
     IncidentEffectSummary,
     IngressDecisionEnvelope,
@@ -16,6 +18,7 @@ from app.plugins.inputs.icinga2 import (
 from app.plugins.interfaces import InputPlugin, TopologyEnricher
 from app.processing.rule_engine import RuleEngine
 from app.processing.incident_manager import IncidentAggregationResult, IncidentManager
+from app.processing.task_runner import TaskRunner
 
 
 class Icinga2DecisionProcessor:
@@ -24,8 +27,8 @@ class Icinga2DecisionProcessor:
         plugin: InputPlugin,
         topology_enricher: TopologyEnricher | None = None,
         rule_engine: RuleEngine | None = None,
-        sessionmaker: object | None = None,
-        task_runner: object | None = None,
+        sessionmaker: Any | None = None,
+        task_runner: TaskRunner | None = None,
         plugin_registry: object | None = None,
         config_hash: str | None = None,
     ) -> None:
@@ -131,7 +134,7 @@ class Icinga2DecisionProcessor:
         )
 
     async def _apply_problem(
-        self, event: object, decision: RuleDecision
+        self, event: NormalizedEvent, decision: RuleDecision
     ) -> IncidentAggregationResult:
         sessionmaker = self._sessionmaker
         if sessionmaker is None:
@@ -160,8 +163,8 @@ def build_icinga2_processor(
     topology_path: Path | None = None,
     rules_path: Path | None = None,
     *,
-    sessionmaker: object | None = None,
-    task_runner: object | None = None,
+    sessionmaker: Any | None = None,
+    task_runner: TaskRunner | None = None,
     plugin_registry: object | None = None,
 ) -> Icinga2DecisionProcessor:
     plugin = Icinga2InputPlugin()

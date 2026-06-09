@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Callable, Coroutine, Mapping
 from typing import Any, Protocol
 
 logger = logging.getLogger(__name__)
 
-TaskHandler = Callable[[Mapping[str, Any]], Awaitable[Any]]
+TaskHandler = Callable[[Mapping[str, Any]], Coroutine[Any, Any, Any]]
 
 
 class TaskSubmissionError(RuntimeError):
@@ -48,7 +48,10 @@ class AsyncIOTaskRunner:
             raise TaskSubmissionError(f"unknown task: {task_name}")
 
         payload_copy = dict(payload)
-        task = asyncio.create_task(handler(payload_copy), name=f"correlia:{task_name}")
+        task: asyncio.Task[Any] = asyncio.create_task(
+            handler(payload_copy),
+            name=f"correlia:{task_name}",
+        )
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         task.add_done_callback(self._log_task_exception)

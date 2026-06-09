@@ -29,6 +29,8 @@ outputs:
       from_address: correlia@example.test
       to_addresses: [ops@example.test]
       password: super-secret
+      username: operator
+      start_tls: true
   - name: warning-email
     plugin_type: email
     class_path: app.plugins.outputs.email.SmtpOutputPlugin
@@ -50,12 +52,10 @@ outputs:
     assert listed == tuple(sorted(listed, key=lambda row: str(row["name"])))
     assert {row["name"] for row in listed} == {"critical-email", "warning-email"}
     for row in listed:
-        assert set(row) == {"name", "plugin_type", "status", "ready", "config_hash"}
+        assert set(row) == {"name", "plugin_type", "status", "ready"}
         assert row["plugin_type"] == "email"
         assert row["status"] == "ready"
         assert row["ready"] is True
-        assert isinstance(row["config_hash"], str)
-        assert len(row["config_hash"]) == 64
     assert "super-secret" not in repr(listed)
     assert "password" not in repr(listed)
 

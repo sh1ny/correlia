@@ -35,6 +35,7 @@ def _registry(tmp_path: Path) -> PluginRegistry:
                             "port": 1025,
                             "username": "operator",
                             "password": "super-secret",
+                            "start_tls": True,
                             "to_addresses": ["ops@example.test"],
                         },
                     }
@@ -68,7 +69,6 @@ async def test_plugins_route_lists_safe_output_status_only(tmp_path: Path) -> No
             "plugin_type": "email",
             "status": "ready",
             "ready": True,
-            "config_hash": registry.config_hash,
         }
     ]
     serialized = response.text.lower()

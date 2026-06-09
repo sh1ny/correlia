@@ -188,13 +188,15 @@ def _window_state_from_json(data: dict[str, Any]) -> IncidentWindowState:
 
 
 def _initial_window_state(input: IncidentUpsertInput) -> IncidentWindowState:
+    fingerprint = input.fingerprint
+    assert fingerprint is not None
     window_started_at = input.event_time - timedelta(seconds=input.window_seconds)
     return IncidentWindowState(
         window_started_at=window_started_at,
         window_ended_at=input.event_time,
         window_seconds=input.window_seconds,
         threshold_count=input.threshold_count,
-        counted_fingerprint_timestamps={input.fingerprint: input.event_time},
+        counted_fingerprint_timestamps={fingerprint: input.event_time},
         counted_count=1,
         max_size=input.max_window_fingerprints,
     )
@@ -216,10 +218,12 @@ def _next_window_state(
             retained[str(fingerprint)] = timestamp
 
     inside_window = window_start <= input.event_time <= window_end
-    replay = input.fingerprint in retained
+    fingerprint = input.fingerprint
+    assert fingerprint is not None
+    replay = fingerprint in retained
     counted = inside_window and not replay
     if counted:
-        retained[input.fingerprint] = input.event_time
+        retained[fingerprint] = input.event_time
 
     if len(retained) > input.max_window_fingerprints:
         newest = sorted(retained.items(), key=lambda item: (item[1], item[0]), reverse=True)[
@@ -269,6 +273,33 @@ def _safe_notification_notes(
     return notes
 
 
+def _normalizable_decision_context(context: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(context)
+    for key in ("matched_rule_names", "enrichment_refs", "action_names"):
+        value = normalized.get(key)
+        if isinstance(value, list):
+            normalized[key] = tuple(value)
+    return normalized
+
+
+def _validated_notification_context(
+    context: dict[str, Any], plugin_name: str, result: NotificationResult
+) -> dict[str, Any]:
+    candidate = _normalizable_decision_context(context)
+    candidate["notes"] = _safe_notification_notes(candidate, plugin_name, result)
+    try:
+        return DecisionContext.model_validate(candidate).model_dump(mode="json")
+    except ValueError:
+        redacted = NotificationResult(
+            success=result.success,
+            category=result.category,
+            message="notification result redacted",
+        )
+        redacted_candidate = _normalizable_decision_context(context)
+        redacted_candidate["notes"] = _safe_notification_notes(redacted_candidate, plugin_name, redacted)
+        return DecisionContext.model_validate(redacted_candidate).model_dump(mode="json")
+
+
 async def record_notification_result(
     session: AsyncSession,
     incident_id: UUID,
@@ -282,12 +313,18 @@ async def record_notification_result(
     if incident is None:
         return False
 
-    context = dict(incident.decision_context or {})
-    context["notes"] = _safe_notification_notes(context, plugin_name, result)
+    context = _validated_notification_context(
+        dict(incident.decision_context or {}),
+        plugin_name,
+        result,
+    )
+    update_values: dict[str, Any] = {"decision_context": context, "updated_at": func.now()}
+    if result.success:
+        update_values["notified_at"] = func.now()
     await session.execute(
         update(Incident)
         .where(Incident.id == incident_id)
-        .values(decision_context=context, updated_at=func.now())
+        .values(**update_values)
     )
     incident.decision_context = context
     return True

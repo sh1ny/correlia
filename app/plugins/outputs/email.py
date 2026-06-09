@@ -5,7 +5,7 @@ from email.message import EmailMessage
 from typing import Annotated
 
 import aiosmtplib
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.plugins.interfaces import NotificationEnvelope, PluginStatus
 
@@ -34,6 +34,20 @@ class SmtpOutputOptions(BaseModel):
             if not address.strip():
                 raise ValueError("recipient addresses must not be blank")
         return value
+
+    @model_validator(mode="after")
+    def require_tls_for_credentials(self) -> "SmtpOutputOptions":
+        has_username = self.username is not None
+        has_password = self.password is not None
+        if has_username != has_password:
+            raise ValueError("SMTP username and password must be configured together")
+        if not has_username:
+            return self
+        if not (self.use_tls or self.start_tls is True):
+            raise ValueError("authenticated SMTP requires explicit TLS or STARTTLS")
+        if not self.validate_certs:
+            raise ValueError("authenticated SMTP requires certificate validation")
+        return self
 
 
 class SmtpOutputPlugin:

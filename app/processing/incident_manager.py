@@ -140,7 +140,7 @@ class IncidentManager:
 
         results: list[NotificationResult] = []
         known_plugins = set(getattr(self._plugin_registry, "names", ()))
-        for plugin_name in sorted(decision.actions):
+        for plugin_name in sorted(set(decision.actions)):
             if plugin_name not in known_plugins:
                 result = NotificationResult(
                     success=False,

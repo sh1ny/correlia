@@ -4,6 +4,7 @@ import asyncio
 from email import message_from_bytes
 from email.policy import default
 
+import pytest
 from app.domain.events import Severity
 from app.plugins.interfaces import NotificationEnvelope
 from app.plugins.outputs.email import SmtpOutputPlugin
@@ -108,9 +109,28 @@ async def test_smtp_output_sends_mailpit_compatible_message_with_incident_fields
 
 
 def test_smtp_output_status_is_safe_and_secret_free() -> None:
-    plugin = SmtpOutputPlugin(password="super-secret")
+    plugin = SmtpOutputPlugin(username="operator", password="super-secret", start_tls=True)
 
     status = plugin.plugin_status().model_dump(mode="json")
 
     assert status == {"plugin_type": "email", "ready": True, "status": "ready"}
     assert "super-secret" not in repr(status)
+
+
+
+@pytest.mark.parametrize(
+    "kwargs, match",
+    [
+        ({"password": "super-secret"}, "username and password"),
+        ({"username": "operator", "password": "super-secret"}, "requires explicit TLS"),
+        (
+            {"username": "operator", "password": "super-secret", "start_tls": True, "validate_certs": False},
+            "certificate validation",
+        ),
+    ],
+)
+def test_smtp_output_rejects_unsafe_authenticated_configuration(
+    kwargs: dict[str, object], match: str
+) -> None:
+    with pytest.raises(ValueError, match=match):
+        SmtpOutputPlugin(**kwargs)
