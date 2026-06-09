@@ -8,6 +8,7 @@ from app.domain.incidents import (
     Acknowledgement,
     DecisionContext,
     IncidentStatus,
+    LifecycleOutcome,
     is_terminal_status,
     validate_incident_transition,
 )
@@ -146,6 +147,41 @@ def test_decision_context_rejects_too_many_tuple_entries() -> None:
             {"schema_version": 1, "matched_rule_names": tuple(f"rule-{index}" for index in range(21))}
         )
 
+
+def test_lifecycle_outcome_accepts_source_recovery_context() -> None:
+    outcome = LifecycleOutcome.model_validate(
+        {
+            "schema_version": 1,
+            "effect": "resolved",
+            "reason": "source_recovery",
+            "previous_host_count": 1,
+            "previous_service_count": 0,
+            "affected_object_removed": True,
+            "notes": {
+                "lifecycle.fingerprint": "recovery-fp",
+                "lifecycle.source_id": "icinga2:host:web-01",
+                "lifecycle.host": "web-01",
+            },
+        }
+    )
+
+    assert outcome.effect == "resolved"
+    assert outcome.affected_object_removed is True
+    assert outcome.notes["lifecycle.reason"] == "source_recovery"
+
+
+def test_lifecycle_outcome_rejects_secret_or_raw_context() -> None:
+    with pytest.raises(ValidationError):
+        LifecycleOutcome.model_validate(
+            {
+                "schema_version": 1,
+                "effect": "resolved",
+                "reason": "source_recovery",
+                "previous_host_count": 1,
+                "previous_service_count": 0,
+                "notes": {"lifecycle.raw_payload": "source body"},
+            }
+        )
 
 
 def test_notification_result_accepts_safe_result_category() -> None:
