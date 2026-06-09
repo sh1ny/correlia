@@ -149,8 +149,15 @@ async def test_apply_problem_returns_inserted_below_threshold_result(
 
 async def test_apply_problem_reports_updated_threshold_crossed_then_already_notified(
     db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from app.processing.incident_manager import IncidentManager, NoDispatchReason
+
+    attempts: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "app.processing.incident_manager.record_notification_attempt",
+        lambda plugin_name, category: attempts.append((plugin_name, category)),
+    )
 
     runner = RecordingRunner()
     manager = IncidentManager(
@@ -184,6 +191,7 @@ async def test_apply_problem_reports_updated_threshold_crossed_then_already_noti
     assert runner.submissions[0][1]["plugin_name"] == "audit-log"
     assert runner.submissions[1][1]["plugin_name"] == "email-oncall"
     assert crossed.no_dispatch_reason is None
+    assert attempts == []
     assert already.effect == "updated"
     assert already.threshold_crossed is True
     assert already.first_threshold_transition is False
@@ -220,8 +228,19 @@ async def test_apply_problem_reports_replay_without_retriggering(
 
 async def test_apply_problem_returns_missing_plugin_and_submission_failures_after_commit(
     db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from app.processing.incident_manager import IncidentManager
+    attempts: list[tuple[str, str]] = []
+    failures: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "app.processing.incident_manager.record_notification_attempt",
+        lambda plugin_name, category: attempts.append((plugin_name, category)),
+    )
+    monkeypatch.setattr(
+        "app.processing.incident_manager.record_notification_failure",
+        lambda plugin_name, category: failures.append((plugin_name, category)),
+    )
 
     timestamp = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
     missing_plugin = await IncidentManager(
@@ -251,6 +270,13 @@ async def test_apply_problem_returns_missing_plugin_and_submission_failures_afte
 
     assert submission_failed.notification_failed is True
     assert {r.category for r in submission_failed.notification_results} == {"dispatch_failed"}
+    assert attempts.count(("audit-log", "missing_plugin")) == 1
+    assert sorted(category for _, category in attempts) == [
+        "dispatch_failed",
+        "dispatch_failed",
+        "missing_plugin",
+    ]
+    assert failures == attempts
 
 
 async def test_apply_problem_persists_only_safe_decision_context(
