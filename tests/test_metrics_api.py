@@ -8,7 +8,7 @@ from httpx import ASGITransport, AsyncClient
 import pytest
 
 from app.domain.events import EventType, NormalizedEvent, Severity
-from app.domain.rules import NotificationResult, RuleDecision, ThresholdDecision
+from app.domain.rules import RuleDecision, ThresholdDecision
 from app.persistence.incidents import IncidentAggregationWriteResult, LifecycleWriteResult
 from app.persistence.models import Incident
 from app.processing.incident_manager import IncidentAggregationResult, IncidentManager

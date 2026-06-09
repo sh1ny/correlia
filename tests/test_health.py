@@ -189,7 +189,9 @@ async def test_readyz_reports_dependency_failures_without_secrets(
     plugin_registry: PluginRegistryStatus | None = PluginRegistryStatus()
     if case == "database":
         failure = RuntimeError("DATABASE_URL postgresql://user:password@host/token-secret")
-        sessionmaker = lambda: FailingSession(failure)
+
+        def sessionmaker() -> FailingSession:
+            return FailingSession(failure)
     elif case == "rules":
         settings = Settings(
             DATABASE_URL=VALID_DATABASE_URL,
