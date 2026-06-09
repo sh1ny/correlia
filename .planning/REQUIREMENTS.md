@@ -75,10 +75,10 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Incident Lifecycle
 
-- [ ] **LCY-01**: Correlia routes `RECOVERY` events to lifecycle resolution instead of problem aggregation.
-- [ ] **LCY-02**: Correlia resolves active incidents containing the recovered host.
-- [ ] **LCY-03**: Correlia resolves only matching service-level incidents when a service recovery event arrives.
-- [ ] **LCY-04**: Correlia appends or records resolution context when incidents move to `RESOLVED`.
+- [x] **LCY-01**: Correlia routes `RECOVERY` events to lifecycle resolution instead of problem aggregation.
+- [x] **LCY-02**: Correlia resolves active incidents containing the recovered host.
+- [x] **LCY-03**: Correlia resolves only matching service-level incidents when a service recovery event arrives.
+- [x] **LCY-04**: Correlia appends or records resolution context when incidents move to `RESOLVED`.
 - [ ] **LCY-05**: Correlia expires stale active incidents after the configured rule window when no further events arrive.
 - [ ] **LCY-06**: Correlia starts and stops lifecycle background work through FastAPI lifespan handling.
 
@@ -86,8 +86,8 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [ ] **API-01**: Operator can list incidents through REST with pagination and useful filters.
 - [ ] **API-02**: Operator can view incident details, including affected hosts, timestamps, current status, summary, and decision context.
-- [ ] **API-03**: Operator can acknowledge an active incident without allowing duplicate active incidents for the same rule/group.
-- [ ] **API-04**: Operator can manually close an incident through REST.
+- [x] **API-03**: Operator can acknowledge an active incident without allowing duplicate active incidents for the same rule/group.
+- [x] **API-04**: Operator can manually close an incident through REST.
 - [ ] **API-05**: Operator can inspect loaded rules, topology configuration summaries, and plugin registry status through REST without exposing secrets.
 
 ### Operability
@@ -185,16 +185,16 @@ Which phases cover which requirements. Updated during roadmap creation.
 | NOT-03 | Phase 3: Problem Aggregation and Notification Dispatch | Complete |
 | NOT-04 | Phase 3: Problem Aggregation and Notification Dispatch | Complete |
 | NOT-05 | Phase 3: Problem Aggregation and Notification Dispatch | Complete |
-| LCY-01 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
-| LCY-02 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
-| LCY-03 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
-| LCY-04 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
+| LCY-01 | Phase 4: Lifecycle, Operator APIs, and Operability | Complete |
+| LCY-02 | Phase 4: Lifecycle, Operator APIs, and Operability | Complete |
+| LCY-03 | Phase 4: Lifecycle, Operator APIs, and Operability | Complete |
+| LCY-04 | Phase 4: Lifecycle, Operator APIs, and Operability | Complete |
 | LCY-05 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
 | LCY-06 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
 | API-01 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
 | API-02 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
-| API-03 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
-| API-04 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
+| API-03 | Phase 4: Lifecycle, Operator APIs, and Operability | Complete |
+| API-04 | Phase 4: Lifecycle, Operator APIs, and Operability | Complete |
 | API-05 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
 | OPS-01 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
 | OPS-02 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
