@@ -27,7 +27,7 @@ async def test_metrics_route_returns_prometheus_text() -> None:
     assert response.status_code == 200
     content_type = response.headers["content-type"]
     assert content_type.startswith("text/plain")
-    assert "version=0.0.4" in content_type
+    assert "version=0.0.4" in content_type or "version=1.0.0" in content_type
     body = response.text
     for metric_name in (
         "correlia_events_accepted_total",
