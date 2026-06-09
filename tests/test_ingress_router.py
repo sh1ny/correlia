@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator
+from datetime import datetime, timezone
 from pathlib import Path
 import subprocess
 import sys
@@ -11,6 +12,8 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from testcontainers.postgres import PostgresContainer
 
+from app.domain.events import Severity
+from app.persistence.incidents import IncidentUpsertInput, upsert_open_incident
 from app.config.settings import Settings
 from app.main import create_app
 from app.processing.ingress import build_icinga2_processor
@@ -19,6 +22,9 @@ from app.plugins.loader import PluginRegistry
 from app.processing.task_runner import AsyncIOTaskRunner
 
 VALID_DATABASE_URL = "postgresql+asyncpg://user:pass@localhost:5432/correlia"
+
+def _event_time() -> datetime:
+    return datetime(2026, 6, 8, 12, 0, tzinfo=timezone.utc)
 
 
 
@@ -315,6 +321,126 @@ async def test_recovery_event_does_not_enter_problem_aggregation(
     async with session_factory() as session:
         count = (await session.execute(sa.text("SELECT COUNT(*) FROM incidents"))).scalar_one()
     assert count == 0
+
+
+async def test_recovery_routes_to_lifecycle_without_problem_upsert(
+    tmp_path: Path,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    rules_path = tmp_path / "rules.yaml"
+    _write_rules(rules_path, threshold=1)
+    async with session_factory() as session:
+        incident = await upsert_open_incident(
+            session,
+            IncidentUpsertInput(
+                rule_name="service-critical",
+                group_key="service:http",
+                severity=Severity.CRITICAL,
+                event_time=_event_time(),
+                summary="Critical http in dc1",
+                affected_hosts=("web-01",),
+                affected_services=("http",),
+                fingerprint="problem-fp",
+            ),
+        )
+        await session.commit()
+    processor = build_icinga2_processor(
+        rules_path=rules_path,
+        sessionmaker=session_factory,
+        task_runner=AsyncIOTaskRunner(),
+        plugin_registry=PluginRegistry((), "sha256:empty"),
+    )
+    app = create_app(
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        sessionmaker=session_factory,
+        icinga2_processor=processor,
+    )
+    payload = valid_icinga2_service_payload()
+    payload["state"] = "OK"
+
+    async for client in get_client(app):
+        response = await client.post("/webhooks/icinga2", json=payload)
+
+    body = response.json()
+    assert body["event_type"] == "RECOVERY"
+    assert body["incident_id"] == str(incident.id)
+    assert body["incident_effects"] == {"inserted": 0, "updated": 0}
+    assert body["lifecycle_outcome"]["effect"] in {"resolved", "affected_set_shrunk"}
+    assert body["lifecycle_outcome"]["reason"] == "source_recovery"
+    assert body["recovery_resolution"] == "resolved"
+    assert body["notification_count"] == 0
+    async with session_factory() as session:
+        row = await session.get(type(incident), incident.id)
+    assert row is not None
+    assert row.status == "RESOLVED"
+
+
+async def test_recovery_response_contains_lifecycle_outcome_without_notification(
+    tmp_path: Path,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    rules_path = tmp_path / "rules.yaml"
+    _write_rules(rules_path, threshold=1)
+    submitted: list[dict[str, object]] = []
+    task_runner = AsyncIOTaskRunner()
+
+    async def capture_notify(payload: dict[str, object]) -> None:
+        submitted.append(dict(payload))
+
+    task_runner.register("notify", capture_notify)
+    async with session_factory() as session:
+        await upsert_open_incident(
+            session,
+            IncidentUpsertInput(
+                rule_name="service-critical",
+                group_key="service:http",
+                severity=Severity.CRITICAL,
+                event_time=_event_time(),
+                summary="Critical http in dc1",
+                affected_hosts=("web-01", "web-02"),
+                affected_services=("http",),
+                fingerprint="problem-fp",
+            ),
+        )
+        await session.commit()
+    processor = build_icinga2_processor(
+        rules_path=rules_path,
+        sessionmaker=session_factory,
+        task_runner=task_runner,
+        plugin_registry=PluginRegistry((), "sha256:empty"),
+    )
+    app = create_app(
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        sessionmaker=session_factory,
+        icinga2_processor=processor,
+        task_runner=task_runner,
+    )
+    payload = valid_icinga2_service_payload()
+    payload["state"] = "OK"
+
+    async for client in get_client(app):
+        response = await client.post("/webhooks/icinga2", json=payload)
+        await task_runner.drain()
+
+    body = response.json()
+    assert body["threshold_decision"] is None
+    assert body["lifecycle_outcome"]["effect"] == "affected_set_shrunk"
+    assert body["affected_object_removed"] is True
+    assert body["notification_count"] == 0
+    assert submitted == []
+
+
+def test_recovery_branch_does_not_call_apply_problem_or_raw_state_names() -> None:
+    import inspect
+    import app.processing.ingress as ingress_module
+
+    source = inspect.getsource(ingress_module)
+    recovery_index = source.index("EventType.RECOVERY")
+    next_method_index = source.index("async def _apply_problem")
+    recovery_branch = source[recovery_index:next_method_index]
+    assert "apply_problem" not in recovery_branch
+    assert "state_type" not in source
+    assert "check_output" not in source
 
 # ING-01: POST /webhooks/icinga2 exists and returns 200
 
