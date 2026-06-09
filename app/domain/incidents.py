@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.domain.events import TagKey, TagValue
 
@@ -76,6 +76,36 @@ class DecisionContext(BaseModel):
                 if fragment in key or fragment in text:
                     raise ValueError("decision context notes must not contain raw payloads or secrets")
         return value
+
+
+class LifecycleOutcome(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    schema_version: Literal[1] = 1
+    effect: Literal[
+        "affected_set_shrunk",
+        "resolved",
+        "noop",
+        "closed",
+        "acknowledged",
+        "expired",
+    ]
+    reason: BoundedString
+    previous_host_count: int = Field(ge=0)
+    previous_service_count: int = Field(ge=0)
+    affected_object_removed: bool = False
+    notes: dict[TagKey, TagValue] = Field(default_factory=dict, max_length=20)
+
+    @field_validator("notes", mode="after")
+    @classmethod
+    def reject_secret_note_content(cls, value: dict[str, str]) -> dict[str, str]:
+        return DecisionContext.reject_secret_note_content(value)
+
+    @model_validator(mode="after")
+    def include_reason_note(self) -> LifecycleOutcome:
+        if "lifecycle.reason" not in self.notes:
+            self.notes["lifecycle.reason"] = self.reason
+        return self
 
 class IncidentWindowState(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
