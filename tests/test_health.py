@@ -135,7 +135,8 @@ async def test_readyz_returns_ready_when_database_check_succeeds() -> None:
         response = await client.get("/v1/readyz")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ready"}
+    assert response.json()["status"] == "ready"
+    assert response.json()["checks"]["database"] == "ready"
     assert session.executed_sql == ["select 1"]
 
 
