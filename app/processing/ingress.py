@@ -3,7 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from app.domain.events import NormalizedEvent
+from app.domain.events import EventType, NormalizedEvent
+from app.domain.incidents import LifecycleOutcome
 from app.domain.rules import (
     IncidentEffectSummary,
     IngressDecisionEnvelope,
@@ -18,6 +19,7 @@ from app.plugins.inputs.icinga2 import (
 from app.plugins.interfaces import InputPlugin, TopologyEnricher
 from app.processing.rule_engine import RuleEngine
 from app.processing.incident_manager import IncidentAggregationResult, IncidentManager
+from app.processing.lifecycle import LifecycleManager, LifecycleResult
 from app.processing.task_runner import TaskRunner
 
 
@@ -76,16 +78,21 @@ class Icinga2DecisionProcessor:
         group_key: str | None = None
         threshold_decision: dict[str, object] | None = None
         incident_result: IncidentAggregationResult | None = None
+        lifecycle_result: LifecycleResult | None = None
         if self._rule_engine is not None:
             decision = await self._rule_engine.evaluate(event)
             rule_decision = decision.model_dump(mode="json")
             if isinstance(decision, RuleDecision):
                 matched_rules = list(decision.matched_rules)
                 group_key = decision.group_key
-                threshold_decision = decision.threshold_decision.model_dump(mode="json")
-                if event.event_type.value == "PROBLEM" and self._sessionmaker is not None:
-                    incident_result = await self._apply_problem(event, decision)
-            else:
+                if event.event_type is EventType.PROBLEM:
+                    threshold_decision = decision.threshold_decision.model_dump(mode="json")
+                    if self._sessionmaker is not None:
+                        incident_result = await self._apply_problem(event, decision)
+            elif event.event_type is not EventType.RECOVERY:
+                matched_rules = list(decision.matched_rules)
+            if event.event_type is EventType.RECOVERY and self._sessionmaker is not None:
+                lifecycle_result = await self._apply_recovery(event)
                 matched_rules = list(decision.matched_rules)
         else:
             rule_decision = NoOpDecision(reason="no matching rule").model_dump(
@@ -108,8 +115,25 @@ class Icinga2DecisionProcessor:
             group_key=group_key,
             threshold_decision=threshold_decision,
             incident_effects=_incident_effects(incident_result),
-            closure_count=0,
-            incident_id=incident_result.incident_id if incident_result is not None else None,
+            closure_count=(
+                lifecycle_result.resolved_count if lifecycle_result is not None else 0
+            ),
+            lifecycle_outcome=_lifecycle_outcome(lifecycle_result),
+            recovery_resolution=(
+                lifecycle_result.effect if lifecycle_result is not None else None
+            ),
+            affected_object_removed=(
+                lifecycle_result.affected_object_removed
+                if lifecycle_result is not None
+                else False
+            ),
+            incident_id=(
+                incident_result.incident_id
+                if incident_result is not None
+                else lifecycle_result.incident_id
+                if lifecycle_result is not None
+                else None
+            ),
             threshold_crossed=(
                 incident_result.threshold_crossed if incident_result is not None else False
             ),
@@ -148,6 +172,15 @@ class Icinga2DecisionProcessor:
             )
             return await manager.apply_problem(event, decision)
 
+    async def _apply_recovery(self, event: NormalizedEvent) -> LifecycleResult:
+        sessionmaker = self._sessionmaker
+        if sessionmaker is None:
+            raise RuntimeError("sessionmaker is required for recovery resolution")
+        async with sessionmaker() as session:
+            manager = LifecycleManager(session)
+            return await manager.resolve_for_event(event)
+
+
 
 def _incident_effects(
     result: IncidentAggregationResult | None,
@@ -157,6 +190,18 @@ def _incident_effects(
     if result.effect == "inserted":
         return IncidentEffectSummary(inserted=1, updated=0)
     return IncidentEffectSummary(inserted=0, updated=1)
+
+
+def _lifecycle_outcome(result: LifecycleResult | None) -> LifecycleOutcome | None:
+    if result is None:
+        return None
+    return LifecycleOutcome(
+        effect=result.effect,
+        reason="source_recovery",
+        previous_host_count=result.previous_host_count,
+        previous_service_count=result.previous_service_count,
+        affected_object_removed=result.affected_object_removed,
+    )
 
 
 def build_icinga2_processor(
