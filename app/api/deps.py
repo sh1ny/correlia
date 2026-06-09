@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config.settings import Settings
 from app.plugins.loader import PluginRegistry
+from app.processing.lifecycle_worker import LifecycleWorker
 from app.processing.task_runner import TaskRunner
 from app.processing.ingress import Icinga2DecisionProcessor
 
@@ -27,3 +28,7 @@ def get_task_runner(request: Request) -> TaskRunner:
 
 def get_plugin_registry(request: Request) -> PluginRegistry:
     return cast(PluginRegistry, request.app.state.plugin_registry)
+
+
+def get_lifecycle_worker(request: Request) -> LifecycleWorker:
+    return cast(LifecycleWorker, request.app.state.lifecycle_worker)

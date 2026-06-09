@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     rules_path: Path | None = None
     topology_path: Path | None = None
     plugins_path: Path | None = None
+    lifecycle_scan_interval_seconds: int = Field(default=30, ge=1, le=86_400)
+    lifecycle_batch_size: int = Field(default=100, ge=1, le=1_000)
 
 
 def get_settings() -> Settings:

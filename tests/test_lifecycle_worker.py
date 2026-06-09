@@ -125,7 +125,7 @@ async def test_lifespan_starts_and_stops_lifecycle_worker() -> None:
 
     worker = RecordingLifecycleWorker()
     app = create_app(
-        settings=Settings(database_url=VALID_DATABASE_URL),
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
         sessionmaker=sessionmaker,  # type: ignore[arg-type]
         icinga2_processor=object(),  # type: ignore[arg-type]
         task_runner=AsyncIOTaskRunner(),
@@ -140,3 +140,17 @@ async def test_lifespan_starts_and_stops_lifecycle_worker() -> None:
 
     assert worker.started == 1
     assert worker.stopped == 1
+
+
+def test_lifecycle_worker_does_not_reuse_task_runner_or_external_schedulers() -> None:
+    root = __import__("pathlib").Path(__file__).resolve().parents[1]
+    sources = {
+        path.relative_to(root).as_posix(): path.read_text()
+        for path in root.joinpath("app").rglob("*.py")
+    }
+    joined = "\n".join(sources.values())
+    assert "TaskRunner.register(\"expire" not in joined
+    assert "TaskRunner.register('expire" not in joined
+    for forbidden in ("celery", "redis", "apscheduler"):
+        assert forbidden not in sources["app/processing/lifecycle_worker.py"].lower()
+    assert not root.joinpath("frontend").exists()
