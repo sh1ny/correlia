@@ -119,6 +119,7 @@ def test_phase_four_touched_sources_do_not_use_exception_logging() -> None:
         "app/processing/lifecycle.py",
         "app/processing/lifecycle_worker.py",
         "app/api/routers/incidents.py",
+        "app/api/routers/ingress.py",
         "app/api/routers/health.py",
     ]
     offenders: dict[str, str] = {}
