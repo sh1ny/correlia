@@ -41,7 +41,6 @@ class PluginRegistry:
                     "plugin_type": entry.plugin_type,
                     "status": status.status,
                     "ready": status.ready,
-                    "config_hash": self.config_hash,
                 }
             )
         return tuple(rows)

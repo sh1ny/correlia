@@ -153,7 +153,9 @@ def _write_plugins(path: Path) -> PluginRegistry:
                             "host": "localhost",
                             "port": 1025,
                             "to_addresses": ["ops@example.test"],
+                            "username": "operator",
                             "password": "super-secret",
+                            "start_tls": True,
                         },
                     }
                 ]
@@ -401,6 +403,8 @@ async def test_response_contains_mapped_event_type_and_severity() -> None:
 
 
 async def test_response_contains_mapped_recovery_event_type_and_severity() -> None:
+    payload = valid_icinga2_host_payload()
+    payload["state"] = "UP"
     processor = build_icinga2_processor()
     app = create_app(
         settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
@@ -410,11 +414,11 @@ async def test_response_contains_mapped_recovery_event_type_and_severity() -> No
     async for client in get_client(app):
         response = await client.post(
             "/webhooks/icinga2",
-            json=valid_icinga2_host_payload(),
+            json=payload,
         )
     body = response.json()
-    assert body["event_type"] == "PROBLEM"
-    assert body["severity"] == "CRITICAL"
+    assert body["event_type"] == "RECOVERY"
+    assert body["severity"] == "OK"
 
 
 async def test_response_contains_final_tags() -> None:
