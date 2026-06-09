@@ -71,6 +71,14 @@ async def get_client(app) -> AsyncIterator[AsyncClient]:
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             yield client
 
+class NoopLifecycleWorker:
+    async def start(self) -> None:
+        return None
+
+    async def stop(self) -> None:
+        return None
+
+
 
 def valid_icinga2_service_payload() -> dict[str, object]:
     return {
@@ -354,6 +362,7 @@ async def test_recovery_routes_to_lifecycle_without_problem_upsert(
         settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
         sessionmaker=session_factory,
         icinga2_processor=processor,
+        lifecycle_worker=NoopLifecycleWorker(),  # type: ignore[arg-type]
     )
     payload = valid_icinga2_service_payload()
     payload["state"] = "OK"
@@ -414,6 +423,7 @@ async def test_recovery_response_contains_lifecycle_outcome_without_notification
         sessionmaker=session_factory,
         icinga2_processor=processor,
         task_runner=task_runner,
+        lifecycle_worker=NoopLifecycleWorker(),  # type: ignore[arg-type]
     )
     payload = valid_icinga2_service_payload()
     payload["state"] = "OK"
