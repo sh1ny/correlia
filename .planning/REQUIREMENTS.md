@@ -56,22 +56,22 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Problem Aggregation
 
-- [ ] **AGG-01**: Correlia processes `PROBLEM` events through enrichment, rule matching, group key generation, and incident state mutation.
-- [ ] **AGG-02**: Correlia creates a new active incident when a matched group has no active incident.
-- [ ] **AGG-03**: Correlia updates the existing active incident when a matched group already has one.
-- [ ] **AGG-04**: Correlia maintains incident severity, last update time, event count, summary, and affected hosts as more events arrive.
-- [ ] **AGG-05**: Correlia records enough processing outcome data to distinguish inserted, updated, threshold-crossed, and notification-triggered decisions.
+- [x] **AGG-01**: Correlia processes `PROBLEM` events through enrichment, rule matching, group key generation, and incident state mutation.
+- [x] **AGG-02**: Correlia creates a new active incident when a matched group has no active incident.
+- [x] **AGG-03**: Correlia updates the existing active incident when a matched group already has one.
+- [x] **AGG-04**: Correlia maintains incident severity, last update time, event count, summary, and affected hosts as more events arrive.
+- [x] **AGG-05**: Correlia records enough processing outcome data to distinguish inserted, updated, threshold-crossed, and notification-triggered decisions.
 
 ### Task Execution and Notifications
 
-- [ ] **TSK-01**: Maintainer can register named tasks behind a `TaskRunner` interface.
-- [ ] **TSK-02**: Correlia provides an asyncio-backed `TaskRunner` implementation for v1.
-- [ ] **TSK-03**: Correlia submits notification work through `TaskRunner` only after durable incident state transitions.
-- [ ] **NOT-01**: Operator can configure output plugins in a YAML plugin registry.
-- [ ] **NOT-02**: Correlia can load, cache, and list configured output plugins.
-- [ ] **NOT-03**: Correlia dispatches incident notifications to an email-style output plugin when configured thresholds are crossed.
-- [ ] **NOT-04**: Correlia records or exposes notification failures, missing plugins, missing incidents, and plugin exceptions.
-- [ ] **NOT-05**: Correlia avoids repeated notifications for the same durable threshold/status transition.
+- [x] **TSK-01**: Maintainer can register named tasks behind a `TaskRunner` interface.
+- [x] **TSK-02**: Correlia provides an asyncio-backed `TaskRunner` implementation for v1.
+- [x] **TSK-03**: Correlia submits notification work through `TaskRunner` only after durable incident state transitions.
+- [x] **NOT-01**: Operator can configure output plugins in a YAML plugin registry.
+- [x] **NOT-02**: Correlia can load, cache, and list configured output plugins.
+- [x] **NOT-03**: Correlia dispatches incident notifications to an email-style output plugin when configured thresholds are crossed.
+- [x] **NOT-04**: Correlia records or exposes notification failures, missing plugins, missing incidents, and plugin exceptions.
+- [x] **NOT-05**: Correlia avoids repeated notifications for the same durable threshold/status transition.
 
 ### Incident Lifecycle
 
@@ -172,19 +172,19 @@ Which phases cover which requirements. Updated during roadmap creation.
 | RUL-04 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Complete |
 | RUL-05 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Complete |
 | RUL-06 | Phase 2: Icinga2 Ingress, Topology, and Rule Decisions | Complete |
-| AGG-01 | Phase 3: Problem Aggregation and Notification Dispatch | Pending |
-| AGG-02 | Phase 3: Problem Aggregation and Notification Dispatch | Pending |
-| AGG-03 | Phase 3: Problem Aggregation and Notification Dispatch | Pending |
-| AGG-04 | Phase 3: Problem Aggregation and Notification Dispatch | Pending |
-| AGG-05 | Phase 3: Problem Aggregation and Notification Dispatch | Pending |
-| TSK-01 | Phase 3: Problem Aggregation and Notification Dispatch | Pending |
-| TSK-02 | Phase 3: Problem Aggregation and Notification Dispatch | Pending |
-| TSK-03 | Phase 3: Problem Aggregation and Notification Dispatch | Pending |
-| NOT-01 | Phase 3: Problem Aggregation and Notification Dispatch | Pending |
-| NOT-02 | Phase 3: Problem Aggregation and Notification Dispatch | Pending |
-| NOT-03 | Phase 3: Problem Aggregation and Notification Dispatch | Pending |
-| NOT-04 | Phase 3: Problem Aggregation and Notification Dispatch | Pending |
-| NOT-05 | Phase 3: Problem Aggregation and Notification Dispatch | Pending |
+| AGG-01 | Phase 3: Problem Aggregation and Notification Dispatch | Complete |
+| AGG-02 | Phase 3: Problem Aggregation and Notification Dispatch | Complete |
+| AGG-03 | Phase 3: Problem Aggregation and Notification Dispatch | Complete |
+| AGG-04 | Phase 3: Problem Aggregation and Notification Dispatch | Complete |
+| AGG-05 | Phase 3: Problem Aggregation and Notification Dispatch | Complete |
+| TSK-01 | Phase 3: Problem Aggregation and Notification Dispatch | Complete |
+| TSK-02 | Phase 3: Problem Aggregation and Notification Dispatch | Complete |
+| TSK-03 | Phase 3: Problem Aggregation and Notification Dispatch | Complete |
+| NOT-01 | Phase 3: Problem Aggregation and Notification Dispatch | Complete |
+| NOT-02 | Phase 3: Problem Aggregation and Notification Dispatch | Complete |
+| NOT-03 | Phase 3: Problem Aggregation and Notification Dispatch | Complete |
+| NOT-04 | Phase 3: Problem Aggregation and Notification Dispatch | Complete |
+| NOT-05 | Phase 3: Problem Aggregation and Notification Dispatch | Complete |
 | LCY-01 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
 | LCY-02 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
 | LCY-03 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
