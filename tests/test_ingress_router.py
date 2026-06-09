@@ -1,6 +1,7 @@
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from pathlib import Path
+import logging
 import subprocess
 import sys
 
@@ -294,6 +295,70 @@ async def test_icinga2_problem_webhook_aggregates_and_submits_notifications_once
     assert already_body["notification_count"] == 0
     assert already_body["no_dispatch_reason"] == "already_notified"
     assert len(submitted) == 1
+
+
+async def test_ingress_logs_safe_json_events(
+    tmp_path: Path,
+    session_factory: async_sessionmaker[AsyncSession],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    rules_path = tmp_path / "rules.yaml"
+    topology_path = tmp_path / "topology.yaml"
+    plugins_path = tmp_path / "plugins.yaml"
+    _write_rules(rules_path, threshold=1)
+    _write_topology(topology_path)
+    plugin_registry = _write_plugins(plugins_path)
+    task_runner = AsyncIOTaskRunner()
+    submitted: list[dict[str, object]] = []
+
+    async def capture_notify(payload: dict[str, object]) -> None:
+        submitted.append(dict(payload))
+
+    task_runner.register("notify", capture_notify)
+    processor = build_icinga2_processor(
+        topology_path=topology_path,
+        rules_path=rules_path,
+        sessionmaker=session_factory,
+        task_runner=task_runner,
+        plugin_registry=plugin_registry,
+    )
+    app = create_app(
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        sessionmaker=session_factory,
+        icinga2_processor=processor,
+        task_runner=task_runner,
+        plugin_registry=plugin_registry,
+        lifecycle_worker=NoopLifecycleWorker(),
+    )
+
+    caplog.set_level(logging.INFO)
+    payload = _payload(host="web-01", source_id="icinga2:service:web-01:http")
+    async for client in get_client(app):
+        response = await client.post("/v1/icinga2/events", json=payload)
+        await task_runner.drain()
+
+    assert response.status_code == 200
+    events = {
+        record.__dict__.get("event"): record
+        for record in caplog.records
+        if record.name.startswith("app.processing")
+    }
+    for expected in (
+        "ingestion_received",
+        "normalization_succeeded",
+        "enrichment_completed",
+        "rule_matched",
+        "incident_upserted",
+        "notification_decision",
+    ):
+        assert expected in events
+    assert events["incident_upserted"].__dict__["incident_id"] == response.json()["incident_id"]
+    assert events["incident_upserted"].__dict__["rule_name"] == "service-critical"
+    assert events["incident_upserted"].__dict__["group_key"] == "service:http"
+    assert events["notification_decision"].__dict__["notification_count"] == 1
+    serialized = "\n".join(record.getMessage() + repr(record.__dict__) for record in caplog.records)
+    for fragment in ("token-secret", "raw_payload", "password", "smtp transcript"):
+        assert fragment not in serialized
 
 
 async def test_recovery_event_does_not_enter_problem_aggregation(

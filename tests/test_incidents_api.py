@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 from collections.abc import AsyncIterator
@@ -318,6 +319,61 @@ async def test_manual_close_is_idempotent_and_frees_open_slot(
         )
     assert reopened.id != incident.id
     assert reopened.status == IncidentStatus.OPEN.value
+
+
+async def test_operator_mutations_emit_safe_json_logs(
+    session_factory: async_sessionmaker[AsyncSession],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async with session_factory() as session:
+        ack_incident = await _seed_incident(
+            session,
+            rule_name="log-ack-rule",
+            group_key="host:log-ack",
+            host="log-ack",
+            service="cpu",
+            severity=Severity.WARNING,
+            event_time=_event_time(0),
+        )
+        close_incident = await _seed_incident(
+            session,
+            rule_name="log-close-rule",
+            group_key="host:log-close",
+            host="log-close",
+            service="disk",
+            severity=Severity.CRITICAL,
+            event_time=_event_time(1),
+        )
+
+    app = _app(session_factory)
+    caplog.set_level(logging.INFO)
+    async for client in get_client(app):
+        ack = await client.post(
+            f"/v1/incidents/{ack_incident.id}/ack",
+            json={"operator": "operator-a", "reason": "reviewed"},
+        )
+        close = await client.post(
+            f"/v1/incidents/{close_incident.id}/close",
+            json={"operator": "operator-a", "reason": "handled manually"},
+        )
+
+    assert ack.status_code == 200
+    assert close.status_code == 200
+    events = [
+        record.__dict__
+        for record in caplog.records
+        if record.__dict__.get("event") == "operator_mutation"
+    ]
+    assert [event["effect"] for event in events] == ["acknowledged", "closed"]
+    assert {event["incident_id"] for event in events} == {
+        str(ack_incident.id),
+        str(close_incident.id),
+    }
+    assert {event["status"] for event in events} == {"OPEN", "CLOSED"}
+    assert {event["reason"] for event in events} == {"acknowledged", "handled manually"}
+    serialized = "\n".join(record.getMessage() + repr(record.__dict__) for record in caplog.records)
+    for fragment in ("token-secret", "raw_payload", "password", "plugin_options", "Traceback"):
+        assert fragment not in serialized
 
 
 async def test_incident_api_rejects_invalid_inputs_without_source_exception_text(
