@@ -2,6 +2,8 @@ from typing import cast
 
 from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from app.config.rules import CompiledRuleConfig
+from app.config.topology import CompiledTopologyConfig
 
 from app.config.settings import Settings
 from app.plugins.loader import PluginRegistry
@@ -28,6 +30,14 @@ def get_task_runner(request: Request) -> TaskRunner:
 
 def get_plugin_registry(request: Request) -> PluginRegistry:
     return cast(PluginRegistry, request.app.state.plugin_registry)
+
+
+def get_rules_config(request: Request) -> CompiledRuleConfig:
+    return cast(CompiledRuleConfig, request.app.state.rules_config)
+
+
+def get_topology_config(request: Request) -> CompiledTopologyConfig:
+    return cast(CompiledTopologyConfig, request.app.state.topology_config)
 
 
 def get_lifecycle_worker(request: Request) -> LifecycleWorker:

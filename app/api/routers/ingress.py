@@ -11,10 +11,10 @@ from app.domain.rules import IngressDecisionEnvelope
 from app.plugins.inputs.icinga2 import Icinga2WebhookPayload
 from app.processing.ingress import Icinga2DecisionProcessor
 
-router = APIRouter()
+router = APIRouter(prefix="/v1")
 logger = logging.getLogger(__name__)
 
-@router.post("/webhooks/icinga2")
+@router.post("/icinga2/events")
 async def ingest_icinga2(
     processor: Annotated[Icinga2DecisionProcessor, Depends(get_icinga2_processor)],
     payload: Icinga2WebhookPayload = Body(...),
