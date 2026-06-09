@@ -54,7 +54,7 @@ async def test_health_returns_ok_without_database_readiness() -> None:
     )
 
     async for client in get_client(app):
-        response = await client.get("/health")
+        response = await client.get("/v1/health")
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
@@ -68,7 +68,7 @@ async def test_readyz_returns_ready_when_database_check_succeeds() -> None:
     )
 
     async for client in get_client(app):
-        response = await client.get("/readyz")
+        response = await client.get("/v1/readyz")
 
     assert response.status_code == 200
     assert response.json() == {"status": "ready"}
@@ -83,7 +83,7 @@ async def test_readyz_returns_non_secret_503_when_database_check_fails() -> None
     )
 
     async for client in get_client(app):
-        response = await client.get("/readyz")
+        response = await client.get("/v1/readyz")
 
     assert response.status_code == 503
     assert response.json() == {"detail": "not ready"}
@@ -92,7 +92,7 @@ async def test_readyz_returns_non_secret_503_when_database_check_fails() -> None
         assert secret_fragment not in response_body
 
 
-def test_phase_one_does_not_expose_out_of_scope_routes() -> None:
+def test_v1_health_and_readyz_routes_replace_legacy_paths() -> None:
     app = create_app(
         settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
         sessionmaker=lambda: SuccessfulSession(),
@@ -100,8 +100,10 @@ def test_phase_one_does_not_expose_out_of_scope_routes() -> None:
 
     route_paths = {route.path for route in app.routes}
 
-    assert "/health" in route_paths
-    assert "/readyz" in route_paths
+    assert "/v1/health" in route_paths
+    assert "/v1/readyz" in route_paths
+    assert "/health" not in route_paths
+    assert "/readyz" not in route_paths
     assert "/metrics" not in route_paths
     assert "/config" not in route_paths
     assert "/config-summary" not in route_paths

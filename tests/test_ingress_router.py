@@ -725,14 +725,23 @@ async def test_response_body_does_not_contain_secrets_or_raw_payload(
 # Route exposure check
 
 
-def test_webhook_icinga2_route_is_exposed() -> None:
+def test_v1_icinga2_events_route_is_exposed_without_legacy_alias() -> None:
     app = create_app(
         settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
         sessionmaker=lambda: object(),
     )
     route_paths = {route.path for route in app.routes}
-    assert "/webhooks/icinga2" in route_paths
-    assert "/incidents" not in route_paths
+    assert "/v1/icinga2/events" in route_paths
+    assert "/v1/health" in route_paths
+    assert "/v1/readyz" in route_paths
+    assert "/v1/plugins" in route_paths
+    assert "/v1/rules" in route_paths
+    assert "/v1/topology" in route_paths
+    assert "/v1/incidents" in route_paths
+    assert "/webhooks/icinga2" not in route_paths
+    assert "/health" not in route_paths
+    assert "/readyz" not in route_paths
+    assert "/plugins" not in route_paths
     assert "/api/v1/incidents" not in route_paths
 
 
