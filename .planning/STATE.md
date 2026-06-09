@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-stopped_at: Completed 04-05-PLAN.md
+status: complete
+stopped_at: Phase 04 complete; milestone ready to complete
 last_updated: "2026-06-09T16:32:42.105Z"
-last_activity: 2026-06-09
+last_activity: 2026-06-09 -- Phase 04 complete; milestone ready to complete
 progress:
   total_phases: 4
   completed_phases: 4
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-09)
 
 **Core value:** Operators receive one accurate, topology-aware incident for a related alert storm instead of many disconnected raw alerts.
-**Current focus:** Phase 04 — lifecycle-operator-apis-and-operability
+**Current focus:** Milestone v1.0 complete — ready to archive
 
 ## Current Position
 
 Phase: 04
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-06-09
+Plan: Complete
+Status: Phase complete — milestone ready to complete
+Last activity: 2026-06-09 -- Phase 04 complete; milestone ready to complete
 
-Progress: [█████████░] 88%
+Progress: [████████████████████] 100%
 
 ## Performance Metrics
 
@@ -119,7 +119,6 @@ Recent decisions affecting current work:
 - Phase 1 planning must settle acknowledgement modeling for active incident uniqueness.
 - Phase 2 planning must settle source-tag versus topology-tag conflict behavior and Icinga2 SOFT/HARD handling.
 - Phase 2 planning must settle rule multi-match/stop-processing and threshold counting semantics.
-- Phase 4 planning must settle recovery matching behavior for topology-level incidents and operator API exposure/auth assumptions.
 
 ### Quick Tasks Completed
 
@@ -137,6 +136,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-09T15:39:43.968Z
-Stopped at: Completed 04-05-PLAN.md
+Last session: 2026-06-09T16:32:42.105Z
+Stopped at: Phase 04 complete; milestone ready to complete
 Resume file: None
