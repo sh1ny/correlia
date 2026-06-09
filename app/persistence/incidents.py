@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
-from sqlalchemy import case, func, literal, select, text, update
+from sqlalchemy import Integer, case, func, literal, select, text, update
 from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -165,6 +165,7 @@ LifecycleEffect = Literal[
     "noop",
     "acknowledged",
     "closed",
+    "expired",
 ]
 
 
@@ -551,9 +552,13 @@ def _lifecycle_notes(
     recovery_time: datetime | None = None,
     operator: str | None = None,
     detail: str | None = None,
+    rule_name: str | None = None,
+    window_seconds: int | None = None,
+    last_update_time: datetime | None = None,
+    expiration_time: datetime | None = None,
     previous_host_count: int = 0,
     previous_service_count: int = 0,
-) -> dict[str, str]:
+):
     notes = {
         "lifecycle.reason": reason,
         "lifecycle.previous_host_count": str(previous_host_count),
@@ -573,6 +578,14 @@ def _lifecycle_notes(
         notes["lifecycle.operator"] = operator[:256]
     if detail is not None:
         notes["lifecycle.detail"] = detail[:256]
+    if rule_name is not None:
+        notes["lifecycle.rule_name"] = rule_name[:256]
+    if window_seconds is not None:
+        notes["lifecycle.window_seconds"] = str(window_seconds)
+    if last_update_time is not None:
+        notes["lifecycle.last_update_time"] = last_update_time.isoformat()[:256]
+    if expiration_time is not None:
+        notes["lifecycle.expired_at"] = expiration_time.isoformat()[:256]
     return notes
 
 
@@ -587,6 +600,10 @@ def _lifecycle_context(
     recovery_time: datetime | None = None,
     operator: str | None = None,
     detail: str | None = None,
+    rule_name: str | None = None,
+    window_seconds: int | None = None,
+    last_update_time: datetime | None = None,
+    expiration_time: datetime | None = None,
     previous_host_count: int = 0,
     previous_service_count: int = 0,
 ) -> dict[str, Any]:
@@ -601,6 +618,10 @@ def _lifecycle_context(
         recovery_time=recovery_time,
         operator=operator,
         detail=detail,
+        rule_name=rule_name,
+        window_seconds=window_seconds,
+        last_update_time=last_update_time,
+        expiration_time=expiration_time,
         previous_host_count=previous_host_count,
         previous_service_count=previous_service_count,
     )
@@ -924,3 +945,61 @@ async def close_open_incident(
         previous_service_count=previous_service_count,
         affected_object_removed=False,
     )
+
+
+def _window_seconds_from_incident(incident: Incident) -> int:
+    return int(incident.window_state["window_seconds"])
+
+
+def _stale_expiration_cutoff() -> Any:
+    window_seconds = Incident.window_state["window_seconds"].astext.cast(Integer)
+    return Incident.last_update_time + window_seconds * text("interval '1 second'")
+
+
+async def expire_stale_incidents(
+    session: AsyncSession,
+    limit: int,
+) -> tuple[Incident, ...]:
+    if limit < 1:
+        return ()
+    candidates = await session.execute(
+        select(Incident, func.now().label("database_now"))
+        .where(Incident.status == IncidentStatus.OPEN.value)
+        .where(func.now() > _stale_expiration_cutoff())
+        .order_by(Incident.id)
+        .limit(limit)
+        .with_for_update(skip_locked=True)
+    )
+    expired: list[Incident] = []
+    for incident, database_now in candidates.all():
+        previous_host_count = len(incident.affected_hosts)
+        previous_service_count = len(incident.affected_services)
+        window_seconds = _window_seconds_from_incident(incident)
+        decision_context = _lifecycle_context(
+            incident,
+            reason="expired",
+            rule_name=incident.rule_name,
+            window_seconds=window_seconds,
+            last_update_time=incident.last_update_time,
+            expiration_time=database_now,
+            previous_host_count=previous_host_count,
+            previous_service_count=previous_service_count,
+        )
+        target = validate_incident_transition(IncidentStatus.OPEN, IncidentStatus.CLOSED)
+        update_result = await session.execute(
+            update(Incident)
+            .where(Incident.id == incident.id)
+            .where(Incident.status == IncidentStatus.OPEN.value)
+            .values(
+                status=target.value,
+                decision_context=decision_context,
+                closed_at=func.now(),
+                updated_at=func.now(),
+            )
+            .returning(*Incident.__table__.columns)
+        )
+        mapping = update_result.mappings().one_or_none()
+        if mapping is None:
+            continue
+        expired.append(_incident_from_mapping(mapping))
+    return tuple(expired)
