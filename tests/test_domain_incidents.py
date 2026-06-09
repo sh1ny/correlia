@@ -11,6 +11,7 @@ from app.domain.incidents import (
     is_terminal_status,
     validate_incident_transition,
 )
+from app.domain.rules import NotificationResult
 
 
 def test_incident_status_values_are_lifecycle_only() -> None:
@@ -143,4 +144,36 @@ def test_decision_context_rejects_too_many_tuple_entries() -> None:
     with pytest.raises(ValidationError):
         DecisionContext.model_validate(
             {"schema_version": 1, "matched_rule_names": tuple(f"rule-{index}" for index in range(21))}
+        )
+
+
+
+def test_notification_result_accepts_safe_result_category() -> None:
+    result = NotificationResult(
+        success=False,
+        category="dispatch_failed",
+        message="plugin returned a safe failure category",
+    )
+
+    assert result.category == "dispatch_failed"
+    assert result.success is False
+
+
+def test_notification_result_rejects_unknown_category() -> None:
+    with pytest.raises(ValidationError):
+        NotificationResult(success=False, category="raw_smtp_error", message="bad")
+
+
+def test_notification_result_rejects_overlong_message() -> None:
+    with pytest.raises(ValidationError):
+        NotificationResult(success=False, category="dispatch_failed", message="x" * 257)
+
+
+def test_notification_result_rejects_extra_fields() -> None:
+    with pytest.raises(ValidationError):
+        NotificationResult(
+            success=False,
+            category="dispatch_failed",
+            message="safe",
+            raw_payload="secret",
         )
