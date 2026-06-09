@@ -24,7 +24,7 @@ tech-stack:
     - "Notification task payloads carry only incident id, plugin name, and config hash; dispatcher reloads incident state from PostgreSQL."
     - "Notification failures are closed safe categories with bounded messages stored as sanitized decision_context notes."
     - "Ingress stays persistence-isolated by accepting a sessionmaker seam rather than importing app.persistence or AsyncSession."
-    - "Plugin listing returns registry safe rows only: name, plugin_type, ready, status, config_hash."
+    - "Plugin listing returns registry safe rows only: name, plugin_type, ready, and status."
 
 key-files:
   created:
