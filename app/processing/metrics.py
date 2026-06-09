@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, Counter, Gauge, generate_latest
+from prometheus_client import CollectorRegistry, Counter, Gauge, generate_latest
 
 registry = CollectorRegistry()
 

@@ -7,7 +7,6 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-import pytest
 
 from app.processing.logging import JsonFormatter, safe_log_extra
 from app.processing.task_runner import AsyncIOTaskRunner

@@ -5,7 +5,6 @@ import os
 import subprocess
 from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -18,7 +17,6 @@ from app.domain.events import Severity
 from app.domain.incidents import DecisionContext, IncidentStatus
 from app.main import create_app
 from app.persistence.models import Incident
-from app.processing.lifecycle_worker import LifecycleWorker
 
 pytestmark = pytest.mark.anyio
 

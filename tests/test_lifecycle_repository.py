@@ -6,7 +6,6 @@ import inspect
 import subprocess
 import sys
 from datetime import datetime, timezone
-from uuid import UUID
 
 import pytest
 import sqlalchemy as sa
