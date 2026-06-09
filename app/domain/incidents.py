@@ -3,10 +3,11 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.domain.events import TagKey, TagValue
+from app.domain.events import Severity, TagKey, TagValue
 
 
 class IncidentStatus(StrEnum):
@@ -135,6 +136,70 @@ class IncidentWindowState(BaseModel):
             if timestamp.tzinfo is None or timestamp.utcoffset() is None:
                 raise ValueError("counted fingerprint timestamps must be timezone-aware")
         return value
+
+
+class IncidentListFilters(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    status: IncidentStatus | None = None
+    severity: Severity | None = None
+    rule_name: BoundedString | None = None
+    host: BoundedString | None = None
+    service: BoundedString | None = None
+    updated_since: datetime | None = None
+    limit: int = Field(default=50, ge=1, le=200)
+    cursor: Annotated[str, Field(min_length=1, max_length=512)] | None = None
+
+    @field_validator("updated_since", mode="after")
+    @classmethod
+    def require_updated_since_timezone(cls, value: datetime | None) -> datetime | None:
+        if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+            raise ValueError("updated_since must be timezone-aware")
+        return value
+
+
+class IncidentDetailResponse(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    id: UUID
+    rule_name: BoundedString
+    group_key: BoundedString
+    status: IncidentStatus
+    severity: Severity
+    summary: BoundedString
+    event_count: int = Field(ge=0)
+    affected_hosts: tuple[BoundedString, ...] = Field(max_length=100)
+    affected_services: tuple[BoundedString, ...] = Field(max_length=100)
+    acknowledgement: Acknowledgement
+    decision_context: DecisionContext
+    threshold_crossed: bool
+    notified_at: datetime | None = None
+    start_time: datetime
+    last_update_time: datetime
+    resolved_at: datetime | None = None
+    closed_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class IncidentListResponse(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    items: tuple[IncidentDetailResponse, ...] = Field(max_length=200)
+    next_cursor: str | None = None
+
+
+class IncidentAckRequest(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    operator: Annotated[str, Field(min_length=1, max_length=128)]
+
+
+class IncidentCloseRequest(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    operator: Annotated[str, Field(min_length=1, max_length=128)]
+    reason: Annotated[str, Field(min_length=1, max_length=256)]
 
 
 

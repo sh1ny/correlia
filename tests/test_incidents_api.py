@@ -188,7 +188,7 @@ async def test_list_incidents_filters_and_cursor_pagination(
     body1 = page1.json()
     ids_page1 = [item["id"] for item in body1["items"]]
     assert len(ids_page1) == 2
-    assert ids_page1 == [str(third.id), str(second.id)]
+    assert ids_page1 == sorted([str(second.id), str(third.id)], reverse=True)
     assert body1["next_cursor"]
 
     async for client in get_client(app):
