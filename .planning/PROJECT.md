@@ -15,12 +15,7 @@ Operators receive one accurate, topology-aware incident for a related alert stor
 - [x] Phase 1 validated the Python 3.14+ uv/FastAPI foundation, strict Pydantic settings, normalized event and incident contracts, Alembic/PostgreSQL schema invariant, and atomic open-incident upsert path.
 - [x] Phase 2 validated Icinga2 webhook ingestion, strict input normalization, static YAML topology enrichment, strict YAML rule loading, deterministic first-match rule evaluation, group-key rendering, and inspectable threshold/window decisions.
 - [x] Phase 3 validated PostgreSQL-backed problem aggregation, durable bounded threshold/window state, first-transition notification submission, asyncio `TaskRunner`, trusted output plugin registry loading, Mailpit-compatible SMTP output, and compact dispatch outcome reporting.
-
-### Active
-
-- [ ] Resolve incidents when recovery events arrive from input plugins.
-- [ ] Expire stale open incidents when no events arrive within the rule window.
-- [ ] Expose system behavior through REST APIs, with no built-in frontend.
+- [x] Phase 4 validated RECOVERY lifecycle mutation, stale incident expiration, trusted internal `/v1` operator APIs, low-cardinality Prometheus metrics, safe JSON structured logs, and expanded readiness checks.
 
 ### Out of Scope
 
@@ -57,7 +52,7 @@ Testing should use Testcontainers for Python for PostgreSQL-backed integration t
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| API-first backend with no built-in frontend | Keeps v1 focused on alert ingestion, aggregation, state, and REST contracts | — Pending |
+| API-first backend with no built-in frontend | Keeps v1 focused on alert ingestion, aggregation, state, and REST contracts | Validated in Phase 4 |
 | Icinga2 as first input plugin | The project needs one concrete monitoring integration before generalizing | Validated in Phase 2 |
 | Plugin-agnostic `NormalizedEvent` model | Core processing should not depend on source-specific payload shapes | Validated in Phase 2 |
 | `PROBLEM` / `RECOVERY` event classification | Incident lifecycle cannot be correct if OK/resolved source states are treated like ordinary alerts | Validated in Phase 2 |
@@ -87,4 +82,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-09 after Phase 3 completion*
+*Last updated: 2026-06-09 after Phase 4 completion*
