@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Literal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from sqlalchemy import case, func, literal, select, text, update
 from sqlalchemy.dialects.postgresql import JSONB, insert
@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.events import Severity
 from app.domain.incidents import DecisionContext, IncidentStatus, IncidentWindowState
+from app.domain.rules import NotificationResult
 from app.persistence.models import Incident
 
 MAX_AFFECTED_HOSTS = 100
@@ -243,6 +244,53 @@ def _decision_context_dump(input: IncidentUpsertInput) -> dict[str, Any]:
     if input.decision_context is None:
         return {}
     return input.decision_context.model_dump(mode="json")
+
+
+def _safe_notification_notes(
+    context: dict[str, Any], plugin_name: str, result: NotificationResult
+) -> dict[str, Any]:
+    notes = dict(context.get("notes") or {})
+    existing_indexes = [
+        int(key.split(".")[1])
+        for key in notes
+        if key.startswith("notification.") and key.endswith(".category") and key.split(".")[1].isdigit()
+    ]
+    next_index = max(existing_indexes, default=-1) + 1
+    prefix = f"notification.{next_index}"
+    notes[f"{prefix}.plugin"] = plugin_name[:256]
+    notes[f"{prefix}.category"] = result.category
+    notes[f"{prefix}.success"] = "true" if result.success else "false"
+    notes[f"{prefix}.message"] = result.message[:256]
+    if len(notes) > 20:
+        ordered = sorted(notes.items())
+        notification_items = [item for item in ordered if item[0].startswith("notification.")]
+        other_items = [item for item in ordered if not item[0].startswith("notification.")]
+        notes = dict((other_items + notification_items)[-20:])
+    return notes
+
+
+async def record_notification_result(
+    session: AsyncSession,
+    incident_id: UUID,
+    plugin_name: str,
+    result: NotificationResult,
+) -> bool:
+    selected = await session.execute(
+        select(Incident).where(Incident.id == incident_id).with_for_update()
+    )
+    incident = selected.scalar_one_or_none()
+    if incident is None:
+        return False
+
+    context = dict(incident.decision_context or {})
+    context["notes"] = _safe_notification_notes(context, plugin_name, result)
+    await session.execute(
+        update(Incident)
+        .where(Incident.id == incident_id)
+        .values(decision_context=context, updated_at=func.now())
+    )
+    incident.decision_context = context
+    return True
 
 
 def _incident_from_mapping(mapping: Any) -> Incident:
