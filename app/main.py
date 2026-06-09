@@ -12,6 +12,8 @@ from app.persistence.database import create_engine, create_sessionmaker
 from app.plugins.loader import PluginRegistry, load_plugin_registry
 from app.processing.ingress import Icinga2DecisionProcessor, build_icinga2_processor
 from app.processing.notification_dispatcher import NotificationDispatcher
+from app.processing.lifecycle import expire_stale_batch
+from app.processing.lifecycle_worker import LifecycleWorker
 from app.processing.task_runner import AsyncIOTaskRunner, TaskRunner
 
 
@@ -55,12 +57,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             plugin_registry=app.state.plugin_registry,
         )
 
+    if not hasattr(app.state, "lifecycle_worker"):
+        app.state.lifecycle_worker = LifecycleWorker(
+            sessionmaker=app.state.sessionmaker,
+            interval_seconds=app.state.settings.lifecycle_scan_interval_seconds,
+            batch_size=app.state.settings.lifecycle_batch_size,
+            sweep=expire_stale_batch,
+        )
+    await app.state.lifecycle_worker.start()
+
     try:
         yield
+    finally:
+        lifecycle_worker = getattr(app.state, "lifecycle_worker", None)
+        if lifecycle_worker is not None:
+            await lifecycle_worker.stop()
         task_runner = getattr(app.state, "task_runner", None)
         if task_runner is not None:
             await task_runner.drain()
-    finally:
         engine = getattr(app.state, "engine", None)
         if engine is not None:
             await engine.dispose()
@@ -72,6 +86,7 @@ def create_app(
     icinga2_processor: Icinga2DecisionProcessor | None = None,
     task_runner: TaskRunner | None = None,
     plugin_registry: PluginRegistry | None = None,
+    lifecycle_worker: LifecycleWorker | None = None,
 ) -> FastAPI:
     app = FastAPI(lifespan=lifespan)
 
@@ -85,6 +100,8 @@ def create_app(
         app.state.task_runner = task_runner
     if plugin_registry is not None:
         app.state.plugin_registry = plugin_registry
+    if lifecycle_worker is not None:
+        app.state.lifecycle_worker = lifecycle_worker
 
     app.include_router(health_router)
     app.include_router(ingress_router)
