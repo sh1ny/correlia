@@ -19,6 +19,7 @@ from app.processing.ingress import Icinga2DecisionProcessor, build_icinga2_proce
 from app.processing.notification_dispatcher import NotificationDispatcher
 from app.processing.lifecycle import expire_stale_batch
 from app.processing.lifecycle_worker import LifecycleWorker
+from app.processing.logging import configure_json_logging
 from app.processing.task_runner import AsyncIOTaskRunner, TaskRunner
 
 
@@ -26,6 +27,7 @@ from app.processing.task_runner import AsyncIOTaskRunner, TaskRunner
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if not hasattr(app.state, "settings"):
         app.state.settings = get_settings()
+    configure_json_logging(app.state.settings.log_level)
 
     engine = getattr(app.state, "engine", None)
     if not hasattr(app.state, "sessionmaker"):
@@ -116,6 +118,7 @@ def create_app(
 
     if settings is not None:
         app.state.settings = settings
+        configure_json_logging(settings.log_level)
     if sessionmaker is not None:
         app.state.sessionmaker = sessionmaker
     if icinga2_processor is not None:

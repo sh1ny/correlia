@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from typing import Literal
 from uuid import UUID
 
@@ -16,6 +17,9 @@ from app.persistence.incidents import (
     resolve_service_recovery,
 )
 from app.processing.metrics import record_incident_effect
+from app.processing.logging import safe_log_extra
+
+logger = logging.getLogger(__name__)
 
 LifecycleResultEffect = Literal[
     "affected_set_shrunk",
@@ -75,6 +79,15 @@ class LifecycleManager:
         await self._session.commit()
         for write_result in write_results:
             record_incident_effect(write_result.effect)
+        logger.info(
+            "recovery lifecycle applied",
+            extra=safe_log_extra(
+                event="recovery_lifecycle",
+                incident_id=str(write_results[0].incident.id) if write_results else None,
+                effect=_result_from_writes(write_results).effect,
+                count=len(write_results),
+            ),
+        )
         return _result_from_writes(write_results)
 
     async def acknowledge(self, incident_id: UUID, *, operator: str) -> LifecycleResult:
@@ -83,6 +96,17 @@ class LifecycleManager:
         if write_result is None:
             return _empty_result()
         record_incident_effect(write_result.effect)
+        logger.info(
+            "incident acknowledged",
+            extra=safe_log_extra(
+                event="operator_mutation",
+                incident_id=str(write_result.incident.id),
+                status=write_result.incident.status,
+                effect=write_result.effect,
+                reason="acknowledged",
+                operator=operator,
+            ),
+        )
         return _result_from_writes((write_result,))
 
     async def manual_close(
@@ -102,6 +126,17 @@ class LifecycleManager:
         if write_result is None:
             return _empty_result()
         record_incident_effect(write_result.effect)
+        logger.info(
+            "incident manually closed",
+            extra=safe_log_extra(
+                event="operator_mutation",
+                incident_id=str(write_result.incident.id),
+                status=write_result.incident.status,
+                effect=write_result.effect,
+                reason=reason,
+                operator=operator,
+            ),
+        )
         return _result_from_writes((write_result,))
 
 
@@ -114,6 +149,14 @@ async def expire_stale_batch(
         for write_result in write_results:
             record_incident_effect("expired")
         await session.commit()
+        logger.info(
+            "stale incidents expired",
+            extra=safe_log_extra(
+                event="incident_expiration",
+                effect="expired",
+                expired_count=len(write_results),
+            ),
+        )
         return len(write_results)
 
 

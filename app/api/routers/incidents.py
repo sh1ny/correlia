@@ -1,4 +1,5 @@
 from __future__ import annotations
+import logging
 
 from datetime import datetime
 from typing import Annotated
@@ -26,9 +27,12 @@ from app.persistence.incidents import (
     get_incident_by_id,
     list_incidents,
 )
+from app.processing.logging import safe_log_extra
 from app.persistence.models import Incident
 
 router = APIRouter(prefix="/v1/incidents")
+logger = logging.getLogger(__name__)
+
 
 
 def _safe_decision_context(incident: Incident) -> DecisionContext:
@@ -140,6 +144,17 @@ async def acknowledge_incident(
         if result is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="incident not found")
         await session.commit()
+        logger.info(
+            "incident acknowledged",
+            extra=safe_log_extra(
+                event="operator_mutation",
+                incident_id=str(result.incident.id),
+                status=result.incident.status,
+                effect=result.effect,
+                reason="acknowledged",
+                operator=body.operator,
+            ),
+        )
     return _incident_response(result.incident)
 
 
@@ -161,4 +176,15 @@ async def close_incident_endpoint(
         if result is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="incident not found")
         await session.commit()
+        logger.info(
+            "incident manually closed",
+            extra=safe_log_extra(
+                event="operator_mutation",
+                incident_id=str(result.incident.id),
+                status=result.incident.status,
+                effect=result.effect,
+                reason=body.reason,
+                operator=body.operator,
+            ),
+        )
     return _incident_response(result.incident)

@@ -350,7 +350,7 @@ async def test_operator_mutations_emit_safe_json_logs(
     async for client in get_client(app):
         ack = await client.post(
             f"/v1/incidents/{ack_incident.id}/ack",
-            json={"operator": "operator-a", "reason": "reviewed"},
+            json={"operator": "operator-a"},
         )
         close = await client.post(
             f"/v1/incidents/{close_incident.id}/close",
