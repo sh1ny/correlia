@@ -14,13 +14,10 @@ Operators receive one accurate, topology-aware incident for a related alert stor
 
 - [x] Phase 1 validated the Python 3.14+ uv/FastAPI foundation, strict Pydantic settings, normalized event and incident contracts, Alembic/PostgreSQL schema invariant, and atomic open-incident upsert path.
 - [x] Phase 2 validated Icinga2 webhook ingestion, strict input normalization, static YAML topology enrichment, strict YAML rule loading, deterministic first-match rule evaluation, group-key rendering, and inspectable threshold/window decisions.
+- [x] Phase 3 validated PostgreSQL-backed problem aggregation, durable bounded threshold/window state, first-transition notification submission, asyncio `TaskRunner`, trusted output plugin registry loading, Mailpit-compatible SMTP output, and compact dispatch outcome reporting.
 
 ### Active
 
-- [ ] Aggregate matching problem events into PostgreSQL-backed incidents.
-- [ ] Maintain concurrency-safe incident state with one open incident per rule and group key.
-- [ ] Dispatch threshold-crossing incidents through pluggable output channels.
-- [ ] Abstract task execution behind a task runner that defaults to asyncio in v1 and can be replaced by Celery/Redis later.
 - [ ] Resolve incidents when recovery events arrive from input plugins.
 - [ ] Expire stale open incidents when no events arrive within the rule window.
 - [ ] Expose system behavior through REST APIs, with no built-in frontend.
@@ -69,7 +66,7 @@ Testing should use Testcontainers for Python for PostgreSQL-backed integration t
 | YAML rules, topology, and plugin registry | Operators can adjust behavior without changing Python code | Rules and topology validated in Phase 2 |
 | Topology enrichment plugin interface | Static YAML enrichment ships first, but later enrichers such as an AI-driven topology enricher should plug into the same boundary | Validated in Phase 2 |
 | Testcontainers for Python for PostgreSQL tests | Correlia depends on PostgreSQL-specific behavior that SQLite cannot validate | Validated in Phase 1 |
-| `TaskRunner` abstraction with asyncio default | Supports v1 simplicity while preserving a clean path to Celery/Redis | — Pending |
+| `TaskRunner` abstraction with asyncio default | Supports v1 simplicity while preserving a clean path to Celery/Redis | Validated in Phase 3 |
 | Vertical MVP roadmap mode | Auto mode defaults to end-to-end slices that prove product behavior early | — Pending |
 
 ## Evolution
@@ -90,4 +87,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-08 after Phase 2 completion*
+*Last updated: 2026-06-09 after Phase 3 completion*
