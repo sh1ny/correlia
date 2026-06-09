@@ -117,11 +117,17 @@ async def _insert_incident(session_factory: async_sessionmaker[AsyncSession]) ->
 
 async def test_dispatcher_sends_notification_and_records_safe_success(
     session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from app.processing.notification_dispatcher import NotificationDispatcher
 
     incident_id = await _insert_incident(session_factory)
     plugin = CapturingPlugin()
+    attempts: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "app.processing.notification_dispatcher.record_notification_attempt",
+        lambda plugin_name, category: attempts.append((plugin_name, category)),
+    )
     dispatcher = NotificationDispatcher(session_factory, Registry({"email-oncall": plugin}))
 
     result = await dispatcher.process(
@@ -131,6 +137,7 @@ async def test_dispatcher_sends_notification_and_records_safe_success(
     assert result.success is True
     assert result.category == "dispatched"
     assert len(plugin.envelopes) == 1
+    assert attempts == [("email-oncall", "dispatched")]
     assert plugin.envelopes[0].incident_id == str(incident_id)
     assert plugin.envelopes[0].severity is Severity.CRITICAL
 

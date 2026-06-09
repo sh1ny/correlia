@@ -214,7 +214,6 @@ class IncidentManager:
                 await self._record_notification(write_result.incident.id, plugin_name, result)
                 results.append(result)
                 continue
-            record_notification_attempt(plugin_name, "dispatched")
             results.append(
                 NotificationResult(
                     success=True,
