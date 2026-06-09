@@ -864,8 +864,18 @@ async def resolve_service_recovery(
     for incident in candidates.scalars():
         previous_host_count = len(incident.affected_hosts)
         previous_service_count = len(incident.affected_services)
-        new_services = sorted(item for item in incident.affected_services if item != service)
-        new_hosts = sorted(item for item in incident.affected_hosts if item != host)
+        remaining_services = sorted(item for item in incident.affected_services if item != service)
+        remaining_hosts = sorted(item for item in incident.affected_hosts if item != host)
+        new_services = (
+            remaining_services
+            if previous_host_count == 1
+            else list(incident.affected_services)
+        )
+        new_hosts = (
+            remaining_hosts
+            if previous_service_count == 1
+            else list(incident.affected_hosts)
+        )
         if (
             len(new_hosts) == previous_host_count
             and len(new_services) == previous_service_count
