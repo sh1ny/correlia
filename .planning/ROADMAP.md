@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundations, Contracts, and Database Invariant** - Maintainers can run Correlia with strict domain/config contracts and PostgreSQL-enforced incident state. (completed 2026-06-08)
 - [x] **Phase 2: Icinga2 Ingress, Topology, and Rule Decisions** - Operators can send real Icinga2 alerts through normalization, enrichment, and deterministic rule evaluation. (completed 2026-06-08)
-- [ ] **Phase 3: Problem Aggregation and Notification Dispatch** - Problem events become durable topology-aware incidents and threshold transitions dispatch through pluggable tasks/outputs.
+- [x] **Phase 3: Problem Aggregation and Notification Dispatch** - Problem events become durable topology-aware incidents and threshold transitions dispatch through pluggable tasks/outputs. (completed 2026-06-09)
 - [ ] **Phase 4: Lifecycle, Operator APIs, and Operability** - Recovery, expiration, REST workflows, logs, readiness, metrics, and verification complete the v1 operational surface.
 
 ## Phase Details
@@ -93,7 +93,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. Notification work is submitted only through the asyncio-backed TaskRunner after durable incident state transitions, with no repeated notification for the same durable threshold/status transition.
   5. Configured output plugins can be loaded, cached, listed, invoked through an email-style channel, and report missing plugin, missing incident, plugin exception, and notification failure cases.
 
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 
 ### Phase 4: Lifecycle, Operator APIs, and Operability
 
@@ -131,7 +131,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Foundations, Contracts, and Database Invariant | 5/5 | Complete    | 2026-06-08 |
 | 2. Icinga2 Ingress, Topology, and Rule Decisions | 3/3 | Complete    | 2026-06-08 |
-| 3. Problem Aggregation and Notification Dispatch | 2/3 | In Progress|  |
+| 3. Problem Aggregation and Notification Dispatch | 3/3 | Complete   | 2026-06-09 |
 | 4. Lifecycle, Operator APIs, and Operability | 0/TBD | Not started | - |
 ---
 *Roadmap created: 2026-06-08*
