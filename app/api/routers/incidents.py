@@ -183,7 +183,7 @@ async def close_incident_endpoint(
                 incident_id=str(result.incident.id),
                 status=result.incident.status,
                 effect=result.effect,
-                reason=body.reason,
+                reason="manual_close",
                 operator=body.operator,
             ),
         )

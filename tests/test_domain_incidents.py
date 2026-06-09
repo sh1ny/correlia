@@ -8,6 +8,8 @@ from app.domain.incidents import (
     Acknowledgement,
     DecisionContext,
     IncidentStatus,
+    IncidentAckRequest,
+    IncidentCloseRequest,
     LifecycleOutcome,
     is_terminal_status,
     validate_incident_transition,
@@ -139,6 +141,26 @@ def test_decision_context_rejects_forbidden_or_unknown_top_level_keys(forbidden_
 def test_decision_context_notes_are_bounded_and_secret_safe(notes: dict[str, str]) -> None:
     with pytest.raises(ValidationError):
         DecisionContext.model_validate({"schema_version": 1, "notes": notes})
+
+@pytest.mark.parametrize(
+    ("model", "payload"),
+    [
+        (IncidentAckRequest, {"operator": "token-secret"}),
+        (IncidentCloseRequest, {"operator": "operator", "reason": "password rotated"}),
+        (IncidentCloseRequest, {"operator": "secret-admin", "reason": "handled manually"}),
+    ],
+)
+def test_operator_action_requests_reject_secret_like_text(
+    model: type[IncidentAckRequest] | type[IncidentCloseRequest],
+    payload: dict[str, str],
+) -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        model.model_validate(payload)
+
+    serialized = str(exc_info.value).lower()
+    assert "raw payloads or secrets" in serialized
+    for fragment in payload.values():
+        assert fragment.lower() not in serialized
 
 
 def test_decision_context_rejects_too_many_tuple_entries() -> None:

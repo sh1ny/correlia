@@ -370,7 +370,7 @@ async def test_operator_mutations_emit_safe_json_logs(
         str(close_incident.id),
     }
     assert {event["status"] for event in events} == {"OPEN", "CLOSED"}
-    assert {event["reason"] for event in events} == {"acknowledged", "handled manually"}
+    assert {event["reason"] for event in events} == {"acknowledged", "manual_close"}
     serialized = "\n".join(record.getMessage() + repr(record.__dict__) for record in caplog.records)
     for fragment in ("token-secret", "raw_payload", "password", "plugin_options", "Traceback"):
         assert fragment not in serialized
@@ -388,9 +388,35 @@ async def test_incident_api_rejects_invalid_inputs_without_source_exception_text
             json={},
         )
 
+        secret_ack = await client.post(
+            "/v1/incidents/00000000-0000-0000-0000-000000000000/ack",
+            json={"operator": "token-secret"},
+        )
+        secret_close = await client.post(
+            "/v1/incidents/00000000-0000-0000-0000-000000000000/close",
+            json={"operator": "operator-a", "reason": "password leaked"},
+        )
     assert bad_cursor.status_code == 400
     assert bad_uuid.status_code == 422
     assert bad_body.status_code == 422
-    serialized = "\n".join([bad_cursor.text, bad_uuid.text, bad_body.text]).lower()
-    for fragment in ("traceback", "valueerror", "sqlalchemy", "asyncpg", "postgresql"):
+    assert secret_ack.status_code == 422
+    assert secret_close.status_code == 422
+    serialized = "\n".join(
+        [
+            bad_cursor.text,
+            bad_uuid.text,
+            bad_body.text,
+            secret_ack.text,
+            secret_close.text,
+        ]
+    ).lower()
+    for fragment in (
+        "traceback",
+        "valueerror",
+        "sqlalchemy",
+        "asyncpg",
+        "postgresql",
+        "token-secret",
+        "password leaked",
+    ):
         assert fragment not in serialized

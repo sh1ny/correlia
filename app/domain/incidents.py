@@ -79,6 +79,11 @@ class DecisionContext(BaseModel):
         return value
 
 
+def reject_operator_action_text(value: str) -> str:
+    DecisionContext.reject_secret_note_content({"operator_action": value})
+    return value
+
+
 class LifecycleOutcome(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
 
@@ -190,17 +195,26 @@ class IncidentListResponse(BaseModel):
 
 
 class IncidentAckRequest(BaseModel):
-    model_config = ConfigDict(strict=True, extra="forbid")
+    model_config = ConfigDict(strict=True, extra="forbid", hide_input_in_errors=True)
 
     operator: Annotated[str, Field(min_length=1, max_length=128)]
 
+    @field_validator("operator", mode="after")
+    @classmethod
+    def reject_secret_text(cls, value: str) -> str:
+        return reject_operator_action_text(value)
+
 
 class IncidentCloseRequest(BaseModel):
-    model_config = ConfigDict(strict=True, extra="forbid")
+    model_config = ConfigDict(strict=True, extra="forbid", hide_input_in_errors=True)
 
     operator: Annotated[str, Field(min_length=1, max_length=128)]
     reason: Annotated[str, Field(min_length=1, max_length=256)]
 
+    @field_validator("operator", "reason", mode="after")
+    @classmethod
+    def reject_secret_text(cls, value: str) -> str:
+        return reject_operator_action_text(value)
 
 
 def is_terminal_status(status: IncidentStatus) -> bool:
