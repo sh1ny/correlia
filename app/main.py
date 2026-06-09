@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.api.routers.health import router as health_router
+from app.api.routers.incidents import router as incidents_router
 from app.api.routers.ingress import router as ingress_router
 from app.api.routers.plugins import router as plugins_router
 from app.config.settings import Settings, get_settings
@@ -106,4 +107,5 @@ def create_app(
     app.include_router(health_router)
     app.include_router(ingress_router)
     app.include_router(plugins_router)
+    app.include_router(incidents_router)
     return app

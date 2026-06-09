@@ -2,17 +2,25 @@
 
 from __future__ import annotations
 
+import base64
+import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
-from sqlalchemy import Integer, case, func, literal, select, text, update
+from sqlalchemy import Integer, and_, case, func, literal, or_, select, text, update
 from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.events import Severity
-from app.domain.incidents import DecisionContext, IncidentStatus, IncidentWindowState, validate_incident_transition
+from app.domain.incidents import (
+    DecisionContext,
+    IncidentListFilters,
+    IncidentStatus,
+    IncidentWindowState,
+    validate_incident_transition,
+)
 from app.domain.rules import NotificationResult
 from app.persistence.models import Incident
 
@@ -178,6 +186,18 @@ class LifecycleWriteResult:
     previous_service_count: int
     affected_object_removed: bool
 
+
+
+@dataclass(frozen=True, slots=True)
+class IncidentCursor:
+    last_update_time: datetime
+    id: UUID
+
+
+@dataclass(frozen=True, slots=True)
+class IncidentListPage:
+    incidents: tuple[Incident, ...]
+    next_cursor: str | None
 
 def _parse_timestamp(value: Any) -> datetime:
     if isinstance(value, datetime):
@@ -352,6 +372,77 @@ async def record_notification_result(
 
 def _incident_from_mapping(mapping: Any) -> Incident:
     return Incident(**mapping)
+
+
+def encode_incident_cursor(cursor: IncidentCursor) -> str:
+    payload = {
+        "last_update_time": cursor.last_update_time.isoformat(),
+        "id": str(cursor.id),
+    }
+    encoded = base64.urlsafe_b64encode(
+        json.dumps(payload, separators=(",", ":")).encode()
+    ).decode()
+    return encoded.rstrip("=")
+
+
+def decode_incident_cursor(value: str) -> IncidentCursor:
+    try:
+        padded = value + ("=" * (-len(value) % 4))
+        payload = json.loads(base64.urlsafe_b64decode(padded.encode()).decode())
+        last_update_time = datetime.fromisoformat(payload["last_update_time"])
+        if last_update_time.tzinfo is None or last_update_time.utcoffset() is None:
+            raise ValueError("cursor timestamp must be timezone-aware")
+        return IncidentCursor(last_update_time=last_update_time, id=UUID(payload["id"]))
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise ValueError("invalid incident cursor") from exc
+
+
+async def list_incidents(
+    session: AsyncSession,
+    filters: IncidentListFilters,
+) -> IncidentListPage:
+    stmt = select(Incident)
+    if filters.status is not None:
+        stmt = stmt.where(Incident.status == filters.status.value)
+    if filters.severity is not None:
+        stmt = stmt.where(Incident.severity == filters.severity.value)
+    if filters.rule_name is not None:
+        stmt = stmt.where(Incident.rule_name == filters.rule_name)
+    if filters.host is not None:
+        stmt = stmt.where(Incident.affected_hosts.contains([filters.host]))
+    if filters.service is not None:
+        stmt = stmt.where(Incident.affected_services.contains([filters.service]))
+    if filters.updated_since is not None:
+        stmt = stmt.where(Incident.last_update_time >= filters.updated_since)
+    if filters.cursor is not None:
+        cursor = decode_incident_cursor(filters.cursor)
+        stmt = stmt.where(
+            or_(
+                Incident.last_update_time < cursor.last_update_time,
+                and_(
+                    Incident.last_update_time == cursor.last_update_time,
+                    Incident.id < cursor.id,
+                ),
+            )
+        )
+    stmt = stmt.order_by(Incident.last_update_time.desc(), Incident.id.desc()).limit(
+        filters.limit + 1
+    )
+    result = await session.execute(stmt)
+    rows = tuple(result.scalars().all())
+    incidents = rows[: filters.limit]
+    next_cursor = None
+    if len(rows) > filters.limit:
+        last = incidents[-1]
+        next_cursor = encode_incident_cursor(
+            IncidentCursor(last_update_time=last.last_update_time, id=last.id)
+        )
+    return IncidentListPage(incidents=incidents, next_cursor=next_cursor)
+
+
+async def get_incident_by_id(session: AsyncSession, incident_id: UUID) -> Incident | None:
+    result = await session.execute(select(Incident).where(Incident.id == incident_id))
+    return result.scalar_one_or_none()
 
 
 def build_open_incident_upsert(input: IncidentUpsertInput) -> Any:
