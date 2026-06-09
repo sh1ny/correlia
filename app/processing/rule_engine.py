@@ -34,7 +34,7 @@ class RuleEngine:
                     group_key=group_key,
                     threshold_decision=threshold_decision,
                     summary=summary,
-                    actions=[a.name for a in compiled.definition.actions],
+                    actions=[a.plugin for a in compiled.definition.actions],
                 )
 
         return NoOpDecision(reason="no matching rule")

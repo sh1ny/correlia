@@ -15,6 +15,7 @@ from app.plugins.inputs.icinga2 import (
 )
 from app.plugins.interfaces import InputPlugin, TopologyEnricher
 from app.processing.rule_engine import RuleEngine
+from app.processing.incident_manager import IncidentAggregationResult, IncidentManager
 
 
 class Icinga2DecisionProcessor:
@@ -23,10 +24,18 @@ class Icinga2DecisionProcessor:
         plugin: InputPlugin,
         topology_enricher: TopologyEnricher | None = None,
         rule_engine: RuleEngine | None = None,
+        sessionmaker: object | None = None,
+        task_runner: object | None = None,
+        plugin_registry: object | None = None,
+        config_hash: str | None = None,
     ) -> None:
         self._plugin = plugin
         self._topology_enricher = topology_enricher
         self._rule_engine = rule_engine
+        self._sessionmaker = sessionmaker
+        self._task_runner = task_runner
+        self._plugin_registry = plugin_registry
+        self._config_hash = config_hash
 
     async def process_payload(
         self, payload: Icinga2WebhookPayload
@@ -63,16 +72,16 @@ class Icinga2DecisionProcessor:
         rule_decision: dict[str, object] | None = None
         group_key: str | None = None
         threshold_decision: dict[str, object] | None = None
-
+        incident_result: IncidentAggregationResult | None = None
         if self._rule_engine is not None:
             decision = await self._rule_engine.evaluate(event)
             rule_decision = decision.model_dump(mode="json")
             if isinstance(decision, RuleDecision):
                 matched_rules = list(decision.matched_rules)
                 group_key = decision.group_key
-                threshold_decision = decision.threshold_decision.model_dump(
-                    mode="json"
-                )
+                threshold_decision = decision.threshold_decision.model_dump(mode="json")
+                if event.event_type.value == "PROBLEM" and self._sessionmaker is not None:
+                    incident_result = await self._apply_problem(event, decision)
             else:
                 matched_rules = list(decision.matched_rules)
         else:
@@ -95,16 +104,65 @@ class Icinga2DecisionProcessor:
             rule_decision=rule_decision,
             group_key=group_key,
             threshold_decision=threshold_decision,
-            incident_effects=IncidentEffectSummary(inserted=0, updated=0),
+            incident_effects=_incident_effects(incident_result),
             closure_count=0,
-            notification_count=0,
+            incident_id=incident_result.incident_id if incident_result is not None else None,
+            threshold_crossed=(
+                incident_result.threshold_crossed if incident_result is not None else False
+            ),
+            notification_triggered=(
+                incident_result.notification_triggered if incident_result is not None else False
+            ),
+            notification_failed=(
+                incident_result.notification_failed if incident_result is not None else False
+            ),
+            no_dispatch_reason=(
+                incident_result.no_dispatch_reason if incident_result is not None else None
+            ),
+            notification_results=(
+                incident_result.notification_results if incident_result is not None else ()
+            ),
+            notification_count=(
+                sum(1 for result in incident_result.notification_results if result.success)
+                if incident_result is not None
+                else 0
+            ),
             rejection=None,
         )
+
+    async def _apply_problem(
+        self, event: object, decision: RuleDecision
+    ) -> IncidentAggregationResult:
+        sessionmaker = self._sessionmaker
+        if sessionmaker is None:
+            raise RuntimeError("sessionmaker is required for problem aggregation")
+        async with sessionmaker() as session:
+            manager = IncidentManager(
+                session,
+                task_runner=self._task_runner,
+                plugin_registry=self._plugin_registry,
+                config_hash=self._config_hash,
+            )
+            return await manager.apply_problem(event, decision)
+
+
+def _incident_effects(
+    result: IncidentAggregationResult | None,
+) -> IncidentEffectSummary:
+    if result is None:
+        return IncidentEffectSummary(inserted=0, updated=0)
+    if result.effect == "inserted":
+        return IncidentEffectSummary(inserted=1, updated=0)
+    return IncidentEffectSummary(inserted=0, updated=1)
 
 
 def build_icinga2_processor(
     topology_path: Path | None = None,
     rules_path: Path | None = None,
+    *,
+    sessionmaker: object | None = None,
+    task_runner: object | None = None,
+    plugin_registry: object | None = None,
 ) -> Icinga2DecisionProcessor:
     plugin = Icinga2InputPlugin()
     enricher: TopologyEnricher | None = None
@@ -119,11 +177,16 @@ def build_icinga2_processor(
     if rules_path is not None:
         from app.config.rules import load_rules_config
 
-        rules_config = load_rules_config(rules_path)
+        known_plugins = frozenset(getattr(plugin_registry, "names", ()))
+        rules_config = load_rules_config(rules_path, known_plugins=known_plugins)
         rule_engine = RuleEngine(list(rules_config.rules))
 
     return Icinga2DecisionProcessor(
         plugin=plugin,
         topology_enricher=enricher,
         rule_engine=rule_engine,
+        sessionmaker=sessionmaker,
+        task_runner=task_runner,
+        plugin_registry=plugin_registry,
+        config_hash=getattr(plugin_registry, "config_hash", None),
     )
