@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.domain.events import Severity, TagKey, TagValue
+from app.domain.incidents import LifecycleOutcome
 
 
 BoundedString = Annotated[str, Field(min_length=1, max_length=256)]
@@ -135,6 +136,9 @@ class IngressDecisionEnvelope(BaseModel):
         default_factory=lambda: IncidentEffectSummary(inserted=0, updated=0)
     )
     closure_count: int = Field(default=0, ge=0)
+    lifecycle_outcome: LifecycleOutcome | None = None
+    recovery_resolution: Literal["noop", "affected_set_shrunk", "resolved"] | None = None
+    affected_object_removed: bool = False
     incident_id: UUID | None = None
     threshold_crossed: bool = False
     notification_triggered: bool = False
