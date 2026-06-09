@@ -53,13 +53,13 @@ async def list_topology_summary(
                 "tag_keys": sorted(rule.tags),
             }
         )
-    for rule in topology_config.subnet_rules:
+    for subnet_rule in topology_config.subnet_rules:
         rules.append(
             {
-                "id": rule.id,
-                "name": rule.name,
+                "id": subnet_rule.id,
+                "name": subnet_rule.name,
                 "match_type": "subnet",
-                "tag_keys": sorted(rule.tags),
+                "tag_keys": sorted(subnet_rule.tags),
             }
         )
     return {"config_hash": _hash_payload(rules), "rules": rules}

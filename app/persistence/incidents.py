@@ -705,7 +705,7 @@ def _lifecycle_notes(
     expiration_time: datetime | None = None,
     previous_host_count: int = 0,
     previous_service_count: int = 0,
-):
+) -> dict[str, str]:
     notes = {
         "lifecycle.reason": reason,
         "lifecycle.previous_host_count": str(previous_host_count),
