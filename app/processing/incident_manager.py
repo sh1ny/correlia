@@ -10,8 +10,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.domain.events import EventType, NormalizedEvent
 from app.domain.incidents import DecisionContext
 from app.domain.rules import NotificationResult, RuleDecision
-from app.persistence.incidents import IncidentAggregationWriteResult, IncidentUpsertInput, record_problem_incident
+from app.persistence.incidents import (
+    IncidentAggregationWriteResult,
+    IncidentUpsertInput,
+    record_notification_result,
+    record_problem_incident,
+)
 from app.persistence.models import Incident
+from app.processing.task_runner import TaskRunner
 
 
 class NoDispatchReason(StrEnum):
@@ -38,9 +44,18 @@ class IncidentAggregationResult:
 
 
 class IncidentManager:
-    def __init__(self, session: AsyncSession, config_hash: str | None = None) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        *,
+        task_runner: TaskRunner | None = None,
+        plugin_registry: object | None = None,
+        config_hash: str | None = None,
+    ) -> None:
         self._session = session
-        self._config_hash = config_hash
+        self._task_runner = task_runner
+        self._plugin_registry = plugin_registry
+        self._config_hash = config_hash or getattr(plugin_registry, "config_hash", None)
 
     async def apply_problem(
         self,
@@ -82,7 +97,6 @@ class IncidentManager:
             ),
         )
 
-        notification_triggered = write_result.first_threshold_transition
         no_dispatch_reason = self._no_dispatch_reason(write_result)
         final_context = self._decision_context(
             event=event,
@@ -96,6 +110,11 @@ class IncidentManager:
             .values(decision_context=final_context.model_dump(mode="json"))
         )
         write_result.incident.decision_context = final_context.model_dump(mode="json")
+        await self._session.commit()
+
+        notification_results = await self._submit_notifications(write_result, decision)
+        notification_failed = any(not result.success for result in notification_results)
+        notification_triggered = any(result.success for result in notification_results)
 
         return IncidentAggregationResult(
             incident_id=write_result.incident.id,
@@ -108,10 +127,67 @@ class IncidentManager:
             threshold_crossed=write_result.threshold_crossed,
             first_threshold_transition=write_result.first_threshold_transition,
             notification_triggered=notification_triggered,
-            notification_failed=False,
+            notification_failed=notification_failed,
             no_dispatch_reason=no_dispatch_reason.value if no_dispatch_reason is not None else None,
-            notification_results=(),
+            notification_results=notification_results,
         )
+
+    async def _submit_notifications(
+        self, write_result: IncidentAggregationWriteResult, decision: RuleDecision
+    ) -> tuple[NotificationResult, ...]:
+        if not write_result.first_threshold_transition:
+            return ()
+
+        results: list[NotificationResult] = []
+        known_plugins = set(getattr(self._plugin_registry, "names", ()))
+        for plugin_name in sorted(decision.actions):
+            if plugin_name not in known_plugins:
+                result = NotificationResult(
+                    success=False,
+                    category="missing_plugin",
+                    message="configured output plugin is missing",
+                )
+                await self._record_notification(write_result.incident.id, plugin_name, result)
+                results.append(result)
+                continue
+            if self._task_runner is None:
+                result = NotificationResult(
+                    success=False,
+                    category="dispatch_failed",
+                    message="notification task runner is unavailable",
+                )
+                await self._record_notification(write_result.incident.id, plugin_name, result)
+                results.append(result)
+                continue
+            try:
+                await self._task_runner.submit("notify", {
+                    "incident_id": str(write_result.incident.id),
+                    "plugin_name": plugin_name,
+                    "config_hash": self._config_hash,
+                })
+            except Exception:
+                result = NotificationResult(
+                    success=False,
+                    category="dispatch_failed",
+                    message="notification task submission failed",
+                )
+                await self._record_notification(write_result.incident.id, plugin_name, result)
+                results.append(result)
+                continue
+            results.append(
+                NotificationResult(
+                    success=True,
+                    category="dispatched",
+                    message="notification task submitted",
+                )
+            )
+        return tuple(results)
+
+    async def _record_notification(
+        self, incident_id: UUID, plugin_name: str, result: NotificationResult
+    ) -> None:
+        await record_notification_result(self._session, incident_id, plugin_name, result)
+        await self._session.commit()
 
     def _decision_context(
         self,

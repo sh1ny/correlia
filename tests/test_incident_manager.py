@@ -68,15 +68,19 @@ def _event(fingerprint: str, timestamp: datetime, host: str = "db-1") -> Normali
     )
 
 
-def _decision(timestamp: datetime, threshold: int = 2) -> RuleDecision:
+def _decision(
+    timestamp: datetime,
+    threshold: int = 2,
+    group_key: str = "service=postgres|topology.role=database",
+) -> RuleDecision:
     return RuleDecision(
         rule_name="database-critical",
         priority=10,
         matched_rules=["database-critical"],
-        group_key="service=postgres|topology.role=database",
+        group_key=group_key,
         threshold_decision=ThresholdDecision(
             rule_name="database-critical",
-            group_key="service=postgres|topology.role=database",
+            group_key=group_key,
             window_start=timestamp - timedelta(minutes=5),
             window_end=timestamp,
             threshold=threshold,
@@ -108,7 +112,7 @@ class PluginNames:
 def test_incident_manager_commits_before_notify_submit() -> None:
     import app.processing.incident_manager as incident_manager
 
-    source = inspect.getsource(incident_manager.IncidentManager.apply_problem)
+    source = inspect.getsource(incident_manager.IncidentManager)
     commit_pos = source.index("await self._session.commit()")
     submit_pos = source.index('await self._task_runner.submit("notify"')
     assert commit_pos < submit_pos
@@ -240,7 +244,10 @@ async def test_apply_problem_returns_missing_plugin_and_submission_failures_afte
         db_session,
         task_runner=RecordingRunner(fail=True),
         plugin_registry=PluginNames("email-oncall", "audit-log"),
-    ).apply_problem(_event("fp-submit", fail_time, host="db-2"), _decision(fail_time, threshold=1))
+    ).apply_problem(
+        _event("fp-submit", fail_time, host="db-2"),
+        _decision(fail_time, threshold=1, group_key="service=postgres|topology.role=database|host=db-2"),
+    )
 
     assert submission_failed.notification_failed is True
     assert {r.category for r in submission_failed.notification_results} == {"dispatch_failed"}
