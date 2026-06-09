@@ -92,7 +92,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Operability
 
-- [ ] **OPS-01**: Correlia emits structured logs for ingestion, normalization, enrichment, rule matching, incident upsert, notification dispatch, recovery, expiration, and task failures.
+- [x] **OPS-01**: Correlia emits structured logs for ingestion, normalization, enrichment, rule matching, incident upsert, notification dispatch, recovery, expiration, and task failures.
 - [x] **OPS-02**: Correlia exposes readiness signals for database connectivity, config validity, plugin registry load, and background task health.
 - [x] **OPS-03**: Correlia exposes low-cardinality metrics for accepted events, rejected events, matched rules, incident inserts/updates/resolutions/expirations, notification attempts/failures, and task failures.
 - [x] **OPS-04**: Maintainer can run automated tests that cover domain models, config validation, Icinga2 mapping, topology enrichment, rule evaluation, notification dispatch, recovery, and expiration, with PostgreSQL integration/concurrency paths exercised through Testcontainers for Python instead of SQLite.
@@ -196,7 +196,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | API-03 | Phase 4: Lifecycle, Operator APIs, and Operability | Complete |
 | API-04 | Phase 4: Lifecycle, Operator APIs, and Operability | Complete |
 | API-05 | Phase 4: Lifecycle, Operator APIs, and Operability | Complete |
-| OPS-01 | Phase 4: Lifecycle, Operator APIs, and Operability | Pending |
+| OPS-01 | Phase 4: Lifecycle, Operator APIs, and Operability | Complete |
 | OPS-02 | Phase 4: Lifecycle, Operator APIs, and Operability | Complete |
 | OPS-03 | Phase 4: Lifecycle, Operator APIs, and Operability | Complete |
 | OPS-04 | Phase 4: Lifecycle, Operator APIs, and Operability | Complete |

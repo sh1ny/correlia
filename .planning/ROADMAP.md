@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Foundations, Contracts, and Database Invariant** - Maintainers can run Correlia with strict domain/config contracts and PostgreSQL-enforced incident state. (completed 2026-06-08)
 - [x] **Phase 2: Icinga2 Ingress, Topology, and Rule Decisions** - Operators can send real Icinga2 alerts through normalization, enrichment, and deterministic rule evaluation. (completed 2026-06-08)
 - [x] **Phase 3: Problem Aggregation and Notification Dispatch** - Problem events become durable topology-aware incidents and threshold transitions dispatch through pluggable tasks/outputs. (completed 2026-06-09)
-- [ ] **Phase 4: Lifecycle, Operator APIs, and Operability** - Recovery, expiration, REST workflows, logs, readiness, metrics, and verification complete the v1 operational surface.
+- [x] **Phase 4: Lifecycle, Operator APIs, and Operability** - Recovery, expiration, REST workflows, logs, readiness, metrics, and verification complete the v1 operational surface. (completed 2026-06-09)
 
 ## Phase Details
 
@@ -109,7 +109,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. Operators can inspect loaded rules, topology summaries, plugin registry status, health, readiness, structured logs, and low-cardinality metrics without exposing secrets.
   5. Maintainer can run automated coverage for domain models, config validation, Icinga2 mapping, topology enrichment, rule evaluation, PostgreSQL upsert concurrency, notification dispatch, recovery, and expiration.
 
-**Plans:** 4/5 plans executed
+**Plans:** 5/5 plans complete
 
 ## Requirement Coverage
 
@@ -132,7 +132,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Foundations, Contracts, and Database Invariant | 5/5 | Complete    | 2026-06-08 |
 | 2. Icinga2 Ingress, Topology, and Rule Decisions | 3/3 | Complete    | 2026-06-08 |
 | 3. Problem Aggregation and Notification Dispatch | 3/3 | Complete    | 2026-06-09 |
-| 4. Lifecycle, Operator APIs, and Operability | 4/5 | In Progress|  |
+| 4. Lifecycle, Operator APIs, and Operability | 5/5 | Complete   | 2026-06-09 |
 ---
 *Roadmap created: 2026-06-08*
 *Granularity: coarse*
