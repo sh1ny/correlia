@@ -8,6 +8,7 @@ from app.api.routers.config_status import router as config_status_router
 from app.api.routers.health import router as health_router
 from app.api.routers.incidents import router as incidents_router
 from app.api.routers.ingress import router as ingress_router
+from app.api.routers.metrics import router as metrics_router
 from app.api.routers.plugins import router as plugins_router
 from app.config.rules import CompiledRuleConfig, load_rules_config
 from app.config.settings import Settings, get_settings
@@ -131,4 +132,5 @@ def create_app(
     app.include_router(plugins_router)
     app.include_router(config_status_router)
     app.include_router(incidents_router)
+    app.include_router(metrics_router)
     return app
