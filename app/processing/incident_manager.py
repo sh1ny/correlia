@@ -17,6 +17,11 @@ from app.persistence.incidents import (
     record_problem_incident,
 )
 from app.persistence.models import Incident
+from app.processing.metrics import (
+    record_incident_effect,
+    record_notification_attempt,
+    record_notification_failure,
+)
 from app.processing.task_runner import TaskRunner
 
 
@@ -96,6 +101,7 @@ class IncidentManager:
                 window_seconds=window_seconds,
             ),
         )
+        record_incident_effect(write_result.effect)
 
         no_dispatch_reason = self._no_dispatch_reason(write_result)
         final_context = self._decision_context(
@@ -147,6 +153,8 @@ class IncidentManager:
                     category="missing_plugin",
                     message="configured output plugin is missing",
                 )
+                record_notification_attempt(plugin_name, result.category)
+                record_notification_failure(plugin_name, result.category)
                 await self._record_notification(write_result.incident.id, plugin_name, result)
                 results.append(result)
                 continue
@@ -156,6 +164,8 @@ class IncidentManager:
                     category="dispatch_failed",
                     message="notification task runner is unavailable",
                 )
+                record_notification_attempt(plugin_name, result.category)
+                record_notification_failure(plugin_name, result.category)
                 await self._record_notification(write_result.incident.id, plugin_name, result)
                 results.append(result)
                 continue
@@ -171,9 +181,12 @@ class IncidentManager:
                     category="dispatch_failed",
                     message="notification task submission failed",
                 )
+                record_notification_attempt(plugin_name, result.category)
+                record_notification_failure(plugin_name, result.category)
                 await self._record_notification(write_result.incident.id, plugin_name, result)
                 results.append(result)
                 continue
+            record_notification_attempt(plugin_name, "dispatched")
             results.append(
                 NotificationResult(
                     success=True,

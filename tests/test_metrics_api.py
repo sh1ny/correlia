@@ -9,9 +9,9 @@ import pytest
 
 from app.domain.events import EventType, NormalizedEvent, Severity
 from app.domain.rules import NotificationResult, RuleDecision, ThresholdDecision
-from app.persistence.incidents import LifecycleWriteResult
+from app.persistence.incidents import IncidentAggregationWriteResult, LifecycleWriteResult
 from app.persistence.models import Incident
-from app.processing.incident_manager import IncidentAggregationResult
+from app.processing.incident_manager import IncidentAggregationResult, IncidentManager
 from app.processing.ingress import Icinga2DecisionProcessor
 from app.processing.lifecycle import LifecycleManager, LifecycleResult
 from app.processing.lifecycle_worker import LifecycleWorker
@@ -85,6 +85,9 @@ class InstrumentedProcessor(Icinga2DecisionProcessor):
 
 class FakeSession:
     async def commit(self) -> None:
+        return None
+
+    async def execute(self, statement: object) -> None:
         return None
 
 
@@ -220,6 +223,8 @@ async def test_ingest_lifecycle_notification_and_worker_metrics_use_low_cardinal
     import app.processing.lifecycle as lifecycle_module
     import app.processing.notification_dispatcher as notification_module
     import app.processing.metrics as metrics
+    import app.processing.incident_manager as incident_manager_module
+
 
     decision = _decision()
     problem_processor = InstrumentedProcessor(
@@ -235,6 +240,29 @@ async def test_ingest_lifecycle_notification_and_worker_metrics_use_low_cardinal
 
     await problem_processor.process_payload({})
     await recovery_processor.process_payload({})
+
+    async def fake_record_problem_incident(*args: object, **kwargs: object) -> IncidentAggregationWriteResult:
+        return IncidentAggregationWriteResult(
+            incident=_incident(uuid4()),
+            effect="inserted",
+            replay=False,
+            inside_window=True,
+            counted=True,
+            threshold_crossed=True,
+            first_threshold_transition=True,
+            counted_count=1,
+            counted_fingerprints=("fp-secret-value",),
+        )
+
+    monkeypatch.setattr(
+        incident_manager_module,
+        "record_problem_incident",
+        fake_record_problem_incident,
+    )
+    await IncidentManager(FakeSession()).apply_problem(
+        _event(EventType.PROBLEM, severity=Severity.CRITICAL),
+        decision.model_copy(update={"actions": []}),
+    )
 
     incident_id = uuid4()
 
@@ -339,6 +367,16 @@ async def test_ingest_lifecycle_notification_and_worker_metrics_use_low_cardinal
         "payload",
         "summary",
     )
+    metric_call_names = (
+        "record_event_accepted",
+        "record_event_rejected",
+        "record_rule_matched",
+        "record_incident_effect",
+        "record_notification_attempt",
+        "record_notification_failure",
+        "record_task_failure",
+        "set_lifecycle_worker_healthy",
+    )
     for path in (
         Path("app/processing/ingress.py"),
         Path("app/processing/incident_manager.py"),
@@ -348,6 +386,6 @@ async def test_ingest_lifecycle_notification_and_worker_metrics_use_low_cardinal
         Path("app/processing/lifecycle_worker.py"),
     ):
         for line in path.read_text().splitlines():
-            if "record_" in line or "set_lifecycle_worker_healthy" in line:
+            if any(metric_call_name in line for metric_call_name in metric_call_names):
                 for forbidden in forbidden_source_values:
                     assert forbidden not in line

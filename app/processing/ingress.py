@@ -20,6 +20,11 @@ from app.plugins.interfaces import InputPlugin, TopologyEnricher
 from app.processing.rule_engine import RuleEngine
 from app.processing.incident_manager import IncidentAggregationResult, IncidentManager
 from app.processing.lifecycle import LifecycleManager, LifecycleResult
+from app.processing.metrics import (
+    record_event_accepted,
+    record_event_rejected,
+    record_rule_matched,
+)
 from app.processing.task_runner import TaskRunner
 
 
@@ -48,6 +53,7 @@ class Icinga2DecisionProcessor:
         plugin_result = await self._plugin.process_payload(payload)
 
         if isinstance(plugin_result, Icinga2Rejection):
+            record_event_rejected(plugin_result.reason)
             return IngressDecisionEnvelope(
                 state_accepted=False,
                 source_id=plugin_result.source_id,
@@ -57,6 +63,7 @@ class Icinga2DecisionProcessor:
             )
 
         event = plugin_result
+        record_event_accepted(event.event_type.value)
         diagnostics: list[dict[str, object]] = []
         if self._topology_enricher is not None:
             enrichment_result = await self._topology_enricher.enrich(event)
@@ -84,6 +91,8 @@ class Icinga2DecisionProcessor:
             rule_decision = decision.model_dump(mode="json")
             if isinstance(decision, RuleDecision):
                 matched_rules = list(decision.matched_rules)
+                for rule_name in matched_rules:
+                    record_rule_matched(rule_name)
                 group_key = decision.group_key
                 if event.event_type is EventType.PROBLEM:
                     threshold_decision = decision.threshold_decision.model_dump(mode="json")

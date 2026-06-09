@@ -15,6 +15,7 @@ from app.persistence.incidents import (
     resolve_host_recovery,
     resolve_service_recovery,
 )
+from app.processing.metrics import record_incident_effect
 
 LifecycleResultEffect = Literal[
     "affected_set_shrunk",
@@ -72,6 +73,8 @@ class LifecycleManager:
                 source_id=event.source_id,
             )
         await self._session.commit()
+        for write_result in write_results:
+            record_incident_effect(write_result.effect)
         return _result_from_writes(write_results)
 
     async def acknowledge(self, incident_id: UUID, *, operator: str) -> LifecycleResult:
@@ -79,6 +82,7 @@ class LifecycleManager:
         await self._session.commit()
         if write_result is None:
             return _empty_result()
+        record_incident_effect(write_result.effect)
         return _result_from_writes((write_result,))
 
     async def manual_close(
@@ -97,6 +101,7 @@ class LifecycleManager:
         await self._session.commit()
         if write_result is None:
             return _empty_result()
+        record_incident_effect(write_result.effect)
         return _result_from_writes((write_result,))
 
 
@@ -106,6 +111,8 @@ async def expire_stale_batch(
 ) -> int:
     async with sessionmaker() as session:
         write_results = await expire_stale_incidents(session, limit=limit)
+        for write_result in write_results:
+            record_incident_effect("expired")
         await session.commit()
         return len(write_results)
 
