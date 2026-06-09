@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Annotated, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -97,6 +98,22 @@ class IncidentEffectSummary(BaseModel):
     updated: int = Field(default=0, ge=0)
 
 
+NotificationCategory = Literal[
+    "dispatched",
+    "missing_plugin",
+    "missing_incident",
+    "plugin_exception",
+    "dispatch_failed",
+]
+
+
+class NotificationResult(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    success: bool
+    category: NotificationCategory
+    message: Annotated[str, Field(min_length=1, max_length=256)]
+
 class IngressDecisionEnvelope(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
 
@@ -118,5 +135,11 @@ class IngressDecisionEnvelope(BaseModel):
         default_factory=lambda: IncidentEffectSummary(inserted=0, updated=0)
     )
     closure_count: int = Field(default=0, ge=0)
+    incident_id: UUID | None = None
+    threshold_crossed: bool = False
+    notification_triggered: bool = False
+    notification_failed: bool = False
+    no_dispatch_reason: BoundedString | None = None
+    notification_results: tuple[NotificationResult, ...] = Field(default_factory=tuple, max_length=20)
     notification_count: int = Field(default=0, ge=0)
     rejection: dict[str, object] | None = None
