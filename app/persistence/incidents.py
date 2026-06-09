@@ -12,7 +12,7 @@ from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.events import Severity
-from app.domain.incidents import DecisionContext, IncidentStatus, IncidentWindowState
+from app.domain.incidents import DecisionContext, IncidentStatus, IncidentWindowState, validate_incident_transition
 from app.domain.rules import NotificationResult
 from app.persistence.models import Incident
 
@@ -157,6 +157,25 @@ class IncidentAggregationWriteResult:
     first_threshold_transition: bool
     counted_count: int
     counted_fingerprints: tuple[str, ...]
+
+
+LifecycleEffect = Literal[
+    "affected_set_shrunk",
+    "resolved",
+    "noop",
+    "acknowledged",
+    "closed",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class LifecycleWriteResult:
+    incident: Incident
+    effect: LifecycleEffect
+    transitioned_to: str | None
+    previous_host_count: int
+    previous_service_count: int
+    affected_object_removed: bool
 
 
 def _parse_timestamp(value: Any) -> datetime:
@@ -520,3 +539,388 @@ async def _insert_problem_incident(
     if mapping is None:
         return None
     return _incident_from_mapping(mapping)
+
+
+def _lifecycle_notes(
+    *,
+    reason: str,
+    fingerprint: str | None = None,
+    source_id: str | None = None,
+    host: str | None = None,
+    service: str | None = None,
+    recovery_time: datetime | None = None,
+    operator: str | None = None,
+    detail: str | None = None,
+    previous_host_count: int = 0,
+    previous_service_count: int = 0,
+) -> dict[str, str]:
+    notes = {
+        "lifecycle.reason": reason,
+        "lifecycle.previous_host_count": str(previous_host_count),
+        "lifecycle.previous_service_count": str(previous_service_count),
+    }
+    if fingerprint is not None:
+        notes["lifecycle.fingerprint"] = fingerprint[:256]
+    if source_id is not None:
+        notes["lifecycle.source_id"] = source_id[:256]
+    if host is not None:
+        notes["lifecycle.host"] = host[:256]
+    if service is not None:
+        notes["lifecycle.service"] = service[:256]
+    if recovery_time is not None:
+        notes["lifecycle.recovery_timestamp"] = recovery_time.isoformat()[:256]
+    if operator is not None:
+        notes["lifecycle.operator"] = operator[:256]
+    if detail is not None:
+        notes["lifecycle.detail"] = detail[:256]
+    return notes
+
+
+def _lifecycle_context(
+    incident: Incident,
+    *,
+    reason: str,
+    fingerprint: str | None = None,
+    source_id: str | None = None,
+    host: str | None = None,
+    service: str | None = None,
+    recovery_time: datetime | None = None,
+    operator: str | None = None,
+    detail: str | None = None,
+    previous_host_count: int = 0,
+    previous_service_count: int = 0,
+) -> dict[str, Any]:
+    candidate = _normalizable_decision_context(dict(incident.decision_context or {}))
+    existing_notes = dict(candidate.get("notes") or {})
+    lifecycle_notes = _lifecycle_notes(
+        reason=reason,
+        fingerprint=fingerprint,
+        source_id=source_id,
+        host=host,
+        service=service,
+        recovery_time=recovery_time,
+        operator=operator,
+        detail=detail,
+        previous_host_count=previous_host_count,
+        previous_service_count=previous_service_count,
+    )
+    remaining = max(0, 20 - len(lifecycle_notes))
+    kept_notes = {
+        key: value
+        for key, value in existing_notes.items()
+        if not key.startswith("lifecycle.")
+    }
+    candidate["notes"] = dict(list(kept_notes.items())[-remaining:] + list(lifecycle_notes.items()))
+    candidate["fingerprint"] = fingerprint or candidate.get("fingerprint")
+    candidate["source_id"] = source_id or candidate.get("source_id")
+    candidate["event_count"] = incident.event_count
+    return DecisionContext.model_validate(candidate).model_dump(mode="json")
+
+
+async def _shrink_affected_sets(
+    session: AsyncSession,
+    incident: Incident,
+    *,
+    new_hosts: list[str],
+    new_services: list[str],
+    decision_context: dict[str, Any],
+) -> Incident:
+    result = await session.execute(
+        update(Incident)
+        .where(Incident.id == incident.id)
+        .where(Incident.status == IncidentStatus.OPEN.value)
+        .values(
+            affected_hosts=new_hosts,
+            affected_services=new_services,
+            decision_context=decision_context,
+            updated_at=func.now(),
+        )
+        .returning(*Incident.__table__.columns)
+    )
+    return _incident_from_mapping(result.mappings().one())
+
+
+async def _resolve_to_resolved(
+    session: AsyncSession,
+    incident: Incident,
+    *,
+    decision_context: dict[str, Any],
+) -> Incident:
+    target = validate_incident_transition(IncidentStatus.OPEN, IncidentStatus.RESOLVED)
+    result = await session.execute(
+        update(Incident)
+        .where(Incident.id == incident.id)
+        .where(Incident.status == IncidentStatus.OPEN.value)
+        .values(
+            status=target.value,
+            affected_hosts=[],
+            affected_services=[],
+            decision_context=decision_context,
+            resolved_at=func.now(),
+            updated_at=func.now(),
+        )
+        .returning(*Incident.__table__.columns)
+    )
+    return _incident_from_mapping(result.mappings().one())
+
+
+async def resolve_host_recovery(
+    session: AsyncSession,
+    *,
+    host: str,
+    recovery_time: datetime,
+    fingerprint: str,
+    source_id: str,
+) -> tuple[LifecycleWriteResult, ...]:
+    candidates = await session.execute(
+        select(Incident)
+        .where(Incident.status == IncidentStatus.OPEN.value)
+        .where(Incident.affected_hosts.contains([host]))
+        .with_for_update()
+    )
+    results: list[LifecycleWriteResult] = []
+    for incident in candidates.scalars():
+        previous_host_count = len(incident.affected_hosts)
+        previous_service_count = len(incident.affected_services)
+        new_hosts = sorted(item for item in incident.affected_hosts if item != host)
+        if len(new_hosts) == previous_host_count:
+            continue
+        decision_context = _lifecycle_context(
+            incident,
+            reason="source_recovery",
+            fingerprint=fingerprint,
+            source_id=source_id,
+            host=host,
+            recovery_time=recovery_time,
+            previous_host_count=previous_host_count,
+            previous_service_count=previous_service_count,
+        )
+        if not new_hosts and not incident.affected_services:
+            updated = await _resolve_to_resolved(
+                session,
+                incident,
+                decision_context=decision_context,
+            )
+            results.append(
+                LifecycleWriteResult(
+                    incident=updated,
+                    effect="resolved",
+                    transitioned_to=IncidentStatus.RESOLVED.value,
+                    previous_host_count=previous_host_count,
+                    previous_service_count=previous_service_count,
+                    affected_object_removed=True,
+                )
+            )
+            continue
+        updated = await _shrink_affected_sets(
+            session,
+            incident,
+            new_hosts=new_hosts,
+            new_services=list(incident.affected_services),
+            decision_context=decision_context,
+        )
+        results.append(
+            LifecycleWriteResult(
+                incident=updated,
+                effect="affected_set_shrunk",
+                transitioned_to=None,
+                previous_host_count=previous_host_count,
+                previous_service_count=previous_service_count,
+                affected_object_removed=True,
+            )
+        )
+    return tuple(results)
+
+
+async def resolve_service_recovery(
+    session: AsyncSession,
+    *,
+    host: str,
+    service: str,
+    recovery_time: datetime,
+    fingerprint: str,
+    source_id: str,
+) -> tuple[LifecycleWriteResult, ...]:
+    candidates = await session.execute(
+        select(Incident)
+        .where(Incident.status == IncidentStatus.OPEN.value)
+        .where(Incident.affected_hosts.contains([host]))
+        .where(Incident.affected_services.contains([service]))
+        .with_for_update()
+    )
+    results: list[LifecycleWriteResult] = []
+    for incident in candidates.scalars():
+        previous_host_count = len(incident.affected_hosts)
+        previous_service_count = len(incident.affected_services)
+        new_services = sorted(item for item in incident.affected_services if item != service)
+        new_hosts = sorted(item for item in incident.affected_hosts if item != host)
+        if (
+            len(new_hosts) == previous_host_count
+            and len(new_services) == previous_service_count
+        ):
+            continue
+        decision_context = _lifecycle_context(
+            incident,
+            reason="source_recovery",
+            fingerprint=fingerprint,
+            source_id=source_id,
+            host=host,
+            service=service,
+            recovery_time=recovery_time,
+            previous_host_count=previous_host_count,
+            previous_service_count=previous_service_count,
+        )
+        if not new_hosts and not new_services:
+            updated = await _resolve_to_resolved(
+                session,
+                incident,
+                decision_context=decision_context,
+            )
+            results.append(
+                LifecycleWriteResult(
+                    incident=updated,
+                    effect="resolved",
+                    transitioned_to=IncidentStatus.RESOLVED.value,
+                    previous_host_count=previous_host_count,
+                    previous_service_count=previous_service_count,
+                    affected_object_removed=True,
+                )
+            )
+            continue
+        updated = await _shrink_affected_sets(
+            session,
+            incident,
+            new_hosts=new_hosts,
+            new_services=new_services,
+            decision_context=decision_context,
+        )
+        results.append(
+            LifecycleWriteResult(
+                incident=updated,
+                effect="affected_set_shrunk",
+                transitioned_to=None,
+                previous_host_count=previous_host_count,
+                previous_service_count=previous_service_count,
+                affected_object_removed=True,
+            )
+        )
+    return tuple(results)
+
+
+async def ack_open_incident(
+    session: AsyncSession,
+    incident_id: UUID,
+    *,
+    operator: str,
+) -> LifecycleWriteResult | None:
+    selected = await session.execute(
+        select(Incident)
+        .where(Incident.id == incident_id)
+        .where(Incident.status == IncidentStatus.OPEN.value)
+        .with_for_update()
+    )
+    incident = selected.scalar_one_or_none()
+    if incident is None:
+        current = await session.execute(select(Incident).where(Incident.id == incident_id))
+        row = current.scalar_one_or_none()
+        if row is None:
+            return None
+        return LifecycleWriteResult(
+            incident=row,
+            effect="noop",
+            transitioned_to=None,
+            previous_host_count=len(row.affected_hosts),
+            previous_service_count=len(row.affected_services),
+            affected_object_removed=False,
+        )
+    previous_host_count = len(incident.affected_hosts)
+    previous_service_count = len(incident.affected_services)
+    decision_context = _lifecycle_context(
+        incident,
+        reason="acknowledged",
+        operator=operator,
+        previous_host_count=previous_host_count,
+        previous_service_count=previous_service_count,
+    )
+    result = await session.execute(
+        update(Incident)
+        .where(Incident.id == incident_id)
+        .where(Incident.status == IncidentStatus.OPEN.value)
+        .values(
+            acknowledged_at=func.coalesce(Incident.acknowledged_at, func.now()),
+            acknowledged_by=operator,
+            decision_context=decision_context,
+            updated_at=func.now(),
+        )
+        .returning(*Incident.__table__.columns)
+    )
+    updated = _incident_from_mapping(result.mappings().one())
+    return LifecycleWriteResult(
+        incident=updated,
+        effect="acknowledged",
+        transitioned_to=None,
+        previous_host_count=previous_host_count,
+        previous_service_count=previous_service_count,
+        affected_object_removed=False,
+    )
+
+
+async def close_open_incident(
+    session: AsyncSession,
+    incident_id: UUID,
+    *,
+    operator: str,
+    reason: str,
+) -> LifecycleWriteResult | None:
+    selected = await session.execute(
+        select(Incident)
+        .where(Incident.id == incident_id)
+        .where(Incident.status == IncidentStatus.OPEN.value)
+        .with_for_update()
+    )
+    incident = selected.scalar_one_or_none()
+    if incident is None:
+        current = await session.execute(select(Incident).where(Incident.id == incident_id))
+        row = current.scalar_one_or_none()
+        if row is None:
+            return None
+        return LifecycleWriteResult(
+            incident=row,
+            effect="noop",
+            transitioned_to=None,
+            previous_host_count=len(row.affected_hosts),
+            previous_service_count=len(row.affected_services),
+            affected_object_removed=False,
+        )
+    previous_host_count = len(incident.affected_hosts)
+    previous_service_count = len(incident.affected_services)
+    decision_context = _lifecycle_context(
+        incident,
+        reason="manual_close",
+        operator=operator,
+        detail=reason,
+        previous_host_count=previous_host_count,
+        previous_service_count=previous_service_count,
+    )
+    target = validate_incident_transition(IncidentStatus.OPEN, IncidentStatus.CLOSED)
+    result = await session.execute(
+        update(Incident)
+        .where(Incident.id == incident_id)
+        .where(Incident.status == IncidentStatus.OPEN.value)
+        .values(
+            status=target.value,
+            decision_context=decision_context,
+            closed_at=func.now(),
+            updated_at=func.now(),
+        )
+        .returning(*Incident.__table__.columns)
+    )
+    updated = _incident_from_mapping(result.mappings().one())
+    return LifecycleWriteResult(
+        incident=updated,
+        effect="closed",
+        transitioned_to=IncidentStatus.CLOSED.value,
+        previous_host_count=previous_host_count,
+        previous_service_count=previous_service_count,
+        affected_object_removed=False,
+    )
