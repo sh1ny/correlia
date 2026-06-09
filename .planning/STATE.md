@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 04-03-PLAN.md
-last_updated: "2026-06-09T15:05:52.118Z"
+stopped_at: Completed 04-04-PLAN.md
+last_updated: "2026-06-09T15:20:18.586Z"
 last_activity: 2026-06-09 -- Phase 04 execution started
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 16
-  completed_plans: 14
-  percent: 88
+  completed_plans: 15
+  percent: 75
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-09)
 ## Current Position
 
 Phase: 04 (lifecycle-operator-apis-and-operability) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-06-09 -- Phase 04 execution started
 
@@ -65,6 +65,7 @@ Progress: [█████████░] 88%
 | Phase 04-lifecycle-operator-apis-and-operability P1 | 9min | 2 tasks | 8 files |
 | Phase 04-lifecycle-operator-apis-and-operability P2 | 8min | 2 tasks | 9 files |
 | Phase 04-lifecycle-operator-apis-and-operability P3 | 11min | 2 tasks | 14 files |
+| Phase 04-lifecycle-operator-apis-and-operability P4 | 10min | 2 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -102,6 +103,9 @@ Recent decisions affecting current work:
 - [Phase 04 Plan 03]: Incident listing uses opaque base64url cursors containing `last_update_time` and `id`; repository queries preserve `last_update_time DESC, id DESC`.
 - [Phase 04 Plan 03]: Operator incident actions remain trusted-internal with no auth dependency and reuse lifecycle repository guards for idempotent ACK/CLOSE.
 - [Phase 04 Plan 03]: Rules/topology/plugin status responses are allowlisted summaries with hashes; raw YAML, regex/CIDR match values, plugin options, class paths, and recipient addresses stay out of REST output.
+- [Phase 04-lifecycle-operator-apis-and-operability]: [Phase 04 Plan 04]: Use official prometheus-client after approved package legitimacy evidence; no hand-rolled exposition fallback.
+- [Phase 04-lifecycle-operator-apis-and-operability]: [Phase 04 Plan 04]: Keep prometheus_client imports isolated to app/processing/metrics.py behind project metrics helpers.
+- [Phase 04-lifecycle-operator-apis-and-operability]: [Phase 04 Plan 04]: Incident metrics use a bounded effect label rather than incident identifiers or object labels.
 
 ### Blockers/Concerns
 
@@ -128,6 +132,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-09T15:05:52.114Z
-Stopped at: Completed 04-03-PLAN.md
+Last session: 2026-06-09T15:20:18.582Z
+Stopped at: Completed 04-04-PLAN.md
 Resume file: None
