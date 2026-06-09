@@ -132,7 +132,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Foundations, Contracts, and Database Invariant | 5/5 | Complete    | 2026-06-08 |
 | 2. Icinga2 Ingress, Topology, and Rule Decisions | 3/3 | Complete    | 2026-06-08 |
 | 3. Problem Aggregation and Notification Dispatch | 3/3 | Complete    | 2026-06-09 |
-| 4. Lifecycle, Operator APIs, and Operability | 5/5 | Complete   | 2026-06-09 |
+| 4. Lifecycle, Operator APIs, and Operability | 5/5 | Complete    | 2026-06-09 |
 ---
 *Roadmap created: 2026-06-08*
 *Granularity: coarse*
