@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-stopped_at: Phase 3 context gathered
-last_updated: "2026-06-09T07:02:37.747Z"
-last_activity: 2026-06-09
+status: planning
+stopped_at: Phase 03 complete; ready to plan Phase 04
+last_updated: "2026-06-09T07:04:24.982Z"
+last_activity: 2026-06-09 -- Phase 03 complete; ready to plan Phase 04
 progress:
   total_phases: 4
   completed_phases: 3
@@ -18,19 +18,19 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-08)
+See: .planning/PROJECT.md (updated 2026-06-09)
 
 **Core value:** Operators receive one accurate, topology-aware incident for a related alert storm instead of many disconnected raw alerts.
-**Current focus:** Phase 03 — problem-aggregation-and-notification-dispatch
+**Current focus:** Phase 04 — lifecycle,-operator-apis,-and-operability
 
 ## Current Position
 
 Phase: 4
 Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-06-09
+Status: Ready to plan
+Last activity: 2026-06-09 -- Phase 03 complete; ready to plan Phase 04
 
-Progress: [████████░░░░░░░░░░░░] 25%
+Progress: [███████████████░░░░░] 75%
 
 ## Performance Metrics
 
@@ -83,6 +83,9 @@ Recent decisions affecting current work:
 - [Phase 02 Plan 3]: Summary template variables must be known normalized fields or syntactically valid tag keys; malformed placeholders are rejected at load time.
 - [Phase 02 Plan 3]: Group key generation returns None on missing fields, causing NoOpDecision rather than silent empty substitution.
 - [Phase 02 Plan 3]: RuleEngine evaluate is async to align with the plugin boundary pattern established in Phase 2 Plan 2.
+- [Phase 03]: v1 notification dispatch uses async in-process `TaskRunner`; durable outbox/Celery remains deferred behind the runner seam.
+- [Phase 03]: Output plugins are trusted YAML registry entries; public plugin listing excludes secret-derived config hashes.
+- [Phase 03]: First durable threshold transition triggers notification submission; repeated events on the same open incident do not resend.
 
 [From .planning/todos/pending/ — ideas captured during sessions]
 
@@ -95,7 +98,6 @@ None yet.
 - Phase 1 planning must settle acknowledgement modeling for active incident uniqueness.
 - Phase 2 planning must settle source-tag versus topology-tag conflict behavior and Icinga2 SOFT/HARD handling.
 - Phase 2 planning must settle rule multi-match/stop-processing and threshold counting semantics.
-- Phase 3 planning must settle notification durability boundaries for v1.
 - Phase 4 planning must settle recovery matching behavior for topology-level incidents and operator API exposure/auth assumptions.
 
 ### Quick Tasks Completed
@@ -114,6 +116,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-08T21:22:27.656Z
-Stopped at: Phase 3 context gathered
-Resume file: .planning/phases/03-problem-aggregation-and-notification-dispatch/03-CONTEXT.md
+Last session: 2026-06-09T07:04:24.982Z
+Stopped at: Phase 03 complete; ready to plan Phase 04
+Resume file: None
