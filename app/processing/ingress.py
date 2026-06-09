@@ -2,7 +2,7 @@ from __future__ import annotations
 import logging
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from app.domain.events import EventType, NormalizedEvent
 from app.domain.incidents import LifecycleOutcome
@@ -170,9 +170,7 @@ class Icinga2DecisionProcessor:
                 lifecycle_result.resolved_count if lifecycle_result is not None else 0
             ),
             lifecycle_outcome=_lifecycle_outcome(lifecycle_result),
-            recovery_resolution=(
-                lifecycle_result.effect if lifecycle_result is not None else None
-            ),
+            recovery_resolution=_recovery_resolution(lifecycle_result),
             affected_object_removed=(
                 lifecycle_result.affected_object_removed
                 if lifecycle_result is not None
@@ -253,6 +251,16 @@ def _lifecycle_outcome(result: LifecycleResult | None) -> LifecycleOutcome | Non
         previous_service_count=result.previous_service_count,
         affected_object_removed=result.affected_object_removed,
     )
+
+RecoveryResolution = Literal["noop", "affected_set_shrunk", "resolved"]
+
+
+def _recovery_resolution(result: LifecycleResult | None) -> RecoveryResolution | None:
+    if result is None:
+        return None
+    if result.effect in ("noop", "affected_set_shrunk", "resolved"):
+        return result.effect
+    return None
 
 
 def build_icinga2_processor(

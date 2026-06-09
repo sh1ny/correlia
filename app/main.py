@@ -39,8 +39,10 @@ def _safe_validation_errors(exc: RequestValidationError) -> list[dict[str, Any]]
 
 async def request_validation_exception_handler(
     _request: Request,
-    exc: RequestValidationError,
+    exc: Exception,
 ) -> JSONResponse:
+    if not isinstance(exc, RequestValidationError):
+        raise exc
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         content={"detail": _safe_validation_errors(exc)},
