@@ -65,15 +65,19 @@ async def test_incidents_columns_and_types(postgres_url: str) -> None:
     expected = {
         "id", "rule_name", "group_key", "status", "severity",
         "summary", "event_count", "affected_hosts", "affected_services",
-        "decision_context", "start_time", "last_update_time",
-        "acknowledged_at", "acknowledged_by", "resolved_at", "closed_at",
-        "created_at", "updated_at",
+        "decision_context", "window_state", "threshold_crossed", "notified_at",
+        "start_time", "last_update_time", "acknowledged_at", "acknowledged_by",
+        "resolved_at", "closed_at", "created_at", "updated_at",
     }
     assert expected.issubset(set(columns.keys()))
 
     assert str(columns["affected_hosts"]["type"]).lower() == "jsonb"
     assert str(columns["affected_services"]["type"]).lower() == "jsonb"
     assert str(columns["decision_context"]["type"]).lower() == "jsonb"
+    assert str(columns["window_state"]["type"]).lower() == "jsonb"
+    assert str(columns["threshold_crossed"]["type"]).lower() == "boolean"
+    assert "timestamp" in str(columns["notified_at"]["type"]).lower()
+
 
     assert columns["rule_name"]["nullable"] is False
     assert columns["group_key"]["nullable"] is False
