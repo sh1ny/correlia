@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 4 context gathered
-last_updated: "2026-06-09T14:20:26.587Z"
-last_activity: 2026-06-09 -- Phase 03 complete; ready to plan Phase 04
+stopped_at: Completed 04-01-PLAN.md
+last_updated: "2026-06-09T14:35:40.394Z"
+last_activity: 2026-06-09 -- Phase 04 execution started
 progress:
   total_phases: 4
   completed_phases: 3
-  total_plans: 11
-  completed_plans: 11
+  total_plans: 16
+  completed_plans: 12
   percent: 75
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-09)
 
 **Core value:** Operators receive one accurate, topology-aware incident for a related alert storm instead of many disconnected raw alerts.
-**Current focus:** Phase 04 — lifecycle,-operator-apis,-and-operability
+**Current focus:** Phase 04 — lifecycle-operator-apis-and-operability
 
 ## Current Position
 
-Phase: 4
-Plan: Not started
+Phase: 04 (lifecycle-operator-apis-and-operability) — EXECUTING
+Plan: 2 of 5
 Status: Ready to execute
-Last activity: 2026-06-09 -- Phase 03 complete; ready to plan Phase 04
+Last activity: 2026-06-09 -- Phase 04 execution started
 
 Progress: [███████████████░░░░░] 75%
 
@@ -62,6 +62,7 @@ Progress: [███████████████░░░░░] 75%
 | Phase 02-icinga2-ingress-topology-and-rule-decisions P1 | 5min | 2 tasks | 11 files |
 | Phase 02-icinga2-ingress-topology-and-rule-decisions P2 | 18min | 3 tasks | 7 files |
 | Phase 02-icinga2-ingress-topology-and-rule-decisions P3 | 15min | 3 tasks | 7 files |
+| Phase 04-lifecycle-operator-apis-and-operability P1 | 9min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -86,6 +87,10 @@ Recent decisions affecting current work:
 - [Phase 03]: v1 notification dispatch uses async in-process `TaskRunner`; durable outbox/Celery remains deferred behind the runner seam.
 - [Phase 03]: Output plugins are trusted YAML registry entries; public plugin listing excludes secret-derived config hashes.
 - [Phase 03]: First durable threshold transition triggers notification submission; repeated events on the same open incident do not resend.
+
+- [Phase 04 Plan 01]: RECOVERY lifecycle matching uses current affected-object membership, not rule/group rematching.
+- [Phase 04 Plan 01]: Service recovery requires both recovered host and service membership before mutation.
+- [Phase 04 Plan 01]: Acknowledgement remains metadata on OPEN incidents; manual close transitions OPEN to CLOSED and frees the partial unique index slot.
 
 [From .planning/todos/pending/ — ideas captured during sessions]
 
@@ -116,6 +121,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-09T08:06:58.646Z
-Stopped at: Phase 4 context gathered
-Resume file: .planning/phases/04-lifecycle-operator-apis-and-operability/04-CONTEXT.md
+Last session: 2026-06-09T14:35:40.391Z
+Stopped at: Completed 04-01-PLAN.md
+Resume file: None
