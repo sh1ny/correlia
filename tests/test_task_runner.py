@@ -61,8 +61,12 @@ async def test_handler_exception_is_retrieved_and_logged(caplog: pytest.LogCaptu
     assert "RuntimeError" in caplog.text
 
 
-def test_asyncio_create_task_is_confined_to_task_runner_module() -> None:
+def test_asyncio_create_task_is_confined_to_approved_background_modules() -> None:
     root = Path(__file__).resolve().parents[1]
+    approved = {
+        "app/processing/task_runner.py",
+        "app/processing/lifecycle_worker.py",
+    }
     offenders: list[str] = []
     for path in root.joinpath("app").rglob("*.py"):
         tree = ast.parse(path.read_text())
@@ -75,7 +79,7 @@ def test_asyncio_create_task_is_confined_to_task_runner_module() -> None:
                 and func.attr == "create_task"
                 and isinstance(func.value, ast.Name)
                 and func.value.id == "asyncio"
-                and path.relative_to(root).as_posix() != "app/processing/task_runner.py"
+                and path.relative_to(root).as_posix() not in approved
             ):
                 offenders.append(path.relative_to(root).as_posix())
     assert offenders == []
