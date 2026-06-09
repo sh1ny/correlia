@@ -167,7 +167,7 @@ async def test_expiration_closes_only_stale_open_rows(db_session: AsyncSession) 
 async def test_expiration_context_is_non_secret(db_session: AsyncSession) -> None:
     from app.persistence.incidents import expire_stale_incidents
 
-    stale = await upsert_open_incident(db_session, _input("secret-safe", 5, host="db-1"))
+    stale = await upsert_open_incident(db_session, _input("safe-rule", 5, host="db-1"))
     await db_session.commit()
     await _set_db_relative_last_update(db_session, stale.id, "now() - interval '10 seconds'")
 
@@ -177,7 +177,7 @@ async def test_expiration_context_is_non_secret(db_session: AsyncSession) -> Non
     assert len(expired) == 1
     notes = expired[0].decision_context["notes"]
     assert notes["lifecycle.reason"] == "expired"
-    assert notes["lifecycle.rule_name"] == "secret-safe"
+    assert notes["lifecycle.rule_name"] == "safe-rule"
     assert notes["lifecycle.window_seconds"] == "5"
     serialized = str(expired[0].decision_context).lower()
     for forbidden in (

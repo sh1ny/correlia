@@ -4,13 +4,14 @@ from dataclasses import dataclass
 from typing import Literal
 from uuid import UUID
 
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.domain.events import EventType, NormalizedEvent
 from app.persistence.incidents import (
     LifecycleWriteResult,
     ack_open_incident,
     close_open_incident,
+    expire_stale_incidents,
     resolve_host_recovery,
     resolve_service_recovery,
 )
@@ -21,6 +22,7 @@ LifecycleResultEffect = Literal[
     "noop",
     "closed",
     "acknowledged",
+    "expired",
 ]
 
 
@@ -96,6 +98,16 @@ class LifecycleManager:
         if write_result is None:
             return _empty_result()
         return _result_from_writes((write_result,))
+
+
+async def expire_stale_batch(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    limit: int,
+) -> int:
+    async with sessionmaker() as session:
+        write_results = await expire_stale_incidents(session, limit=limit)
+        await session.commit()
+        return len(write_results)
 
 
 def _empty_result() -> LifecycleResult:
