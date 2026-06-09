@@ -18,6 +18,7 @@ class IncidentStatus(StrEnum):
 
 BoundedString = Annotated[str, Field(min_length=1, max_length=256)]
 BoundedStringTuple = Annotated[tuple[BoundedString, ...], Field(max_length=20)]
+ServicePairTuple = Annotated[tuple[BoundedString, ...], Field(max_length=100)]
 WindowTimestampMap = Annotated[dict[BoundedString, datetime], Field(max_length=100)]
 
 
@@ -124,6 +125,7 @@ class IncidentWindowState(BaseModel):
     counted_fingerprint_timestamps: WindowTimestampMap = Field(default_factory=dict)
     counted_count: int = Field(ge=0)
     max_size: int = Field(ge=1, le=100)
+    active_service_pairs: ServicePairTuple = ()
 
     @field_validator("window_started_at", "window_ended_at", mode="after")
     @classmethod

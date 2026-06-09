@@ -269,6 +269,57 @@ async def test_service_recovery_keeps_host_recoverable_for_remaining_service(
     assert second[0].incident.affected_services == []
 
 
+async def test_service_recovery_removes_only_exact_active_service_pair(
+    db_session: AsyncSession,
+) -> None:
+    from app.persistence.incidents import resolve_service_recovery
+
+    first = await upsert_open_incident(
+        db_session,
+        IncidentUpsertInput(
+            rule_name="rule-pairs",
+            group_key="site:dc1",
+            severity=Severity.CRITICAL,
+            event_time=_event_time(),
+            summary="http problem",
+            affected_hosts=("web-01",),
+            affected_services=("http",),
+            fingerprint="problem:web-01:http",
+        ),
+    )
+    await upsert_open_incident(
+        db_session,
+        IncidentUpsertInput(
+            rule_name="rule-pairs",
+            group_key="site:dc1",
+            severity=Severity.CRITICAL,
+            event_time=datetime(2026, 6, 8, 12, 1, tzinfo=timezone.utc),
+            summary="disk problem",
+            affected_hosts=("web-02",),
+            affected_services=("disk",),
+            fingerprint="problem:web-02:disk",
+        ),
+    )
+    await db_session.commit()
+
+    results = await resolve_service_recovery(
+        db_session,
+        host="web-01",
+        service="http",
+        recovery_time=_event_time(),
+        fingerprint="recovery-web-01-http",
+        source_id="icinga2:service:web-01:http",
+    )
+    await db_session.commit()
+
+    assert len(results) == 1
+    assert results[0].incident.id == first.id
+    assert results[0].effect == "affected_set_shrunk"
+    assert results[0].incident.status == IncidentStatus.OPEN.value
+    assert results[0].incident.affected_hosts == ["web-02"]
+    assert results[0].incident.affected_services == ["disk"]
+
+
 async def test_ack_open_incident_is_idempotent_metadata(db_session: AsyncSession) -> None:
     from app.persistence.incidents import ack_open_incident
 
