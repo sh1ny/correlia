@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: MVP
-status: archived
-stopped_at: Milestone v1.0 archived; ready for next milestone definition
-last_updated: "2026-06-09T16:40:00.000Z"
-last_activity: 2026-06-09 -- Milestone v1.0 archived and ready for /gsd-new-milestone
+milestone: v1.1
+milestone_name: Vigilo/VDE Compatibility
+status: planning
+last_updated: "2026-06-14T11:53:26.214Z"
+last_activity: 2026-06-14
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 16
-  completed_plans: 16
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -25,11 +24,10 @@ See: .planning/PROJECT.md (updated 2026-06-09)
 
 ## Current Position
 
-Milestone: v1.0 MVP
-Status: Archived
-Last activity: 2026-06-09 -- Milestone v1.0 archived and ready for `/gsd-new-milestone`
-
-Progress: [████████████████████] 100%
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-06-14 — Milestone v1.1 started
 
 ## Milestone Archive
 
