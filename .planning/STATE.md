@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Vigilo/VDE Compatibility
 status: planning
-last_updated: "2026-06-14T11:53:26.214Z"
+last_updated: "2026-06-14"
 last_activity: 2026-06-14
 progress:
-  total_phases: 0
+  total_phases: 6
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -20,14 +20,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-09)
 
 **Core value:** Operators receive one accurate, topology-aware incident for a related alert storm instead of many disconnected raw alerts.
-**Current focus:** Planning the next milestone from fresh requirements.
+**Current focus:** Phase 5: Security and HTTP Controls.
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-06-14 — Milestone v1.1 started
+Phase: 5 of 10 (v1.1 phase 1 of 6 — Security and HTTP Controls)
+Plan: TBD in current phase
+Status: Ready to plan
+Last activity: 2026-06-14 — v1.1 roadmap created and 30/30 requirements mapped
+
+Progress: [░░░░░░░░░░] 0%
 
 ## Milestone Archive
 
@@ -50,6 +52,14 @@ Decisions are logged in `.planning/PROJECT.md` Key Decisions table. v1.0 validat
 - Asyncio `TaskRunner` as v1 implementation with future Celery/Redis cutover seam.
 - Trusted internal `/v1` operator API with cursor-based listing and idempotent ack/close actions.
 
+v1.1 roadmap decisions:
+
+- Compatibility mutates canonical `/v1/incidents`; no `/api/v1/incidents` facade is planned.
+- Webhook endpoint compatibility remains explicitly out of scope.
+- Correlia's stricter incident lifecycle, validation, and rich incident fields stay authoritative.
+- Summary mutation returns `422` unless a future audited domain model exists.
+- Container runtime defaults to one Uvicorn worker until durable queue or leader election exists.
+
 ### Deferred Items
 
 Items acknowledged and carried forward from milestone close:
@@ -68,6 +78,6 @@ Items acknowledged and carried forward from milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-09T16:40:00.000Z
-Stopped at: Milestone v1.0 archived; ready for next milestone definition
+Last session: 2026-06-14
+Stopped at: v1.1 roadmap artifacts written; next step is planning Phase 5
 Resume file: None

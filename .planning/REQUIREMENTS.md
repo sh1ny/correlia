@@ -92,12 +92,47 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
+| SEC-01 | Phase 5 | Pending |
+| SEC-02 | Phase 5 | Pending |
+| SEC-03 | Phase 5 | Pending |
+| SEC-04 | Phase 5 | Pending |
+| SEC-05 | Phase 5 | Pending |
+| API-01 | Phase 6 | Pending |
+| API-02 | Phase 6 | Pending |
+| API-03 | Phase 6 | Pending |
+| API-04 | Phase 6 | Pending |
+| API-05 | Phase 6 | Pending |
+| API-06 | Phase 6 | Pending |
+| API-07 | Phase 6 | Pending |
+| AUD-01 | Phase 7 | Pending |
+| AUD-02 | Phase 7 | Pending |
+| AUD-03 | Phase 7 | Pending |
+| AUD-04 | Phase 7 | Pending |
+| CFG-01 | Phase 8 | Pending |
+| CFG-02 | Phase 8 | Pending |
+| CFG-03 | Phase 8 | Pending |
+| CFG-04 | Phase 8 | Pending |
+| CFG-05 | Phase 8 | Pending |
+| CFG-06 | Phase 8 | Pending |
+| CFG-07 | Phase 8 | Pending |
+| PLG-01 | Phase 9 | Pending |
+| PLG-02 | Phase 9 | Pending |
+| PLG-03 | Phase 9 | Pending |
+| PLG-04 | Phase 9 | Pending |
+| DEP-01 | Phase 10 | Pending |
+| DEP-02 | Phase 10 | Pending |
+| DEP-03 | Phase 10 | Pending |
+| DEP-04 | Phase 10 | Pending |
+| OPS-01 | Phase 10 | Pending |
+| OPS-02 | Phase 10 | Pending |
+| OPS-03 | Phase 10 | Pending |
 
 **Coverage:**
 - v1.1 requirements: 30 total
-- Mapped to phases: 0
-- Unmapped: 30 ⚠️
+- Mapped to phases: 30
+- Unmapped: 0 ✓
+- Duplicate mappings: 0 ✓
 
 ---
 *Requirements defined: 2026-06-14*
-*Last updated: 2026-06-14 after removing `/api/v1` facade scope*
+*Last updated: 2026-06-14 after v1.1 roadmap traceability mapping*
