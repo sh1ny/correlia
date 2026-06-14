@@ -1,222 +1,232 @@
-# Stack Research
+# Stack & Deployment Research — Correlia v1.1 Vigilo/VDE Compatibility
 
-**Domain:** Python API-first alert aggregation / incident management backend
-**Project:** Correlia
-**Researched:** 2026-06-08
-**Confidence:** HIGH
+## Summary
 
-## Recommendation in One Sentence
+Correlia currently has a minimal runtime footprint: `uv`-managed Python 3.14 project, FastAPI application factory, in-memory task runner, and no Docker or auth/rate-limit middleware. VDE ships a full containerized deployment (Dockerfile, docker-compose.yml, Postgres + Mailhog), Slowapi-based per-route rate limiting, static Bearer auth with `DEV_MODE` bypass, and a request-size middleware.
 
-Use a lean async Python 3.14+ stack: FastAPI + Pydantic v2 for the API and schemas, SQLAlchemy 2.0 Core/ORM + asyncpg against PostgreSQL 18 for durable incident state, Alembic for migrations, PyYAML only as a parser feeding validated Pydantic rule models, and an in-process asyncio `TaskRunner` abstraction for v1 notifications and lifecycle sweeps.
-
-## Recommended Stack
-
-### Core Technologies
-
-| Technology | Version family | Confidence | Purpose | Why Recommended |
-|------------|----------------|------------|---------|-----------------|
-| Python | 3.14.x baseline | HIGH | Runtime | Project intent now requires Python 3.14+. Python 3.14 is the latest stable CPython feature release in bugfix support as of 2026-06-08. |
-| uv | 0.11.x | HIGH | Project/dependency manager, lockfile, virtualenv, Python pinning | uv is the current Astral project manager with lockfiles, Python version management, tool execution, and fast resolution. Use one `uv.lock`; do not maintain parallel `requirements.txt` in v1. |
-| FastAPI | 0.136.x | HIGH | REST API, OpenAPI, request/response validation | FastAPI is still the standard Python API-first choice for typed async services and is built on Starlette + Pydantic. It directly matches Correlia's no-frontend REST product surface. |
-| Uvicorn | 0.49.x, `uvicorn[standard]` | HIGH | ASGI server | Uvicorn is FastAPI's normal ASGI runtime. `standard` extras add production/dev protocol and reload support where available. Keep process management outside Correlia. |
-| Pydantic | 2.13.x | HIGH | Normalized events, rule config, topology config, API schemas | Pydantic v2 is the current FastAPI data layer. Use `BaseModel`, `model_validate`, `model_dump`, strict fields where ambiguity is dangerous, and `extra="forbid"` for config/rules. |
-| pydantic-settings | 2.14.x | HIGH | Environment/application settings | Use for deployment settings (`DATABASE_URL`, plugin config paths, log level). Keep rule/topology/plugin registries as explicit YAML files, not environment blobs. |
-| PostgreSQL | 18.x preferred; 17.x acceptable on managed hosting | HIGH | Authoritative incident state | PostgreSQL 18 is the current supported major. Correlia needs `JSONB`, partial unique indexes, `INSERT ... ON CONFLICT`, row-level transactions, and durable lifecycle state. |
-| SQLAlchemy | 2.0.x | HIGH | Database model, query construction, PostgreSQL upsert | SQLAlchemy 2.0 is current and gives typed declarative models plus PostgreSQL-specific Core inserts. Use `sqlalchemy.dialects.postgresql.insert(...).on_conflict_do_update(index_elements=..., index_where=...)` for open-incident upserts. |
-| asyncpg | 0.31.x | HIGH | Async PostgreSQL driver | Project intent specifies asyncpg. It is asyncio-native, supports PostgreSQL 18, and integrates with SQLAlchemy's async PostgreSQL dialect. |
-| Alembic | 1.18.x | HIGH | Schema migrations | Use Alembic from day one. Hand-author migrations for partial unique indexes, PostgreSQL enum changes, and any non-trivial indexes; autogenerate is a draft, not the final migration. |
-| PyYAML | 6.0.x | HIGH | YAML parser for rules/topology/plugin registry | Use only `yaml.safe_load()`/`safe_load_all()` to produce plain data, then validate with Pydantic models. Do not execute arbitrary YAML tags. |
-| asyncio | Python stdlib | HIGH | v1 task execution | The v1 runner should be an explicit `TaskRunner` implementation over `asyncio.create_task`/awaited callables. Keep payloads serializable so Celery/Redis can replace the runner later without changing core processing. |
-
-### Supporting Libraries
-
-| Library | Version family | Confidence | Purpose | When to Use |
-|---------|----------------|------------|---------|-------------|
-| httpx | 0.28.x | HIGH | Async HTTP client and ASGI tests | Use `httpx.AsyncClient` + `ASGITransport` for API tests and future outbound webhook-style output plugins. |
-| pytest | 9.0.x | HIGH | Test runner | Use for all unit/integration tests. Prefer behavior tests around normalization, rule matching, upsert semantics, recovery, and expiration. |
-| pytest-asyncio | 1.4.x | HIGH | Async test support | Use for pure asyncio service tests. For FastAPI endpoint tests, `pytest.mark.anyio` + HTTPX is also official; do not mix event-loop ownership in the same test module. |
-| testcontainers | 4.14.x | MEDIUM | PostgreSQL integration tests | Use when testing partial unique indexes, `ON CONFLICT`, transaction behavior, and migrations. SQLite cannot validate these paths. |
-| Ruff | 0.15.x | HIGH | Linting and formatting | Use one tool for lint+format. Set target version to `py314`. |
-| mypy | 2.x | MEDIUM | Static typing | Use for core interfaces and event/rule models. It is useful but secondary to runtime validation and integration tests for this domain. |
-| aiosmtplib | 5.1.x | MEDIUM | Initial async email-style output plugin | Use only if v1 sends real SMTP mail. If the first output plugin is log/stdout for validation, defer this dependency. |
-| orjson | 3.11.x | MEDIUM | Optional high-speed JSON responses | Defer until API payload size or profiling justifies it. FastAPI supports it, but incident aggregation correctness does not depend on it. |
-
-## Prescriptive Implementation Choices
-
-### API / FastAPI
-
-- Use FastAPI route modules with dependency-injected settings, DB sessions, plugin registry, and processor services.
-- Use `async def` endpoints for webhook ingestion and API reads because database and notification paths are async.
-- Use explicit request models for known API inputs and response models for public REST contracts.
-- Keep Icinga2 payload parsing inside the Icinga2 input plugin; the API endpoint should only authenticate/accept the request and hand off to the plugin.
-- Do not install `fastapi[standard]` blindly if it pulls unused frontend/form/cloud extras. Prefer explicit packages: `fastapi`, `uvicorn[standard]`, `pydantic-settings`, `httpx`.
-
-### Pydantic / Schemas
-
-- `NormalizedEvent` should be a Pydantic v2 model with concrete container types (`dict[str, str]`, `list[str]`) and explicit enums/literals for severity and `EventType`.
-- YAML-backed models (`Rule`, `TopologyRule`, `PluginRegistry`) should use `ConfigDict(extra="forbid")`; unknown keys should fail fast.
-- Use strict validation where coercion would hide operator mistakes: rule priority, threshold, window duration, event type, incident status.
-- Use `model_validate()` after YAML parse and `model_dump(mode="json")` for payloads crossing task/plugin boundaries.
-- Do not use Pydantic v1 compatibility imports or `.dict()` / `.parse_obj()` in new code.
-
-### PostgreSQL / SQLAlchemy
-
-- PostgreSQL is the only v1 incident state backend.
-- Use SQLAlchemy 2.0 declarative models for tables and Core statements for concurrency-critical writes.
-- Implement open incident uniqueness with a partial unique index, e.g. `(rule_name, group_key) WHERE status = 'OPEN'`.
-- Implement aggregation writes with one atomic PostgreSQL upsert. Do not perform SELECT-then-INSERT.
-- Use PostgreSQL `JSONB` for bounded incident metadata like affected hosts/tags/snapshots; keep query-critical fields (`rule_name`, `group_key`, `status`, severity, timestamps) as typed columns.
-- Keep a short transaction boundary around incident mutation and task enqueue/outbox state. Do not hold DB sessions while output plugins perform network I/O.
-
-### Migrations
-
-- Create Alembic before the first table lands.
-- Configure Alembic for SQLAlchemy async engines, but keep migration bodies synchronous-style unless the async cookbook pattern is needed.
-- Review every autogen migration. Hand-write:
-  - partial unique indexes,
-  - PostgreSQL enum status changes,
-  - JSONB indexes,
-  - server defaults and timestamp behavior,
-  - data migrations.
-- Migration tests should run against PostgreSQL, not SQLite.
-
-### YAML Rules / Topology / Plugins
-
-- Use PyYAML as a parser only: `safe_load()` -> plain Python data -> Pydantic model validation.
-- Keep rule evaluation in Python, not a YAML expression language. YAML should describe match criteria, grouping, thresholds, summaries, and actions.
-- Do not use YAML anchors/aliases as a core product feature in v1; they complicate validation and operator debugging.
-- If future UX needs round-trip editing that preserves comments/order exactly, revisit `ruamel.yaml`; do not carry that dependency in v1.
-
-### Task Execution
-
-- Define a `TaskRunner` protocol/ABC now. The v1 implementation is asyncio.
-- Task payloads should be JSON-serializable dictionaries: incident ID, action/plugin name, rule name, correlation metadata.
-- The runner should not accept ORM instances, DB sessions, open connections, or function closures as durable payloads.
-- Recovery handling and expiration sweeps should be idempotent and backed by PostgreSQL state, because asyncio tasks can be lost on process crash.
-- Celery/Redis is a later runner implementation, not a v1 dependency.
-
-### Test Strategy
-
-- Unit tests: Icinga2 normalization, severity/event-type mapping, topology enrichment, rule matching, group-key generation, YAML validation failures.
-- Integration tests: PostgreSQL partial unique index, atomic open-incident upsert under concurrent inserts, recovery state transitions, expiration lifecycle, Alembic migrations.
-- API tests: FastAPI webhook/API behavior with HTTPX `AsyncClient` + `ASGITransport`.
-- Plugin tests: use fake in-process plugin implementations at interface boundaries, but do not mock PostgreSQL for concurrency tests.
-- Do not use SQLite as a substitute for PostgreSQL in tests that assert incident correctness.
-
-## Installation
-
-Recommended initial dependency commands:
-
-```bash
-uv init --python 3.14
-uv add fastapi "uvicorn[standard]" sqlalchemy asyncpg alembic pydantic pydantic-settings pyyaml
-uv add --dev pytest pytest-asyncio httpx ruff mypy testcontainers
-```
-
-Optional when the first real SMTP output plugin lands:
-
-```bash
-uv add aiosmtplib
-```
-
-Optional only after API serialization profiling justifies it:
-
-```bash
-uv add orjson
-```
-
-## Alternatives Considered
-
-| Recommended | Alternative | Decision |
-|-------------|-------------|----------|
-| FastAPI | Django REST Framework | Do not use for v1. Correlia is API-first without a frontend/admin surface; Django adds a synchronous framework, ORM assumptions, and project weight that do not help alert aggregation. |
-| FastAPI | Flask | Do not use for v1. Flask is viable for small sync APIs, but Correlia benefits from native async endpoints, OpenAPI generation, and Pydantic integration. |
-| FastAPI | Litestar | Possible later, but not recommended. FastAPI has stronger project alignment, existing idea-doc fit, and broader ecosystem familiarity. |
-| SQLAlchemy 2.0 | SQLModel | Do not use for core persistence. SQLModel is convenient for CRUD schemas but obscures SQLAlchemy Core control needed for PostgreSQL partial-index upserts. |
-| SQLAlchemy + asyncpg | Tortoise ORM / GINO | Do not use. Correlia needs explicit PostgreSQL DML, migrations, and long-lived maintainability more than a lighter async ORM. |
-| asyncpg | psycopg3 async | psycopg3 is viable, but project intent and SQLAlchemy asyncpg dialect support make asyncpg the v1 choice. Revisit only if deployment or driver bugs require it. |
-| PostgreSQL | SQLite | Never for incident state. SQLite cannot validate Correlia's required partial unique index + concurrent `ON CONFLICT` behavior. |
-| PyYAML + Pydantic | ruamel.yaml | Use ruamel only if preserving comments/format during write-back becomes a requirement. Correlia v1 reads config; it does not need a YAML editor. |
-| asyncio TaskRunner | Celery/Redis | Keep out of v1. The abstraction should permit Celery later, but adding broker operations now increases deployment and failure modes before the product proves value. |
-| Ruff | Black + isort + Flake8 stack | Use Ruff. One fast tool reduces config surface and matches modern Python project practice. |
-
-## What NOT to Use in v1
-
-| Avoid | Why | Use Instead |
-|-------|-----|-------------|
-| Celery, Redis, RQ, Dramatiq as shipped dependencies | Violates the v1 constraint and adds broker reliability/deployment questions before the core product is validated | `TaskRunner` abstraction with an asyncio implementation |
-| In-memory incident state | Multi-worker/process restarts will duplicate incidents and lose lifecycle state | PostgreSQL as authoritative state with database constraints |
-| SELECT-then-INSERT incident creation | Races under alert storms; duplicate open incidents break the product value | PostgreSQL partial unique index + atomic `ON CONFLICT DO UPDATE` |
-| SQLite-backed tests for incident aggregation | Does not exercise PostgreSQL concurrency, JSONB, or partial unique indexes accurately | PostgreSQL via testcontainers/local service |
-| Pydantic v1 compatibility mode | New FastAPI/Pydantic ecosystem is v2; v1 APIs are deprecated for new code | Pydantic v2 `BaseModel`, `ConfigDict`, `model_validate`, `model_dump` |
-| `yaml.load()` | Can construct arbitrary Python objects from config input | `yaml.safe_load()` + Pydantic validation |
-| YAML as a programming language | Hidden control flow makes rules hard to validate, test, and explain | Small typed YAML schema plus Python rule evaluator |
-| FastAPI `BackgroundTasks` as the task abstraction | Tied to request/response lifecycle and not a clean cutover point for Celery/Redis | Explicit `TaskRunner.submit(task_name, payload)` |
-| SQLModel for incident persistence | Optimized for model/schema convenience, not PostgreSQL-specific conflict handling | SQLAlchemy 2.0 ORM/Core directly |
-| APScheduler for expiration in v1 | Cron semantics are unnecessary for a simple stale-incident sweep and add scheduler state | Async lifecycle task that runs an idempotent DB-backed expiration query |
-| Prometheus Alertmanager ingestion in v1 | Out of scope; premature generalization delays proving Icinga2 | Icinga2 concrete input plugin behind a generic input interface |
-| Built-in frontend/admin panel | Out of scope and distracts from API contracts | REST API + OpenAPI docs |
-
-## Version Compatibility
-
-| Component | Compatible With | Notes |
-|-----------|-----------------|-------|
-| Python 3.14 | FastAPI 0.136.x, Pydantic 2.13.x, asyncpg 0.31.x, pytest 9.x, PyYAML 6.0.x | Verified from primary package metadata/classifiers and Python release status. |
-| FastAPI 0.136.x | Pydantic >=2.9.0, Starlette >=0.46.0 | FastAPI package metadata declares Pydantic v2 dependency range; keep Pydantic in v2. |
-| SQLAlchemy 2.0.x | asyncpg via `postgresql+asyncpg://` dialect | SQLAlchemy package exposes `postgresql-asyncpg` extra and docs cover asyncpg dialect behavior. |
-| PostgreSQL 18.x | asyncpg 0.31.x | asyncpg metadata states support for PostgreSQL 9.5 through 18. |
-| Alembic 1.18.x | SQLAlchemy >=1.4.23; Python >=3.10 | Compatible with SQLAlchemy 2.0 and Python 3.14. |
-| pytest-asyncio 1.4.x | pytest >=8.4,<10 | pytest 9.0.x is compatible. |
-| Ruff 0.15.x | Python target `py314` | Configure target explicitly; do not rely on default `py310`. |
-
-## Stack Patterns by Variant
-
-**If deploying as a single container/service in v1:**
-- Run Uvicorn/FastAPI with one application process initially.
-- Keep all correctness in PostgreSQL, not process memory.
-- Use asyncio `TaskRunner` for notification dispatch and expiration sweeps.
-
-**If running multiple API worker processes:**
-- Keep the same stack, but assume each worker has its own asyncio runner.
-- Use DB constraints/idempotency for every incident mutation.
-- Avoid any in-memory deduplication, rate-limit, or scheduler state that assumes a singleton process.
-
-**If managed PostgreSQL 18 is unavailable:**
-- Use PostgreSQL 17.x, not SQLite/MySQL.
-- Re-run migration/upsert integration tests against the exact managed major version.
-
-**If notification delivery must be durable before Celery exists:**
-- Store dispatch intent/attempts in PostgreSQL and let the asyncio runner process persisted work.
-- Do not smuggle durability into in-memory tasks.
-
-## Confidence Assessment
-
-| Area | Confidence | Reason |
-|------|------------|--------|
-| Python/FastAPI/Pydantic | HIGH | Project intent plus FastAPI/Pydantic official docs and PyPI metadata agree on a Python 3.14+ baseline and Pydantic v2 support. |
-| PostgreSQL/SQLAlchemy/asyncpg | HIGH | PostgreSQL and SQLAlchemy docs explicitly support partial indexes and `ON CONFLICT`; asyncpg metadata supports PostgreSQL 18. |
-| YAML config stack | HIGH | PyYAML 6.0.x supports Python 3.14; safe parser + Pydantic validation is the conservative pattern. |
-| Task execution | HIGH | Project explicitly constrains v1 to asyncio with a replaceable `TaskRunner`; Celery/Redis is a known non-goal. |
-| Test tooling | MEDIUM-HIGH | pytest/HTTPX patterns are official/common. testcontainers is appropriate but depends on Docker availability in CI. |
-| Optional email/JSON optimization | MEDIUM | aiosmtplib/orjson are credible current packages, but should be pulled only when the corresponding v1 feature/performance need exists. |
-
-## Sources
-
-- `.planning/PROJECT.md` and `idea.md` — project constraints and product intent.
-- Python Developer's Guide, Status of Python versions — Python 3.14 support status: https://devguide.python.org/versions/
-- uv docs and PyPI — project manager capabilities and latest 0.11.x package: https://docs.astral.sh/uv/ and https://pypi.org/project/uv/
-- FastAPI official docs and PyPI — FastAPI purpose, Pydantic/Starlette dependencies, async test pattern, latest 0.136.x: https://fastapi.tiangolo.com/ and https://pypi.org/project/fastapi/
-- Context7 `/fastapi/fastapi` — FastAPI docs lookup for Pydantic v2 and async testing patterns.
-- Pydantic official docs and PyPI — v2 model APIs, strict/extra behavior, latest 2.13.x: https://docs.pydantic.dev/ and https://pypi.org/project/pydantic/
-- Context7 `/pydantic/pydantic` — Pydantic v2 model and strict-mode docs lookup.
-- PostgreSQL docs — version policy, PostgreSQL 18 support, partial indexes, `INSERT ... ON CONFLICT`: https://www.postgresql.org/support/versioning/, https://www.postgresql.org/docs/18/indexes-partial.html, https://www.postgresql.org/docs/18/sql-insert.html
-- SQLAlchemy docs and PyPI — 2.0.50 current docs, PostgreSQL `on_conflict_do_update(index_where=...)`, asyncpg extras: https://docs.sqlalchemy.org/en/20/dialects/postgresql.html and https://pypi.org/project/SQLAlchemy/
-- Context7 `/websites/sqlalchemy_en_20` — SQLAlchemy PostgreSQL upsert docs lookup.
-- asyncpg PyPI — latest 0.31.x, Python/PostgreSQL support: https://pypi.org/project/asyncpg/
-- Alembic docs and PyPI — migrations, async cookbook, latest 1.18.x: https://alembic.sqlalchemy.org/ and https://pypi.org/project/alembic/
-- PyYAML PyPI — latest 6.0.x and Python support: https://pypi.org/project/PyYAML/
-- pytest, pytest-asyncio, HTTPX, testcontainers, Ruff, mypy, aiosmtplib, orjson PyPI pages — supporting tool versions and compatibility.
+The v1.1 compatibility task is **not** to become VDE. It is to preserve Correlia's stricter lifecycle, canonical `/v1` APIs, and settings model while adding the deployment and defensive HTTP surface required to run in Vigilo-shaped environments. Webhook endpoint compatibility remains explicitly excluded per `compatibility research (removed for privacy)`; sender-side adapters will handle path/payload differences.
 
 ---
-*Stack research for: Correlia alert aggregation backend*
-*Researched: 2026-06-08*
+
+## Evidence from current code
+
+### Correlia (target)
+
+| File | What it shows |
+|------|----------------|
+| `pyproject.toml` | `requires-python = ">=3.14"`; dependencies FastAPI, Pydantic Settings, SQLAlchemy, Alembic, asyncpg, uvicorn[standard], prometheus-client, aiosmtplib, PyYAML. Dev group has ruff, mypy, pytest, httpx, testcontainers, types-pyyaml. No slowapi, no python-multipart, no python-jose. |
+| `uv.lock` | Locked against Python 3.14; resolution markers include `python_full_version >= '3.15'` and `< '3.15'`. |
+| `Makefile` | `test` (`uv run pytest`), `lint` (`uv run ruff check .`), `typecheck` (`uv run mypy app`), `run` (`uv run uvicorn app.main:create_app --factory --reload`). No docker targets. |
+| `app/main.py:52-166` | FastAPI factory `create_app`; lifespan bootstraps settings, DB engine/sessionmaker, plugin registry, rules/topology config, in-process `AsyncIOTaskRunner`, notification task, icinga2 processor, and `LifecycleWorker`. No auth, no rate limit, no request-size limit registered globally. |
+| `app/api/routers/health.py:14-60` | `/v1/health` always returns `{"status":"ok"}`; `/v1/readyz` checks DB, settings, config, plugin registry, and lifecycle worker. |
+| `app/api/routers/ingress.py:15-36` | `POST /v1/icinga2/events` unauthenticated. No rate limiting. |
+| `app/api/routers/incidents.py:33` | `/v1/incidents` canonical router; ack/close are explicit `POST` sub-resources. |
+| `app/config/settings.py:8-26` | `BaseSettings` with `env_prefix="CORRELIA_"`, `extra="forbid"`. Fields: `database_url`, `environment`, `log_level`, `rules_path`, `topology_path`, `plugins_path`, `lifecycle_scan_interval_seconds`, `lifecycle_batch_size`. No auth/rate-limit/body-limit settings. |
+| `app/config/plugins.py:11-13` | Allowlist is output-only: `_ALLOWED_PLUGIN_TYPES = {"email"}`, `_ALLOWED_CLASS_PREFIX = "app.plugins.outputs."`. |
+| `app/processing/task_runner.py:28-66` | `AsyncIOTaskRunner` keeps a `_tasks` set of `asyncio.Task`. Used for non-blocking notification dispatch. |
+| `migrations/versions/0001_create_incidents.py` + `0002_add_threshold_state.py` | Postgres-only schema; JSONB columns; `alembic` managed. No `incident_events` audit table yet. |
+| `migrations/env.py:17` | `target_metadata = Base.metadata` from `app.persistence.models`. Migrations are async via `async_engine_from_config`. |
+| `app/persistence/database.py:12-13` | `create_async_engine(str(settings.database_url))` — no explicit pool size/timeouts. |
+
+### VDE (reference)
+
+| File | What it shows |
+|------|----------------|
+| `pyproject.toml` | `requires-python = ">=3.13"`; dependencies include `slowapi>=0.1.9`, `litellm>=1.86.0`, `fastapi>=0.128.0`, `uvicorn>=0.40.0`, `greenlet>=3.3.1`. No prometheus-client. No alembic. |
+| `main.py:38-54` | FastAPI app registers `app.state.limiter = limiter` and `RateLimitExceeded` exception handler; adds `@app.middleware("http")` request-size limiter (413 when `content-length > 1 MB`). |
+| `app/api/endpoints/ingress.py:24-32` | `APIRouter(prefix="/webhook")`; `POST /icinga2` is intentionally unauthenticated and uses `@limiter.limit("100/minute")` keyed by remote address. |
+| `app/api/dependencies.py:24-80` | Static Bearer token auth via `HTTPBearer(auto_error=False)` and `hmac.compare_digest`. `DEV_MODE=true` bypasses auth. Random 1% Easter-egg 401 message. |
+| `app/core/config.py:31-76` | `Settings` loads `.env`, validates `api_token` length >=32 unless `dev_mode`. Default DB URL points to `localhost`. |
+| `Dockerfile` | Two-stage build using internal Broadcom registry base (`dockerhub.packages.vcfd.broadcom.net/python:3.13-slim`) and `ghcr.io/astral-sh/uv:latest`. Installs with `uv sync --frozen --no-dev --no-install-project`. Defaults `UVICORN_WORKERS=4`, exposes 8000, healthcheck hits `/health`. |
+| `docker-compose.yml` | Postgres 16-alpine (`dockerhub.packages.vcfd.broadcom.net/postgres:16-alpine`), `vigilo` app service with `depends_on` health condition, `.env` file, `config/` volume read-only, Mailhog for SMTP capture. |
+| `.env.example` | `APP_NAME`, `DEBUG`, `DEV_MODE`, `API_TOKEN`, `EMAIL_DRY_RUN`, `DATABASE_URL`, `RULES_CONFIG_PATH`, `TOPOLOGY_CONFIG_PATH`, `PLUGINS_CONFIG_PATH`. |
+| `app/api/endpoints/incidents.py:28` | `/api/v1/incidents` router; PATCH mutates status/summary; DELETE soft-closes. |
+
+---
+
+## Best approach
+
+### 1. Dependencies
+
+Keep Correlia's existing dependency set lean. Add the smallest additions needed for the compatibility surface:
+
+- `slowapi` — per-route rate limiting (matches VDE's decorator pattern, works with FastAPI `app.state.limiter` convention).
+- `python-multipart` — only if adding form-based login or file upload endpoints (not required for v1.1); **do not add unless a concrete requirement appears**.
+- No `litellm` in core dependencies. LLM enrichment/decision plugins should be optional plugin-level dependencies only, disabled by default, per `compatibility research (removed for privacy)` rules.
+- Keep `prometheus-client`, `alembic`, `pydantic-settings`, `aiosmtplib`.
+- Pin Python requirement at `>=3.14`; do not relax to `>=3.13` just because VDE supports it.
+
+Likely touched:
+- `pyproject.toml` — add `slowapi` to `dependencies`.
+- `uv.lock` — regenerate via `uv lock`.
+
+### 2. Authentication
+
+Use FastAPI `HTTPBearer` for static Bearer-token auth, but **do not** copy VDE's `DEV_MODE` bypass or random Easter-egg message. Per `compatibility research (removed for privacy)`:
+
+- Add `CORRELIA_API_TOKEN` (optional) and `CORRELIA_AUTH_PUBLIC_PATHS` (set) to `Settings`.
+- If `api_token` is set, enforce it on protected routes via a dependency.
+- If `api_token` is unset, protected routes return `401` with `WWW-Authenticate: Bearer`.
+- Keep `/v1/health` public by default.
+- Make `/v1/readyz` configurable: public when listed in `CORRELIA_AUTH_PUBLIC_PATHS`, otherwise requires token because it exposes dependency state.
+
+Constant-time comparison should use `hmac.compare_digest`, matching VDE's safe pattern.
+
+Likely touched:
+- `app/config/settings.py` — add `api_token: str | None = None`, `auth_public_paths: set[str] = Field(default_factory=set)`.
+- `app/api/deps.py` — add `get_current_user` / `require_auth` dependency.
+- `app/api/routers/*.py` — apply auth dependency to `/v1/incidents`, `/v1/rules`, `/v1/topology`, `/v1/plugins`, `/v1/metrics` as specified in `compatibility research (removed for privacy)`.
+- `tests/*` — add `Authorization` headers where needed.
+
+### 3. Rate limiting & request size
+
+Add a global request-body size limit as Starlette middleware and per-route rate limits using Slowapi:
+
+- Middleware order matters: request-size limit should run **before** auth/rate-limit to avoid parsing large bodies. Starlette executes middleware in registration order (https://www.starlette.io/middleware/#middleware-order).
+- Use `CORRELIA_API_MAX_BODY_BYTES` (default 1 MiB, matching VDE).
+- Use `CORRELIA_API_RATE_LIMIT_REQUESTS` and `CORRELIA_API_RATE_LIMIT_WINDOW_SECONDS`.
+- Register `Limiter(key_func=get_remote_address)` on `app.state.limiter` and add `RateLimitExceeded` exception handler, same as VDE.
+- Apply `@limiter.limit(...)` selectively: webhook/ingress routes are the most abuse-prone and should be limited even if they remain public.
+
+Likely touched:
+- `app/main.py` — register middleware, exception handler, and `app.state.limiter`.
+- `app/config/settings.py` — add rate-limit/body-limit fields.
+- `app/api/routers/ingress.py` — add limiter decorator.
+- Add tests for 413 and 429 behavior.
+
+### 4. Docker / Compose packaging
+
+Provide a multi-stage Dockerfile and `docker-compose.yml` that mirror VDE's shape but use Correlia's conventions:
+
+- Use `python:3.14-slim` (or `ghcr.io/astral-sh/uv:python3.14-slim`) in builder/runtime stages. Do **not** hard-code Broadcom's internal registry.
+- Install with `uv sync --frozen --no-dev --no-install-project`, then copy code and run `uv sync --frozen --no-dev` (or equivalent) so the project itself is installed.
+- Default `UVICORN_WORKERS=1` because the in-process `AsyncIOTaskRunner` and `LifecycleWorker` are not multi-worker safe today. VDE defaults to 4; that is unsafe for Correlia without a distributed queue/leader election.
+- Expose `8000`; healthcheck against `/v1/health` (canonical path), not `/health`.
+- `docker-compose.yml` should include Postgres 16+, Correlia app, and an SMTP capture service (Mailhog or equivalent).
+- Mount `config/` read-only and supply `.env`.
+- Include an `alembic upgrade head` step before startup, or run migrations as an init container; Correlia uses Alembic, VDE does not.
+
+Likely touched (new files):
+- `Dockerfile`
+- `docker-compose.yml`
+- `.env.example`
+- `config/rules.yaml`, `config/topology.yaml`, `config/plugins.yaml` (per `CONFIGURATION.md`)
+
+### 5. Service runtime / Uvicorn
+
+- Use `--factory` for `create_app` (Makefile already does: `uvicorn app.main:create_app --factory`). Dockerfile should do the same.
+- For single-worker mode: `uvicorn app.main:create_app --factory --host 0.0.0.0 --port 8000`.
+- Multi-worker mode (`--workers N` or Gunicorn) must be blocked behind a design decision because `AsyncIOTaskRunner` tasks and `LifecycleWorker` would duplicate across processes.
+- Uvicorn's `--reload` must only be used in local development (Makefile `run` target), never in the Docker image default command.
+
+### 6. Configuration files
+
+`CONFIGURATION.md` already defines the required files and environment variables:
+
+- `CORRELIA_RULES_PATH=config/rules.yaml`
+- `CORRELIA_TOPOLOGY_PATH=config/topology.yaml`
+- `CORRELIA_PLUGINS_PATH=config/plugins.yaml`
+- `DATABASE_URL` remains required.
+
+Add for v1.1:
+- `CORRELIA_API_TOKEN`
+- `CORRELIA_API_MAX_BODY_BYTES`
+- `CORRELIA_API_RATE_LIMIT_REQUESTS`
+- `CORRELIA_API_RATE_LIMIT_WINDOW_SECONDS`
+- `CORRELIA_AUTH_PUBLIC_PATHS`
+
+Likely touched:
+- `app/config/settings.py`
+- New `.env.example`
+- New `config/*.yaml` examples
+
+### 7. Local / CI gates
+
+`compatibility research (removed for privacy)` mandates these gates run from the Correlia root:
+
+- `uv lock --check`
+- `make lint`
+- `make typecheck`
+- `make test`
+
+Current Makefile already supports all four. Add Docker-specific targets only if needed for CI:
+
+```makefile
+.PHONY: docker-build docker-up docker-down
+docker-build:
+	docker build -t correlia:v1.1 .
+docker-up:
+	docker compose up --build -d
+docker-down:
+	docker compose down
+```
+
+Likely touched:
+- `Makefile` — optional docker helpers.
+- CI workflow (out of scope unless instructed).
+
+### 8. Metrics / observability
+
+Per `compatibility research (removed for privacy)`, add Prometheus counters only for new compatibility behavior:
+
+- Compatibility API requests (if `/api/v1/incidents` facade is added later).
+- Config migration failures.
+- Incident event audit writes.
+- Plugin dispatch results by plugin type.
+
+Do **not** add host/service/incident ID labels.
+
+### 9. Migrations / database
+
+Correlia uses Alembic; VDE does not. Any schema additions (e.g., `incident_events` audit table from `compatibility research (removed for privacy)`) must be delivered as Alembic revisions, not raw SQL in docker-entrypoint.
+
+Likely touched:
+- `migrations/versions/0003_add_incident_events.py` (or similar).
+- `app/persistence/models.py` — add `IncidentEvent` model.
+- `alembic.ini` / `migrations/env.py` — likely unchanged, but verify the revision generates cleanly.
+
+---
+
+## Requirements implications
+
+1. **Stricter core preserved**: Correlia keeps `extra="forbid"`, strict plugin allowlist, Pydantic validation, and explicit incident lifecycle. VDE's `DEV_MODE` bypass and warn-and-skip plugin loading are explicitly excluded.
+2. **Webhook endpoint excluded**: no `/webhook/icinga2` route; sender side adapts to `/v1/icinga2/events`.
+3. **Compatibility facade optional**: `/api/v1/incidents` only if external Vigilo clients require it. If added, it maps to canonical `/v1/incidents` internally.
+4. **Auth is production-first**: no auth bypass switch. Local dev must set `CORRELIA_API_TOKEN` or accept 401s on protected routes; tests should inject the token.
+5. **Single-worker default**: v1.1 does not promise horizontal scale-out of background workers.
+6. **Config migration remains a script**: `scripts/migrate_vigilo_config.py` must fail on unsupported VDE fields and must not emit plaintext SMTP credentials.
+
+---
+
+## Roadmap implications
+
+- **v1.1 immediate**: Dockerfile, compose, `.env.example`, sample `config/*.yaml`, auth dependency, rate-limit middleware, request-size middleware, settings additions, Makefile docker helpers.
+- **v1.1-follow/optional**: Compatibility `/api/v1/incidents` facade, `incident_events` audit table + migration, `scripts/migrate_vigilo_config.py`, expanded plugin registry for input/enrichment/decision/task-runner adapters.
+- **Post-v1.1**: Multi-worker safe task runner (external queue + leader election) before allowing `UVICORN_WORKERS > 1`.
+
+---
+
+## Risks
+
+| Risk | Mitigation |
+|------|------------|
+| **Slowapi + FastAPI version mismatch** | Pin `slowapi` and verify the exception handler still works with the FastAPI version resolved by `uv` (currently 0.136.3). |
+| **Middleware ordering breaks auth/rate-limit** | Register size-limit first, then auth, then rate-limit. Test each independently. |
+| **Single-worker default appears underpowered vs VDE** | Document clearly; Correlia's correctness model requires it until task runner is distributed. |
+| **Auth breaks existing tests** | Add a test fixture that sets a known token and injects `Authorization` header. |
+| **Docker base image availability** | Avoid internal registries; use public `python:3.14-slim` and `ghcr.io/astral-sh/uv`. |
+| **Alembic migrations in container startup** | Run `alembic upgrade head` in an entrypoint script that exits non-zero on failure; do not start Uvicorn on an unmigrated DB. |
+| **VDE's `litellm` dependency not needed** | Do not add to core dependencies; keep LLM plugins optional. |
+| **Prometheus label cardinality** | Avoid host/service/incident ID labels as required. |
+
+---
+
+## References
+
+- FastAPI middleware ordering: https://fastapi.tiangolo.com/advanced/middleware/#technical-details
+- Starlette middleware order: https://www.starlette.io/middleware/#middleware-order
+- Uvicorn deployment & workers: https://www.uvicorn.org/deployment/
+- Slowapi (rate limiting for FastAPI/Starlette): https://github.com/laurentS/slowapi
+- Correlia source files listed above.
+- VDE source files listed above.
+- `compatibility research (removed for privacy)` and `CONFIGURATION.md` in Correlia root.

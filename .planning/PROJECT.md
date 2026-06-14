@@ -15,15 +15,18 @@ Operators receive one accurate, topology-aware incident for a related alert stor
 - **Validated surface:** Icinga2 ingress, topology enrichment, rule evaluation, incident aggregation, notification dispatch, recovery/expiration lifecycle, operator APIs, metrics, readiness, and structured logs.
 - **Current focus:** Planning the next milestone from fresh requirements.
 
-## Next Milestone Goals
+## Current Milestone: v1.1 Vigilo/VDE Compatibility
 
-Fresh requirements should be defined with `/gsd-new-milestone`. Candidate future themes already deferred from v1:
+**Goal:** Make Correlia a practical replacement for Vigilo/VDE at the API, config, plugin, deployment, and operational boundaries while preserving Correlia's stricter incident lifecycle and validation model.
 
-- Additional input plugins, especially Prometheus Alertmanager.
-- Broker-backed durable task execution and outbox/retry semantics.
-- API-managed suppressions, silences, maintenance windows, and config dry-run/reload workflows.
-- Additional output plugins such as Slack, generic webhook, PagerDuty Events API, or Grafana OnCall.
-- AI-driven topology enrichment and root-cause assistance after more deterministic history exists.
+**Target features:**
+- Vigilo-shaped incident API facade at `/api/v1/incidents`, with canonical `/v1/incidents` unchanged.
+- Append-only `incident_events` audit trail for raw payload, normalized event, and decision summary traceability.
+- Strict Vigilo/VDE YAML migration into Correlia rules, topology, and plugin config, failing on unsupported semantics.
+- Static Bearer auth, request-size limits, route rate limits, and configurable readiness exposure.
+- Docker/compose deployment parity with PostgreSQL, SMTP capture, sample config, and single-worker runtime defaults.
+- Output-plugin boundary hardening, compatibility metrics, readiness, and safe structured logging extensions.
+- Explicit exclusion: webhook endpoint compatibility; sender-side systems adapt to Correlia's canonical ingress.
 
 ## Requirements
 
@@ -36,7 +39,7 @@ Fresh requirements should be defined with `/gsd-new-milestone`. Candidate future
 
 ### Active
 
-- Fresh active requirements will be created by `/gsd-new-milestone` for the next milestone.
+- [ ] v1.1 compatibility requirements will make Correlia deployable as a Vigilo/VDE replacement without weakening canonical incident lifecycle, validation, or `/v1` API contracts.
 
 ### Out of Scope
 
@@ -105,4 +108,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-09 after v1.0 milestone completion*
+*Last updated: 2026-06-14 after v1.1 milestone start*
