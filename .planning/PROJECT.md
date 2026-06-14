@@ -20,7 +20,7 @@ Operators receive one accurate, topology-aware incident for a related alert stor
 **Goal:** Make Correlia a practical replacement for Vigilo/VDE at the API, config, plugin, deployment, and operational boundaries while preserving Correlia's stricter incident lifecycle and validation model.
 
 **Target features:**
-- Vigilo-shaped incident API facade at `/api/v1/incidents`, with canonical `/v1/incidents` unchanged.
+- Canonical `/v1/incidents` operation parity for Vigilo-supported listing and mutation workflows without adding a `/api/v1` facade.
 - Append-only `incident_events` audit trail for raw payload, normalized event, and decision summary traceability.
 - Strict Vigilo/VDE YAML migration into Correlia rules, topology, and plugin config, failing on unsupported semantics.
 - Static Bearer auth, request-size limits, route rate limits, and configurable readiness exposure.
