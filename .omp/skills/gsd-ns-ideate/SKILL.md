@@ -9,12 +9,12 @@ Route to the appropriate exploration / capture skill based on the user's intent.
 into `gsd-capture` (with `--note`, default, `--backlog`, `--seed` modes) by
 #2790. The capture target lists pending todos via `--list`.
 
-| User wants | Invoke |
+| User wants | Read |
 |---|---|
-| Explore an idea or opportunity | gsd-explore |
-| Sketch out a rough design or plan | gsd-sketch |
-| Time-boxed technical spike | gsd-spike |
-| Write a spec for a phase | gsd-spec-phase |
-| Capture a thought (todo / note / backlog / seed) | gsd-capture |
+| Explore an idea or opportunity | Read `skills/explore/SKILL.md` |
+| Sketch out a rough design or plan | Read `skills/sketch/SKILL.md` |
+| Time-boxed technical spike | Read `skills/spike/SKILL.md` |
+| Write a spec for a phase | Read `skills/spec-phase/SKILL.md` |
+| Capture a thought (todo / note / backlog / seed) | Read `skills/capture/SKILL.md` |
 
-Invoke the matched skill directly using the Skill tool.
+Read the matched sub-skill's SKILL.md and follow its instructions. The `skills/<name>/SKILL.md` paths in the right column are relative to this skill's own directory.
