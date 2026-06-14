@@ -12,10 +12,17 @@
  * Exports:
  *   readSurface(runtimeConfigDir)
  *   writeSurface(runtimeConfigDir, surfaceState)
- *   resolveSurface(runtimeConfigDir, manifest, clusterMap)
- *   applySurface(runtimeConfigDir, layout, manifest, clusterMap)
- *   listSurface(runtimeConfigDir, manifest, clusterMap)
+ *   resolveSurface(runtimeConfigDir, manifest, clusterMap?, registry?)
+ *   applySurface(runtimeConfigDir, layout, manifest, clusterMap?, registry?)
+ *   listSurface(runtimeConfigDir, manifest, clusterMap?, registry?)
  *   pruneSkillDirs(skillsDir, retainedNames, prefix, manifest)
+ *
+ * The optional `registry` param (ADR-857 phase 4c) accepts the capability-registry
+ * object.  When present, capability clusters are merged into the effective cluster
+ * map and the registry is threaded into resolveProfile so capability-contributed
+ * skills participate in the base set and disable-ability.  Absent or undefined
+ * leaves behaviour identical to the pre-registry path (no-op for current registry
+ * where UI=full and the full profile returns '*' regardless).
  *
  * ADR-457 build-at-publish: the hand-written bin/lib/surface.cjs collapsed
  * to a TypeScript source of truth. Behaviour is preserved byte-for-behaviour
@@ -86,10 +93,11 @@ function clustersToSkills(clusterNames, clusterMap) {
     const result = new Set();
     for (const name of clusterNames) {
         const members = clusterMap[name];
-        if (members) {
-            for (const s of members)
-                result.add(s);
-        }
+        // FIX 5: guard against non-iterable members — malformed registry must never throw
+        if (!Array.isArray(members))
+            continue;
+        for (const s of members)
+            result.add(s);
     }
     return result;
 }
@@ -132,19 +140,63 @@ function normalizeSkillManifest(runtimeConfigDir, manifest) {
  * 2. Remove skills in disabled clusters
  * 3. Add explicitAdds (and their transitive closure)
  * 4. Remove explicitRemoves (only the stem itself, no cascade)
+ *
+ * ADR-857 phase 4c: optional registry param.  When present:
+ *   - capability clusters are merged into the effective cluster map so
+ *     capability-owned skill groups are disable-able.
+ *   - registry is threaded into resolveProfile so capability skills
+ *     participate in the base skill set and their requires: chains expand.
  */
-function resolveSurface(runtimeConfigDir, manifest, clusterMap) {
-    const cm = clusterMap || clusters_cjs_1.CLUSTERS;
+function resolveSurface(runtimeConfigDir, manifest, clusterMap, registry) {
+    // Merge capability clusters into the cluster map when registry is provided.
+    // The ADR-857 phase 4a HARD gate guarantees that when a capId matches a CLUSTERS
+    // key, the values are EQUAL — so the spread is idempotent for matching names.
+    // Defense-in-depth: if a capId collides with a hand-authored CLUSTERS key AND
+    // the values DIFFER (future drift bypassing the gate), prefer the hand-authored
+    // value so disable behavior is never silently changed by a stale registry entry.
+    // Also guard: skip entries whose value is not a string[] (malformed registry).
+    let cm = clusterMap || clusters_cjs_1.CLUSTERS;
+    if (registry && registry.capabilityClusters && typeof registry.capabilityClusters === 'object') {
+        const baseCm = cm;
+        const capClusters = registry.capabilityClusters;
+        const merged = { ...baseCm };
+        for (const capId of Object.keys(capClusters)) {
+            const val = capClusters[capId];
+            // FIX 5: skip malformed (non-array) entries — never throw on bad registry
+            if (!Array.isArray(val))
+                continue;
+            // FIX 4: if the capId matches an existing cluster key, only override when
+            // the values are identical (guaranteed by 4a gate).  If they differ, the
+            // hand-authored value wins — prefer known-correct disable behavior over
+            // a potentially stale registry entry.
+            if (Object.prototype.hasOwnProperty.call(baseCm, capId)) {
+                const existing = baseCm[capId];
+                if (!Array.isArray(existing)) {
+                    merged[capId] = val;
+                    continue;
+                }
+                // Values differ → hand-authored wins (skip the override)
+                if (existing.length !== val.length || existing.some((v, i) => v !== val[i]))
+                    continue;
+            }
+            // Prototype-pollution guard (parity with _capabilitySkillsForMode in install-profiles.cts)
+            if (capId === '__proto__' || capId === 'constructor' || capId === 'prototype')
+                continue;
+            merged[capId] = val;
+        }
+        cm = merged;
+    }
     const skillManifest = normalizeSkillManifest(runtimeConfigDir, manifest);
     const surface = readSurface(runtimeConfigDir);
     // Determine base profile name: from surface state or from .gsd-profile marker
     const baseProfileName = (surface && surface.baseProfile)
         ? surface.baseProfile
         : (readActiveProfile(runtimeConfigDir) || 'full');
-    // Resolve base profile
+    // Resolve base profile — thread registry so capability skills are included.
     const baseResolved = resolveProfile({
         modes: baseProfileName.split(',').map((s) => s.trim()),
         manifest: skillManifest,
+        registry,
     });
     // If full, we need to enumerate all skills from the manifest
     let skills;
@@ -205,12 +257,12 @@ function resolveSurface(runtimeConfigDir, manifest, clusterMap) {
  * Re-stage the active surface using the resolved layout.
  * Iterates layout.kinds and syncs each artifact kind to its destination.
  */
-function applySurface(runtimeConfigDir, layout, manifest, clusterMap) {
+function applySurface(runtimeConfigDir, layout, manifest, clusterMap, registry) {
     if (node_path_1.default.resolve(runtimeConfigDir) !== node_path_1.default.resolve(layout.configDir)) {
         throw new TypeError('applySurface runtimeConfigDir must match layout.configDir');
     }
     const skillManifest = normalizeSkillManifest(layout.configDir, manifest);
-    const resolved = resolveSurface(layout.configDir, skillManifest, clusterMap);
+    const resolved = resolveSurface(layout.configDir, skillManifest, clusterMap, registry);
     // Mirror installRuntimeArtifacts: skills kinds get per-runtime path rewrites
     // so SKILL.md bodies reference the install target (pathPrefix), not the
     // converter's default ~/.claude paths (#813). Computed lazily so command-only
@@ -441,9 +493,9 @@ function _syncGsdDir(stagedDir, destDir, kind, manifest) {
  * Token cost = sum of description lengths ÷ 4 (mirrors audit script).
  * Descriptions are read from the install source (findInstallSourceRoot).
  */
-function listSurface(runtimeConfigDir, manifest, clusterMap) {
+function listSurface(runtimeConfigDir, manifest, clusterMap, registry) {
     const skillManifest = normalizeSkillManifest(runtimeConfigDir, manifest);
-    const resolved = resolveSurface(runtimeConfigDir, skillManifest, clusterMap);
+    const resolved = resolveSurface(runtimeConfigDir, skillManifest, clusterMap, registry);
     // All known stems from manifest (exclude _calls_agents_ meta keys)
     const allStems = [];
     for (const [key] of skillManifest) {

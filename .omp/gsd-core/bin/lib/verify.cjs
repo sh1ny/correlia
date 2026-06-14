@@ -549,18 +549,8 @@ function cmdValidateConsistency(cwd, raw) {
     }
     const roadmapContentRaw = node_fs_1.default.readFileSync(roadmapPath, 'utf-8');
     const roadmapContent = extractCurrentMilestone(roadmapContentRaw, cwd);
-    const roadmapPhases = new Set();
-    const phasePattern = /#{2,4}\s*(?:\[[^\]]+\]\s*)?Phase\s+([\w][\w.-]*)\s*:/gi;
-    let m;
-    while ((m = phasePattern.exec(roadmapContent)) !== null) {
-        roadmapPhases.add(m[1]);
-    }
-    const fullRoadmapPhases = new Set();
-    const fullPhasePattern = /#{2,4}\s*(?:\[[^\]]+\]\s*)?Phase\s+([\w][\w.-]*)\s*:/gi;
-    let fm;
-    while ((fm = fullPhasePattern.exec(roadmapContentRaw)) !== null) {
-        fullRoadmapPhases.add(fm[1]);
-    }
+    const { roadmapPhases } = (0, validate_cjs_1.buildRoadmapPhaseVariants)(roadmapContent);
+    const { roadmapPhaseVariants: fullRoadmapPhaseVariants } = (0, validate_cjs_1.buildRoadmapPhaseVariants)(roadmapContentRaw);
     const diskPhases = collectDiskPhases(planBase);
     for (const p of roadmapPhases) {
         if (!diskPhases.has(p) && !diskPhases.has(normalizePhaseName(p))) {
@@ -568,11 +558,8 @@ function cmdValidateConsistency(cwd, raw) {
         }
     }
     for (const p of diskPhases) {
-        const normalized = normalizePhaseName(p);
-        const unpadded = String(parseInt(p, 10));
-        if (!fullRoadmapPhases.has(p) &&
-            !fullRoadmapPhases.has(normalized) &&
-            !fullRoadmapPhases.has(unpadded)) {
+        const variants = (0, validate_cjs_1.phaseVariants)(p);
+        if (![...variants].some((v) => fullRoadmapPhaseVariants.has(v))) {
             warnings.push(`Phase ${p} exists on disk but not in ROADMAP.md`);
         }
     }

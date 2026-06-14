@@ -33,6 +33,7 @@ const FALLBACK_ALIASES = {
     trae: ['trae', 'trae-cli'],
     qwen: ['qwen', 'qwen-code', 'qwen-cli'],
     hermes: ['hermes', 'hermes-agent', 'hermes-cli'],
+    kimi: ['kimi'],
     codebuddy: ['codebuddy', 'codebuddy-cli'],
     cline: ['cline', 'cline-cli'],
     omp: ['omp', 'oh-my-pi', 'oh-my-pi-cli'],

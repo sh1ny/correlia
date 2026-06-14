@@ -208,7 +208,7 @@ function cmdInitExecutePhase(cwd, phase, raw, options = {}) {
         branch_name: config.branching_strategy === 'phase' && phaseInfo
             ? config.phase_branch_template
                 .replace('{project}', config.project_code || '')
-                .replace('{phase}', phaseInfo['phase_number'])
+                .replace('{phase}', normalizePhaseName(phaseInfo['phase_number']))
                 .replace('{slug}', phaseInfo['phase_slug'] || 'phase')
             : config.branching_strategy === 'milestone'
                 ? config.milestone_branch_template
@@ -1718,16 +1718,22 @@ function buildSkillManifest(cwd, skillsDir = null) {
             roots.push(rootSummary);
             continue;
         }
-        let skillCount = 0;
-        for (const entry of entries) {
-            if (!entry.isDirectory())
-                continue;
-            const skillMdPath = node_path_1.default.join(rootPath, entry.name, 'SKILL.md');
-            const content = (0, shell_command_projection_cjs_1.platformReadSync)(skillMdPath);
-            if (content === null)
-                continue;
+        // Track skill names seen within this root to deduplicate dual-routed concretes
+        // (e.g. spec-phase nested under both gsd-ns-workflow and gsd-ns-manage).
+        const seenNamesInRoot = new Set();
+        function pushSkillEntry(
+        // relPath must use forward slashes on all platforms (manifest paths are
+        // posix-style for cross-platform stability; flat entries use template
+        // literals that always produce '/'; nested entries are joined below
+        // with explicit '/' separators rather than path.join).
+        relPath, content) {
             const frontmatter = extractFrontmatter(content);
-            const name = frontmatter['name'] || entry.name;
+            const dirPart = relPath.replace(/\/SKILL\.md$/, '');
+            const stem = dirPart.includes('/') ? dirPart.split('/').pop() : dirPart;
+            const name = frontmatter['name'] || stem;
+            if (seenNamesInRoot.has(name))
+                return false; // dedupe dual-routed concretes
+            seenNamesInRoot.add(name);
             const description = frontmatter['description'] || '';
             const triggers = [];
             const bodyMatch = content.match(/^---[\s\S]*?---\s*\n([\s\S]*)$/);
@@ -1746,14 +1752,54 @@ function buildSkillManifest(cwd, skillsDir = null) {
                 name,
                 description,
                 triggers,
-                path: entry.name,
-                file_path: `${entry.name}/SKILL.md`,
+                path: dirPart,
+                file_path: relPath,
                 root: rootInfo.root,
                 scope: rootInfo.scope,
                 installed: rootInfo.scope !== 'import-only',
                 deprecated: !!rootInfo.deprecated,
             });
-            skillCount++;
+            return true;
+        }
+        let skillCount = 0;
+        for (const entry of entries) {
+            if (!entry.isDirectory())
+                continue;
+            const skillMdPath = node_path_1.default.join(rootPath, entry.name, 'SKILL.md');
+            const content = (0, shell_command_projection_cjs_1.platformReadSync)(skillMdPath);
+            if (content !== null) {
+                if (pushSkillEntry(`${entry.name}/SKILL.md`, content))
+                    skillCount++;
+            }
+            // Nested layout: <entry>/skills/<stem>/SKILL.md
+            // Used by cline, qwen, hermes, augment, trae, antigravity (#69 nested=true).
+            // Descend exactly one level into <entry>/skills/ — no deeper recursion.
+            // Scope to gsd-ns-* routers only: never vacuum up an unrelated user skill
+            // that happens to have its own `skills/` subdirectory.
+            if (!entry.name.startsWith('gsd-ns-'))
+                continue;
+            const nestedSkillsDir = node_path_1.default.join(rootPath, entry.name, 'skills');
+            let nestedEntries = [];
+            try {
+                nestedEntries = node_fs_1.default.readdirSync(nestedSkillsDir, { withFileTypes: true });
+            }
+            catch {
+                // No skills/ subdir — flat layout or unreadable; nothing to do.
+                nestedEntries = [];
+            }
+            for (const nested of nestedEntries) {
+                if (!nested.isDirectory())
+                    continue;
+                const nestedSkillMd = node_path_1.default.join(nestedSkillsDir, nested.name, 'SKILL.md');
+                const nestedContent = (0, shell_command_projection_cjs_1.platformReadSync)(nestedSkillMd);
+                if (nestedContent === null)
+                    continue;
+                // Use forward-slash separator explicitly so manifest paths are posix-style
+                // on all platforms, matching the flat-layout behaviour above.
+                const relPath = `${entry.name}/skills/${nested.name}/SKILL.md`;
+                if (pushSkillEntry(relPath, nestedContent))
+                    skillCount++;
+            }
         }
         rootSummary.skill_count = skillCount;
         roots.push(rootSummary);

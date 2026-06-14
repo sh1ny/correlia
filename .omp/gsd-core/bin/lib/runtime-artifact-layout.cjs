@@ -16,6 +16,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
  */
 const node_path_1 = __importDefault(require("node:path"));
 const node_fs_1 = __importDefault(require("node:fs"));
+const node_os_1 = __importDefault(require("node:os"));
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const installProfiles = require("./install-profiles.cjs");
 const { stageSkillsForProfile, stageAgentsForProfile, stageSkillsForRuntimeAsSkills, stageCommandsForRuntimeFlat, } = installProfiles;
@@ -129,7 +130,7 @@ function findAgentsSourceRoot(runtimeConfigDir) {
 const ALLOWED_RUNTIMES = new Set([
     'claude', 'cursor', 'gemini', 'codex', 'copilot', 'antigravity',
     'windsurf', 'augment', 'trae', 'qwen', 'hermes', 'codebuddy',
-    'cline', 'opencode', 'kilo', 'omp',
+    'cline', 'kimi', 'opencode', 'kilo', 'omp',
 ]);
 // ---------------------------------------------------------------------------
 // Layout table builders
@@ -158,6 +159,43 @@ function cleanupGeneratedStageDir(stagedDir) {
     }
     catch { /* best-effort */ }
 }
+function kimiAgentsKind(destSubpath, prefix, configDir) {
+    return {
+        kind: 'kimi-agents',
+        destSubpath,
+        prefix,
+        stage: (resolved) => {
+            const installExports = getInstallExports();
+            const buildKimiAgentArtifacts = installExports['buildKimiAgentArtifacts'];
+            const stagedAgents = stageAgentsForProfile(findAgentsSourceRoot(configDir), resolved);
+            const subagents = [];
+            if (node_fs_1.default.existsSync(stagedAgents)) {
+                for (const entry of node_fs_1.default.readdirSync(stagedAgents, { withFileTypes: true })) {
+                    if (!entry.isFile() || !entry.name.endsWith('.md'))
+                        continue;
+                    const agentPath = node_path_1.default.join(stagedAgents, entry.name);
+                    subagents.push({
+                        path: node_path_1.default.join('agents', entry.name).replace(/\\/g, '/'),
+                        content: node_fs_1.default.readFileSync(agentPath, 'utf8'),
+                    });
+                }
+            }
+            const rootAgent = `---\nname: gsd\ndescription: Run GSD workflows in Kimi CLI.\ntools: Agent\n---\n\n# GSD for Kimi CLI\n\nCoordinate installed /skill:gsd-* workflows and route work to generated GSD subagents when a workflow requires an agent handoff.\n`;
+            const artifacts = buildKimiAgentArtifacts({ rootAgent, subagents });
+            const stageDir = node_fs_1.default.mkdtempSync(node_path_1.default.join(node_os_1.default.tmpdir(), 'gsd-kimi-agents-'));
+            installProfiles.STAGED_DIRS.add(stageDir);
+            node_fs_1.default.writeFileSync(node_path_1.default.join(stageDir, 'gsd.yaml'), artifacts.root.yaml);
+            node_fs_1.default.writeFileSync(node_path_1.default.join(stageDir, 'gsd.md'), artifacts.root.prompt);
+            const subagentsDir = node_path_1.default.join(stageDir, 'subagents');
+            node_fs_1.default.mkdirSync(subagentsDir, { recursive: true });
+            for (const artifact of artifacts.subagents) {
+                node_fs_1.default.writeFileSync(node_path_1.default.join(subagentsDir, `${artifact.name}.yaml`), artifact.yaml);
+                node_fs_1.default.writeFileSync(node_path_1.default.join(subagentsDir, `${artifact.name}.md`), artifact.prompt);
+            }
+            return stageDir;
+        },
+    };
+}
 /**
  * Build a skills kind descriptor.
  *
@@ -166,8 +204,9 @@ function cleanupGeneratedStageDir(stagedDir) {
  * @param converterName  name of converter function in bin/install.js exports
  * @param runtime        canonical runtime ID (gates Hermes/Qwen branding in converter)
  * @param configDir      runtime config dir (for .gsd-source marker resolution)
+ * @param nested         if true, nest concrete skills under their ns-* routers (#69)
  */
-function skillsKind(destSubpath, prefix, converterName, runtime, configDir) {
+function skillsKind(destSubpath, prefix, converterName, runtime, configDir, nested = false) {
     return {
         kind: 'skills',
         destSubpath,
@@ -179,7 +218,7 @@ function skillsKind(destSubpath, prefix, converterName, runtime, configDir) {
             // Extra args are ignored by converters that don't need runtime/cmdNames.
             const cmdNames = installExports.readGsdCommandNames();
             const wrappedConverter = (content, skillName) => realConverter(content, skillName, runtime, cmdNames);
-            return stageSkillsForRuntimeAsSkills(findInstallSourceRoot(configDir), resolved, wrappedConverter, prefix);
+            return stageSkillsForRuntimeAsSkills(findInstallSourceRoot(configDir), resolved, wrappedConverter, prefix, nested);
         },
     };
 }
@@ -224,7 +263,7 @@ function convertedAgentsKind(destSubpath, prefix, converterName, configDir) {
                 ? readOverrides(configDir)
                 : null;
             const src = stageAgentsForProfile(findAgentsSourceRoot(configDir), resolved);
-            const dest = node_fs_1.default.mkdtempSync(node_path_1.default.join(_require('node:os').tmpdir(), 'gsd-omp-agents-'));
+            const dest = node_fs_1.default.mkdtempSync(node_path_1.default.join(node_os_1.default.tmpdir(), 'gsd-omp-agents-'));
             if (!node_fs_1.default.existsSync(src))
                 return dest;
             for (const entry of node_fs_1.default.readdirSync(src, { withFileTypes: true })) {
@@ -247,7 +286,7 @@ function rulesKind(destSubpath, prefix, configDir) {
         prefix,
         stage: () => {
             const rulesDir = node_path_1.default.resolve(findInstallSourceRoot(configDir), '..', '..', 'gsd-core', 'omp', 'rules');
-            const dest = node_fs_1.default.mkdtempSync(node_path_1.default.join(_require('node:os').tmpdir(), 'gsd-omp-rules-'));
+            const dest = node_fs_1.default.mkdtempSync(node_path_1.default.join(node_os_1.default.tmpdir(), 'gsd-omp-rules-'));
             if (!node_fs_1.default.existsSync(rulesDir))
                 return dest;
             for (const entry of node_fs_1.default.readdirSync(rulesDir, { withFileTypes: true })) {
@@ -267,7 +306,7 @@ function extensionsKind(destSubpath, prefix, configDir) {
         prefix,
         stage: () => {
             const extensionsDir = node_path_1.default.resolve(findInstallSourceRoot(configDir), '..', '..', 'gsd-core', 'omp', 'extensions');
-            const dest = node_fs_1.default.mkdtempSync(node_path_1.default.join(_require('node:os').tmpdir(), 'gsd-omp-extensions-'));
+            const dest = node_fs_1.default.mkdtempSync(node_path_1.default.join(node_os_1.default.tmpdir(), 'gsd-omp-extensions-'));
             if (!node_fs_1.default.existsSync(extensionsDir))
                 return dest;
             for (const entry of node_fs_1.default.readdirSync(extensionsDir, { withFileTypes: true })) {
@@ -283,6 +322,43 @@ function extensionsKind(destSubpath, prefix, configDir) {
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Nested skill-bundle support matrix (#69)
+// ---------------------------------------------------------------------------
+//
+// When a runtime's skill loader scans only one level deep (non-recursive), a
+// concrete skill nested at `<router>/skills/<name>/SKILL.md` drops out of the
+// eager top-level listing yet stays readable by file path — which is exactly
+// what namespace routing needs. Recursive loaders surface every nested SKILL.md
+// as a peer (zero token saving), so they stay flat. Unconfirmed loaders stay
+// flat conservatively. Verified June 2026:
+//
+//   NEST (confirmed non-recursive / one-level scan):
+//     omp        — OMP extension filesystem discovery from .omp/agent/skills/ uses flat one-level scan
+//     cline      — cline/cline skills.ts scanSkillsDirectory uses flat fs.readdir
+//     qwen       — QwenLM/qwen-code skill-load.ts flat readdir ("depth 2 enough")
+//     hermes     — hermes-agent.nousresearch.com/docs/user-guide/features/skills
+//                  (single-level subdir probe of the tap path)
+//     augment    — https://docs.augmentcode.com/cli/skills (flat single-level)
+//     trae       — docs.trae.ai/ide/skills + Trae-AI/TRAE#2253 (flat; nesting errors)
+//     antigravity— discuss.ai.google.dev/t/more-antigravity-issues/145875 ("will not recursive scan")
+//
+//   FLAT (recursive loader → nesting gives no saving):
+//     cursor     — https://cursor.com/docs/skills (walks skills root recursively)
+//     opencode   — sst/opencode skill/index.ts glob "skills/**/SKILL.md"
+//     kilo       — Kilo-Org/kilocode (opencode fork, same ** glob)
+//
+//   FLAT (reverted from nested — nested skills not discoverable by Skill tool, #924):
+//     claude     — https://code.claude.com/docs/en/skills + anthropics/claude-code#28266
+//                  (one-level scan under ~/.claude/skills — but Skill-tool errors on unknown
+//                   names rather than re-routing via the router; concrete skills must be
+//                   at the top level so Skill(skill="gsd-plan-phase") succeeds)
+//
+//   FLAT (nested-scan behaviour unconfirmed → conservative):
+//     codex      — developers.openai.com/codex/skills/
+//     copilot    — docs.github.com/en/copilot/concepts/agents/about-agent-skills
+//     windsurf   — docs.devin.ai/desktop/cascade/skills
+//     codebuddy  — codebuddy.ai/docs/cli/skills
 /**
  * Resolve the artifact layout for a given runtime and config directory.
  */
@@ -329,7 +405,7 @@ function resolveRuntimeArtifactLayout(runtime, configDir, scope = 'global') {
             kinds = [skillsKind('skills', 'gsd-', 'convertClaudeCommandToCopilotSkill', 'copilot', configDir)];
             break;
         case 'antigravity':
-            kinds = [skillsKind('skills', 'gsd-', 'convertClaudeCommandToAntigravitySkill', 'antigravity', configDir)];
+            kinds = [skillsKind('skills', 'gsd-', 'convertClaudeCommandToAntigravitySkill', 'antigravity', configDir, true /* #69 nested */)];
             break;
         case 'windsurf':
             kinds = [skillsKind('skills', 'gsd-', 'convertClaudeCommandToWindsurfSkill', 'windsurf', configDir)];
@@ -337,17 +413,21 @@ function resolveRuntimeArtifactLayout(runtime, configDir, scope = 'global') {
         case 'augment':
             kinds = [
                 commandsKind('commands', 'gsd-', configDir),
-                skillsKind('skills', 'gsd-', 'convertClaudeCommandToAugmentSkill', 'augment', configDir),
+                skillsKind('skills', 'gsd-', 'convertClaudeCommandToAugmentSkill', 'augment', configDir, true /* #69 nested */),
             ];
             break;
         case 'trae':
-            kinds = [skillsKind('skills', 'gsd-', 'convertClaudeCommandToTraeSkill', 'trae', configDir)];
+            kinds = [skillsKind('skills', 'gsd-', 'convertClaudeCommandToTraeSkill', 'trae', configDir, true /* #69 nested */)];
             break;
         case 'qwen':
-            kinds = [skillsKind('skills', 'gsd-', 'convertClaudeCommandToClaudeSkill', 'qwen', configDir)];
+            kinds = [skillsKind('skills', 'gsd-', 'convertClaudeCommandToClaudeSkill', 'qwen', configDir, true /* #69 nested */)];
             break;
         case 'hermes':
-            kinds = [skillsKind('skills/gsd', '', 'convertClaudeCommandToClaudeSkill', 'hermes', configDir)];
+            // #947: restore canonical gsd- prefix — skills land at skills/gsd/gsd-<stem>/SKILL.md
+            // and dispatch as /gsd-<stem>, consistent with every other runtime.
+            // The skills/gsd/ category bucket (introduced by #2841) is retained.
+            // Prior bare-stem layout (prefix='') used by #3664 is reversed here.
+            kinds = [skillsKind('skills/gsd', 'gsd-', 'convertClaudeCommandToClaudeSkill', 'hermes', configDir, true /* #69 nested */)];
             break;
         case 'codebuddy':
             // CodeBuddy (Tencent) reads two user-level surfaces (codebuddy.ai/docs/cli):
@@ -363,12 +443,20 @@ function resolveRuntimeArtifactLayout(runtime, configDir, scope = 'global') {
             ];
             break;
         case 'cline':
-            kinds = scope === 'global' ? [skillsKind('skills', 'gsd-', 'convertClaudeCommandToClineSkill', 'cline', configDir)] : [];
+            kinds = scope === 'global' ? [skillsKind('skills', 'gsd-', 'convertClaudeCommandToClineSkill', 'cline', configDir, true /* #69 nested */)] : [];
+            break;
+        case 'kimi':
+            kinds = scope === 'global'
+                ? [
+                    skillsKind('skills', 'gsd-', 'convertClaudeCommandToKimiSkill', 'kimi', configDir),
+                    kimiAgentsKind('agents', 'gsd', configDir),
+                ]
+                : [];
             break;
         case 'omp':
             kinds = [
                 convertedCommandsKind('commands', 'gsd-', 'convertClaudeCommandToOmpCommand', configDir),
-                skillsKind('skills', 'gsd-', 'convertClaudeCommandToOmpSkill', 'omp', configDir),
+                skillsKind('skills', 'gsd-', 'convertClaudeCommandToOmpSkill', 'omp', configDir, true /* #69 nested */),
                 convertedAgentsKind('agents', 'gsd-', 'convertClaudeAgentToOmpAgent', configDir),
                 rulesKind('rules', 'gsd-', configDir),
                 extensionsKind('extensions', 'gsd-', configDir),

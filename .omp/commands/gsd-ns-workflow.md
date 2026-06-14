@@ -20,5 +20,11 @@ absorbs the former next/do commands.
 | Advance to the next logical step | gsd-progress |
 | Offload planning to the ultraplan cloud | gsd-ultraplan-phase |
 | Cross-AI plan review convergence loop | gsd-plan-review-convergence |
+| Generate tests for a completed phase | gsd-add-tests |
+| Design an AI-integration phase | gsd-ai-integration-phase |
+| Run all remaining phases autonomously | gsd-autonomous |
+| Execute a trivial task inline | gsd-fast |
+| Plan a phase as a vertical MVP slice | gsd-mvp-phase |
+| Execute a quick task with GSD guarantees | gsd-quick |
 
 Invoke the matched skill directly using the Skill tool.

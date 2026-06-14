@@ -19,6 +19,7 @@ const REGISTRY = Object.freeze({
     omp: Object.freeze({ installSurface: 'profile-marker-only', writesSharedSettings: false, finishPermissionWriter: null }),
     windsurf: Object.freeze({ installSurface: 'profile-marker-only', writesSharedSettings: false, finishPermissionWriter: null }),
     trae: Object.freeze({ installSurface: 'profile-marker-only', writesSharedSettings: false, finishPermissionWriter: null }),
+    kimi: Object.freeze({ installSurface: 'profile-marker-only', writesSharedSettings: false, finishPermissionWriter: null }),
 });
 // ---------------------------------------------------------------------------
 // Exports
