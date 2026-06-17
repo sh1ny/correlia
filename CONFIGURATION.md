@@ -10,6 +10,16 @@ CORRELIA_PLUGINS_PATH=config/plugins.yaml
 
 `DATABASE_URL` is still required by the application settings.
 
+## Rate limiting
+
+Rate-limit counters for in-process request buckets are expired by a background sweep worker. Configure how often it runs with:
+
+```bash
+CORRELIA_RATE_LIMIT_SWEEP_INTERVAL_SECONDS=60
+```
+
+Default is `60` seconds. Minimum `1`, maximum `3600`. Shorter intervals reduce memory growth from stale buckets but increase CPU use.
+
 ## Files
 
 Create:

@@ -12,6 +12,8 @@ from app.main import create_app
 from app.middleware.rate_limit import (
     InProcessRateLimiter,
     RateLimitConfig,
+    RateLimitSweepWorker,
+    RateLimiterMiddleware,
     identity_for_request,
 )
 
@@ -215,7 +217,7 @@ def test_identity_for_request_uses_hashed_token_when_valid_for_class() -> None:
     }
     request = Request(scope)
     label, value = identity_for_request(
-        request, "operator", {"operator": "secret-token"}
+        request, "operator", {"operator": b"secret-token"}
     )
     assert label == "token_hash"
     assert value == hashlib.sha256(b"secret-token").hexdigest()
@@ -230,7 +232,7 @@ def test_identity_for_request_uses_ingress_token_when_valid_for_ingress() -> Non
     }
     request = Request(scope)
     label, value = identity_for_request(
-        request, "ingress", {"ingress": "ingress-token"}
+        request, "ingress", {"ingress": b"ingress-token"}
     )
     assert label == "token_hash"
     assert value == hashlib.sha256(b"ingress-token").hexdigest()
@@ -244,7 +246,7 @@ def test_identity_for_request_falls_back_to_ip_when_token_invalid_for_class() ->
     }
     request = Request(scope)
     label, value = identity_for_request(
-        request, "operator", {"operator": "valid-token"}
+        request, "operator", {"operator": b"valid-token"}
     )
     assert label == "ip"
     assert value == "192.168.1.1"
@@ -269,6 +271,7 @@ def test_identity_for_request_uses_unknown_when_no_client() -> None:
     assert label == "ip"
     assert value == "unknown"
 
+
 def test_identity_for_request_falls_back_to_ip_on_malformed_bearer() -> None:
     scope = {
         "type": "http",
@@ -276,7 +279,7 @@ def test_identity_for_request_falls_back_to_ip_on_malformed_bearer() -> None:
         "headers": [(b"authorization", "Bearer é".encode())],
     }
     request = Request(scope)
-    label, value = identity_for_request(request, "operator", {"operator": "token"})
+    label, value = identity_for_request(request, "operator", {"operator": b"token"})
     assert label == "ip"
     assert value == "10.0.0.1"
 
@@ -308,22 +311,114 @@ def test_in_process_rate_limiter_clear() -> None:
     limiter.clear()
     assert limiter._counters == {}
 
-async def test_in_process_rate_limiter_evicts_stale_counters() -> None:
+
+async def test_in_process_rate_limiter_sweep_expired_removes_only_expired_counters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     limiter = InProcessRateLimiter()
-    await limiter.check("stale-key", 1, 0)
-    assert "stale-key" in limiter._counters
-    await limiter.check("fresh-key", 1, 0)
+    monkeypatch.setattr(time, "monotonic", lambda: 100.0)
+    await limiter.check("stale-key", 1, 10)
+    monkeypatch.setattr(time, "monotonic", lambda: 111.0)
+    await limiter.check("fresh-key", 1, 10)
+    removed = await limiter.sweep_expired()
+    assert removed == 1
     assert "stale-key" not in limiter._counters
     assert "fresh-key" in limiter._counters
 
 
-async def test_in_process_rate_limiter_evicts_using_per_key_window() -> None:
+async def test_in_process_rate_limiter_sweep_expired_respects_per_key_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     limiter = InProcessRateLimiter()
-    await limiter.check("short-window", 1, 0)
+    monkeypatch.setattr(time, "monotonic", lambda: 100.0)
+    await limiter.check("short-window", 1, 5)
     await limiter.check("long-window", 1, 3600)
+    monkeypatch.setattr(time, "monotonic", lambda: 106.0)
+    removed = await limiter.sweep_expired()
+    assert removed == 1
     assert "short-window" not in limiter._counters
     assert "long-window" in limiter._counters
     # A subsequent short-window check must not prematurely evict the long-window key.
-    await limiter.check("short-window", 1, 0)
+    monkeypatch.setattr(time, "monotonic", lambda: 106.0)
+    await limiter.check("short-window", 1, 5)
     assert "long-window" in limiter._counters
     assert limiter._counters["long-window"][0] == 1
+
+
+async def test_rate_limit_sweep_worker_runs_one_sweep(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import asyncio
+
+    limiter = InProcessRateLimiter()
+    swept = asyncio.Event()
+    original_sweep = limiter.sweep_expired
+
+    async def tracking_sweep() -> int:
+        result = await original_sweep()
+        swept.set()
+        return result
+
+    monkeypatch.setattr(limiter, "sweep_expired", tracking_sweep)
+    worker = RateLimitSweepWorker(limiter=limiter, interval_seconds=60)
+    await worker.start()
+    await asyncio.wait_for(swept.wait(), timeout=1.0)
+    await worker.stop()
+    assert worker._task is None
+
+
+async def test_rate_limit_sweep_worker_survives_sweep_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import asyncio
+
+    limiter = InProcessRateLimiter()
+    calls = 0
+    recovered = asyncio.Event()
+
+    async def flaky_sweep() -> int:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("sweep failure")
+        recovered.set()
+        return 0
+
+    monkeypatch.setattr(limiter, "sweep_expired", flaky_sweep)
+    worker = RateLimitSweepWorker(limiter=limiter, interval_seconds=0.001)
+    await worker.start()
+    try:
+        await asyncio.wait_for(recovered.wait(), timeout=1.0)
+    finally:
+        await worker.stop()
+    assert calls >= 2
+    assert worker._task is None
+
+def test_rate_limiter_middleware_rejects_invalid_token_type() -> None:
+    from starlette.types import Scope
+
+    async def app(scope: Scope, receive: object, send: object) -> None:
+        pass
+
+    limiter = InProcessRateLimiter()
+    configs = {"operator": RateLimitConfig(enabled=True, requests=10, window_seconds=60)}
+    with pytest.raises(ValueError):
+        RateLimiterMiddleware(
+            app,  # type: ignore[arg-type]
+            limiter=limiter,
+            configs=configs,
+            valid_tokens={"operator": 123},  # type: ignore[dict-item]
+        )
+
+
+async def test_in_process_rate_limiter_sweep_expired_returns_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    limiter = InProcessRateLimiter()
+    monkeypatch.setattr(time, "monotonic", lambda: 100.0)
+    await limiter.check("a", 1, 10)
+    await limiter.check("b", 1, 20)
+    monkeypatch.setattr(time, "monotonic", lambda: 121.0)
+    removed = await limiter.sweep_expired()
+    assert removed == 2
+    assert limiter._counters == {}

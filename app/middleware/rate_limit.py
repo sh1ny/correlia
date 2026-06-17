@@ -41,13 +41,6 @@ class InProcessRateLimiter:
     ) -> tuple[bool, int | None]:
         now = time.monotonic()
         async with self._lock:
-            expired = [
-                k
-                for k, (_, window_start, window_seconds) in self._counters.items()
-                if now - window_start >= window_seconds
-            ]
-            for k in expired:
-                del self._counters[k]
             count, window_start, _ = self._counters.get(
                 key, (0, now, window_seconds)
             )
@@ -55,29 +48,124 @@ class InProcessRateLimiter:
                 count = 0
                 window_start = now
             if count >= limit:
+                self._counters[key] = (count, window_start, window_seconds)
                 reset_at = window_start + window_seconds
                 retry_after = max(1, math.ceil(reset_at - now))
                 return False, retry_after
             self._counters[key] = (count + 1, window_start, window_seconds)
             return True, None
 
+    async def sweep_expired(self) -> int:
+        now = time.monotonic()
+        async with self._lock:
+            expired = [
+                k
+                for k, (_, window_start, window_seconds) in self._counters.items()
+                if now - window_start >= window_seconds
+            ]
+            for k in expired:
+                del self._counters[k]
+            return len(expired)
+
     def clear(self) -> None:
         self._counters.clear()
 
 
+class RateLimitSweepWorker:
+    def __init__(self, limiter: InProcessRateLimiter, interval_seconds: float) -> None:
+        if interval_seconds <= 0:
+            raise ValueError("interval_seconds must be positive")
+        self._limiter = limiter
+        self._interval_seconds = interval_seconds
+        self._stop_event: asyncio.Event | None = None
+        self._task: asyncio.Task[None] | None = None
+
+    async def start(self) -> None:
+        if self._task is not None and not self._task.done():
+            return
+        self._stop_event = asyncio.Event()
+        self._task = asyncio.create_task(
+            self._run(),
+            name="correlia:rate-limit-sweep-worker",
+        )
+        self._task.add_done_callback(self._retrieve_task_exception)
+
+    async def stop(self) -> None:
+        task = self._task
+        stop_event = self._stop_event
+        if task is None or stop_event is None:
+            return
+        stop_event.set()
+        try:
+            await asyncio.wait_for(task, timeout=max(1.0, self._interval_seconds + 1.0))
+        except asyncio.TimeoutError:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        finally:
+            self._task = None
+            self._stop_event = None
+
+    async def _run(self) -> None:
+        stop_event = self._stop_event
+        if stop_event is None:
+            return
+        while not stop_event.is_set():
+            try:
+                removed_count = await self._limiter.sweep_expired()
+            except Exception as exc:  # noqa: BLE001 - worker must keep running after sweep failures.
+                logger.warning(
+                    "rate limit sweep failed",
+                    extra=safe_log_extra(
+                        event="rate_limit_sweep_failed",
+                        exception_type=type(exc).__name__,
+                    ),
+                )
+            else:
+                logger.info(
+                    "rate limit sweep completed",
+                    extra=safe_log_extra(
+                        event="rate_limit_sweep",
+                        count=removed_count,
+                    ),
+                )
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=self._interval_seconds)
+            except asyncio.TimeoutError:
+                continue
+
+    @staticmethod
+    def _retrieve_task_exception(task: asyncio.Task[None]) -> None:
+        try:
+            task.exception()
+        except asyncio.CancelledError:
+            return
+
+
+def _normalize_valid_tokens(tokens: dict[str, str | None]) -> dict[str, bytes]:
+    normalized: dict[str, bytes] = {}
+    for route_class, token in tokens.items():
+        if token is None:
+            continue
+        if not isinstance(token, str):
+            raise ValueError(
+                f"valid token for route class {route_class!r} must be str or None"
+            )
+        normalized[route_class] = token.encode("utf-8")
+    return normalized
+
+
 def identity_for_request(
-    request: Request, route_class: str, valid_tokens: dict[str, str | None]
+    request: Request, route_class: str, valid_tokens: dict[str, bytes]
 ) -> tuple[str, str]:
     auth_header = request.headers.get("authorization", "")
     if auth_header.lower().startswith("bearer "):
         token = auth_header[7:]
         expected = valid_tokens.get(route_class)
-        try:
-            if expected is not None and secrets.compare_digest(token, expected):
-                identity = hashlib.sha256(token.encode()).hexdigest()
-                return _TOKEN_PREFIX, identity
-        except TypeError:
-            pass
+        if expected is not None and secrets.compare_digest(
+            token.encode("utf-8"), expected
+        ):
+            identity = hashlib.sha256(token.encode("utf-8")).hexdigest()
+            return _TOKEN_PREFIX, identity
     client = request.scope.get("client")
     if isinstance(client, tuple) and len(client) >= 1:
         return _IP_PREFIX, str(client[0])
@@ -95,7 +183,7 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self.limiter = limiter
         self.configs = configs
-        self.valid_tokens = valid_tokens or {}
+        self._valid_token_bytes = _normalize_valid_tokens(valid_tokens or {})
 
     async def dispatch(self, request: Request, call_next: Any) -> Any:
         route_class = classify_path(request.url.path)
@@ -109,7 +197,7 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         identity_type, identity_value = identity_for_request(
-            request, route_class, self.valid_tokens
+            request, route_class, self._valid_token_bytes
         )
         key = f"{route_class}:{identity_type}:{identity_value}"
         allowed, retry_after = await self.limiter.check(

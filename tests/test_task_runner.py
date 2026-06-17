@@ -66,6 +66,7 @@ def test_asyncio_create_task_is_confined_to_approved_background_modules() -> Non
     approved = {
         "app/processing/task_runner.py",
         "app/processing/lifecycle_worker.py",
+        "app/middleware/rate_limit.py",
     }
     offenders: list[str] = []
     for path in root.joinpath("app").rglob("*.py"):
