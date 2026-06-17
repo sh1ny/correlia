@@ -12,7 +12,11 @@ VALID_DATABASE_URL = "postgresql+asyncpg://user:pass@localhost:5432/correlia"
 
 
 def test_valid_database_url_and_defaults() -> None:
-    settings = Settings(DATABASE_URL=VALID_DATABASE_URL)
+    settings = Settings(
+        DATABASE_URL=VALID_DATABASE_URL,
+        operator_api_token="operator",
+        ingress_api_token="ingress",
+    )
 
     assert str(settings.database_url).startswith(VALID_DATABASE_URL)
     assert settings.environment == "local"
@@ -105,3 +109,102 @@ def test_makefile_targets_are_uv_wrappers() -> None:
     for target in ("test", "lint", "typecheck", "run"):
         marker = f"{target}:\n\tuv run "
         assert marker in makefile
+
+
+# Phase 5 security-settings tests
+
+
+def test_auth_enabled_requires_both_tokens() -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(DATABASE_URL=VALID_DATABASE_URL)
+    errors = exc_info.value.errors()
+    assert any(err["type"] == "value_error" for err in errors)
+    message = " ".join(str(err.get("msg", "")) for err in errors)
+    assert "operator_api_token" in message
+    assert "ingress_api_token" in message
+
+
+def test_auth_enabled_requires_non_empty_tokens() -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            DATABASE_URL=VALID_DATABASE_URL,
+            operator_api_token="",
+            ingress_api_token="",
+        )
+    errors = exc_info.value.errors()
+    assert any(err["type"] == "value_error" for err in errors)
+
+
+def test_tokens_stored_as_secret_str() -> None:
+    from pydantic import SecretStr
+
+    settings = Settings(
+        DATABASE_URL=VALID_DATABASE_URL,
+        operator_api_token="operator-secret",
+        ingress_api_token="ingress-secret",
+    )
+    assert isinstance(settings.operator_api_token, SecretStr)
+    assert settings.operator_api_token.get_secret_value() == "operator-secret"
+    assert settings.ingress_api_token.get_secret_value() == "ingress-secret"
+
+
+@pytest.mark.parametrize("environment", ["local", "test", "production"])
+def test_token_validation_has_no_environment_bypass(environment: str) -> None:
+    with pytest.raises(ValidationError):
+        Settings(
+            DATABASE_URL=VALID_DATABASE_URL,
+            environment=environment,  # type: ignore[arg-type]
+        )
+
+
+def test_auth_can_be_disabled_without_tokens() -> None:
+    settings = Settings(
+        DATABASE_URL=VALID_DATABASE_URL,
+        api_auth_enabled=False,
+    )
+    assert settings.operator_api_token is None
+    assert settings.ingress_api_token is None
+
+
+def test_default_max_body_bytes_is_one_mebibyte() -> None:
+    settings = Settings(
+        DATABASE_URL=VALID_DATABASE_URL,
+        operator_api_token="op",
+        ingress_api_token="in",
+    )
+    assert settings.max_body_bytes == 1_048_576
+
+
+def test_route_class_rate_limit_defaults() -> None:
+    settings = Settings(
+        DATABASE_URL=VALID_DATABASE_URL,
+        operator_api_token="op",
+        ingress_api_token="in",
+    )
+    assert settings.rate_limit_enabled is True
+    assert settings.rate_limit_requests_operator == 60
+    assert settings.rate_limit_window_seconds_operator == 60
+    assert settings.rate_limit_requests_ingress == 120
+    assert settings.rate_limit_window_seconds_ingress == 60
+    assert settings.rate_limit_requests_metrics == 30
+    assert settings.rate_limit_window_seconds_metrics == 60
+    assert settings.rate_limit_requests_readyz == 60
+    assert settings.rate_limit_window_seconds_readyz == 60
+    assert settings.rate_limit_requests_health == 120
+    assert settings.rate_limit_window_seconds_health == 60
+
+
+def test_settings_env_keys_cover_security_fields() -> None:
+    from tests.conftest import _SETTINGS_ENV_KEYS
+
+    expected_prefixes = {
+        "CORRELIA_API_AUTH_ENABLED",
+        "CORRELIA_OPERATOR_API_TOKEN",
+        "CORRELIA_INGRESS_API_TOKEN",
+        "CORRELIA_EXPOSE_READYZ",
+        "CORRELIA_EXPOSE_METRICS",
+        "CORRELIA_MAX_BODY_BYTES",
+        "CORRELIA_RATE_LIMIT_ENABLED",
+        "CORRELIA_RATE_LIMIT_REQUESTS_OPERATOR",
+    }
+    assert expected_prefixes.issubset(set(_SETTINGS_ENV_KEYS))
