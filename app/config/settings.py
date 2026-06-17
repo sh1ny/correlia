@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     rate_limit_window_seconds_readyz: int = Field(default=60, ge=1)
     rate_limit_requests_health: int = Field(default=120, ge=1)
     rate_limit_window_seconds_health: int = Field(default=60, ge=1)
+    rate_limit_sweep_interval_seconds: int = Field(default=60, ge=1, le=3600)
 
     @model_validator(mode="after")
     def _require_security_tokens_when_enabled(self) -> Self:

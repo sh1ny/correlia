@@ -192,6 +192,7 @@ def test_route_class_rate_limit_defaults() -> None:
     assert settings.rate_limit_window_seconds_readyz == 60
     assert settings.rate_limit_requests_health == 120
     assert settings.rate_limit_window_seconds_health == 60
+    assert settings.rate_limit_sweep_interval_seconds == 60
 
 
 def test_settings_env_keys_cover_security_fields() -> None:
@@ -206,5 +207,6 @@ def test_settings_env_keys_cover_security_fields() -> None:
         "CORRELIA_MAX_BODY_BYTES",
         "CORRELIA_RATE_LIMIT_ENABLED",
         "CORRELIA_RATE_LIMIT_REQUESTS_OPERATOR",
+        "CORRELIA_RATE_LIMIT_SWEEP_INTERVAL_SECONDS",
     }
     assert expected_prefixes.issubset(set(_SETTINGS_ENV_KEYS))

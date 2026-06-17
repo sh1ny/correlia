@@ -10,7 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.middleware.rate_limit import (
     InProcessRateLimiter,
     RateLimitConfig,
+    RateLimitSweepWorker,
     RateLimiterMiddleware,
+    _normalize_valid_tokens,
 )
 from app.middleware.size_limit import RequestSizeLimiterMiddleware
 from app.api.routers.config_status import router as config_status_router
@@ -180,12 +182,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
     await app.state.lifecycle_worker.start()
 
+    if not hasattr(app.state, "rate_limit_sweep_worker"):
+        app.state.rate_limit_sweep_worker = RateLimitSweepWorker(
+            limiter=app.state.rate_limiter,
+            interval_seconds=app.state.settings.rate_limit_sweep_interval_seconds,
+        )
+    await app.state.rate_limit_sweep_worker.start()
+
     try:
         yield
     finally:
         lifecycle_worker = getattr(app.state, "lifecycle_worker", None)
         if lifecycle_worker is not None:
             await lifecycle_worker.stop()
+        rate_limit_sweep_worker = getattr(app.state, "rate_limit_sweep_worker", None)
+        if rate_limit_sweep_worker is not None:
+            await rate_limit_sweep_worker.stop()
         task_runner = getattr(app.state, "task_runner", None)
         if task_runner is not None:
             await task_runner.drain()
@@ -212,14 +224,16 @@ def create_app(
     effective_settings = settings if settings is not None else getattr(
         app.state, "settings", get_settings()
     )
-
     rate_limiter = InProcessRateLimiter()
     app.state.rate_limiter = rate_limiter
+    raw_valid_tokens = _valid_tokens_for_rate_limit(effective_settings)
+    # Validate token types at app construction time; middleware normalizes internally.
+    _normalize_valid_tokens(raw_valid_tokens)
     app.add_middleware(
         RateLimiterMiddleware,
         limiter=rate_limiter,
         configs=_rate_limit_configs_from_settings(effective_settings),
-        valid_tokens=_valid_tokens_for_rate_limit(effective_settings),
+        valid_tokens=raw_valid_tokens,
     )
     app.add_middleware(
         RequestSizeLimiterMiddleware,
