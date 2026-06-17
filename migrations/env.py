@@ -1,12 +1,13 @@
 import asyncio
+import os
 from logging.config import fileConfig
 
 from alembic import context
+from pydantic import PostgresDsn, TypeAdapter
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from app.config.settings import get_settings
 from app.persistence.models import Base
 
 config = context.config
@@ -15,6 +16,17 @@ if config.attributes.get("configure_logger", True):
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
+
+_DATABASE_URL_ADAPTER = TypeAdapter(PostgresDsn)
+
+
+def _database_url_from_env() -> str:
+    database_url = os.environ.get("DATABASE_URL")
+    if database_url is None or database_url.strip() == "":
+        raise RuntimeError(
+            "DATABASE_URL is required when -x database_url=... is not provided"
+        )
+    return str(_DATABASE_URL_ADAPTER.validate_python(database_url))
 
 
 def get_database_url() -> str:
@@ -26,7 +38,7 @@ def get_database_url() -> str:
                 break
     if runtime_url:
         return str(runtime_url)
-    return str(get_settings().database_url)
+    return _database_url_from_env()
 
 
 def run_migrations_offline() -> None:

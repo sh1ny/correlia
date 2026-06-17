@@ -127,3 +127,46 @@ def test_phase_four_touched_sources_do_not_use_exception_logging() -> None:
         if "logger.exception(" in source or "exc_info=True" in source or "exc_info=(" in source:
             offenders[relative] = source
     assert offenders == {}
+
+
+def test_rate_limit_log_omits_raw_token_and_authorization_header() -> None:
+    payload = _format_record(
+        **safe_log_extra(
+            event="rate_limit_exceeded",
+            route_class="operator",
+            identity_hash="token_hash:abc123",
+            limit=60,
+            window_seconds=60,
+            retry_after=30,
+        ),
+        authorization="Bearer secret-token",
+    )
+    assert payload["event"] == "rate_limit_exceeded"
+    assert payload["route_class"] == "operator"
+    assert payload["identity_hash"] == "token_hash:abc123"
+    assert payload["limit"] == 60
+    assert payload["retry_after"] == 30
+    serialized = json.dumps(payload)
+    assert "secret-token" not in serialized
+    assert "authorization" not in serialized.lower()
+
+
+def test_size_limit_log_omits_raw_body_and_authorization_header() -> None:
+    payload = _format_record(
+        **safe_log_extra(
+            event="request_body_too_large",
+            route_class="ingress",
+            content_length=2048,
+            limit=1024,
+        ),
+        authorization="Bearer secret-token",
+        raw_body=b"secret payload",
+    )
+    assert payload["event"] == "request_body_too_large"
+    assert payload["route_class"] == "ingress"
+    assert payload["content_length"] == 2048
+    assert payload["limit"] == 1024
+    serialized = json.dumps(payload)
+    assert "secret-token" not in serialized
+    assert "secret payload" not in serialized
+    assert "authorization" not in serialized.lower()

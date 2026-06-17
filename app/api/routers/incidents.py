@@ -5,7 +5,9 @@ from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Security, status
+
+from app.api.security import require_operator_token
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -30,7 +32,7 @@ from app.persistence.incidents import (
 from app.processing.logging import safe_log_extra
 from app.persistence.models import Incident
 
-router = APIRouter(prefix="/v1/incidents")
+router = APIRouter(prefix="/v1/incidents", dependencies=[Security(require_operator_token)])
 logger = logging.getLogger(__name__)
 
 

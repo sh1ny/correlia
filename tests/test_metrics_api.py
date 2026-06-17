@@ -35,6 +35,13 @@ FORBIDDEN_METRIC_LABELS = {
 
 pytestmark = pytest.mark.anyio
 
+@pytest.fixture(autouse=True)
+def _auth_env_for_metrics_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost:5432/correlia")
+    monkeypatch.setenv("CORRELIA_OPERATOR_API_TOKEN", "operator-token")
+    monkeypatch.setenv("CORRELIA_INGRESS_API_TOKEN", "ingress-token")
+
+
 
 class FakePlugin:
     def __init__(self, event: NormalizedEvent) -> None:

@@ -26,7 +26,11 @@ VALID_DATABASE_URL = "postgresql+asyncpg://user:pass@localhost:5432/correlia"
 def _run_alembic_upgrade(database_url: str) -> None:
     result = subprocess.run(
         ["uv", "run", "python", "-m", "alembic", "upgrade", "head"],
-        env={**os.environ, "DATABASE_URL": database_url},
+        env={
+            **os.environ,
+            "DATABASE_URL": database_url,
+            "CORRELIA_API_AUTH_ENABLED": "false",
+        },
         capture_output=True,
         text=True,
         check=False,
@@ -77,7 +81,10 @@ async def get_client(app) -> AsyncIterator[AsyncClient]:
 
 
 def _settings() -> Settings:
-    return Settings(DATABASE_URL=VALID_DATABASE_URL)
+    return Settings(
+        DATABASE_URL=VALID_DATABASE_URL,
+        api_auth_enabled=False,
+    )
 
 
 def _app(session_factory: async_sessionmaker[AsyncSession]):

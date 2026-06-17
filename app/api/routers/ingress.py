@@ -4,7 +4,9 @@ import logging
 
 from typing import Annotated
 
-from fastapi import APIRouter, Body, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Security, status
+
+from app.api.security import require_ingress_token
 
 from app.api.deps import get_icinga2_processor
 from app.domain.rules import IngressDecisionEnvelope
@@ -12,7 +14,7 @@ from app.plugins.inputs.icinga2 import Icinga2WebhookPayload
 from app.processing.ingress import Icinga2DecisionProcessor
 from app.processing.logging import safe_log_extra
 
-router = APIRouter(prefix="/v1")
+router = APIRouter(prefix="/v1", dependencies=[Security(require_ingress_token)])
 logger = logging.getLogger(__name__)
 
 @router.post("/icinga2/events")

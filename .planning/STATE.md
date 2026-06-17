@@ -1,35 +1,36 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: MVP
-status: archived
-stopped_at: Milestone v1.0 archived; ready for next milestone definition
-last_updated: "2026-06-09T16:40:00.000Z"
-last_activity: 2026-06-09 -- Milestone v1.0 archived and ready for /gsd-new-milestone
+milestone: v1.1
+milestone_name: Vigilo/VDE Compatibility
+status: "Phase 06 in progress"
+stopped_at: Phase 6 context gathered
+last_updated: "2026-06-17T15:46:30Z"
+last_activity: 2026-06-17
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 16
-  completed_plans: 16
-  percent: 100
+  total_phases: 6
+  completed_phases: 1
+  total_plans: 2
+  completed_plans: 2
+  percent: 17
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-09)
+See: .planning/PROJECT.md (updated 2026-06-14)
 
 **Core value:** Operators receive one accurate, topology-aware incident for a related alert storm instead of many disconnected raw alerts.
-**Current focus:** Planning the next milestone from fresh requirements.
+**Current focus:** Phase 06 — Canonical Incident API Operation Parity
 
 ## Current Position
 
-Milestone: v1.0 MVP
-Status: Archived
-Last activity: 2026-06-09 -- Milestone v1.0 archived and ready for `/gsd-new-milestone`
+Phase: 6
+Plan: Not started
+Status: Phase 06 in progress
+Last activity: 2026-06-17
 
-Progress: [████████████████████] 100%
+Progress: [░░░░░░░░░░] 0%
 
 ## Milestone Archive
 
@@ -52,6 +53,20 @@ Decisions are logged in `.planning/PROJECT.md` Key Decisions table. v1.0 validat
 - Asyncio `TaskRunner` as v1 implementation with future Celery/Redis cutover seam.
 - Trusted internal `/v1` operator API with cursor-based listing and idempotent ack/close actions.
 
+v1.1 roadmap decisions:
+
+- Compatibility mutates canonical `/v1/incidents`; no `/api/v1/incidents` facade is planned.
+- Webhook endpoint compatibility remains explicitly out of scope.
+- Correlia's stricter incident lifecycle, validation, and rich incident fields stay authoritative.
+- Summary mutation returns `422` unless a future audited domain model exists.
+- Container runtime defaults to one Uvicorn worker until durable queue or leader election exists.
+- [Phase ?]: Applied token dependency at the route level for /v1/readyz so /v1/health stays public even when readyz is protected. — D-01 requires /v1/health to remain public; router-level dependencies would have made it protected when readyz was protected.
+- [Phase ?]: Used router-level Security(require_operator_token) for operator surfaces and Security(require_ingress_token) for /v1/icinga2/events. — Keeps token classes separate per D-05 and makes route intent explicit.
+- [Phase ?]: Kept auth disable as an explicit setting (api_auth_enabled) rather than an environment-specific bypass. — Satisfies D-09 fail-fast requirement with no local/test/development bypass.
+- [Phase ?]: Size limiter is installed outermost so oversized requests are rejected before the rate limiter counts them.
+- [Phase ?]: Rate-limit identity uses SHA-256 hashed Bearer token first, then remote IP, with no raw token in logs or limiter keys.
+- [Phase ?]: Extended SAFE_LOG_KEYS with route_class, identity_hash, content_length, retry_after, limit, and window_seconds for safe control-event logging.
+
 ### Deferred Items
 
 Items acknowledged and carried forward from milestone close:
@@ -70,6 +85,13 @@ Items acknowledged and carried forward from milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-09T16:40:00.000Z
-Stopped at: Milestone v1.0 archived; ready for next milestone definition
-Resume file: None
+Last session: 2026-06-17T09:06:43.703Z
+Stopped at: Phase 6 context gathered
+Resume file: .planning/ROADMAP.md#phase-6-canonical-incident-api-operation-parity
+
+## Performance Metrics
+
+| Phase | Plan | Duration | Notes |
+|-------|------|----------|-------|
+| Phase 05-security-and-http-controls P01 | 19min | 2 tasks | 18 files |
+| Phase 05-security-and-http-controls P02 | 15min | 2 tasks | 9 files |
