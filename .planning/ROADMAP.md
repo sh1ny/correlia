@@ -164,7 +164,7 @@ v1.1 makes Correlia a practical Vigilo/VDE replacement at the auth, HTTP-control
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 5. Security and HTTP Controls | v1.1 | 2/2 | Complete   | 2026-06-17 |
+| 5. Security and HTTP Controls | v1.1 | 2/2 | Complete    | 2026-06-17 |
 | 6. Canonical Incident API Operation Parity | v1.1 | 0/TBD | Not started | - |
 | 7. Incident Event Audit Trail | v1.1 | 0/TBD | Not started | - |
 | 8. Vigilo Config Migration | v1.1 | 0/TBD | Not started | - |
