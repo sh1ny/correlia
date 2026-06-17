@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -12,6 +12,13 @@ from app.domain.events import Severity, TagKey, TagValue
 
 class IncidentStatus(StrEnum):
     OPEN = "OPEN"
+    RESOLVED = "RESOLVED"
+    CLOSED = "CLOSED"
+
+
+class IncidentStatusFilter(StrEnum):
+    OPEN = "OPEN"
+    ACKNOWLEDGED = "ACKNOWLEDGED"
     RESOLVED = "RESOLVED"
     CLOSED = "CLOSED"
 
@@ -148,7 +155,7 @@ class IncidentWindowState(BaseModel):
 class IncidentListFilters(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
 
-    status: IncidentStatus | None = None
+    status: IncidentStatusFilter | None = None
     severity: Severity | None = None
     rule_name: BoundedString | None = None
     host: BoundedString | None = None
@@ -156,6 +163,7 @@ class IncidentListFilters(BaseModel):
     updated_since: datetime | None = None
     limit: int = Field(default=50, ge=1, le=200)
     cursor: Annotated[str, Field(min_length=1, max_length=512)] | None = None
+    offset: Annotated[int, Field(ge=0)] | None = None
 
     @field_validator("updated_since", mode="after")
     @classmethod
@@ -178,6 +186,7 @@ class IncidentDetailResponse(BaseModel):
     affected_hosts: tuple[BoundedString, ...] = Field(max_length=100)
     affected_services: tuple[BoundedString, ...] = Field(max_length=100)
     acknowledgement: Acknowledgement
+    window_state: dict[str, Any]
     decision_context: DecisionContext
     threshold_crossed: bool
     notified_at: datetime | None = None
@@ -193,6 +202,9 @@ class IncidentListResponse(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
 
     items: tuple[IncidentDetailResponse, ...] = Field(max_length=200)
+    total: int = Field(default=0, ge=0)
+    limit: int = Field(default=50, ge=1, le=200)
+    offset: int = Field(default=0, ge=0)
     next_cursor: str | None = None
 
 

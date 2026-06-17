@@ -22,6 +22,7 @@ from app.domain.incidents import (
     IncidentListFilters,
     IncidentListResponse,
     IncidentStatus,
+    IncidentStatusFilter,
 )
 from app.persistence.incidents import (
     ack_open_incident,
@@ -65,6 +66,7 @@ def _incident_response(incident: Incident) -> IncidentDetailResponse:
             acknowledged_by=incident.acknowledged_by,
         ),
         decision_context=_safe_decision_context(incident),
+        window_state=dict(incident.window_state or {}),
         threshold_crossed=incident.threshold_crossed,
         notified_at=incident.notified_at,
         start_time=incident.start_time,
@@ -77,7 +79,7 @@ def _incident_response(incident: Incident) -> IncidentDetailResponse:
 
 
 def incident_list_filters(
-    status_filter: Annotated[IncidentStatus | None, Query(alias="status")] = None,
+    status_filter: Annotated[IncidentStatusFilter | None, Query(alias="status")] = None,
     severity: Severity | None = None,
     rule_name: Annotated[str | None, Query(min_length=1, max_length=256)] = None,
     host: Annotated[str | None, Query(min_length=1, max_length=256)] = None,
@@ -85,6 +87,7 @@ def incident_list_filters(
     updated_since: datetime | None = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     cursor: Annotated[str | None, Query(min_length=1, max_length=512)] = None,
+    offset: Annotated[int | None, Query(ge=0)] = None,
 ) -> IncidentListFilters:
     return IncidentListFilters(
         status=status_filter,
@@ -95,6 +98,7 @@ def incident_list_filters(
         updated_since=updated_since,
         limit=limit,
         cursor=cursor,
+        offset=offset,
     )
 
 
@@ -115,6 +119,9 @@ async def list_incidents_endpoint(
             ) from exc
     return IncidentListResponse(
         items=tuple(_incident_response(incident) for incident in page.incidents),
+        total=page.total,
+        limit=filters.limit,
+        offset=page.offset,
         next_cursor=page.next_cursor,
     )
 
