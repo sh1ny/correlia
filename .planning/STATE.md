@@ -4,13 +4,13 @@ milestone: v1.1
 milestone_name: Vigilo/VDE Compatibility
 status: executing
 stopped_at: Phase 5 context gathered
-last_updated: "2026-06-14T23:46:59.853Z"
-last_activity: 2026-06-14 — v1.1 roadmap created and 30/30 requirements mapped
+last_updated: "2026-06-17T08:31:31.943Z"
+last_activity: 2026-06-17 -- Phase 05 execution started
 progress:
   total_phases: 6
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 2
+  completed_plans: 1
   percent: 0
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-14)
 
 **Core value:** Operators receive one accurate, topology-aware incident for a related alert storm instead of many disconnected raw alerts.
-**Current focus:** Phase 5: Security and HTTP Controls.
+**Current focus:** Phase 05 — security-and-http-controls
 
 ## Current Position
 
-Phase: 5 of 10 (v1.1 phase 1 of 6 — Security and HTTP Controls)
-Plan: TBD in current phase
+Phase: 05 (security-and-http-controls) — EXECUTING
+Plan: 2 of 2
 Status: Ready to execute
-Last activity: 2026-06-14 — v1.1 roadmap created and 30/30 requirements mapped
+Last activity: 2026-06-17 -- Phase 05 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -60,6 +60,9 @@ v1.1 roadmap decisions:
 - Correlia's stricter incident lifecycle, validation, and rich incident fields stay authoritative.
 - Summary mutation returns `422` unless a future audited domain model exists.
 - Container runtime defaults to one Uvicorn worker until durable queue or leader election exists.
+- [Phase ?]: Applied token dependency at the route level for /v1/readyz so /v1/health stays public even when readyz is protected. — D-01 requires /v1/health to remain public; router-level dependencies would have made it protected when readyz was protected.
+- [Phase ?]: Used router-level Security(require_operator_token) for operator surfaces and Security(require_ingress_token) for /v1/icinga2/events. — Keeps token classes separate per D-05 and makes route intent explicit.
+- [Phase ?]: Kept auth disable as an explicit setting (api_auth_enabled) rather than an environment-specific bypass. — Satisfies D-09 fail-fast requirement with no local/test/development bypass.
 
 ### Deferred Items
 
@@ -79,6 +82,12 @@ Items acknowledged and carried forward from milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-14T22:59:23.731Z
+Last session: 2026-06-17T08:29:22.939Z
 Stopped at: Phase 5 context gathered
 Resume file: .planning/phases/05-security-and-http-controls/05-CONTEXT.md
+
+## Performance Metrics
+
+| Phase | Plan | Duration | Notes |
+|-------|------|----------|-------|
+| Phase 05-security-and-http-controls P01 | 19min | 2 tasks | 18 files |
