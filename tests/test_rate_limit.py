@@ -230,6 +230,26 @@ async def test_rate_limiter_window_resets_after_interval() -> None:
 
 def test_in_process_rate_limiter_clear() -> None:
     limiter = InProcessRateLimiter()
-    limiter._counters["test"] = (1, 0.0)
+    limiter._counters["test"] = (1, 0.0, 0)
     limiter.clear()
     assert limiter._counters == {}
+
+async def test_in_process_rate_limiter_evicts_stale_counters() -> None:
+    limiter = InProcessRateLimiter()
+    await limiter.check("stale-key", 1, 0)
+    assert "stale-key" in limiter._counters
+    await limiter.check("fresh-key", 1, 0)
+    assert "stale-key" not in limiter._counters
+    assert "fresh-key" in limiter._counters
+
+
+async def test_in_process_rate_limiter_evicts_using_per_key_window() -> None:
+    limiter = InProcessRateLimiter()
+    await limiter.check("short-window", 1, 0)
+    await limiter.check("long-window", 1, 3600)
+    assert "short-window" not in limiter._counters
+    assert "long-window" in limiter._counters
+    # A subsequent short-window check must not prematurely evict the long-window key.
+    await limiter.check("short-window", 1, 0)
+    assert "long-window" in limiter._counters
+    assert limiter._counters["long-window"][0] == 1

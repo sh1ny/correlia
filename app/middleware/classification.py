@@ -20,6 +20,4 @@ def classify_path(path: str) -> RouteClass:
     for prefix, route_class in ROUTE_CLASS_PREFIXES:
         if path == prefix or path.startswith(prefix + "/"):
             return route_class
-    if path.startswith("/v1"):
-        return "operator"
     return "operator"

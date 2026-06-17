@@ -4,7 +4,7 @@ import hashlib
 import secrets
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, Request, Security, status
+from fastapi import Depends, HTTPException, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.api.deps import get_app_settings
@@ -31,7 +31,6 @@ def _token_matches(
 
 
 def require_operator_token(
-    request: Request,
     settings: Annotated[Settings, Depends(get_app_settings)],
     credentials: HTTPAuthorizationCredentials | None = Security(_security),
 ) -> None:
@@ -47,7 +46,6 @@ def require_operator_token(
 
 
 def require_ingress_token(
-    request: Request,
     settings: Annotated[Settings, Depends(get_app_settings)],
     credentials: HTTPAuthorizationCredentials | None = Security(_security),
 ) -> None:

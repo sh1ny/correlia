@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 import logging
 
 from starlette.datastructures import Headers
@@ -59,12 +60,11 @@ class RequestSizeLimiterMiddleware:
                 await self._send_413(send)
                 return
 
-        body_chunks: list[bytes] = []
+        body_chunks: deque[bytes] = deque()
         total = 0
         while True:
             message = await receive()
             if message["type"] != "http.request":
-                await self.app(scope, receive, send)
                 return
             chunk = message.get("body", b"")
             total += len(chunk)
@@ -86,7 +86,7 @@ class RequestSizeLimiterMiddleware:
             if not message.get("more_body", False):
                 break
 
-        messages: list[Message] = []
+        messages: deque[Message] = deque()
         for i, chunk in enumerate(body_chunks):
             messages.append(
                 {
@@ -98,7 +98,7 @@ class RequestSizeLimiterMiddleware:
 
         async def replay_receive() -> Message:
             if messages:
-                return messages.pop(0)
+                return messages.popleft()
             return {"type": "http.request", "body": b"", "more_body": False}
 
         await self.app(scope, replay_receive, send)
