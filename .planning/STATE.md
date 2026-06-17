@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Vigilo/VDE Compatibility
-status: "Phase 06 in progress"
+status: Phase 06 in progress
 stopped_at: Phase 6 context gathered
-last_updated: "2026-06-17T15:46:30Z"
+last_updated: "2026-06-17T19:17:25.673Z"
 last_activity: 2026-06-17
 progress:
   total_phases: 6
@@ -85,9 +85,9 @@ Items acknowledged and carried forward from milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-17T09:06:43.703Z
+Last session: 2026-06-17T19:17:25.668Z
 Stopped at: Phase 6 context gathered
-Resume file: .planning/ROADMAP.md#phase-6-canonical-incident-api-operation-parity
+Resume file: .planning/phases/06-canonical-incident-api-operation-parity/06-CONTEXT.md
 
 ## Performance Metrics
 
