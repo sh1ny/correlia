@@ -197,6 +197,63 @@ async def test_disconnect_during_body_read_returns_without_app() -> None:
     assert sent == []
 
 
+async def test_replay_receive_returns_terminal_message_after_body() -> None:
+    from app.middleware.size_limit import RequestSizeLimiterMiddleware
+
+    calls: list[Message] = []
+
+    async def app(scope: Scope, receive: Receive, send: Send) -> None:
+        calls.append(await receive())
+        calls.append(await receive())
+
+    async def receive() -> Message:
+        if not hasattr(receive, "called"):
+            receive.called = True
+            return {"type": "http.request", "body": b"hello", "more_body": False}
+        raise AssertionError("middleware delegated after body replay")
+
+    middleware = RequestSizeLimiterMiddleware(app, default_limit=100, class_limits={})
+    scope: Scope = {"type": "http", "path": "/v1/rules", "headers": []}
+
+    await middleware(scope, receive, lambda msg: None)
+    assert calls == [
+        {"type": "http.request", "body": b"hello", "more_body": False},
+        {"type": "http.request", "body": b"", "more_body": False},
+    ]
+
+
+async def test_empty_progress_messages_do_not_inflate_replay_count() -> None:
+    from app.middleware.size_limit import RequestSizeLimiterMiddleware
+
+    calls: list[Message] = []
+
+    async def app(scope: Scope, receive: Receive, send: Send) -> None:
+        calls.append(await receive())
+        calls.append(await receive())
+
+    empty_messages = 100
+
+    async def receive() -> Message:
+        if not hasattr(receive, "idx"):
+            receive.idx = 0
+        idx = receive.idx
+        receive.idx += 1
+        if idx < empty_messages:
+            return {"type": "http.request", "body": b"", "more_body": True}
+        if idx == empty_messages:
+            return {"type": "http.request", "body": b"payload", "more_body": False}
+        raise AssertionError("middleware delegated after body replay")
+
+    middleware = RequestSizeLimiterMiddleware(app, default_limit=100, class_limits={})
+    scope: Scope = {"type": "http", "path": "/v1/rules", "headers": []}
+
+    await middleware(scope, receive, lambda msg: None)
+    assert calls == [
+        {"type": "http.request", "body": b"payload", "more_body": False},
+        {"type": "http.request", "body": b"", "more_body": False},
+    ]
+
+
 async def test_oversized_streamed_body_rejects_413_without_draining() -> None:
     from app.middleware.size_limit import RequestSizeLimiterMiddleware
 

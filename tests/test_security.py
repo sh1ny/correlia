@@ -5,6 +5,9 @@ from collections.abc import AsyncIterator
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from fastapi.security import HTTPAuthorizationCredentials
+
+from app.api.security import _token_matches
 from app.config.settings import Settings
 from app.main import create_app
 
@@ -171,3 +174,8 @@ async def test_auth_disabled_allows_unauthenticated_ingress_access() -> None:
     async for client in get_client(app):
         response = await client.post("/v1/icinga2/events", json={})
     assert response.status_code == 422
+
+
+def test_token_matches_returns_false_on_malformed_bearer() -> None:
+    credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials="é")
+    assert _token_matches(credentials, "token") is False

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import secrets
-
 import asyncio
 import hashlib
 import logging
+import math
+import secrets
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -39,7 +39,7 @@ class InProcessRateLimiter:
     async def check(
         self, key: str, limit: int, window_seconds: int
     ) -> tuple[bool, int | None]:
-        now = time.time()
+        now = time.monotonic()
         async with self._lock:
             expired = [
                 k
@@ -56,7 +56,7 @@ class InProcessRateLimiter:
                 window_start = now
             if count >= limit:
                 reset_at = window_start + window_seconds
-                retry_after = max(1, int(reset_at - now))
+                retry_after = max(1, math.ceil(reset_at - now))
                 return False, retry_after
             self._counters[key] = (count + 1, window_start, window_seconds)
             return True, None
@@ -72,9 +72,12 @@ def identity_for_request(
     if auth_header.lower().startswith("bearer "):
         token = auth_header[7:]
         expected = valid_tokens.get(route_class)
-        if expected is not None and secrets.compare_digest(token, expected):
-            identity = hashlib.sha256(token.encode()).hexdigest()
-            return _TOKEN_PREFIX, identity
+        try:
+            if expected is not None and secrets.compare_digest(token, expected):
+                identity = hashlib.sha256(token.encode()).hexdigest()
+                return _TOKEN_PREFIX, identity
+        except TypeError:
+            pass
     client = request.scope.get("client")
     if isinstance(client, tuple) and len(client) >= 1:
         return _IP_PREFIX, str(client[0])

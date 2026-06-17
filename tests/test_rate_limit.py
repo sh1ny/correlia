@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from collections.abc import AsyncIterator
 
 import pytest
@@ -267,6 +268,29 @@ def test_identity_for_request_uses_unknown_when_no_client() -> None:
     label, value = identity_for_request(request, "operator", {})
     assert label == "ip"
     assert value == "unknown"
+
+def test_identity_for_request_falls_back_to_ip_on_malformed_bearer() -> None:
+    scope = {
+        "type": "http",
+        "client": ("10.0.0.1", 12345),
+        "headers": [(b"authorization", "Bearer é".encode())],
+    }
+    request = Request(scope)
+    label, value = identity_for_request(request, "operator", {"operator": "token"})
+    assert label == "ip"
+    assert value == "10.0.0.1"
+
+
+async def test_rate_limiter_retry_after_rounds_up_to_next_second(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    limiter = InProcessRateLimiter()
+    monkeypatch.setattr(time, "monotonic", lambda: 100.0)
+    await limiter.check("key", 1, 10)
+    monkeypatch.setattr(time, "monotonic", lambda: 100.1)
+    allowed, retry_after = await limiter.check("key", 1, 10)
+    assert allowed is False
+    assert retry_after == 10
 
 
 async def test_rate_limiter_window_resets_after_interval() -> None:
