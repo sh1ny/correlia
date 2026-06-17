@@ -7,11 +7,19 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.middleware.rate_limit import (
+    InProcessRateLimiter,
+    RateLimitConfig,
+    RateLimitSweepWorker,
+    RateLimiterMiddleware,
+    normalize_valid_tokens,
+)
+from app.middleware.size_limit import RequestSizeLimiterMiddleware
 from app.api.routers.config_status import router as config_status_router
-from app.api.routers.health import router as health_router
+from app.api.routers.health import build_router as build_health_router
 from app.api.routers.incidents import router as incidents_router
 from app.api.routers.ingress import router as ingress_router
-from app.api.routers.metrics import router as metrics_router
+from app.api.routers.metrics import build_router as build_metrics_router
 from app.api.routers.plugins import router as plugins_router
 from app.config.rules import CompiledRuleConfig, load_rules_config
 from app.config.settings import Settings, get_settings
@@ -47,6 +55,62 @@ async def request_validation_exception_handler(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         content={"detail": _safe_validation_errors(exc)},
     )
+
+
+def _body_size_limits_from_settings(settings: Settings) -> dict[str, int | None]:
+    return {
+        "operator": settings.max_body_bytes_operator,
+        "ingress": settings.max_body_bytes_ingress,
+        "metrics": settings.max_body_bytes_metrics,
+        "readyz": settings.max_body_bytes_readyz,
+        "health": settings.max_body_bytes_health,
+    }
+
+def _rate_limit_configs_from_settings(
+    settings: Settings,
+) -> dict[str, RateLimitConfig]:
+    return {
+        "operator": RateLimitConfig(
+            enabled=settings.rate_limit_enabled,
+            requests=settings.rate_limit_requests_operator,
+            window_seconds=settings.rate_limit_window_seconds_operator,
+        ),
+        "ingress": RateLimitConfig(
+            enabled=settings.rate_limit_enabled,
+            requests=settings.rate_limit_requests_ingress,
+            window_seconds=settings.rate_limit_window_seconds_ingress,
+        ),
+        "metrics": RateLimitConfig(
+            enabled=settings.rate_limit_enabled,
+            requests=settings.rate_limit_requests_metrics,
+            window_seconds=settings.rate_limit_window_seconds_metrics,
+        ),
+        "readyz": RateLimitConfig(
+            enabled=settings.rate_limit_enabled,
+            requests=settings.rate_limit_requests_readyz,
+            window_seconds=settings.rate_limit_window_seconds_readyz,
+        ),
+        "health": RateLimitConfig(
+            enabled=settings.rate_limit_enabled,
+            requests=settings.rate_limit_requests_health,
+            window_seconds=settings.rate_limit_window_seconds_health,
+        ),
+    }
+def _valid_tokens_for_rate_limit(settings: Settings) -> dict[str, str | None]:
+    operator: str | None = None
+    if settings.operator_api_token is not None:
+        operator = settings.operator_api_token.get_secret_value()
+    ingress: str | None = None
+    if settings.ingress_api_token is not None:
+        ingress = settings.ingress_api_token.get_secret_value()
+    return {
+        "operator": operator,
+        "ingress": ingress,
+        "metrics": operator,
+        "readyz": operator,
+        "health": None,
+    }
+
 
 
 @asynccontextmanager
@@ -118,12 +182,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
     await app.state.lifecycle_worker.start()
 
+    if not hasattr(app.state, "rate_limit_sweep_worker"):
+        app.state.rate_limit_sweep_worker = RateLimitSweepWorker(
+            limiter=app.state.rate_limiter,
+            interval_seconds=app.state.settings.rate_limit_sweep_interval_seconds,
+        )
+    await app.state.rate_limit_sweep_worker.start()
+
     try:
         yield
     finally:
         lifecycle_worker = getattr(app.state, "lifecycle_worker", None)
         if lifecycle_worker is not None:
             await lifecycle_worker.stop()
+        rate_limit_sweep_worker = getattr(app.state, "rate_limit_sweep_worker", None)
+        if rate_limit_sweep_worker is not None:
+            await rate_limit_sweep_worker.stop()
         task_runner = getattr(app.state, "task_runner", None)
         if task_runner is not None:
             await task_runner.drain()
@@ -146,6 +220,26 @@ def create_app(
     if settings is not None:
         app.state.settings = settings
         configure_json_logging(settings.log_level)
+
+    effective_settings = settings if settings is not None else getattr(
+        app.state, "settings", get_settings()
+    )
+    rate_limiter = InProcessRateLimiter()
+    app.state.rate_limiter = rate_limiter
+    raw_valid_tokens = _valid_tokens_for_rate_limit(effective_settings)
+    # Validate token types at app construction time; middleware normalizes internally.
+    normalize_valid_tokens(raw_valid_tokens)
+    app.add_middleware(
+        RateLimiterMiddleware,
+        limiter=rate_limiter,
+        configs=_rate_limit_configs_from_settings(effective_settings),
+        valid_tokens=raw_valid_tokens,
+    )
+    app.add_middleware(
+        RequestSizeLimiterMiddleware,
+        default_limit=effective_settings.max_body_bytes,
+        class_limits=_body_size_limits_from_settings(effective_settings),
+    )
     if sessionmaker is not None:
         app.state.sessionmaker = sessionmaker
     if icinga2_processor is not None:
@@ -156,6 +250,13 @@ def create_app(
         app.state.plugin_registry = plugin_registry
     if lifecycle_worker is not None:
         app.state.lifecycle_worker = lifecycle_worker
+
+    health_router = build_health_router(
+        protect_readyz=not effective_settings.expose_readyz and effective_settings.api_auth_enabled
+    )
+    metrics_router = build_metrics_router(
+        protect_metrics=not effective_settings.expose_metrics and effective_settings.api_auth_enabled
+    )
 
     app.include_router(health_router)
     app.include_router(ingress_router)

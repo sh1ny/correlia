@@ -11,19 +11,22 @@ Operators receive one accurate, topology-aware incident for a related alert stor
 ## Current State
 
 - **Shipped version:** v1.0 MVP on 2026-06-09.
-- **Milestone scope:** 4 phases, 16 plans, 34 tasks.
-- **Validated surface:** Icinga2 ingress, topology enrichment, rule evaluation, incident aggregation, notification dispatch, recovery/expiration lifecycle, operator APIs, metrics, readiness, and structured logs.
-- **Current focus:** Planning the next milestone from fresh requirements.
+- **Milestone scope:** v1.1 compatibility roadmap in progress; Phase 05 complete.
+- **Validated surface:** Icinga2 ingress, topology enrichment, rule evaluation, incident aggregation, notification dispatch, recovery/expiration lifecycle, operator APIs, metrics, readiness, structured logs, static Bearer auth, named public/protected exposure, request-size limits, and route-class rate limits.
+- **Current focus:** Phase 06 — canonical incident API operation parity.
 
-## Next Milestone Goals
+## Current Milestone: v1.1 Vigilo/VDE Compatibility
 
-Fresh requirements should be defined with `/gsd-new-milestone`. Candidate future themes already deferred from v1:
+**Goal:** Make Correlia a practical replacement for Vigilo/VDE at the API, config, plugin, deployment, and operational boundaries while preserving Correlia's stricter incident lifecycle and validation model.
 
-- Additional input plugins, especially Prometheus Alertmanager.
-- Broker-backed durable task execution and outbox/retry semantics.
-- API-managed suppressions, silences, maintenance windows, and config dry-run/reload workflows.
-- Additional output plugins such as Slack, generic webhook, PagerDuty Events API, or Grafana OnCall.
-- AI-driven topology enrichment and root-cause assistance after more deterministic history exists.
+**Target features:**
+- Canonical `/v1/incidents` operation parity for Vigilo-supported listing and mutation workflows without adding a `/api/v1` facade.
+- Append-only `incident_events` audit trail for raw payload, normalized event, and decision summary traceability.
+- Strict Vigilo/VDE YAML migration into Correlia rules, topology, and plugin config, failing on unsupported semantics.
+- Static Bearer auth, request-size limits, route rate limits, and configurable readiness exposure.
+- Docker/compose deployment parity with PostgreSQL, SMTP capture, sample config, and single-worker runtime defaults.
+- Output-plugin boundary hardening, compatibility metrics, readiness, and safe structured logging extensions.
+- Explicit exclusion: webhook endpoint compatibility; sender-side systems adapt to Correlia's canonical ingress.
 
 ## Requirements
 
@@ -33,10 +36,11 @@ Fresh requirements should be defined with `/gsd-new-milestone`. Candidate future
 - ✓ Icinga2 webhook ingestion, strict input normalization, static YAML topology enrichment, strict YAML rule loading, deterministic first-match rule evaluation, group-key rendering, and inspectable threshold/window decisions — v1.0.
 - ✓ PostgreSQL-backed problem aggregation, durable bounded threshold/window state, first-transition notification submission, asyncio `TaskRunner`, trusted output plugin registry loading, Mailpit-compatible SMTP output, and compact dispatch outcome reporting — v1.0.
 - ✓ RECOVERY lifecycle mutation, stale incident expiration, trusted internal `/v1` operator APIs, low-cardinality Prometheus metrics, safe JSON structured logs, and expanded readiness checks — v1.0.
+- ✓ Static Bearer auth, separated operator/ingress tokens, named readiness/metrics exposure, request-size limits, route-class rate limits, and safe HTTP-control logging — Phase 05.
 
 ### Active
 
-- Fresh active requirements will be created by `/gsd-new-milestone` for the next milestone.
+- [ ] Remaining v1.1 compatibility requirements will make Correlia deployable as a Vigilo/VDE replacement without weakening canonical incident lifecycle, validation, or `/v1` API contracts.
 
 ### Out of Scope
 
@@ -105,4 +109,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-09 after v1.0 milestone completion*
+*Last updated: 2026-06-17 after Phase 05 completion*
