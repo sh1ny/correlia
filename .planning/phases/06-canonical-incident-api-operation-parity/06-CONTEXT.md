@@ -21,16 +21,16 @@ Phase 6 extends canonical `/v1/incidents` so Vigilo-shaped list, detail, acknowl
 
 ### ACKNOWLEDGED Status Semantics
 - **D-05:** `ACKNOWLEDGED` is a compatibility status alias, not a new canonical `IncidentStatus` or database value. It maps to `acknowledged_at IS NOT NULL` and `acknowledged_by IS NOT NULL` while canonical `status` remains `OPEN`.
-- **D-06:** `GET /v1/incidents?status=ACKNOWLEDGED` returns incidents where `acknowledged_at`/`acknowledged_by` are set, regardless of canonical `status`.
+- **D-06:** `GET /v1/incidents?status=ACKNOWLEDGED` returns open incidents where `acknowledged_at`/`acknowledged_by` are set.
 - **D-07:** `GET /v1/incidents?status=OPEN` continues to include acknowledged incidents (Correlia lifecycle view). Status filters are not mutually exclusive.
 - **D-08:** **Filter contract:** the canonical `status` query parameter continues to accept existing Correlia values (`OPEN`, `RESOLVED`, `CLOSED`) and additionally accepts derived `ACKNOWLEDGED`. The compatibility filter surface focuses on `OPEN`, `ACKNOWLEDGED`, and `CLOSED`; `RESOLVED` remains available for canonical use.
 - **D-09:** `PATCH /v1/incidents/{id}` with `{"status": "ACKNOWLEDGED"}` calls the existing `ack_open_incident` path, records the compatibility operator/reason defaults, and returns the incident with canonical `status: OPEN` and the existing `acknowledgement` object populated.
+
 ### Status Mutation Aliases
 - **D-10:** `PATCH /v1/incidents/{id}` accepts only `ACKNOWLEDGED` and `CLOSED` status mutations. `OPEN` is not a meaningful target from a Vigilo client.
 - **D-11:** `DELETE /v1/incidents/{id}` maps to `close_open_incident` with the compatibility default operator and reason.
 - **D-12:** Existing explicit `POST /v1/incidents/{id}/ack` and `POST /v1/incidents/{id}/close` endpoints remain unchanged and continue to require caller-supplied operator/reason.
-- **D-13:** Compatibility mutations (`PATCH` and `DELETE`) use default `operator="vigilo-compat"` and `reason="vigilo-compat"` when the client does not supply them.
-- **D-14:** Compatibility mutations are idempotent. Re-acknowledging an acknowledged incident or re-closing a closed incident returns `200` with the current incident state, matching the existing explicit endpoints.
+- **D-13:** Compatibility mutations (`PATCH` and `DELETE`) always use `operator="vigilo-compat"` and `reason="vigilo-compat"` because the `status`-only PATCH body does not accept caller-supplied operator or reason.
 
 ### Summary Mutation Rejection
 - **D-15:** `PATCH /v1/incidents/{id}` accepts only a `status` field. Any body containing other fields (including `summary`) is rejected with HTTP `422`.
