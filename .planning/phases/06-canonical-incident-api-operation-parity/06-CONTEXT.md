@@ -31,6 +31,7 @@ Phase 6 extends canonical `/v1/incidents` so Vigilo-shaped list, detail, acknowl
 - **D-11:** `DELETE /v1/incidents/{id}` maps to `close_open_incident` with the compatibility default operator and reason.
 - **D-12:** Existing explicit `POST /v1/incidents/{id}/ack` and `POST /v1/incidents/{id}/close` endpoints remain unchanged and continue to require caller-supplied operator/reason.
 - **D-13:** Compatibility mutations (`PATCH` and `DELETE`) always use `operator="vigilo-compat"` and `reason="vigilo-compat"` because the `status`-only PATCH body does not accept caller-supplied operator or reason.
+- **D-14:** Compatibility mutations are idempotent. Re-acknowledging an acknowledged incident or re-closing a closed incident returns `200` with the current incident state, matching the existing explicit endpoints.
 
 ### Summary Mutation Rejection
 - **D-15:** `PATCH /v1/incidents/{id}` accepts only a `status` field. Any body containing other fields (including `summary`) is rejected with HTTP `422`.
