@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import secrets
+
 import asyncio
 import hashlib
 import logging
@@ -63,12 +65,16 @@ class InProcessRateLimiter:
         self._counters.clear()
 
 
-def identity_for_request(request: Request) -> tuple[str, str]:
+def identity_for_request(
+    request: Request, route_class: str, valid_tokens: dict[str, str | None]
+) -> tuple[str, str]:
     auth_header = request.headers.get("authorization", "")
     if auth_header.lower().startswith("bearer "):
         token = auth_header[7:]
-        identity = hashlib.sha256(token.encode()).hexdigest()
-        return _TOKEN_PREFIX, identity
+        expected = valid_tokens.get(route_class)
+        if expected is not None and secrets.compare_digest(token, expected):
+            identity = hashlib.sha256(token.encode()).hexdigest()
+            return _TOKEN_PREFIX, identity
     client = request.scope.get("client")
     if isinstance(client, tuple) and len(client) >= 1:
         return _IP_PREFIX, str(client[0])
@@ -81,10 +87,12 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
         app: ASGIApp,
         limiter: InProcessRateLimiter,
         configs: dict[str, RateLimitConfig],
+        valid_tokens: dict[str, str | None] | None = None,
     ) -> None:
         super().__init__(app)
         self.limiter = limiter
         self.configs = configs
+        self.valid_tokens = valid_tokens or {}
 
     async def dispatch(self, request: Request, call_next: Any) -> Any:
         route_class = classify_path(request.url.path)
@@ -97,7 +105,9 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
         ):
             return await call_next(request)
 
-        identity_type, identity_value = identity_for_request(request)
+        identity_type, identity_value = identity_for_request(
+            request, route_class, self.valid_tokens
+        )
         key = f"{route_class}:{identity_type}:{identity_value}"
         allowed, retry_after = await self.limiter.check(
             key, config.requests, config.window_seconds

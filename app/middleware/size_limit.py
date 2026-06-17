@@ -69,8 +69,6 @@ class RequestSizeLimiterMiddleware:
             chunk = message.get("body", b"")
             total += len(chunk)
             if total > limit:
-                while message.get("more_body", False):
-                    message = await receive()
                 logger.warning(
                     "request body too large",
                     extra=safe_log_extra(

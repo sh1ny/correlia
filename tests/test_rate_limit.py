@@ -105,22 +105,41 @@ async def test_rate_limit_rejects_over_limit_with_429_and_retry_after() -> None:
     assert int(response2.headers["Retry-After"]) > 0
 
 
-async def test_rate_limit_tracks_identities_separately_by_token() -> None:
+async def test_invalid_token_rotation_uses_ip_bucket_on_operator_route() -> None:
     app = _app(_auth_settings(rate_limit_requests_operator=1))
     app.state.rate_limiter.clear()
     async for client in get_client(app):
         operator_response = await client.get(
             "/v1/plugins", headers={"Authorization": f"Bearer {OPERATOR_TOKEN}"}
         )
-        # Same route class but ingress token is a different identity.
-        ingress_response = await client.get(
-            "/v1/plugins", headers={"Authorization": f"Bearer {INGRESS_TOKEN}"}
+        # An invalid token for an operator route falls back to the client IP bucket.
+        # The first invalid token consumes the IP bucket, so a rotated invalid token
+        # is rate limited before it reaches auth.
+        invalid_response_1 = await client.get(
+            "/v1/plugins", headers={"Authorization": "Bearer invalid-token-1"}
+        )
+        invalid_response_2 = await client.get(
+            "/v1/plugins", headers={"Authorization": "Bearer invalid-token-2"}
         )
     assert operator_response.status_code == 200
-    # Ingress token is invalid for operator route, so it would be 401 if not rate limited.
-    # Because rate limit runs before auth, the ingress token identity is allowed through
-    # and then auth rejects it.
-    assert ingress_response.status_code == 401
+    assert invalid_response_1.status_code == 401
+    assert invalid_response_2.status_code == 429
+    assert invalid_response_2.json() == {"detail": "rate limit exceeded"}
+
+
+async def test_valid_operator_token_bucket_is_separate_from_ip_bucket() -> None:
+    app = _app(_auth_settings(rate_limit_requests_operator=1))
+    app.state.rate_limiter.clear()
+    async for client in get_client(app):
+        # Valid operator token uses its own token_hash bucket.
+        operator_response = await client.get(
+            "/v1/plugins", headers={"Authorization": f"Bearer {OPERATOR_TOKEN}"}
+        )
+        # Same IP without a token uses the IP bucket, which is still empty,
+        # so it is allowed through to auth and rejected there.
+        no_auth_response = await client.get("/v1/plugins")
+    assert operator_response.status_code == 200
+    assert no_auth_response.status_code == 401
 
 
 async def test_oversized_request_does_not_consume_rate_limit_budget() -> None:
@@ -186,7 +205,7 @@ async def test_rate_limit_per_class_configs_are_independent() -> None:
     assert health2.status_code == 200
 
 
-def test_identity_for_request_uses_hashed_token_when_bearer_present() -> None:
+def test_identity_for_request_uses_hashed_token_when_valid_for_class() -> None:
     import hashlib
 
     scope = {
@@ -194,9 +213,40 @@ def test_identity_for_request_uses_hashed_token_when_bearer_present() -> None:
         "headers": [(b"authorization", b"Bearer secret-token")],
     }
     request = Request(scope)
-    label, value = identity_for_request(request)
+    label, value = identity_for_request(
+        request, "operator", {"operator": "secret-token"}
+    )
     assert label == "token_hash"
     assert value == hashlib.sha256(b"secret-token").hexdigest()
+
+
+def test_identity_for_request_uses_ingress_token_when_valid_for_ingress() -> None:
+    import hashlib
+
+    scope = {
+        "type": "http",
+        "headers": [(b"authorization", b"Bearer ingress-token")],
+    }
+    request = Request(scope)
+    label, value = identity_for_request(
+        request, "ingress", {"ingress": "ingress-token"}
+    )
+    assert label == "token_hash"
+    assert value == hashlib.sha256(b"ingress-token").hexdigest()
+
+
+def test_identity_for_request_falls_back_to_ip_when_token_invalid_for_class() -> None:
+    scope = {
+        "type": "http",
+        "client": ("192.168.1.1", 12345),
+        "headers": [(b"authorization", b"Bearer wrong-token")],
+    }
+    request = Request(scope)
+    label, value = identity_for_request(
+        request, "operator", {"operator": "valid-token"}
+    )
+    assert label == "ip"
+    assert value == "192.168.1.1"
 
 
 def test_identity_for_request_uses_ip_when_no_token() -> None:
@@ -206,7 +256,7 @@ def test_identity_for_request_uses_ip_when_no_token() -> None:
         "headers": [],
     }
     request = Request(scope)
-    label, value = identity_for_request(request)
+    label, value = identity_for_request(request, "operator", {})
     assert label == "ip"
     assert value == "192.168.1.1"
 
@@ -214,7 +264,7 @@ def test_identity_for_request_uses_ip_when_no_token() -> None:
 def test_identity_for_request_uses_unknown_when_no_client() -> None:
     scope = {"type": "http", "headers": []}
     request = Request(scope)
-    label, value = identity_for_request(request)
+    label, value = identity_for_request(request, "operator", {})
     assert label == "ip"
     assert value == "unknown"
 
