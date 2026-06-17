@@ -12,6 +12,11 @@ from app.plugins.loader import PluginRegistry
 
 pytestmark = pytest.mark.anyio
 
+@pytest.fixture(autouse=True)
+def _disable_auth_for_plugins_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CORRELIA_API_AUTH_ENABLED", "false")
+
+
 
 async def get_client(app) -> AsyncIterator[AsyncClient]:
     async with app.router.lifespan_context(app):

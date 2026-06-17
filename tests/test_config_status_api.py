@@ -14,6 +14,11 @@ from app.plugins.loader import PluginRegistry
 
 pytestmark = pytest.mark.anyio
 
+@pytest.fixture(autouse=True)
+def _disable_auth_for_config_status_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CORRELIA_API_AUTH_ENABLED", "false")
+
+
 VALID_DATABASE_URL = "postgresql+asyncpg://user:pass@localhost:5432/correlia"
 
 

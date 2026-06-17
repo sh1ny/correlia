@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import logging
 import subprocess
+import os
 import sys
 
 import yaml
@@ -31,11 +32,16 @@ def _event_time() -> datetime:
 
 
 pytestmark = pytest.mark.anyio
+@pytest.fixture(autouse=True)
+def _disable_auth_for_ingress_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CORRELIA_API_AUTH_ENABLED", "false")
+
 
 
 def _run_alembic_upgrade(database_url: str) -> None:
     result = subprocess.run(
         [sys.executable, "-m", "alembic", "-x", f"database_url={database_url}", "upgrade", "head"],
+        env={**os.environ, "CORRELIA_API_AUTH_ENABLED": "false"},
         capture_output=True,
         text=True,
     )
