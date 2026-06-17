@@ -11,9 +11,9 @@ Operators receive one accurate, topology-aware incident for a related alert stor
 ## Current State
 
 - **Shipped version:** v1.0 MVP on 2026-06-09.
-- **Milestone scope:** v1.1 compatibility roadmap in progress; Phase 05 complete.
-- **Validated surface:** Icinga2 ingress, topology enrichment, rule evaluation, incident aggregation, notification dispatch, recovery/expiration lifecycle, operator APIs, metrics, readiness, structured logs, static Bearer auth, named public/protected exposure, request-size limits, and route-class rate limits.
-- **Current focus:** Phase 06 — canonical incident API operation parity.
+- **Milestone scope:** v1.1 compatibility roadmap in progress; Phase 06 complete.
+- **Validated surface:** Icinga2 ingress, topology enrichment, rule evaluation, incident aggregation, notification dispatch, recovery/expiration lifecycle, operator APIs, metrics, readiness, structured logs, static Bearer auth, named public/protected exposure, request-size limits, route-class rate limits, and canonical `/v1/incidents` Vigilo-compatible list/detail/mutation workflows.
+- **Current focus:** Phase 07 — incident event audit trail.
 
 ## Current Milestone: v1.1 Vigilo/VDE Compatibility
 
@@ -37,6 +37,7 @@ Operators receive one accurate, topology-aware incident for a related alert stor
 - ✓ PostgreSQL-backed problem aggregation, durable bounded threshold/window state, first-transition notification submission, asyncio `TaskRunner`, trusted output plugin registry loading, Mailpit-compatible SMTP output, and compact dispatch outcome reporting — v1.0.
 - ✓ RECOVERY lifecycle mutation, stale incident expiration, trusted internal `/v1` operator APIs, low-cardinality Prometheus metrics, safe JSON structured logs, and expanded readiness checks — v1.0.
 - ✓ Static Bearer auth, separated operator/ingress tokens, named readiness/metrics exposure, request-size limits, route-class rate limits, and safe HTTP-control logging — Phase 05.
+- ✓ Canonical `/v1/incidents` operation parity for Vigilo-supported listing and mutation workflows: offset/total list metadata, derived `ACKNOWLEDGED` filter, rich detail preservation, PATCH/DELETE compatibility aliases with `vigilo-compat` defaults, summary-mutation rejection, and explicit `/ack`/`/close` endpoint preservation — Phase 06.
 
 ### Active
 
@@ -109,4 +110,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-17 after Phase 05 completion*
+*Last updated: 2026-06-17 after Phase 06 completion*
