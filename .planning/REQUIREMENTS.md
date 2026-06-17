@@ -9,9 +9,9 @@ Requirements for the Vigilo/VDE compatibility milestone. Each requirement maps t
 
 ### Security and HTTP Controls
 
-- [ ] **SEC-01**: Operator API clients can authenticate protected Correlia routes with a static Bearer token configured by environment.
-- [ ] **SEC-02**: Unauthenticated callers receive a deterministic unauthorized response on protected routes without any development-mode bypass.
-- [ ] **SEC-03**: Maintainers can configure which health/readiness paths are public while keeping `/v1/health` public by default.
+- [x] **SEC-01**: Operator API clients can authenticate protected Correlia routes with a static Bearer token configured by environment.
+- [x] **SEC-02**: Unauthenticated callers receive a deterministic unauthorized response on protected routes without any development-mode bypass.
+- [x] **SEC-03**: Maintainers can configure which health/readiness paths are public while keeping `/v1/health` public by default.
 - [ ] **SEC-04**: Correlia rejects oversized HTTP request bodies before route handlers process payloads.
 - [ ] **SEC-05**: Correlia rate-limits configured API routes and returns a deterministic rate-limit response when the limit is exceeded.
 
@@ -92,9 +92,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SEC-01 | Phase 5 | Pending |
-| SEC-02 | Phase 5 | Pending |
-| SEC-03 | Phase 5 | Pending |
+| SEC-01 | Phase 5 | Complete |
+| SEC-02 | Phase 5 | Complete |
+| SEC-03 | Phase 5 | Complete |
 | SEC-04 | Phase 5 | Pending |
 | SEC-05 | Phase 5 | Pending |
 | API-01 | Phase 6 | Pending |
@@ -128,6 +128,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | OPS-03 | Phase 10 | Pending |
 
 **Coverage:**
+
 - v1.1 requirements: 30 total
 - Mapped to phases: 30
 - Unmapped: 0 ✓
