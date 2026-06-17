@@ -7,6 +7,11 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.middleware.rate_limit import (
+    InProcessRateLimiter,
+    RateLimitConfig,
+    RateLimiterMiddleware,
+)
 from app.middleware.size_limit import RequestSizeLimiterMiddleware
 from app.api.routers.config_status import router as config_status_router
 from app.api.routers.health import build_router as build_health_router
@@ -58,6 +63,38 @@ def _body_size_limits_from_settings(settings: Settings) -> dict[str, int | None]
         "readyz": settings.max_body_bytes_readyz,
         "health": settings.max_body_bytes_health,
     }
+
+def _rate_limit_configs_from_settings(
+    settings: Settings,
+) -> dict[str, RateLimitConfig]:
+    return {
+        "operator": RateLimitConfig(
+            enabled=settings.rate_limit_enabled,
+            requests=settings.rate_limit_requests_operator,
+            window_seconds=settings.rate_limit_window_seconds_operator,
+        ),
+        "ingress": RateLimitConfig(
+            enabled=settings.rate_limit_enabled,
+            requests=settings.rate_limit_requests_ingress,
+            window_seconds=settings.rate_limit_window_seconds_ingress,
+        ),
+        "metrics": RateLimitConfig(
+            enabled=settings.rate_limit_enabled,
+            requests=settings.rate_limit_requests_metrics,
+            window_seconds=settings.rate_limit_window_seconds_metrics,
+        ),
+        "readyz": RateLimitConfig(
+            enabled=settings.rate_limit_enabled,
+            requests=settings.rate_limit_requests_readyz,
+            window_seconds=settings.rate_limit_window_seconds_readyz,
+        ),
+        "health": RateLimitConfig(
+            enabled=settings.rate_limit_enabled,
+            requests=settings.rate_limit_requests_health,
+            window_seconds=settings.rate_limit_window_seconds_health,
+        ),
+    }
+
 
 
 @asynccontextmanager
@@ -162,6 +199,13 @@ def create_app(
         app.state, "settings", get_settings()
     )
 
+    rate_limiter = InProcessRateLimiter()
+    app.state.rate_limiter = rate_limiter
+    app.add_middleware(
+        RateLimiterMiddleware,
+        limiter=rate_limiter,
+        configs=_rate_limit_configs_from_settings(effective_settings),
+    )
     app.add_middleware(
         RequestSizeLimiterMiddleware,
         default_limit=effective_settings.max_body_bytes,

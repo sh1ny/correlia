@@ -30,6 +30,12 @@ SAFE_LOG_KEYS = frozenset(
         "affected_object_removed",
         "healthy",
         "ready",
+        "route_class",
+        "identity_hash",
+        "content_length",
+        "retry_after",
+        "limit",
+        "window_seconds",
     }
 )
 

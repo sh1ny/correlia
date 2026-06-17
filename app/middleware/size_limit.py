@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import logging
+
 from starlette.datastructures import Headers
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.middleware.classification import classify_path
+from app.processing.logging import safe_log_extra
+
+logger = logging.getLogger(__name__)
 
 _DETAIL = "request body too large"
 
@@ -42,6 +47,15 @@ class RequestSizeLimiterMiddleware:
             except ValueError:
                 length = 0
             if length > limit:
+                logger.warning(
+                    "request body too large",
+                    extra=safe_log_extra(
+                        event="request_body_too_large",
+                        route_class=route_class,
+                        content_length=length,
+                        limit=limit,
+                    ),
+                )
                 await self._send_413(send)
                 return
 
@@ -57,6 +71,15 @@ class RequestSizeLimiterMiddleware:
             if total > limit:
                 while message.get("more_body", False):
                     message = await receive()
+                logger.warning(
+                    "request body too large",
+                    extra=safe_log_extra(
+                        event="request_body_too_large",
+                        route_class=route_class,
+                        content_length=total,
+                        limit=limit,
+                    ),
+                )
                 await self._send_413(send)
                 return
             body_chunks.append(chunk)
