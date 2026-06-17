@@ -425,3 +425,162 @@ async def test_incident_api_rejects_invalid_inputs_without_source_exception_text
         "password leaked",
     ):
         assert fragment not in serialized
+
+
+
+
+async def test_list_incidents_offset_metadata_and_cursor_coexistence(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        first = await _seed_incident(
+            session,
+            rule_name="offset-a",
+            group_key="host:o-a",
+            host="o-a",
+            service="cpu",
+            severity=Severity.WARNING,
+            event_time=_event_time(0),
+        )
+        second = await _seed_incident(
+            session,
+            rule_name="offset-b",
+            group_key="host:o-b",
+            host="o-b",
+            service="disk",
+            severity=Severity.CRITICAL,
+            event_time=_event_time(2),
+        )
+        third = await _seed_incident(
+            session,
+            rule_name="offset-c",
+            group_key="host:o-c",
+            host="o-c",
+            service=None,
+            severity=Severity.UNKNOWN,
+            event_time=_event_time(4),
+        )
+
+    expected_newest_first = [str(third.id), str(second.id), str(first.id)]
+
+    app = _app(session_factory)
+    async for client in get_client(app):
+        default_page = await client.get("/v1/incidents", params={"limit": 2})
+        offset_page = await client.get(
+            "/v1/incidents", params={"limit": 1, "offset": 1}
+        )
+
+    assert default_page.status_code == 200
+    default_body = default_page.json()
+    assert [item["id"] for item in default_body["items"]] == expected_newest_first[:2]
+    assert default_body["next_cursor"] is not None
+    assert default_body["total"] == 3
+    assert default_body["limit"] == 2
+    assert default_body["offset"] == 0
+
+    assert offset_page.status_code == 200
+    offset_body = offset_page.json()
+    assert [item["id"] for item in offset_body["items"]] == [str(second.id)]
+    assert offset_body["next_cursor"] is None
+    assert offset_body["total"] == 3
+    assert offset_body["limit"] == 1
+    assert offset_body["offset"] == 1
+
+    app = _app(session_factory)
+    async for client in get_client(app):
+        cursor_wins = await client.get(
+            "/v1/incidents",
+            params={"limit": 2, "cursor": default_body["next_cursor"], "offset": 0},
+        )
+
+    assert cursor_wins.status_code == 200
+    cursor_body = cursor_wins.json()
+    assert [item["id"] for item in cursor_body["items"]] == [str(first.id)]
+    assert cursor_body["offset"] == 0
+    assert cursor_body["total"] == 3
+
+
+async def test_list_incidents_acknowledged_filter_is_derived_and_open_includes_acknowledged(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        acknowledged = await _seed_incident(
+            session,
+            rule_name="ack-filter",
+            group_key="host:ack-f",
+            host="ack-f",
+            service="cpu",
+            severity=Severity.WARNING,
+            event_time=_event_time(0),
+        )
+        plain = await _seed_incident(
+            session,
+            rule_name="open-filter",
+            group_key="host:open-f",
+            host="open-f",
+            service="disk",
+            severity=Severity.CRITICAL,
+            event_time=_event_time(1),
+        )
+
+    app = _app(session_factory)
+    async for client in get_client(app):
+        ack = await client.post(
+            f"/v1/incidents/{acknowledged.id}/ack", json={"operator": "operator-a"}
+        )
+        acked = await client.get(
+            "/v1/incidents", params={"status": "ACKNOWLEDGED"}
+        )
+        open_all = await client.get("/v1/incidents", params={"status": "OPEN"})
+
+    assert ack.status_code == 200
+    assert ack.json()["status"] == "OPEN"
+    assert ack.json()["acknowledgement"]["acknowledged_by"] == "operator-a"
+
+    assert acked.status_code == 200
+    acked_body = acked.json()
+    assert [item["id"] for item in acked_body["items"]] == [str(acknowledged.id)]
+    assert acked_body["items"][0]["status"] == "OPEN"
+    assert acked_body["items"][0]["acknowledgement"]["acknowledged_by"] == "operator-a"
+
+    assert open_all.status_code == 200
+    open_ids = {item["id"] for item in open_all.json()["items"]}
+    assert {str(acknowledged.id), str(plain.id)} <= open_ids
+
+
+async def test_incident_detail_preserves_rich_fields_for_compatibility(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        incident = await _seed_incident(
+            session,
+            rule_name="rich-detail",
+            group_key="host:rich-1",
+            host="rich-1",
+            service="http",
+            severity=Severity.CRITICAL,
+            event_time=_event_time(0),
+        )
+
+    app = _app(session_factory)
+    async for client in get_client(app):
+        response = await client.get(f"/v1/incidents/{incident.id}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == str(incident.id)
+    assert body["affected_hosts"] == ["rich-1"]
+    assert body["affected_services"] == ["http"]
+    assert "decision_context" in body
+    assert isinstance(body["decision_context"], dict)
+    assert "window_state" in body
+    assert isinstance(body["window_state"], dict)
+    assert "acknowledgement" in body
+    assert body["acknowledgement"]["acknowledged_by"] is None
+    for rich_field in (
+        "start_time",
+        "last_update_time",
+        "created_at",
+        "updated_at",
+    ):
+        assert rich_field in body

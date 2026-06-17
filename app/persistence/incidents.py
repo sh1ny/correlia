@@ -18,6 +18,7 @@ from app.domain.incidents import (
     DecisionContext,
     IncidentListFilters,
     IncidentStatus,
+    IncidentStatusFilter,
     IncidentWindowState,
     validate_incident_transition,
 )
@@ -226,6 +227,8 @@ class IncidentCursor:
 class IncidentListPage:
     incidents: tuple[Incident, ...]
     next_cursor: str | None
+    total: int
+    offset: int
 
 def _parse_timestamp(value: Any) -> datetime:
     if isinstance(value, datetime):
@@ -457,22 +460,36 @@ async def list_incidents(
     session: AsyncSession,
     filters: IncidentListFilters,
 ) -> IncidentListPage:
-    stmt = select(Incident)
-    if filters.status is not None:
-        stmt = stmt.where(Incident.status == filters.status.value)
-    if filters.severity is not None:
-        stmt = stmt.where(Incident.severity == filters.severity.value)
-    if filters.rule_name is not None:
-        stmt = stmt.where(Incident.rule_name == filters.rule_name)
-    if filters.host is not None:
-        stmt = stmt.where(Incident.affected_hosts.contains([filters.host]))
-    if filters.service is not None:
-        stmt = stmt.where(Incident.affected_services.contains([filters.service]))
-    if filters.updated_since is not None:
-        stmt = stmt.where(Incident.last_update_time >= filters.updated_since)
+    def apply_filters(stmt: Any) -> Any:
+        if filters.status == IncidentStatusFilter.ACKNOWLEDGED:
+            stmt = stmt.where(
+                Incident.status == IncidentStatus.OPEN.value,
+                Incident.acknowledged_at.is_not(None),
+                Incident.acknowledged_by.is_not(None),
+            )
+        elif filters.status is not None:
+            stmt = stmt.where(Incident.status == filters.status.value)
+        if filters.severity is not None:
+            stmt = stmt.where(Incident.severity == filters.severity.value)
+        if filters.rule_name is not None:
+            stmt = stmt.where(Incident.rule_name == filters.rule_name)
+        if filters.host is not None:
+            stmt = stmt.where(Incident.affected_hosts.contains([filters.host]))
+        if filters.service is not None:
+            stmt = stmt.where(Incident.affected_services.contains([filters.service]))
+        if filters.updated_since is not None:
+            stmt = stmt.where(Incident.last_update_time >= filters.updated_since)
+        return stmt
+
+    base_stmt = apply_filters(select(Incident))
+    total = await session.scalar(
+        select(func.count()).select_from(base_stmt.subquery())
+    ) or 0
+
+    page_stmt = apply_filters(select(Incident))
     if filters.cursor is not None:
         cursor = decode_incident_cursor(filters.cursor)
-        stmt = stmt.where(
+        page_stmt = page_stmt.where(
             or_(
                 Incident.last_update_time < cursor.last_update_time,
                 and_(
@@ -481,19 +498,48 @@ async def list_incidents(
                 ),
             )
         )
-    stmt = stmt.order_by(Incident.last_update_time.desc(), Incident.id.desc()).limit(
-        filters.limit + 1
+        page_stmt = page_stmt.order_by(
+            Incident.last_update_time.desc(), Incident.id.desc()
+        ).limit(filters.limit + 1)
+        result = await session.execute(page_stmt)
+        rows = tuple(result.scalars().all())
+        incidents = rows[: filters.limit]
+        next_cursor = None
+        if len(rows) > filters.limit:
+            last = incidents[-1]
+            next_cursor = encode_incident_cursor(
+                IncidentCursor(last_update_time=last.last_update_time, id=last.id)
+            )
+        offset_value = 0
+    elif filters.offset is not None:
+        page_stmt = page_stmt.order_by(
+            Incident.last_update_time.desc(), Incident.id.desc()
+        ).offset(filters.offset).limit(filters.limit)
+        result = await session.execute(page_stmt)
+        incidents = tuple(result.scalars().all())
+        next_cursor = None
+        offset_value = filters.offset
+    else:
+        page_stmt = page_stmt.order_by(
+            Incident.last_update_time.desc(), Incident.id.desc()
+        ).limit(filters.limit + 1)
+        result = await session.execute(page_stmt)
+        rows = tuple(result.scalars().all())
+        incidents = rows[: filters.limit]
+        next_cursor = None
+        if len(rows) > filters.limit:
+            last = incidents[-1]
+            next_cursor = encode_incident_cursor(
+                IncidentCursor(last_update_time=last.last_update_time, id=last.id)
+            )
+        offset_value = 0
+
+    return IncidentListPage(
+        incidents=incidents,
+        next_cursor=next_cursor,
+        total=int(total),
+        offset=offset_value,
     )
-    result = await session.execute(stmt)
-    rows = tuple(result.scalars().all())
-    incidents = rows[: filters.limit]
-    next_cursor = None
-    if len(rows) > filters.limit:
-        last = incidents[-1]
-        next_cursor = encode_incident_cursor(
-            IncidentCursor(last_update_time=last.last_update_time, id=last.id)
-        )
-    return IncidentListPage(incidents=incidents, next_cursor=next_cursor)
 
 
 async def get_incident_by_id(session: AsyncSession, incident_id: UUID) -> Incident | None:
