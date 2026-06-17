@@ -9,7 +9,6 @@ from httpx import ASGITransport, AsyncClient
 from app.config.settings import Settings
 from app.domain.rules import IngressDecisionEnvelope
 from app.main import create_app
-from app.plugins.loader import PluginRegistry
 
 
 pytestmark = pytest.mark.anyio

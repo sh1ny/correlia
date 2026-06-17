@@ -11,10 +11,8 @@ from app.main import create_app
 from app.middleware.rate_limit import (
     InProcessRateLimiter,
     RateLimitConfig,
-    RateLimiterMiddleware,
     identity_for_request,
 )
-from app.plugins.loader import PluginRegistry
 
 
 pytestmark = pytest.mark.anyio
