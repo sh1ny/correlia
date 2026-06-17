@@ -12,7 +12,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp
 
-from app.middleware.classification import RouteClass, classify_path
+from app.middleware.classification import classify_path
 from app.processing.logging import safe_log_extra
 
 _DETAIL = "rate limit exceeded"
