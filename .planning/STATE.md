@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Vigilo/VDE Compatibility
-status: executing
+status: verifying
 stopped_at: Phase 5 context gathered
-last_updated: "2026-06-17T08:31:31.943Z"
+last_updated: "2026-06-17T09:10:55.398Z"
 last_activity: 2026-06-17 -- Phase 05 execution started
 progress:
   total_phases: 6
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 1
-  percent: 0
+  completed_plans: 2
+  percent: 17
 ---
 
 # Project State
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-06-14)
 
 Phase: 05 (security-and-http-controls) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-17 -- Phase 05 execution started
 
 Progress: [░░░░░░░░░░] 0%
@@ -63,6 +63,9 @@ v1.1 roadmap decisions:
 - [Phase ?]: Applied token dependency at the route level for /v1/readyz so /v1/health stays public even when readyz is protected. — D-01 requires /v1/health to remain public; router-level dependencies would have made it protected when readyz was protected.
 - [Phase ?]: Used router-level Security(require_operator_token) for operator surfaces and Security(require_ingress_token) for /v1/icinga2/events. — Keeps token classes separate per D-05 and makes route intent explicit.
 - [Phase ?]: Kept auth disable as an explicit setting (api_auth_enabled) rather than an environment-specific bypass. — Satisfies D-09 fail-fast requirement with no local/test/development bypass.
+- [Phase ?]: Size limiter is installed outermost so oversized requests are rejected before the rate limiter counts them.
+- [Phase ?]: Rate-limit identity uses SHA-256 hashed Bearer token first, then remote IP, with no raw token in logs or limiter keys.
+- [Phase ?]: Extended SAFE_LOG_KEYS with route_class, identity_hash, content_length, retry_after, limit, and window_seconds for safe control-event logging.
 
 ### Deferred Items
 
@@ -82,7 +85,7 @@ Items acknowledged and carried forward from milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-17T08:29:22.939Z
+Last session: 2026-06-17T09:06:43.703Z
 Stopped at: Phase 5 context gathered
 Resume file: .planning/phases/05-security-and-http-controls/05-CONTEXT.md
 
@@ -91,3 +94,4 @@ Resume file: .planning/phases/05-security-and-http-controls/05-CONTEXT.md
 | Phase | Plan | Duration | Notes |
 |-------|------|----------|-------|
 | Phase 05-security-and-http-controls P01 | 19min | 2 tasks | 18 files |
+| Phase 05-security-and-http-controls P02 | 15min | 2 tasks | 9 files |

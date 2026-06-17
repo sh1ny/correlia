@@ -12,8 +12,8 @@ Requirements for the Vigilo/VDE compatibility milestone. Each requirement maps t
 - [x] **SEC-01**: Operator API clients can authenticate protected Correlia routes with a static Bearer token configured by environment.
 - [x] **SEC-02**: Unauthenticated callers receive a deterministic unauthorized response on protected routes without any development-mode bypass.
 - [x] **SEC-03**: Maintainers can configure which health/readiness paths are public while keeping `/v1/health` public by default.
-- [ ] **SEC-04**: Correlia rejects oversized HTTP request bodies before route handlers process payloads.
-- [ ] **SEC-05**: Correlia rate-limits configured API routes and returns a deterministic rate-limit response when the limit is exceeded.
+- [x] **SEC-04**: Correlia rejects oversized HTTP request bodies before route handlers process payloads.
+- [x] **SEC-05**: Correlia rate-limits configured API routes and returns a deterministic rate-limit response when the limit is exceeded.
 
 ### Canonical Incident API Compatibility
 
@@ -95,8 +95,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SEC-01 | Phase 5 | Complete |
 | SEC-02 | Phase 5 | Complete |
 | SEC-03 | Phase 5 | Complete |
-| SEC-04 | Phase 5 | Pending |
-| SEC-05 | Phase 5 | Pending |
+| SEC-04 | Phase 5 | Complete |
+| SEC-05 | Phase 5 | Complete |
 | API-01 | Phase 6 | Pending |
 | API-02 | Phase 6 | Pending |
 | API-03 | Phase 6 | Pending |
