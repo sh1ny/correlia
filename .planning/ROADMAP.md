@@ -57,7 +57,10 @@ v1.1 makes Correlia a practical Vigilo/VDE replacement at the auth, HTTP-control
   4. Operators can acknowledge or close incidents through compatibility-friendly status mutation or DELETE aliases, with `vigilo-compat` actor/reason defaults when omitted.
   5. Operators can continue using explicit `/ack` and `/close` endpoints, and summary mutation attempts return `422` without changing incident text.
 
-**Plans**: TBD
+**Plans**: 1 plan
+
+Plans:
+- [ ] 06-01-PLAN.md — Canonical incident API list metadata, ACKNOWLEDGED filtering, detail preservation, PATCH/DELETE aliases, summary rejection, and explicit endpoint preservation.
 
 ### Phase 7: Incident Event Audit Trail
 
@@ -165,7 +168,7 @@ v1.1 makes Correlia a practical Vigilo/VDE replacement at the auth, HTTP-control
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 5. Security and HTTP Controls | v1.1 | 2/2 | Complete    | 2026-06-17 |
-| 6. Canonical Incident API Operation Parity | v1.1 | 0/TBD | Not started | - |
+| 6. Canonical Incident API Operation Parity | v1.1 | 0/1 | Not started | - |
 | 7. Incident Event Audit Trail | v1.1 | 0/TBD | Not started | - |
 | 8. Vigilo Config Migration | v1.1 | 0/TBD | Not started | - |
 | 9. Plugin and Notification Boundaries | v1.1 | 0/TBD | Not started | - |
