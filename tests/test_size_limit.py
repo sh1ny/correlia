@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
+from starlette.types import Message, Receive, Scope, Send
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -169,3 +170,28 @@ async def test_default_cap_applies_when_class_override_is_none() -> None:
         )
     assert response.status_code == 413
     assert processor.calls == []
+
+async def test_disconnect_during_body_read_returns_without_app() -> None:
+    from app.middleware.size_limit import RequestSizeLimiterMiddleware
+
+    calls: list[tuple[Scope, Message]] = []
+
+    async def app(scope: Scope, receive: Receive, send: Send) -> None:
+        calls.append((scope, await receive()))
+
+    async def receive() -> Message:
+        if not hasattr(receive, "called"):
+            receive.called = True
+            return {"type": "http.request", "body": b"chunk", "more_body": True}
+        return {"type": "http.disconnect"}
+
+    middleware = RequestSizeLimiterMiddleware(app, default_limit=100, class_limits={})
+    scope: Scope = {"type": "http", "path": "/v1/rules", "headers": []}
+    sent: list[Message] = []
+
+    async def send(msg: Message) -> None:
+        sent.append(msg)
+
+    await middleware(scope, receive, send)
+    assert calls == []
+    assert sent == []

@@ -31,7 +31,7 @@ class RateLimitConfig:
 
 class InProcessRateLimiter:
     def __init__(self) -> None:
-        self._counters: dict[str, tuple[int, float]] = {}
+        self._counters: dict[str, tuple[int, float, int]] = {}
         self._lock = asyncio.Lock()
 
     async def check(
@@ -39,7 +39,16 @@ class InProcessRateLimiter:
     ) -> tuple[bool, int | None]:
         now = time.time()
         async with self._lock:
-            count, window_start = self._counters.get(key, (0, now))
+            expired = [
+                k
+                for k, (_, window_start, window_seconds) in self._counters.items()
+                if now - window_start >= window_seconds
+            ]
+            for k in expired:
+                del self._counters[k]
+            count, window_start, _ = self._counters.get(
+                key, (0, now, window_seconds)
+            )
             if now - window_start >= window_seconds:
                 count = 0
                 window_start = now
@@ -47,7 +56,7 @@ class InProcessRateLimiter:
                 reset_at = window_start + window_seconds
                 retry_after = max(1, int(reset_at - now))
                 return False, retry_after
-            self._counters[key] = (count + 1, window_start)
+            self._counters[key] = (count + 1, window_start, window_seconds)
             return True, None
 
     def clear(self) -> None:
