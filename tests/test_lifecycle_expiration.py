@@ -22,7 +22,10 @@ from app.persistence.models import Incident
 def _run_alembic_upgrade(database_url: str) -> None:
     result = subprocess.run(
         [sys.executable, "-m", "alembic", "upgrade", "head"],
-        env={"DATABASE_URL": database_url},
+        env={
+            "DATABASE_URL": database_url,
+            "CORRELIA_API_AUTH_ENABLED": "false",
+        },
         capture_output=True,
         text=True,
         check=False,
