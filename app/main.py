@@ -94,6 +94,20 @@ def _rate_limit_configs_from_settings(
             window_seconds=settings.rate_limit_window_seconds_health,
         ),
     }
+def _valid_tokens_for_rate_limit(settings: Settings) -> dict[str, str | None]:
+    operator: str | None = None
+    if settings.operator_api_token is not None:
+        operator = settings.operator_api_token.get_secret_value()
+    ingress: str | None = None
+    if settings.ingress_api_token is not None:
+        ingress = settings.ingress_api_token.get_secret_value()
+    return {
+        "operator": operator,
+        "ingress": ingress,
+        "metrics": operator,
+        "readyz": operator,
+        "health": None,
+    }
 
 
 
@@ -205,13 +219,13 @@ def create_app(
         RateLimiterMiddleware,
         limiter=rate_limiter,
         configs=_rate_limit_configs_from_settings(effective_settings),
+        valid_tokens=_valid_tokens_for_rate_limit(effective_settings),
     )
     app.add_middleware(
         RequestSizeLimiterMiddleware,
         default_limit=effective_settings.max_body_bytes,
         class_limits=_body_size_limits_from_settings(effective_settings),
     )
-
     if sessionmaker is not None:
         app.state.sessionmaker = sessionmaker
     if icinga2_processor is not None:

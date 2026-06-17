@@ -195,3 +195,40 @@ async def test_disconnect_during_body_read_returns_without_app() -> None:
     await middleware(scope, receive, send)
     assert calls == []
     assert sent == []
+
+
+async def test_oversized_streamed_body_rejects_413_without_draining() -> None:
+    from app.middleware.size_limit import RequestSizeLimiterMiddleware
+
+    received_chunks: list[bytes] = []
+
+    async def app(scope: Scope, receive: Receive, send: Send) -> None:
+        pass
+
+    async def receive() -> Message:
+        if len(received_chunks) == 0:
+            received_chunks.append(b"chunk1")
+            return {"type": "http.request", "body": b"chunk1", "more_body": True}
+        if len(received_chunks) == 1:
+            received_chunks.append(b"chunk2")
+            return {"type": "http.request", "body": b"chunk2", "more_body": True}
+        raise AssertionError("middleware drained body after overflow")
+
+    middleware = RequestSizeLimiterMiddleware(app, default_limit=10, class_limits={})
+    scope: Scope = {"type": "http", "path": "/v1/rules", "headers": []}
+    sent: list[Message] = []
+
+    async def send(msg: Message) -> None:
+        sent.append(msg)
+
+    await middleware(scope, receive, send)
+    assert len(received_chunks) == 2
+    assert sent[0] == {
+        "type": "http.response.start",
+        "status": 413,
+        "headers": [(b"content-type", b"application/json")],
+    }
+    assert sent[1] == {
+        "type": "http.response.body",
+        "body": b'{"detail":"request body too large"}',
+    }
