@@ -135,6 +135,18 @@ def test_auth_enabled_requires_non_empty_tokens() -> None:
     assert any(err["type"] == "value_error" for err in errors)
 
 
+def test_auth_enabled_requires_distinct_operator_and_ingress_tokens() -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            DATABASE_URL=VALID_DATABASE_URL,
+            operator_api_token="shared-secret",
+            ingress_api_token="shared-secret",
+        )
+    message = " ".join(
+        str(err.get("msg", "")) for err in exc_info.value.errors()
+    )
+    assert "distinct operator_api_token and ingress_api_token" in message
+
 def test_tokens_stored_as_secret_str() -> None:
     from pydantic import SecretStr
 

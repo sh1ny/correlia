@@ -12,7 +12,7 @@ from app.middleware.rate_limit import (
     RateLimitConfig,
     RateLimitSweepWorker,
     RateLimiterMiddleware,
-    _normalize_valid_tokens,
+    normalize_valid_tokens,
 )
 from app.middleware.size_limit import RequestSizeLimiterMiddleware
 from app.api.routers.config_status import router as config_status_router
@@ -228,7 +228,7 @@ def create_app(
     app.state.rate_limiter = rate_limiter
     raw_valid_tokens = _valid_tokens_for_rate_limit(effective_settings)
     # Validate token types at app construction time; middleware normalizes internally.
-    _normalize_valid_tokens(raw_valid_tokens)
+    normalize_valid_tokens(raw_valid_tokens)
     app.add_middleware(
         RateLimiterMiddleware,
         limiter=rate_limiter,

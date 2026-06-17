@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import logging
 import time
 from collections.abc import AsyncIterator
 
@@ -15,6 +17,7 @@ from app.middleware.rate_limit import (
     RateLimitSweepWorker,
     RateLimiterMiddleware,
     identity_for_request,
+    logged_identity_hash,
 )
 
 
@@ -89,6 +92,40 @@ async def test_rate_limit_allows_requests_under_limit() -> None:
         )
     assert response1.status_code == 200
     assert response2.status_code == 200
+
+def test_logged_identity_hash_keeps_token_hash_values() -> None:
+    assert logged_identity_hash("token_hash", "abc123") == "token_hash:abc123"
+
+
+async def test_rate_limit_exceeded_logs_hashed_ip_identity(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    raw_ip = "192.0.2.10"
+    app = _app(
+        _auth_settings(
+            api_auth_enabled=False,
+            rate_limit_requests_operator=1,
+        )
+    )
+    app.state.rate_limiter.clear()
+    caplog.set_level(logging.WARNING, logger="app.middleware.rate_limit")
+    async with app.router.lifespan_context(app):
+        transport = ASGITransport(app=app, client=(raw_ip, 12345))
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            first = await client.get("/v1/plugins")
+            second = await client.get("/v1/plugins")
+    assert first.status_code == 200
+    assert second.status_code == 429
+    records = [
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "rate_limit_exceeded"
+    ]
+    assert len(records) == 1
+    expected = hashlib.sha256(raw_ip.encode()).hexdigest()
+    identity_hash = getattr(records[-1], "identity_hash")
+    assert identity_hash == f"ip:{expected}"
+    assert raw_ip not in identity_hash
 
 
 async def test_rate_limit_rejects_over_limit_with_429_and_retry_after() -> None:

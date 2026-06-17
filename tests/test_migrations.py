@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 import subprocess
 import sys
 from uuid import uuid4
@@ -30,6 +32,23 @@ async def _run_alembic_upgrade(database_url: str) -> None:
     if result.returncode != 0:
         raise RuntimeError(f"Alembic upgrade failed: {result.stderr}")
 
+async def _run_alembic_upgrade_from_database_url_env(database_url: str) -> None:
+    env = os.environ.copy()
+    env["DATABASE_URL"] = database_url
+    env.pop("CORRELIA_API_AUTH_ENABLED", None)
+    env.pop("CORRELIA_OPERATOR_API_TOKEN", None)
+    env.pop("CORRELIA_INGRESS_API_TOKEN", None)
+    result = subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=env,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Alembic upgrade failed: {result.stderr}")
+
+
 
 @pytest.fixture(scope="module")
 def postgres_url() -> str:
@@ -51,6 +70,11 @@ async def test_migration_creates_incidents_table(postgres_url: str) -> None:
 
     assert "incidents" in tables
     await engine.dispose()
+
+async def test_migration_uses_database_url_env_without_api_tokens(
+    postgres_url: str,
+) -> None:
+    await _run_alembic_upgrade_from_database_url_env(postgres_url)
 
 async def test_incidents_columns_and_types(postgres_url: str) -> None:
     await _run_alembic_upgrade(postgres_url)
