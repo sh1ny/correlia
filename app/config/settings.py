@@ -53,18 +53,32 @@ class Settings(BaseSettings):
     def _require_security_tokens_when_enabled(self) -> Self:
         if not self.api_auth_enabled:
             return self
+        operator_value: str | None = (
+            self.operator_api_token.get_secret_value()
+            if self.operator_api_token is not None
+            else None
+        )
+        ingress_value: str | None = (
+            self.ingress_api_token.get_secret_value()
+            if self.ingress_api_token is not None
+            else None
+        )
         missing: list[str] = []
-        if self.operator_api_token is None:
+        if operator_value is None:
             missing.append("operator_api_token")
-        elif self.operator_api_token.get_secret_value().strip() == "":
+        elif operator_value.strip() == "":
             missing.append("operator_api_token")
-        if self.ingress_api_token is None:
+        if ingress_value is None:
             missing.append("ingress_api_token")
-        elif self.ingress_api_token.get_secret_value().strip() == "":
+        elif ingress_value.strip() == "":
             missing.append("ingress_api_token")
         if missing:
             raise ValueError(
                 f"api_auth_enabled requires non-empty values for: {', '.join(missing)}"
+            )
+        if operator_value == ingress_value:
+            raise ValueError(
+                "api_auth_enabled requires distinct operator_api_token and ingress_api_token"
             )
         return self
 

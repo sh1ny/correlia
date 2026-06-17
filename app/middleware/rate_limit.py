@@ -141,7 +141,7 @@ class RateLimitSweepWorker:
             return
 
 
-def _normalize_valid_tokens(tokens: dict[str, str | None]) -> dict[str, bytes]:
+def normalize_valid_tokens(tokens: dict[str, str | None]) -> dict[str, bytes]:
     normalized: dict[str, bytes] = {}
     for route_class, token in tokens.items():
         if token is None:
@@ -171,6 +171,12 @@ def identity_for_request(
         return _IP_PREFIX, str(client[0])
     return _IP_PREFIX, "unknown"
 
+def logged_identity_hash(identity_type: str, identity_value: str) -> str:
+    if identity_type == _IP_PREFIX:
+        identity_value = hashlib.sha256(identity_value.encode()).hexdigest()
+    return f"{identity_type}:{identity_value}"
+
+
 
 class RateLimiterMiddleware(BaseHTTPMiddleware):
     def __init__(
@@ -183,7 +189,7 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self.limiter = limiter
         self.configs = configs
-        self._valid_token_bytes = _normalize_valid_tokens(valid_tokens or {})
+        self._valid_token_bytes = normalize_valid_tokens(valid_tokens or {})
 
     async def dispatch(self, request: Request, call_next: Any) -> Any:
         route_class = classify_path(request.url.path)
@@ -211,7 +217,7 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
             extra=safe_log_extra(
                 event="rate_limit_exceeded",
                 route_class=route_class,
-                identity_hash=f"{identity_type}:{identity_value}",
+                identity_hash=logged_identity_hash(identity_type, identity_value),
                 limit=config.requests,
                 window_seconds=config.window_seconds,
                 retry_after=retry_after,
