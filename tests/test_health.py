@@ -108,7 +108,11 @@ def _app(
     lifecycle_worker: object | None = None,
 ):
     return create_app(
-        settings=settings or Settings(DATABASE_URL=VALID_DATABASE_URL),
+        settings=settings or Settings(
+            DATABASE_URL=VALID_DATABASE_URL,
+            operator_api_token="operator-token",
+            ingress_api_token="ingress-token",
+        ),
         sessionmaker=lambda: sessionmaker(),
         plugin_registry=plugin_registry or PluginRegistryStatus(),
         icinga2_processor=object(),
@@ -184,7 +188,11 @@ async def test_readyz_reports_dependency_failures_without_secrets(
     expected_check: str,
     tmp_path: Path,
 ) -> None:
-    settings = Settings(DATABASE_URL=VALID_DATABASE_URL)
+    settings = Settings(
+        DATABASE_URL=VALID_DATABASE_URL,
+        operator_api_token="operator-token",
+        ingress_api_token="ingress-token",
+    )
     sessionmaker = SuccessfulSession
     plugin_registry: PluginRegistryStatus | None = PluginRegistryStatus()
     if case == "database":
@@ -196,13 +204,16 @@ async def test_readyz_reports_dependency_failures_without_secrets(
         settings = Settings(
             DATABASE_URL=VALID_DATABASE_URL,
             rules_path=tmp_path / "rules-password-token-secret.yaml",
+            operator_api_token="operator-token",
+            ingress_api_token="ingress-token",
         )
     elif case == "topology":
         settings = Settings(
             DATABASE_URL=VALID_DATABASE_URL,
             topology_path=tmp_path / "topology-password-token-secret.yaml",
+            operator_api_token="operator-token",
+            ingress_api_token="ingress-token",
         )
-    elif case == "plugin_registry":
         plugin_registry = None
     elif case == "plugin_not_ready":
         plugin_registry = PluginRegistryStatus(

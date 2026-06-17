@@ -8,10 +8,10 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.api.routers.config_status import router as config_status_router
-from app.api.routers.health import router as health_router
+from app.api.routers.health import build_router as build_health_router
 from app.api.routers.incidents import router as incidents_router
 from app.api.routers.ingress import router as ingress_router
-from app.api.routers.metrics import router as metrics_router
+from app.api.routers.metrics import build_router as build_metrics_router
 from app.api.routers.plugins import router as plugins_router
 from app.config.rules import CompiledRuleConfig, load_rules_config
 from app.config.settings import Settings, get_settings
@@ -146,6 +146,11 @@ def create_app(
     if settings is not None:
         app.state.settings = settings
         configure_json_logging(settings.log_level)
+
+    effective_settings = settings if settings is not None else getattr(
+        app.state, "settings", get_settings()
+    )
+
     if sessionmaker is not None:
         app.state.sessionmaker = sessionmaker
     if icinga2_processor is not None:
@@ -156,6 +161,13 @@ def create_app(
         app.state.plugin_registry = plugin_registry
     if lifecycle_worker is not None:
         app.state.lifecycle_worker = lifecycle_worker
+
+    health_router = build_health_router(
+        protect_readyz=not effective_settings.expose_readyz and effective_settings.api_auth_enabled
+    )
+    metrics_router = build_metrics_router(
+        protect_metrics=not effective_settings.expose_metrics and effective_settings.api_auth_enabled
+    )
 
     app.include_router(health_router)
     app.include_router(ingress_router)

@@ -4,13 +4,15 @@ import hashlib
 import json
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Security
+
+from app.api.security import require_operator_token
 
 from app.api.deps import get_rules_config, get_topology_config
 from app.config.rules import CompiledRuleConfig
 from app.config.topology import CompiledTopologyConfig
 
-router = APIRouter(prefix="/v1")
+router = APIRouter(prefix="/v1", dependencies=[Security(require_operator_token)])
 
 
 def _hash_payload(payload: object) -> str:

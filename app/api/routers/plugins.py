@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Security
+
+from app.api.security import require_operator_token
 
 from app.api.deps import get_plugin_registry
 from app.plugins.loader import PluginRegistry
 
-router = APIRouter(prefix="/v1")
+router = APIRouter(prefix="/v1", dependencies=[Security(require_operator_token)])
 
 
 @router.get("/plugins")
