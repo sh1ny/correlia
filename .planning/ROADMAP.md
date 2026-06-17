@@ -18,7 +18,7 @@ v1.1 makes Correlia a practical Vigilo/VDE replacement at the auth, HTTP-control
 - Decimal phases remain reserved for urgent insertions.
 
 - [x] **Phase 5: Security and HTTP Controls** - Protected routes use production-safe Bearer auth, configurable public health/readiness exposure, request-size limits, and route rate limits. (completed 2026-06-17)
-- [ ] **Phase 6: Canonical Incident API Operation Parity** - `/v1/incidents` supports Vigilo-compatible list/detail/mutation workflows while preserving Correlia's richer canonical API and lifecycle rules.
+- [x] **Phase 6: Canonical Incident API Operation Parity** - `/v1/incidents` supports Vigilo-compatible list/detail/mutation workflows while preserving Correlia's richer canonical API and lifecycle rules. (completed 2026-06-17)
 - [ ] **Phase 7: Incident Event Audit Trail** - Accepted normalized events are recorded in an append-only audit table without influencing aggregation or lifecycle decisions.
 - [ ] **Phase 8: Vigilo Config Migration** - Maintainers can convert supported Vigilo/VDE rules, topology, and email output config into validated Correlia YAML, with clear failures for unsupported semantics.
 - [ ] **Phase 9: Plugin and Notification Boundaries** - Output plugin loading and notification dispatch stay allowlisted, bounded, structured, and non-blocking.
@@ -60,7 +60,8 @@ v1.1 makes Correlia a practical Vigilo/VDE replacement at the auth, HTTP-control
 **Plans**: 1 plan
 
 Plans:
-- [ ] 06-01-PLAN.md — Canonical incident API list metadata, ACKNOWLEDGED filtering, detail preservation, PATCH/DELETE aliases, summary rejection, and explicit endpoint preservation.
+
+- [x] 06-01-PLAN.md — Canonical incident API list metadata, ACKNOWLEDGED filtering, detail preservation, PATCH/DELETE aliases, summary rejection, and explicit endpoint preservation.
 
 ### Phase 7: Incident Event Audit Trail
 
@@ -168,7 +169,7 @@ Plans:
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 5. Security and HTTP Controls | v1.1 | 2/2 | Complete    | 2026-06-17 |
-| 6. Canonical Incident API Operation Parity | v1.1 | 0/1 | Not started | - |
+| 6. Canonical Incident API Operation Parity | v1.1 | 1/1 | Complete    | 2026-06-17 |
 | 7. Incident Event Audit Trail | v1.1 | 0/TBD | Not started | - |
 | 8. Vigilo Config Migration | v1.1 | 0/TBD | Not started | - |
 | 9. Plugin and Notification Boundaries | v1.1 | 0/TBD | Not started | - |
