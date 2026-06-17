@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Security, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Security, status
 
 from app.api.security import require_operator_token
 from pydantic import ValidationError
@@ -35,6 +35,9 @@ from app.persistence.models import Incident
 
 router = APIRouter(prefix="/v1/incidents", dependencies=[Security(require_operator_token)])
 logger = logging.getLogger(__name__)
+
+VIGILO_COMPAT_OPERATOR = "vigilo-compat"
+VIGILO_COMPAT_REASON = "vigilo-compat"
 
 
 
@@ -194,6 +197,121 @@ async def close_incident_endpoint(
                 effect=result.effect,
                 reason="manual_close",
                 operator=body.operator,
+            ),
+        )
+    return _incident_response(result.incident)
+
+
+@router.patch("/{incident_id}", response_model=IncidentDetailResponse)
+async def patch_incident(
+    incident_id: UUID,
+    request: Request,
+    sessionmaker: Annotated[
+        async_sessionmaker[AsyncSession], Depends(get_sessionmaker)
+    ],
+) -> IncidentDetailResponse:
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="status is required",
+        )
+    if not isinstance(body, dict):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="status is required",
+        )
+    if any(key != "status" for key in body):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="summary mutation is not supported",
+        )
+    status_value = body.get("status")
+    if status_value == "ACKNOWLEDGED":
+        async with sessionmaker() as session:
+            result = await ack_open_incident(
+                session, incident_id, operator=VIGILO_COMPAT_OPERATOR
+            )
+            if result is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="incident not found",
+                )
+            await session.commit()
+            logger.info(
+                "incident acknowledged",
+                extra=safe_log_extra(
+                    event="operator_mutation",
+                    incident_id=str(result.incident.id),
+                    status=result.incident.status,
+                    effect=result.effect,
+                    reason="acknowledged",
+                    operator=VIGILO_COMPAT_OPERATOR,
+                ),
+            )
+        return _incident_response(result.incident)
+    if status_value == "CLOSED":
+        async with sessionmaker() as session:
+            result = await close_open_incident(
+                session,
+                incident_id,
+                operator=VIGILO_COMPAT_OPERATOR,
+                reason=VIGILO_COMPAT_REASON,
+            )
+            if result is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="incident not found",
+                )
+            await session.commit()
+            logger.info(
+                "incident manually closed",
+                extra=safe_log_extra(
+                    event="operator_mutation",
+                    incident_id=str(result.incident.id),
+                    status=result.incident.status,
+                    effect=result.effect,
+                    reason="manual_close",
+                    operator=VIGILO_COMPAT_OPERATOR,
+                ),
+            )
+        return _incident_response(result.incident)
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        detail="status is required",
+    )
+
+
+@router.delete("/{incident_id}", response_model=IncidentDetailResponse)
+async def delete_incident(
+    incident_id: UUID,
+    sessionmaker: Annotated[
+        async_sessionmaker[AsyncSession], Depends(get_sessionmaker)
+    ],
+) -> IncidentDetailResponse:
+    async with sessionmaker() as session:
+        result = await close_open_incident(
+            session,
+            incident_id,
+            operator=VIGILO_COMPAT_OPERATOR,
+            reason=VIGILO_COMPAT_REASON,
+        )
+        if result is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="incident not found",
+            )
+        await session.commit()
+        logger.info(
+            "incident manually closed",
+            extra=safe_log_extra(
+                event="operator_mutation",
+                incident_id=str(result.incident.id),
+                status=result.incident.status,
+                effect=result.effect,
+                reason="manual_close",
+                operator=VIGILO_COMPAT_OPERATOR,
             ),
         )
     return _incident_response(result.incident)
