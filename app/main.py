@@ -7,6 +7,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.middleware.size_limit import RequestSizeLimiterMiddleware
 from app.api.routers.config_status import router as config_status_router
 from app.api.routers.health import build_router as build_health_router
 from app.api.routers.incidents import router as incidents_router
@@ -47,6 +48,16 @@ async def request_validation_exception_handler(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         content={"detail": _safe_validation_errors(exc)},
     )
+
+
+def _body_size_limits_from_settings(settings: Settings) -> dict[str, int | None]:
+    return {
+        "operator": settings.max_body_bytes_operator,
+        "ingress": settings.max_body_bytes_ingress,
+        "metrics": settings.max_body_bytes_metrics,
+        "readyz": settings.max_body_bytes_readyz,
+        "health": settings.max_body_bytes_health,
+    }
 
 
 @asynccontextmanager
@@ -149,6 +160,12 @@ def create_app(
 
     effective_settings = settings if settings is not None else getattr(
         app.state, "settings", get_settings()
+    )
+
+    app.add_middleware(
+        RequestSizeLimiterMiddleware,
+        default_limit=effective_settings.max_body_bytes,
+        class_limits=_body_size_limits_from_settings(effective_settings),
     )
 
     if sessionmaker is not None:
