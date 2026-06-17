@@ -125,7 +125,7 @@ async def test_lifespan_starts_and_stops_lifecycle_worker() -> None:
 
     worker = RecordingLifecycleWorker()
     app = create_app(
-        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL, api_auth_enabled=False),
         sessionmaker=sessionmaker,  # type: ignore[arg-type]
         icinga2_processor=object(),  # type: ignore[arg-type]
         task_runner=AsyncIOTaskRunner(),
