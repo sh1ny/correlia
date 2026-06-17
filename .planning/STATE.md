@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Vigilo/VDE Compatibility
-status: "Phase 05 shipped — PR #1"
-stopped_at: Phase 5 context gathered
-last_updated: "2026-06-17T13:55:38.620Z"
+status: "Phase 06 in progress"
+stopped_at: Phase 6 context gathered
+last_updated: "2026-06-17T15:46:30Z"
 last_activity: 2026-06-17
 progress:
   total_phases: 6
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-14)
 
 **Core value:** Operators receive one accurate, topology-aware incident for a related alert storm instead of many disconnected raw alerts.
-**Current focus:** Phase 05 — security-and-http-controls
+**Current focus:** Phase 06 — Canonical Incident API Operation Parity
 
 ## Current Position
 
 Phase: 6
 Plan: Not started
-Status: Phase 05 shipped — PR #1
+Status: Phase 06 in progress
 Last activity: 2026-06-17
 
 Progress: [░░░░░░░░░░] 0%
@@ -86,8 +86,8 @@ Items acknowledged and carried forward from milestone close:
 ## Session Continuity
 
 Last session: 2026-06-17T09:06:43.703Z
-Stopped at: Phase 5 context gathered
-Resume file: .planning/phases/05-security-and-http-controls/05-CONTEXT.md
+Stopped at: Phase 6 context gathered
+Resume file: .planning/ROADMAP.md#phase-6-canonical-incident-api-operation-parity
 
 ## Performance Metrics
 

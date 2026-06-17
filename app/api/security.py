@@ -27,7 +27,10 @@ def _token_matches(
 ) -> bool:
     if expected is None or credentials is None:
         return False
-    return secrets.compare_digest(credentials.credentials, expected)
+    try:
+        return secrets.compare_digest(credentials.credentials, expected)
+    except TypeError:
+        return False
 
 
 def require_operator_token(
