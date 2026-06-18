@@ -113,7 +113,7 @@ def _app(
             operator_api_token="operator-token",
             ingress_api_token="ingress-token",
             audit_raw_payload_hmac_key="test-audit-hmac",
-        )
+        ),
         sessionmaker=lambda: sessionmaker(),
         plugin_registry=plugin_registry or PluginRegistryStatus(),
         icinga2_processor=object(),
