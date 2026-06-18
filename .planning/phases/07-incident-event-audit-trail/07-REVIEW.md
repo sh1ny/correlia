@@ -106,13 +106,14 @@ Then update the ingress callsite (`app/processing/ingress.py:232-251`) to pass `
 
 ---
 
-### WR-02: Unbounded `source_id`/`host`/`service` at ingress violates bounded response contracts — causes 500 with committed side effects
+### WR-02: Unbounded `fingerprint`/`source_id`/`host`/`service` at ingress violates bounded response contracts — causes 500 with committed side effects
 
-**Files:** `app/domain/events.py:42-45`, `app/domain/rules.py:131-136`, `app/domain/audit.py:128-136`, `app/processing/ingress.py:269-310`, `app/api/routers/audit.py:86-118`
-**Issue:** `NormalizedEvent` constrains `source_id`, `host`, and `service` with `min_length=1` but no `max_length`:
+**Files:** `app/domain/events.py:41-45`, `app/domain/rules.py:131-136`, `app/domain/audit.py:122-136`, `app/processing/ingress.py:269-310`, `app/api/routers/audit.py:86-118`
+**Issue:** `NormalizedEvent` constrains `fingerprint`, `source_id`, `host`, and `service` with `min_length=1` but no `max_length`:
 
 ```python
-# app/domain/events.py:42-45
+# app/domain/events.py:41-45
+fingerprint: Annotated[str, Field(min_length=1)]
 source_id: Annotated[str, Field(min_length=1)]
 host: Annotated[str, Field(min_length=1)]
 service: Annotated[str, Field(min_length=1)] | None = None
@@ -120,11 +121,9 @@ service: Annotated[str, Field(min_length=1)] | None = None
 
 These unbounded values flow into two downstream contracts that both use `BoundedString` (max_length=256):
 
-1. **Ingress response (transaction-consistency bug):** After the audit/incident transaction commits at `app/processing/ingress.py:253`, `process_payload` constructs an `IngressDecisionEnvelope` (`app/domain/rules.py:129-167`) with `source_id: BoundedString | None`, `host: BoundedString | None`, `service: BoundedString | None`. If any value exceeds 256 chars, Pydantic raises `ValidationError` — the client receives a 500 despite the incident and audit row having already been durably committed. There is no rollback mechanism.
+1. **Ingress response (transaction-consistency bug):** After the audit/incident transaction commits at `app/processing/ingress.py:253`, `process_payload` constructs an `IngressDecisionEnvelope` (`app/domain/rules.py:129-167`) with `fingerprint: BoundedString | None`, `source_id: BoundedString | None`, `host: BoundedString | None`, `service: BoundedString | None`. The `fingerprint` field is used *twice* — as both `event_id` and `fingerprint` on the envelope (`app/processing/ingress.py:271-272`). If any of these four values exceeds 256 chars, Pydantic raises `ValidationError` — the client receives a 500 despite the incident and audit row having already been durably committed. There is no rollback mechanism.
 
-2. **Audit read endpoint (500 on query):** `_audit_event_response` (`app/api/routers/audit.py:86-118`) constructs `AuditEventResponse` whose fields are typed as `BoundedString` (max 256). The `except ValueError` at line 123 only wraps `list_incident_events`, not the response mapping — a `PydanticValidationError` (a `ValueError` subclass) from the mapper escapes unhandled as 500.
-
-The same boundary mismatch applies to `AuditDecisionSummary.rule_name` and `decision_reason` (typed as `BoundedString | None`, max 256), which are populated from `_safe_rule_name` (`app/processing/ingress.py:524`) reading directly from the rule-decision dict without length validation.
+2. **Audit read endpoint (500 on query):** `_audit_event_response` (`app/api/routers/audit.py:86-118`) constructs `AuditEventResponse` whose `fingerprint`, `source_id`, `host`, and `service` fields are typed as `BoundedString` (max 256). The `except ValueError` at line 123 only wraps `list_incident_events`, not the response mapping — a `PydanticValidationError` (a `ValueError` subclass) from the mapper escapes unhandled as 500.
 
 In practice, current Icinga2 payloads produce short composite identifiers (e.g., `icinga2:service:web-01:http`), so this is unlikely to trigger today. But a future input plugin or topology-enrichment tag injection could produce a long `source_id`, and the failure mode is a 500 response with committed side effects — the worst kind of client-facing inconsistency.
 
@@ -132,12 +131,13 @@ In practice, current Icinga2 payloads produce short composite identifiers (e.g.,
 
 ```python
 # app/domain/events.py
+fingerprint: Annotated[str, Field(min_length=1, max_length=256)]
 source_id: Annotated[str, Field(min_length=1, max_length=256)]
 host: Annotated[str, Field(min_length=1, max_length=256)]
 service: Annotated[str, Field(min_length=1, max_length=256)] | None = None
 ```
 
-This prevents unbounded data from entering the database and guarantees both the ingress response and audit read path will never fail on field-length validation. If longer source identifiers are needed in the future, increase the `NormalizedEvent` bound first, then propagate to `IngressDecisionEnvelope` and `AuditEventResponse` simultaneously.
+This prevents unbounded data from entering the database and guarantees both the ingress response and audit read path will never fail on field-length validation. If longer identifiers or fingerprints are needed in the future, increase the `NormalizedEvent` bound first, then propagate to `IngressDecisionEnvelope` and `AuditEventResponse` simultaneously.
 
 ---
 
