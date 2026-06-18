@@ -88,15 +88,6 @@ Plans:
 
 - [ ] 07-03-PLAN.md — Read-only `/v1/incident-events` operator API, route classification, bounded response projection, and integration tests.
 
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [ ] 07-02-PLAN.md — Ingress transaction refactor, manager commit ownership move, and audit write integration for all accepted event paths.
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
-- [ ] 07-03-PLAN.md — Read-only `/v1/incident-events` operator API, route classification, bounded response projection, and integration tests.
-
 ### Phase 8: Vigilo Config Migration
 
 **Goal**: Maintainers can translate supported Vigilo/VDE YAML into strict Correlia config and get clear failures whenever Vigilo semantics cannot be preserved.
