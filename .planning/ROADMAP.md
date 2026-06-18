@@ -101,7 +101,12 @@ Plans:
   4. Plaintext SMTP credentials are not copied into generated plugin config.
   5. Unsupported Vigilo semantics such as `min_hosts`, `is_dc_level`, empty actions, non-output plugin sections, LLM config, and unsupported plugin types produce a non-zero migration result before success is reported.
 
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+
+- [ ] 08-01-PLAN.md — Runtime topology capture-group schema, compiled config, enrichment semantics, and tests.
+- [ ] 08-02-PLAN.md — Standalone Vigilo/VDE migration CLI, fail-closed unsupported reporting, atomic output, loader/plugin validation, fixtures, and documentation.
 
 ### Phase 9: Plugin and Notification Boundaries
 
