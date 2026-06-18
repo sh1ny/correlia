@@ -385,15 +385,14 @@ async def test_list_incident_events_uses_bounded_projection(
         assert secret_value not in item["normalized_event_message"]
         assert item["normalized_event_message"] == "[redacted]"
 
-        # Tags: tag KEYS are preserved, sensitive VALUES are redacted
+        # Tags: sensitive tag keys are omitted; safe keys/values preserved
         tags = item["normalized_event_tags"]
         assert "region" in tags
         assert tags["region"] == "us-east-1"
         assert "safe_key" in tags
         assert tags["safe_key"] == "safe_value"
-        # Key is preserved, value is redacted
-        assert "secret_token" in tags
-        assert tags["secret_token"] == "[redacted]"
+        # Sensitive key is omitted entirely (D-08/D-15)
+        assert "secret_token" not in tags
         assert secret_value not in str(tags)
 
 

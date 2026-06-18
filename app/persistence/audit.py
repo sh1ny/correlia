@@ -389,12 +389,9 @@ def _redact_normalized_event_message_tags(
 ) -> tuple[str, dict[str, Any]]:
     """Idempotently redact a projected normalized event message and tags.
 
-    The repository and the router can both call this safely. Sensitive
-    fragments in the message or in tag values are replaced with
-    ``AUDIT_REDACTION_PLACEHOLDER``. Tag *keys* are preserved (renaming a
-    key to ``[redacted]`` would violate the ``TagKey`` pattern); only the
-    value is replaced. If a tag key itself is sensitive the value is still
-    replaced, leaving the key intact so the response shape stays valid.
+    The repository and the router can both call this safely. Tags whose
+    key contains a sensitive fragment are omitted entirely. Sensitive
+    fragments in tag values are replaced with ``AUDIT_REDACTION_PLACEHOLDER``.
     """
 
     raw_message = message or ""
@@ -412,9 +409,10 @@ def _redact_normalized_event_message_tags(
     if tags:
         for key, value in tags.items():
             key_text = key.lower() if isinstance(key, str) else str(key).lower()
-            if _contains_sensitive_fragment(key_text) or (
-                isinstance(value, str) and _contains_sensitive_fragment(value)
-            ):
+            # Omit tags whose key contains a sensitive fragment (D-08/D-15).
+            if _contains_sensitive_fragment(key_text):
+                continue
+            if isinstance(value, str) and _contains_sensitive_fragment(value):
                 safe_tags[key] = AUDIT_REDACTION_PLACEHOLDER
             else:
                 safe_tags[key] = value
