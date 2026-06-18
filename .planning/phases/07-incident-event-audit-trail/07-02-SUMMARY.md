@@ -30,6 +30,7 @@ tech-stack:
 key-files:
   created: []
   modified:
+    - app/persistence/audit.py
     - app/processing/incident_manager.py
     - app/processing/lifecycle.py
     - app/processing/ingress.py
@@ -40,6 +41,7 @@ key-files:
     - tests/test_metrics_api.py
     - tests/test_incidents_api.py
     - tests/test_lifecycle_expiration.py
+    - tests/test_domain_audit.py
 
 key-decisions:
   - notification_intent is the manager contract for dispatch signaling; notification_triggered/failed/results are derived post-commit in ingress.
@@ -69,7 +71,7 @@ status: complete
 - **Started:** 2026-06-18T14:20Z (Task 1)
 - **Completed:** 2026-06-18T15:35Z (Task 3)
 - **Tasks:** 3
-- **Files modified:** 10
+- **Files modified:** 12
 
 ## Accomplishments
 
@@ -95,6 +97,8 @@ status: complete
 - `tests/test_metrics_api.py` — `InstrumentedProcessor` constructions accept the new audit kwargs; persistence-layer functions and audit insert are monkeypatched to no-ops so the fake session can satisfy the new ingress transaction path; payloads are real `Icinga2WebhookPayload` objects.
 - `tests/test_incidents_api.py` — `session_factory` fixture clears `Incident` and `IncidentEvent` in setup and teardown; operator ACK/CLOSE and PATCH/DELETE compatibility tests assert `incident_events` row count remains zero.
 - `tests/test_lifecycle_expiration.py` — `db_session` fixture truncates `incident_events` alongside `incidents`; sweep test asserts `incident_events` row count remains zero.
+- `app/persistence/audit.py` — `_row_to_audit_event_list_row` param narrowed from `tuple[Any, ...]` to `Sequence[Any]`; duplicate `typing` import removed; `collections.abc.Sequence` import added.
+- `tests/test_domain_audit.py` — removed unused `cast` import and `_valid_decision_summary_kwargs()` call flagged by ruff.
 
 ## Decisions Made
 
@@ -143,9 +147,15 @@ status: complete
 - **Files modified:** `tests/test_metrics_api.py`
 - **Verification:** `pytest tests/test_metrics_api.py -q` passes (3 tests including the metrics-label assertions).
 
----
+**6. [Rule 1 - Bug] mypy type errors in audit/ingress modules**
+- **Found during:** post-completion gate verification
+- **Issue:** `_row_to_audit_event_list_row` accepted `tuple[Any, ...]` but mypy infers `Row[Any]` from SQLAlchemy projections. `notification_intent` local in `apply_problem` was inferred as `str`, not `NotificationIntent`. Three ingress audit-summary helpers (`_problem_incident_effect`, `_recovery_incident_effect`, `_recovery_resolution_for_audit`) returned `str` instead of the `Literal[...]` types required by `AuditDecisionSummary`.
+- **Fix:** Changed `_row_to_audit_event_list_row` param to `Sequence[Any]`; annotated `notification_intent: NotificationIntent`; narrowed all three helper return types to explicit `Literal[...]` unions with branch-by-branch returns; cleaned up duplicate import.
+- **Files modified:** `app/persistence/audit.py`, `app/processing/incident_manager.py`, `app/processing/ingress.py`, `tests/test_domain_audit.py`
+- **Verification:** `make lint && make typecheck && make test` → all 432 tests pass, zero mypy errors.
 
-**Total deviations:** 5 auto-fixed (1 stale monkeypatch, 1 Pydantic-strict boundary fix, 1 fixture cleanup, 1 wrapper bypass, 1 metrics-test refit)
+**Total deviations:** 6 auto-fixed (1 stale monkeypatch, 1 Pydantic-strict boundary fix, 1 fixture cleanup, 1 wrapper bypass, 1 metrics-test refit, 1 mypy type narrowing)
+
 **Impact on plan:** No scope creep. All plan acceptance criteria met:
 - AUD-02: every accepted event writes exactly one `incident_events` row in the same transaction as incident/lifecycle writes.
 - AUD-03: manager, lifecycle, persistence.incidents, and lifecycle worker do not import audit persistence or read `incident_events` for decisions.
