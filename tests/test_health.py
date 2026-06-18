@@ -112,7 +112,8 @@ def _app(
             DATABASE_URL=VALID_DATABASE_URL,
             operator_api_token="operator-token",
             ingress_api_token="ingress-token",
-        ),
+            audit_raw_payload_hmac_key="test-audit-hmac",
+        )
         sessionmaker=lambda: sessionmaker(),
         plugin_registry=plugin_registry or PluginRegistryStatus(),
         icinga2_processor=object(),
@@ -192,6 +193,7 @@ async def test_readyz_reports_dependency_failures_without_secrets(
         DATABASE_URL=VALID_DATABASE_URL,
         operator_api_token="operator-token",
         ingress_api_token="ingress-token",
+        audit_raw_payload_hmac_key="test-audit-hmac",
     )
     sessionmaker = SuccessfulSession
     plugin_registry: PluginRegistryStatus | None = PluginRegistryStatus()
@@ -206,6 +208,7 @@ async def test_readyz_reports_dependency_failures_without_secrets(
             rules_path=tmp_path / "rules-password-token-secret.yaml",
             operator_api_token="operator-token",
             ingress_api_token="ingress-token",
+            audit_raw_payload_hmac_key="test-audit-hmac",
         )
     elif case == "topology":
         settings = Settings(
@@ -213,6 +216,7 @@ async def test_readyz_reports_dependency_failures_without_secrets(
             topology_path=tmp_path / "topology-password-token-secret.yaml",
             operator_api_token="operator-token",
             ingress_api_token="ingress-token",
+            audit_raw_payload_hmac_key="test-audit-hmac",
         )
         plugin_registry = None
     elif case == "plugin_not_ready":

@@ -84,6 +84,7 @@ def _settings() -> Settings:
     return Settings(
         DATABASE_URL=VALID_DATABASE_URL,
         api_auth_enabled=False,
+        audit_raw_payload_hmac_key="test-audit-hmac",
     )
 
 

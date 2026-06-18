@@ -33,8 +33,9 @@ def _event_time() -> datetime:
 
 pytestmark = pytest.mark.anyio
 @pytest.fixture(autouse=True)
-def _disable_auth_for_ingress_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+def _disable_auth_for_ingress_tests(monkeypatch: pytest.MonkeyPatch, clean_settings_env: None) -> None:
     monkeypatch.setenv("CORRELIA_API_AUTH_ENABLED", "false")
+    monkeypatch.setenv("CORRELIA_AUDIT_RAW_PAYLOAD_HMAC_KEY", "test-audit-hmac")
 
 
 

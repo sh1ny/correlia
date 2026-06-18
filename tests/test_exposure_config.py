@@ -43,6 +43,7 @@ def _settings(expose_readyz: bool = True, expose_metrics: bool = True) -> Settin
         ingress_api_token=INGRESS_TOKEN,
         expose_readyz=expose_readyz,
         expose_metrics=expose_metrics,
+        audit_raw_payload_hmac_key="test-audit-hmac",
     )
 
 
@@ -117,6 +118,7 @@ async def test_readyz_exposure_respects_auth_disabled() -> None:
         DATABASE_URL=VALID_DATABASE_URL,
         api_auth_enabled=False,
         expose_readyz=False,
+        audit_raw_payload_hmac_key="test-audit-hmac",
     )
     app = _app(settings)
     async for client in get_client(app):
@@ -129,6 +131,7 @@ async def test_metrics_exposure_respects_auth_disabled() -> None:
         DATABASE_URL=VALID_DATABASE_URL,
         api_auth_enabled=False,
         expose_metrics=False,
+        audit_raw_payload_hmac_key="test-audit-hmac",
     )
     app = _app(settings)
     async for client in get_client(app):
