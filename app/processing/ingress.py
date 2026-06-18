@@ -1,10 +1,8 @@
 from __future__ import annotations
-import logging
 
+import logging
 from pathlib import Path
 from typing import Any, Literal
-
-
 
 from app.domain.audit import AuditDecisionSummary
 from app.domain.events import EventType, NormalizedEvent
@@ -501,13 +499,19 @@ def _incident_ids_for_audit(
     return capped, truncated
 
 
-def _problem_incident_effect(result: IncidentAggregationResult) -> str:
-    if result.effect in ("inserted", "updated"):
-        return result.effect
+def _problem_incident_effect(
+    result: IncidentAggregationResult,
+) -> Literal["none", "inserted", "updated"]:
+    if result.effect == "inserted":
+        return "inserted"
+    if result.effect == "updated":
+        return "updated"
     return "none"
 
 
-def _recovery_incident_effect(result: LifecycleResult) -> str:
+def _recovery_incident_effect(
+    result: LifecycleResult,
+) -> Literal["none", "resolved", "affected_set_shrunk"]:
     if result.effect == "resolved":
         return "resolved"
     if result.effect == "affected_set_shrunk":
@@ -515,9 +519,13 @@ def _recovery_incident_effect(result: LifecycleResult) -> str:
     return "none"
 
 
-def _recovery_resolution_for_audit(result: LifecycleResult) -> str:
-    if result.effect in ("resolved", "affected_set_shrunk"):
-        return result.effect
+def _recovery_resolution_for_audit(
+    result: LifecycleResult,
+) -> Literal["noop", "resolved", "affected_set_shrunk"]:
+    if result.effect == "resolved":
+        return "resolved"
+    if result.effect == "affected_set_shrunk":
+        return "affected_set_shrunk"
     return "noop"
 
 

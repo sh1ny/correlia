@@ -18,6 +18,7 @@ import binascii
 import hashlib
 import hmac
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -616,7 +617,7 @@ def _apply_audit_filters(stmt: Any, filters: AuditEventListFilters) -> Any:
     return stmt
 
 
-def _row_to_audit_event_list_row(row: tuple[Any, ...]) -> AuditEventListRow:
+def _row_to_audit_event_list_row(row: Sequence[Any]) -> AuditEventListRow:
     """Map a projected SQL row into a safe ``AuditEventListRow``.
 
     Normalizes JSONB arrays/objects returned by asyncpg into tuples/dicts
