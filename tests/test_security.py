@@ -43,6 +43,7 @@ def _auth_settings(api_auth_enabled: bool = True) -> Settings:
         api_auth_enabled=api_auth_enabled,
         operator_api_token=OPERATOR_TOKEN if api_auth_enabled else None,
         ingress_api_token=INGRESS_TOKEN if api_auth_enabled else None,
+        audit_raw_payload_hmac_key="test-audit-hmac",
     )
 
 
