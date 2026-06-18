@@ -13,8 +13,11 @@ const node_fs_1 = __importDefault(require("node:fs"));
 const node_path_1 = __importDefault(require("node:path"));
 const node_os_1 = __importDefault(require("node:os"));
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const core = require("./core.cjs");
-const { output, error, ERROR_REASON, CONFIG_DEFAULTS } = core;
+const io = require("./io.cjs");
+const { output, error, ERROR_REASON } = io;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const configLoader = require("./config-loader.cjs");
+const { CONFIG_DEFAULTS } = configLoader;
 const shell_command_projection_cjs_1 = require("./shell-command-projection.cjs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const planningWorkspace = require("./planning-workspace.cjs");
@@ -206,7 +209,6 @@ function buildNewProjectConfig(userChoices) {
             ui_phase: true,
             ui_safety_gate: true,
             ai_integration_phase: true,
-            tdd_mode: false,
             human_verify_mode: 'end-of-phase',
             text_mode: false,
             research_before_questions: false,
@@ -234,7 +236,7 @@ function buildNewProjectConfig(userChoices) {
         project_code: null,
         phase_naming: 'sequential',
         agent_skills: {},
-        claude_md_path: './CLAUDE.md',
+        claude_md_path: './.claude/CLAUDE.md',
         plan_review: {
             source_grounding: true,
             source_grounding_authority: 'grep',
@@ -370,6 +372,42 @@ function cmdConfigEnsureSection(cwd, raw) {
     }
 }
 /**
+ * Shared helper: write a single key-path into an in-memory config object.
+ *
+ * Prototype-pollution guard: reject dangerous segments via inline literal
+ * comparisons on the exact key used to index `current`, immediately before
+ * each write. The inline comparison is the barrier CodeQL's
+ * js/prototype-pollution-utility query recognises — the previous Set-based
+ * pre-loop check was functionally correct but not traced through, so
+ * code-scanning alert #26 kept firing. Behaviour is unchanged from #663.
+ *
+ * Returns the previous value at the leaf key (undefined if absent).
+ * Never writes to disk — callers handle persistence.
+ * Calls error() (process.exit(1)) on prototype-pollution attempts.
+ */
+function _setNestedValue(config, keyPath, parsedValue) {
+    const keys = keyPath.split('.');
+    let current = config;
+    for (let i = 0; i < keys.length - 1; i++) {
+        const key = keys[i];
+        if (key === '__proto__' || key === 'prototype' || key === 'constructor') {
+            error('Invalid config key (prototype pollution guard): ' + keyPath, ERROR_REASON.CONFIG_PARSE_FAILED);
+        }
+        const existingChild = current[key];
+        if (existingChild === undefined || existingChild === null || typeof existingChild !== 'object' || Array.isArray(existingChild)) {
+            current[key] = {};
+        }
+        current = current[key];
+    }
+    const lastKey = keys[keys.length - 1];
+    if (lastKey === '__proto__' || lastKey === 'prototype' || lastKey === 'constructor') {
+        error('Invalid config key (prototype pollution guard): ' + keyPath, ERROR_REASON.CONFIG_PARSE_FAILED);
+    }
+    const previousValue = current[lastKey];
+    current[lastKey] = parsedValue;
+    return previousValue;
+}
+/**
  * Sets a value in the config file, allowing nested values via dot notation (e.g.,
  * "workflow.research").
  *
@@ -389,35 +427,52 @@ function setConfigValue(cwd, keyPath, parsedValue) {
         catch (err) {
             error('Failed to read config.json: ' + err.message, ERROR_REASON.CONFIG_PARSE_FAILED);
         }
-        // Set nested value using dot notation (e.g., "workflow.research").
-        // Prototype-pollution guard: reject dangerous segments via inline literal
-        // comparisons on the exact key used to index `current`, immediately before
-        // each write. The inline comparison is the barrier CodeQL's
-        // js/prototype-pollution-utility query recognises — the previous Set-based
-        // pre-loop check was functionally correct but not traced through, so
-        // code-scanning alert #26 kept firing. Behaviour is unchanged from #663.
-        const keys = keyPath.split('.');
-        let current = config;
-        for (let i = 0; i < keys.length - 1; i++) {
-            const key = keys[i];
-            if (key === '__proto__' || key === 'prototype' || key === 'constructor') {
-                error('Invalid config key (prototype pollution guard): ' + keyPath, ERROR_REASON.CONFIG_PARSE_FAILED);
-            }
-            if (current[key] === undefined || typeof current[key] !== 'object') {
-                current[key] = {};
-            }
-            current = current[key];
-        }
-        const lastKey = keys[keys.length - 1];
-        if (lastKey === '__proto__' || lastKey === 'prototype' || lastKey === 'constructor') {
-            error('Invalid config key (prototype pollution guard): ' + keyPath, ERROR_REASON.CONFIG_PARSE_FAILED);
-        }
-        const previousValue = current[lastKey]; // Capture previous value before overwriting
-        current[lastKey] = parsedValue;
+        const previousValue = _setNestedValue(config, keyPath, parsedValue);
         // Write back
         try {
             (0, shell_command_projection_cjs_1.platformWriteSync)(configPath, JSON.stringify(config, null, 2));
             return { updated: true, key: keyPath, value: parsedValue, previousValue };
+        }
+        catch (err) {
+            error('Failed to write config.json: ' + err.message);
+        }
+    });
+}
+/**
+ * Batched sibling of setConfigValue: apply multiple key-path writes in a
+ * single load → set-all → write cycle inside ONE withPlanningLock call.
+ *
+ * Returns { updated: true, results: SetConfigValueResult[] } on success.
+ * An empty entries array is a no-op and returns { updated: false, results: [] }.
+ *
+ * Prototype-pollution guards are enforced per entry (identical inline-literal
+ * guards as setConfigValue — CodeQL barrier requirement).
+ */
+function setConfigValues(cwd, entries) {
+    if (entries.length === 0) {
+        return { updated: false, results: [] };
+    }
+    const configPath = node_path_1.default.join(planningDir(cwd), 'config.json');
+    return withPlanningLock(cwd, () => {
+        // Load existing config or start with empty object
+        let config = {};
+        try {
+            if (node_fs_1.default.existsSync(configPath)) {
+                config = JSON.parse(node_fs_1.default.readFileSync(configPath, 'utf-8'));
+            }
+        }
+        catch (err) {
+            error('Failed to read config.json: ' + err.message, ERROR_REASON.CONFIG_PARSE_FAILED);
+        }
+        const results = [];
+        for (const entry of entries) {
+            const previousValue = _setNestedValue(config, entry.keyPath, entry.value);
+            results.push({ updated: true, key: entry.keyPath, value: entry.value, previousValue });
+        }
+        // Write back once for all entries
+        try {
+            (0, shell_command_projection_cjs_1.platformWriteSync)(configPath, JSON.stringify(config, null, 2));
+            return { updated: true, results };
         }
         catch (err) {
             error('Failed to write config.json: ' + err.message);
@@ -735,4 +790,7 @@ module.exports = {
     cmdConfigNewProject,
     cmdConfigPath,
     cmdMigrateConfig,
+    // Exported for programmatic use by capability-writer and tests
+    setConfigValue,
+    setConfigValues,
 };

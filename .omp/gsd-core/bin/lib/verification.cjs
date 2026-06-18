@@ -21,11 +21,14 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 const node_fs_1 = __importDefault(require("node:fs"));
 const node_path_1 = __importDefault(require("node:path"));
-// eslint-disable-next-line @typescript-eslint/no-require-imports -- core.cjs is an export= CommonJS module
-const core = require("./core.cjs");
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- io.cjs is an export= CommonJS module
+const io = require("./io.cjs");
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- phase-id.cjs is an export= CommonJS module
+const phaseId = require("./phase-id.cjs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- frontmatter.cjs is an export= CommonJS module
 const frontmatterMod = require("./frontmatter.cjs");
-const { output, extractPhaseToken } = core;
+const { output, error } = io;
+const { extractPhaseToken } = phaseId;
 const { extractFrontmatter } = frontmatterMod;
 // ─── Constants ────────────────────────────────────────────────────────────────
 /** The set of status values that the gsd-verifier agent emits. */
@@ -170,7 +173,7 @@ function readVerificationStatus(phaseDir, opts = {}) {
 }
 /**
  * CLI command handler: resolve phaseDir against cwd, call readVerificationStatus,
- * emit via core.output().
+ * emit via io.output().
  *
  * @param cwd         - Current working directory (used to resolve phaseDirArg).
  * @param phaseDirArg - Phase directory path (absolute or relative to cwd).
@@ -178,7 +181,7 @@ function readVerificationStatus(phaseDir, opts = {}) {
  */
 function cmdVerificationStatus(cwd, phaseDirArg, raw) {
     if (!phaseDirArg) {
-        core.error('phase directory required for verification.status');
+        error('phase directory required for verification.status');
         return;
     }
     const phaseDir = node_path_1.default.resolve(cwd, phaseDirArg);

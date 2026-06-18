@@ -22,8 +22,8 @@ const roadmapUpgrade = require("./roadmap-upgrade.cjs");
 const planningWorkspace = require("./planning-workspace.cjs");
 const { planningDir } = planningWorkspace;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const core = require("./core.cjs");
-const { loadConfig } = core;
+const configLoaderMod = require("./config-loader.cjs");
+const { loadConfig } = configLoaderMod;
 // ─── W021 Implementation ──────────────────────────────────────────────────────
 /**
  * Check each phase entry in a milestone-prefixed ROADMAP.md for W021 violations.

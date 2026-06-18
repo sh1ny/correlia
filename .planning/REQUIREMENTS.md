@@ -17,13 +17,13 @@ Requirements for the Vigilo/VDE compatibility milestone. Each requirement maps t
 
 ### Canonical Incident API Compatibility
 
-- [ ] **API-01**: Operators can list incidents on canonical `/v1/incidents` using Vigilo-supported filters `status`, `severity`, `rule_name`, `limit`, and `offset`.
-- [ ] **API-02**: Operators can request list metadata containing `items`, `total`, `limit`, and `offset` without removing Correlia's cursor pagination support.
-- [ ] **API-03**: Operators can fetch one incident on canonical `/v1/incidents/{id}` with Correlia's rich incident fields preserved.
-- [ ] **API-04**: Operators can acknowledge an open incident through a status mutation alias while Correlia records the operator as `vigilo-compat` when no operator is supplied.
-- [ ] **API-05**: Operators can close an open or acknowledged incident through status mutation or DELETE alias while Correlia records a compatibility close reason when no reason is supplied.
-- [ ] **API-06**: Operators receive `422` when attempting summary mutation because Correlia does not support unaudited incident text changes.
-- [ ] **API-07**: Operators can continue using Correlia's explicit `/ack` and `/close` endpoints alongside compatibility-friendly mutation aliases.
+- [x] **API-01**: Operators can list incidents on canonical `/v1/incidents` using Vigilo-supported filters `status`, `severity`, `rule_name`, `limit`, and `offset`.
+- [x] **API-02**: Operators can request list metadata containing `items`, `total`, `limit`, and `offset` without removing Correlia's cursor pagination support.
+- [x] **API-03**: Operators can fetch one incident on canonical `/v1/incidents/{id}` with Correlia's rich incident fields preserved.
+- [x] **API-04**: Operators can acknowledge an open incident through a status mutation alias while Correlia records the operator as `vigilo-compat` when no operator is supplied.
+- [x] **API-05**: Operators can close an open or acknowledged incident through status mutation or DELETE alias while Correlia records a compatibility close reason when no reason is supplied.
+- [x] **API-06**: Operators receive `422` when attempting summary mutation because Correlia does not support unaudited incident text changes.
+- [x] **API-07**: Operators can continue using Correlia's explicit `/ack` and `/close` endpoints alongside compatibility-friendly mutation aliases.
 
 ### Incident Event Audit
 
@@ -97,13 +97,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SEC-03 | Phase 5 | Complete |
 | SEC-04 | Phase 5 | Complete |
 | SEC-05 | Phase 5 | Complete |
-| API-01 | Phase 6 | Pending |
-| API-02 | Phase 6 | Pending |
-| API-03 | Phase 6 | Pending |
-| API-04 | Phase 6 | Pending |
-| API-05 | Phase 6 | Pending |
-| API-06 | Phase 6 | Pending |
-| API-07 | Phase 6 | Pending |
+| API-01 | Phase 6 | Complete |
+| API-02 | Phase 6 | Complete |
+| API-03 | Phase 6 | Complete |
+| API-04 | Phase 6 | Complete |
+| API-05 | Phase 6 | Complete |
+| API-06 | Phase 6 | Complete |
+| API-07 | Phase 6 | Complete |
 | AUD-01 | Phase 7 | Pending |
 | AUD-02 | Phase 7 | Pending |
 | AUD-03 | Phase 7 | Pending |

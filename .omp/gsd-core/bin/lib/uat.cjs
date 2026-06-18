@@ -15,8 +15,14 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 const node_fs_1 = __importDefault(require("node:fs"));
 const node_path_1 = __importDefault(require("node:path"));
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const core = require("./core.cjs");
-const { output, error, getMilestonePhaseFilter, toPosixPath } = core;
+const io = require("./io.cjs");
+const { output, error } = io;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const roadmapParser = require("./roadmap-parser.cjs");
+const { getMilestonePhaseFilter } = roadmapParser;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const coreUtils = require("./core-utils.cjs");
+const { toPosixPath } = coreUtils;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const planningWorkspace = require("./planning-workspace.cjs");
 const { planningDir } = planningWorkspace;
