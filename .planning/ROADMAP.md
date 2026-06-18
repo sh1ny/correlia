@@ -75,10 +75,17 @@ Plans:
   3. Incident aggregation, notification thresholds, recovery, and lifecycle transitions produce the same decisions from primary incident state rather than audit rows.
   4. Operators can correlate audit rows to incidents when one exists and inspect accepted no-op events when no incident was created or updated.
 
-**Plans**: 3 plans
+**Plans**: 0/3 plans executed
+**Wave 1**
 
 - [ ] 07-01-PLAN.md — Audit schema, domain models, persistence repository, raw-payload redactor/HMAC, and foundation tests.
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 07-02-PLAN.md — Ingress transaction refactor, manager commit ownership move, and audit write integration for all accepted event paths.
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 07-03-PLAN.md — Read-only `/v1/incident-events` operator API, route classification, bounded response projection, and integration tests.
 
 ### Phase 8: Vigilo Config Migration
@@ -174,7 +181,7 @@ Plans:
 |-------|-----------|----------------|--------|-----------|
 | 5. Security and HTTP Controls | v1.1 | 2/2 | Complete    | 2026-06-17 |
 | 6. Canonical Incident API Operation Parity | v1.1 | 1/1 | Complete    | 2026-06-17 |
-| 7. Incident Event Audit Trail | v1.1 | 0/TBD | Not started | - |
+| 7. Incident Event Audit Trail | v1.1 | 0/3 | Planned    |  |
 | 8. Vigilo Config Migration | v1.1 | 0/TBD | Not started | - |
 | 9. Plugin and Notification Boundaries | v1.1 | 0/TBD | Not started | - |
 | 10. Deployment and Operational Visibility | v1.1 | 0/TBD | Not started | - |
