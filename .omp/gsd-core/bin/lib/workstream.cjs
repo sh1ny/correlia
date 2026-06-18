@@ -18,8 +18,14 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 const node_fs_1 = __importDefault(require("node:fs"));
 const node_path_1 = __importDefault(require("node:path"));
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const core = require("./core.cjs");
-const { output, error, toPosixPath, getMilestoneInfo, generateSlugInternal } = core;
+const io = require("./io.cjs");
+const { output, error } = io;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const coreUtils = require("./core-utils.cjs");
+const { toPosixPath, generateSlugInternal } = coreUtils;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const roadmapParser = require("./roadmap-parser.cjs");
+const { getMilestoneInfo } = roadmapParser;
 const shell_command_projection_cjs_1 = require("./shell-command-projection.cjs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const planningWorkspace = require("./planning-workspace.cjs");

@@ -6,12 +6,10 @@
  * Owns shipped-milestone slicing, current-milestone extraction,
  * milestone/phase lookups, and milestone-phase filtering.
  * Behaviour is preserved byte-for-behaviour from the prior location;
- * only the module boundary moved. core.cjs re-exports every symbol here
- * under its own `export =` object so existing consumers are unaffected.
+ * only the module boundary moved. The core.cjs re-export spine was retired
+ * in epic #1267; callers import roadmap-parser helpers directly.
  *
- * New imports should pull roadmap-parser helpers from roadmap-parser.cjs directly.
- *
- * Dependencies (leaf modules only — no core.cjs, no loadConfig):
+ * Dependencies (leaf modules only — no loadConfig):
  *   - node:fs / node:path (stdlib)
  *   - ./phase-id.cjs        (escapeRegex, phaseMarkdownRegexSource)
  *   - ./planning-workspace.cjs (planningDir)
@@ -319,8 +317,17 @@ function stripFencedLines(text) {
 /**
  * Returns a filter function that checks whether a phase directory belongs
  * to the current milestone based on ROADMAP.md phase headings.
+ *
+ * @param cwd - Project working directory.
+ * @param versionOverride - Optional version string to scope the phase filter
+ *   to a specific milestone (e.g. 'v1.2').
+ * @param phaseIdConvention - The resolved `phase_id_convention` config value.
+ *   When `'milestone-prefixed'`, a deprecation warning is emitted for
+ *   free-form ROADMAPs that lack versioned milestone headings. When absent or
+ *   any other value, the warning is suppressed — legacy/default projects must
+ *   never see spurious warnings.
  */
-function getMilestonePhaseFilter(cwd, versionOverride) {
+function getMilestonePhaseFilter(cwd, versionOverride, phaseIdConvention) {
     const milestonePhaseNums = new Set();
     let missingExplicitVersion = false;
     try {
@@ -331,9 +338,10 @@ function getMilestonePhaseFilter(cwd, versionOverride) {
         let roadmap = extractCurrentMilestone(roadmapContent, cwd);
         const hasVersionedMilestonesGlobal = /^#{1,3}\s+.*v\d+\.\d+/mi.test(roadmapContent);
         const hasPhaseHeadings = /#{2,4}\s*(?:\[[^\]]+\]\s*)?Phase\s+[\w]/i.test(roadmapContent);
-        if (!hasVersionedMilestonesGlobal && hasPhaseHeadings) {
+        if (!hasVersionedMilestonesGlobal && hasPhaseHeadings && phaseIdConvention === 'milestone-prefixed') {
             console.warn('[gsd] Deprecated: free-form ROADMAP.md detected (no versioned milestone headings). ' +
-                'Set phase_id_convention in config.json to suppress this warning.');
+                'The project has phase_id_convention set to "milestone-prefixed" in config.json but the ' +
+                'ROADMAP does not use versioned milestone headings. Run `gsd-tools roadmap upgrade --convention milestone-prefixed` to migrate (dry-run by default).');
         }
         if (versionOverride) {
             const escapedVersion = escapeRegex(versionOverride);

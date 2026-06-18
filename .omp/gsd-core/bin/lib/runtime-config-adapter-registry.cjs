@@ -1,31 +1,38 @@
 'use strict';
-// ---------------------------------------------------------------------------
-// Registry
-// ---------------------------------------------------------------------------
-const REGISTRY = Object.freeze({
-    claude: Object.freeze({ installSurface: 'settings-json', writesSharedSettings: true, finishPermissionWriter: null }),
-    gemini: Object.freeze({ installSurface: 'settings-json', writesSharedSettings: true, finishPermissionWriter: null }),
-    antigravity: Object.freeze({ installSurface: 'settings-json', writesSharedSettings: true, finishPermissionWriter: null }),
-    augment: Object.freeze({ installSurface: 'settings-json', writesSharedSettings: true, finishPermissionWriter: null }),
-    qwen: Object.freeze({ installSurface: 'settings-json', writesSharedSettings: true, finishPermissionWriter: null }),
-    hermes: Object.freeze({ installSurface: 'settings-json', writesSharedSettings: true, finishPermissionWriter: null }),
-    codebuddy: Object.freeze({ installSurface: 'settings-json', writesSharedSettings: true, finishPermissionWriter: null }),
-    opencode: Object.freeze({ installSurface: 'settings-json', writesSharedSettings: true, finishPermissionWriter: 'opencode' }),
-    kilo: Object.freeze({ installSurface: 'settings-json', writesSharedSettings: false, finishPermissionWriter: 'kilo' }),
-    codex: Object.freeze({ installSurface: 'codex-toml', writesSharedSettings: false, finishPermissionWriter: null }),
-    copilot: Object.freeze({ installSurface: 'copilot-instructions', writesSharedSettings: false, finishPermissionWriter: null }),
-    cline: Object.freeze({ installSurface: 'cline-rules', writesSharedSettings: false, finishPermissionWriter: null }),
-    cursor: Object.freeze({ installSurface: 'cursor-hooks-json', writesSharedSettings: false, finishPermissionWriter: null }),
-    omp: Object.freeze({ installSurface: 'profile-marker-only', writesSharedSettings: false, finishPermissionWriter: null }),
-    windsurf: Object.freeze({ installSurface: 'profile-marker-only', writesSharedSettings: false, finishPermissionWriter: null }),
-    trae: Object.freeze({ installSurface: 'profile-marker-only', writesSharedSettings: false, finishPermissionWriter: null }),
-    kimi: Object.freeze({ installSurface: 'profile-marker-only', writesSharedSettings: false, finishPermissionWriter: null }),
-});
-// ---------------------------------------------------------------------------
-// Exports
-// ---------------------------------------------------------------------------
+/**
+ * Runtime config adapter registry — dispatch table for install-phase config
+ * mutations (issue #60), replacing inline `runtime === '...'` branching in
+ * bin/install.js.
+ *
+ * ADR-857 phase 5g drive 2: The hand-kept REGISTRY const has been retired.
+ * Values are now read directly from the capability-registry.cjs descriptor
+ * (capabilities/<id>/capability.json runtime block) so a single source of
+ * truth drives all surfaces.
+ *
+ * Design notes:
+ * - `installSurface` selects which config handler install() runs:
+ *     'settings-json'        → fall through to the shared settings.json accumulation.
+ *     'codex-toml'           → early-return after writing codex.toml.
+ *     'copilot-instructions' → early-return after writing .github/copilot-instructions.md.
+ *     'cline-rules'          → early-return after writing .clinerules.
+ *     'cursor-hooks-json'    → early-return after writing .cursor/hooks.json (issue #777).
+ *     'profile-marker-only'  → early-return after writing only the profile marker.
+ * - `writesSharedSettings` is the finishInstall writeSettings gate:
+ *     false for codex / copilot / kilo / cursor / windsurf / trae / cline / kimi (legacy exclusion list).
+ *     true for all other runtimes.
+ * - `finishPermissionWriter` names the finishInstall-phase dedicated config writer:
+ *     'opencode' → writes BOTH shared settings AND its own permissions file.
+ *     'kilo'     → writes only its own permissions file.
+ *     null       → no dedicated permission writer.
+ */
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { runtimes } = require('./capability-registry.cjs');
+/** Valid sandboxTier enum values — mirrors the gen-capability-registry validator vocabulary. */
+const VALID_SANDBOX_TIERS = new Set(['none', 'codex-agent-sandbox']);
 /** The complete set of 16 supported runtimes for config-adapter dispatch. */
-const ALLOWED_CONFIG_RUNTIMES = new Set(Object.keys(REGISTRY));
+const ALLOWED_CONFIG_RUNTIMES = new Set(Object.entries(runtimes)
+    .filter(([, cap]) => cap && cap.runtime && typeof cap.runtime['installSurface'] === 'string')
+    .map(([id]) => id));
 /** All valid installSurface values. */
 const INSTALL_SURFACES = Object.freeze([
     'settings-json',
@@ -44,15 +51,53 @@ const INSTALL_SURFACES = Object.freeze([
  * @throws {TypeError} if runtime is not a known supported runtime.
  */
 function resolveRuntimeConfigIntent(runtime) {
-    if (!Object.hasOwn(REGISTRY, runtime)) {
+    const entry = runtimes[runtime]?.runtime;
+    if (!entry)
         throw new TypeError(`Unknown runtime for config adapter: ${runtime}`);
-    }
-    const entry = REGISTRY[runtime];
+    const permissionWriter = entry['permissionWriter'];
     return {
         runtime,
-        installSurface: entry.installSurface,
-        writesSharedSettings: entry.writesSharedSettings,
-        finishPermissionWriter: entry.finishPermissionWriter,
+        installSurface: entry['installSurface'],
+        writesSharedSettings: entry['writesSharedSettings'],
+        finishPermissionWriter: permissionWriter == null ? null : permissionWriter,
     };
 }
-module.exports = { resolveRuntimeConfigIntent, ALLOWED_CONFIG_RUNTIMES, INSTALL_SURFACES };
+function resolveInstallPlanFromRuntimes(runtimeDescriptors, runtime) {
+    const desc = runtimeDescriptors[runtime]?.runtime;
+    if (!desc)
+        throw new TypeError(`Unknown runtime for install plan: ${runtime}`);
+    if (desc['hooksSurface'] == null) {
+        throw new TypeError(`runtime.hooksSurface is required for install plan: ${runtime}`);
+    }
+    const sandboxTier = desc['sandboxTier'];
+    if (typeof sandboxTier !== 'string' || !VALID_SANDBOX_TIERS.has(sandboxTier)) {
+        throw new TypeError(`Runtime '${runtime}' has a missing or invalid sandboxTier descriptor axis: ${JSON.stringify(sandboxTier)}`);
+    }
+    const permissionWriter = desc['permissionWriter'];
+    return {
+        runtime,
+        installSurface: desc['installSurface'],
+        writesSharedSettings: desc['writesSharedSettings'],
+        finishPermissionWriter: permissionWriter == null ? null : permissionWriter,
+        hookEvents: desc['hookEvents'],
+        extendedHookEvents: Array.isArray(desc['extendedHookEvents']) ? [...desc['extendedHookEvents']] : [],
+        hooksSurface: desc['hooksSurface'],
+        sandboxTier,
+    };
+}
+/**
+ * Resolve the complete install plan for a given runtime.
+ *
+ * Composes the config-intent axes from resolveRuntimeConfigIntent PLUS the
+ * three hook axes (hookEvents / extendedHookEvents / hooksSurface) that
+ * install() previously read scattered from the capability registry.
+ *
+ * ADR-857 phase 5g capstone — single typed seam for all install-level
+ * descriptor reads. Returns a fresh object each call.
+ *
+ * @throws {TypeError} if runtime is not a known supported runtime.
+ */
+function resolveInstallPlan(runtime) {
+    return resolveInstallPlanFromRuntimes(runtimes, runtime);
+}
+module.exports = { resolveRuntimeConfigIntent, resolveInstallPlan, resolveInstallPlanFromRuntimes, ALLOWED_CONFIG_RUNTIMES, INSTALL_SURFACES };

@@ -6,46 +6,36 @@
  * to a TypeScript source of truth. Behaviour is preserved byte-for-behaviour
  * from the prior hand-written .cjs; only strict types are added.
  */
-var __importDefault = (this && this.__importDefault) || function (mod) {
+const __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 const node_fs_1 = __importDefault(require("node:fs"));
 const node_path_1 = __importDefault(require("node:path"));
 const shell_command_projection_cjs_1 = require("./shell-command-projection.cjs");
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const ioModule = require("./io.cjs");
 const { output, error, ERROR_REASON, setJsonErrorMode, getJsonErrorMode, GSD_TEMP_DIR, reapStaleTempFiles } = ioModule;
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const phaseIdModule = require("./phase-id.cjs");
 const { escapeRegex, normalizePhaseName, getMilestoneFromPhaseId, getPhaseDirFromPhaseId, phaseMarkdownRegexSource, phaseMarkdownRegexSourceExact, comparePhaseNum, extractPhaseToken, phaseTokenMatches } = phaseIdModule;
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const roadmapParserModule = require("./roadmap-parser.cjs");
 const { stripShippedMilestones, extractCurrentMilestone, replaceInCurrentMilestone, getRoadmapPhaseInternal, getMilestoneInfo, getMilestonePhaseFilter } = roadmapParserModule;
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const modelProfiles = require("./model-profiles.cjs");
 const { MODEL_PROFILES, VALID_PHASE_TYPES: _VALID_PHASE_TYPES } = modelProfiles;
 const model_catalog_cjs_1 = require("./model-catalog.cjs");
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const worktreeSafety = require("./worktree-safety.cjs");
 const { resolveWorktreeContext, parseWorktreePorcelain: parseWorktreePorcelainPolicy, planWorktreePrune, executeWorktreePrunePlan, inspectWorktreeHealth, } = worktreeSafety;
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const planningWorkspace = require("./planning-workspace.cjs");
 // Compatibility shim: new imports should use planning-workspace.cjs directly.
 const { planningDir, planningRoot, planningPaths, withPlanningLock, getActiveWorkstream, setActiveWorkstream, } = planningWorkspace;
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const coreUtilsModule = require("./core-utils.cjs");
 const { toPosixPath, detectSubRepos, extractOneLinerFromBody, pathExistsInternal, generateSlugInternal, filterPlanFiles, filterSummaryFiles, getPhaseFileStats, readSubdirectories, timeAgo, } = coreUtilsModule;
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const phaseLocatorModule = require("./phase-locator.cjs");
 const { searchPhaseInDir, findPhaseInternal, getArchivedPhaseDirs } = phaseLocatorModule;
 const project_root_cjs_1 = require("./project-root.cjs");
 const runtime_homes_cjs_1 = require("./runtime-homes.cjs");
 // ─── Config Loader Module (extracted from core, ADR-857 phase 2e / #885) ─────
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const configLoaderModule = require("./config-loader.cjs");
 const { loadConfig, isGitIgnored, CONFIG_DEFAULTS, _warnUnknownProfileOverrides, _resetRuntimeWarningCacheForTests, RUNTIME_OVERRIDE_TIERS, } = configLoaderModule;
 // ─── Model Resolver Module (extracted from core, ADR-857 phase 2f / #888) ────
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const modelResolverModule = require("./model-resolver.cjs");
 const { resolveTierEntry, resolveModelPolicy, resolveModelInternal, VALID_GRANULARITIES, resolveGranularityInternal, assertValidGranularityOverride, resolveModelForTier, VALID_EFFORTS, EFFORT_SET, nextEffort, resolveEffortInternal, resolveFastModeInternal, resolveEffortForTier, } = modelResolverModule;
 // ─── Path helpers ────────────────────────────────────────────────────────────

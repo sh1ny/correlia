@@ -13,32 +13,9 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 const node_fs_1 = __importDefault(require("node:fs"));
 const node_path_1 = __importDefault(require("node:path"));
 const shell_command_projection_cjs_1 = require("./shell-command-projection.cjs");
-// ─── Config Gate ─────────────────────────────────────────────────────────────
-/**
- * Check whether graphify is enabled in the project config.
- * Reads config.json directly via fs. Returns false by default
- * (when no config, no graphify key, or on error).
- */
-function isGraphifyEnabled(planningDir) {
-    try {
-        const configPath = node_path_1.default.join(planningDir, 'config.json');
-        if (!node_fs_1.default.existsSync(configPath))
-            return false;
-        const config = JSON.parse(node_fs_1.default.readFileSync(configPath, 'utf8'));
-        if (config &&
-            typeof config === 'object' &&
-            'graphify' in config &&
-            config.graphify &&
-            typeof config.graphify === 'object' &&
-            'enabled' in config.graphify &&
-            config.graphify.enabled === true)
-            return true;
-        return false;
-    }
-    catch {
-        return false;
-    }
-}
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const capabilityStateMod = require("./capability-state.cjs");
+const { isCapabilityActive } = capabilityStateMod;
 /**
  * Return the standard disabled response object.
  */
@@ -290,7 +267,7 @@ function countCommitsBetween(cwd, from, to) {
  */
 function graphifyQuery(cwd, term, options = {}) {
     const planningDir = node_path_1.default.join(cwd, '.planning');
-    if (!isGraphifyEnabled(planningDir))
+    if (!isCapabilityActive('graphify', cwd))
         return disabledResponse();
     const graphPath = node_path_1.default.join(planningDir, 'graphs', 'graph.json');
     if (!node_fs_1.default.existsSync(graphPath)) {
@@ -324,7 +301,7 @@ function graphifyQuery(cwd, term, options = {}) {
  */
 function graphifyStatus(cwd) {
     const planningDir = node_path_1.default.join(cwd, '.planning');
-    if (!isGraphifyEnabled(planningDir))
+    if (!isCapabilityActive('graphify', cwd))
         return disabledResponse();
     const graphPath = node_path_1.default.join(planningDir, 'graphs', 'graph.json');
     if (!node_fs_1.default.existsSync(graphPath)) {
@@ -381,7 +358,7 @@ function graphifyStatus(cwd) {
  */
 function graphifyDiff(cwd) {
     const planningDir = node_path_1.default.join(cwd, '.planning');
-    if (!isGraphifyEnabled(planningDir))
+    if (!isCapabilityActive('graphify', cwd))
         return disabledResponse();
     const snapshotPath = node_path_1.default.join(planningDir, 'graphs', '.last-build-snapshot.json');
     const graphPath = node_path_1.default.join(planningDir, 'graphs', 'graph.json');
@@ -422,7 +399,7 @@ function graphifyDiff(cwd) {
  */
 function graphifyBuild(cwd) {
     const planningDir = node_path_1.default.join(cwd, '.planning');
-    if (!isGraphifyEnabled(planningDir))
+    if (!isCapabilityActive('graphify', cwd))
         return disabledResponse();
     const installed = checkGraphifyInstalled();
     if (!installed.installed)
@@ -472,7 +449,6 @@ function writeSnapshot(cwd) {
 }
 module.exports = {
     // Config gate
-    isGraphifyEnabled,
     disabledResponse,
     // Subprocess
     execGraphify,

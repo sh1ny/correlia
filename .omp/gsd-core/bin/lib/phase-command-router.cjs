@@ -140,6 +140,26 @@ function routePhaseCommand({ phase, args, cwd, raw, error }) {
                 phase.cmdPhaseComplete(cwd, args[2], raw);
                 return { ok: true, data: null };
             },
+            'uat-passed': (_ctx) => {
+                let requireVerification = false;
+                const positional = [];
+                for (const token of args.slice(2)) {
+                    if (token === '--require-verification') {
+                        requireVerification = true;
+                    }
+                    else if (token === '--raw') {
+                        // --raw is handled by the outer CLI layer; accepted here silently
+                    }
+                    else if (token.startsWith('--')) {
+                        return makeInvalidArgs(token, `phase uat-passed does not support ${token}`);
+                    }
+                    else {
+                        positional.push(token);
+                    }
+                }
+                phase.cmdPhaseUatPassed(cwd, positional[0], raw, { policy: { requireVerification } });
+                return { ok: true, data: null };
+            },
         },
     };
     // ── Build manifest (available subcommands for UnknownCommand detection) ─────
