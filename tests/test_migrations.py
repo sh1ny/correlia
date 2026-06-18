@@ -355,6 +355,13 @@ async def test_incident_events_check_constraints(postgres_url: str) -> None:
     assert "inserted" in effect_def["sqltext"]
     assert "affected_set_shrunk" in effect_def["sqltext"]
 
+    # raw_payload is non-null per D-04/D-07, so the object CHECK must not
+    # carry an `IS NULL` escape; it must enforce the jsonb typeof directly.
+    raw_payload_def = next(
+        c for c in constraints if c["name"] == "ck_incident_events_raw_payload_object"
+    )
+    assert "jsonb_typeof(raw_payload)" in raw_payload_def["sqltext"]
+    assert "IS NULL" not in raw_payload_def["sqltext"].upper()
     await engine.dispose()
 
 
