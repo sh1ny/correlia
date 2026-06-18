@@ -171,6 +171,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             sessionmaker=app.state.sessionmaker,
             task_runner=app.state.task_runner,
             plugin_registry=app.state.plugin_registry,
+            audit_raw_payload_max_bytes=(
+                app.state.settings.audit_raw_payload_max_bytes
+            ),
+            audit_raw_payload_hmac_key=(
+                app.state.settings.audit_raw_payload_hmac_key
+            ),
         )
 
     if not hasattr(app.state, "lifecycle_worker"):
