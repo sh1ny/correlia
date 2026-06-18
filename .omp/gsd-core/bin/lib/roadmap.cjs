@@ -11,9 +11,16 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 const node_fs_1 = __importDefault(require("node:fs"));
 const node_path_1 = __importDefault(require("node:path"));
+const clock_cjs_1 = require("./clock.cjs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const core = require("./core.cjs");
-const { escapeRegex, normalizePhaseName, phaseMarkdownRegexSource, phaseMarkdownRegexSourceExact, output, error, findPhaseInternal, phaseTokenMatches } = core;
+const ioMod = require("./io.cjs");
+const { output, error } = ioMod;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const phaseIdMod = require("./phase-id.cjs");
+const { escapeRegex, normalizePhaseName, phaseMarkdownRegexSource, phaseMarkdownRegexSourceExact, phaseTokenMatches } = phaseIdMod;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const phaseLocatorMod = require("./phase-locator.cjs");
+const { findPhaseInternal } = phaseLocatorMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const roadmapParserModule = require("./roadmap-parser.cjs");
 const { stripShippedMilestones, extractCurrentMilestone, replaceInCurrentMilestone } = roadmapParserModule;
@@ -76,8 +83,7 @@ function countPhasePlansAndSummaries(phaseDir) {
         hasResearch: phaseFiles.some(f => f.endsWith('-RESEARCH.md') || f === 'RESEARCH.md'),
     };
 }
-// `phaseMarkdownRegexSource` moved to core.cjs (#3537) so phase.cjs and
-// core.cjs itself can consume it without circular deps. Imported above.
+// `phaseMarkdownRegexSource` lives in phase-id.cjs (#3537) and is imported above.
 // ─── searchPhaseInContent ─────────────────────────────────────────────────────
 /**
  * Search for a phase header (and its section) within the given content string.
@@ -134,6 +140,45 @@ function searchPhaseInContent(content, escapedPhase, phaseNum) {
         success_criteria,
         section,
     };
+}
+// ─── getRoadmapPhaseWithFallback ──────────────────────────────────────────────
+/**
+ * Two-pass phase lookup that mirrors cmdRoadmapGetPhase's resolution strategy.
+ *
+ * Pass 1: current-milestone slice (extractCurrentMilestone).
+ * Pass 2: full roadmap content (stripShippedMilestones) — covers cross-milestone
+ *         and older frontend phases that are no longer in the current milestone slice.
+ *
+ * Returns the phase section string if found, null if ROADMAP.md is missing,
+ * or throws if ROADMAP.md read fails.
+ *
+ * Used by check-command-router (computeUiPlanGate) so ui-plan-gate uses the SAME
+ * phase resolution as `roadmap.get-phase` — not a milestone-only subset.
+ */
+function getRoadmapPhaseWithFallback(cwd, phaseNum) {
+    const roadmapPath = planningPaths(cwd).roadmap;
+    if (!node_fs_1.default.existsSync(roadmapPath))
+        return null;
+    const rawContent = node_fs_1.default.readFileSync(roadmapPath, 'utf-8');
+    const milestoneContent = extractCurrentMilestone(rawContent, cwd);
+    const fullContent = stripShippedMilestones(rawContent);
+    const exactSource = phaseMarkdownRegexSourceExact(phaseNum);
+    if (exactSource) {
+        const exactMilestone = searchPhaseInContent(milestoneContent, exactSource, phaseNum);
+        if (exactMilestone && !exactMilestone.error)
+            return exactMilestone.section ?? null;
+        const exactFull = searchPhaseInContent(fullContent, exactSource, phaseNum);
+        if (exactFull && !exactFull.error)
+            return exactFull.section ?? null;
+    }
+    const escapedPhase = phaseMarkdownRegexSource(phaseNum);
+    const milestoneResult = searchPhaseInContent(milestoneContent, escapedPhase, phaseNum);
+    const result = (milestoneResult && !milestoneResult.error)
+        ? milestoneResult
+        : searchPhaseInContent(fullContent, escapedPhase, phaseNum) || milestoneResult;
+    if (!result || result.error)
+        return null;
+    return result.section ?? null;
 }
 // ─── cmdRoadmapGetPhase ───────────────────────────────────────────────────────
 function cmdRoadmapGetPhase(cwd, phaseNum, raw) {
@@ -347,7 +392,7 @@ function cmdRoadmapUpdatePlanProgress(cwd, phaseNum, raw) {
     }
     const isComplete = summaryCount >= planCount;
     const status = isComplete ? 'Complete' : summaryCount > 0 ? 'In Progress' : 'Planned';
-    const today = new Date().toISOString().split('T')[0];
+    const today = clock_cjs_1.realClock.today();
     if (!node_fs_1.default.existsSync(roadmapPath)) {
         output({ updated: false, reason: 'ROADMAP.md not found', plan_count: planCount, summary_count: summaryCount }, raw, 'no roadmap');
         return;
@@ -358,25 +403,37 @@ function cmdRoadmapUpdatePlanProgress(cwd, phaseNum, raw) {
         const phasePattern = phaseMarkdownRegexSource(phaseNum);
         // Progress table row: update Plans/Status/Date columns (handles 4 or 5 column tables)
         const tableRowPattern = new RegExp(`^(\\|\\s*${phasePattern}\\.?\\s[^|]*(?:\\|[^\\n]*))$`, 'im');
-        const dateField = isComplete ? ` ${today} ` : '  ';
         roadmapContent = roadmapContent.replace(tableRowPattern, (fullRow) => {
             const cells = fullRow.split('|').slice(1, -1); // drop leading/trailing empty from split
+            const dateShape = /^\d{4}-\d{2}-\d{2}$/;
             if (cells.length === 5) {
                 // 5-col: Phase | Milestone | Plans | Status | Completed
                 cells[2] = ` ${summaryCount}/${planCount} `;
                 cells[3] = ` ${status.padEnd(11)}`;
-                cells[4] = dateField;
+                // Preserve only a valid ISO date (#1161: idempotent; self-heal garbage)
+                const existingDate5 = cells[4].trim();
+                cells[4] = isComplete
+                    ? (dateShape.test(existingDate5) ? cells[4] : ` ${today} `)
+                    : '  ';
             }
             else if (cells.length === 4) {
                 // 4-col: Phase | Plans | Status | Completed
                 cells[1] = ` ${summaryCount}/${planCount} `;
                 cells[2] = ` ${status.padEnd(11)}`;
-                cells[3] = dateField;
+                // Preserve only a valid ISO date (#1161: idempotent; self-heal garbage)
+                const existingDate4 = cells[3].trim();
+                cells[3] = isComplete
+                    ? (dateShape.test(existingDate4) ? cells[3] : ` ${today} `)
+                    : '  ';
             }
             return '|' + cells.join('|') + '|';
         });
-        // Update plan count in phase detail section
-        const planCountPattern = new RegExp(`(#{2,4}\\s*Phase\\s+${phasePattern}(?=[:\\s])[\\s\\S]*?\\*\\*Plans:\\*\\*\\s*)[^\\n]+`, 'i');
+        // Update plan count in phase detail section.
+        // Three recognised forms (all tolerated; canonical template uses the first):
+        //   `**Plans**: N plans`  — bold word + outer colon (gsd-core/templates/roadmap.md)
+        //   `**Plans:** N plans`  — bold "Plans:" (colon inside bold)
+        //   `Plans: N plans`      — plain text header
+        const planCountPattern = new RegExp(`(#{2,4}\\s*Phase\\s+${phasePattern}(?=[:\\s])[\\s\\S]*?(?:\\*\\*Plans\\*\\*:|\\*\\*Plans:\\*\\*|(?:^|\\n)Plans:)\\s*)[^\\n]+`, 'i');
         const planCountText = isComplete
             ? `${summaryCount}/${planCount} plans complete`
             : `${summaryCount}/${planCount} plans executed`;
@@ -394,6 +451,80 @@ function cmdRoadmapUpdatePlanProgress(cwd, phaseNum, raw) {
             const planEscaped = escapeRegex(planId);
             const planCheckboxPattern = new RegExp(`(-\\s*\\[) (\\]\\s*(?:\\*\\*)?${planEscaped}(?:\\*\\*)?)`, 'i');
             roadmapContent = roadmapContent.replace(planCheckboxPattern, '$1x$2');
+        }
+        // Compute the active (post-</details>) region offset ONCE.  Both the
+        // missing-plan DETECTION and the row INSERTION must use the same active
+        // region string so that a plan row that exists only in an archived <details>
+        // block is not counted as "already present" in the active milestone section.
+        // (Finding 1 code-review: detection was previously running against the full
+        //  roadmapContent, causing archived rows to suppress active-section inserts.)
+        const lastDetailsClose = roadmapContent.lastIndexOf('</details>');
+        const activeRegion = lastDetailsClose === -1
+            ? roadmapContent
+            : roadmapContent.slice(lastDetailsClose + '</details>'.length);
+        // Compute which plan files are MISSING a checkbox row in the ACTIVE region.
+        // This handles three cases:
+        //   (a) Fresh template — no rows at all: all plans are missing.
+        //   (b) Partial gap — some rows exist, others don't: only the absent ones.
+        //   (c) All rows present — nothing to insert (idempotent).
+        //
+        // Detection is scoped to the active region so a plan that appears in an
+        // archived <details> block is still correctly detected as missing from the
+        // active milestone section.
+        const missingPlans = phaseInfo.plans.filter((planFile) => {
+            const planEscaped = escapeRegex(planFile);
+            return !new RegExp(`-\\s*\\[[x ]\\]\\s*(?:\\*\\*)?${planEscaped}`, 'i').test(activeRegion);
+        });
+        if (missingPlans.length > 0) {
+            // Insert missing plan checklist rows (#1163).  We prefer to anchor to the
+            // bare `Plans:` checklist header (canonical template form) and fall back to
+            // the bold `**Plans**:`/`**Plans:**` summary line only when no bare header
+            // is present.  Using two separate patterns avoids the lazy-quantifier trap
+            // where a single alternation would stop at the first matching alternative
+            // (the bold summary) before reaching the checklist header.
+            //
+            // Canonical template (gsd-core/templates/roadmap.md) uses BOTH lines:
+            //   **Plans**: N plans   ← summary (colon outside bold)
+            //   Plans:               ← checklist header (PREFERRED insertion anchor)
+            // Rows must land after `Plans:`, not between the summary and the header.
+            //
+            // Pattern A: anchor to bare `Plans:` header (preferred).
+            // Pattern B: fallback to bold summary when no bare header exists.
+            const insertRowsPatternA = new RegExp(`(#{2,4}\\s*Phase\\s+${phasePattern}(?=[:\\s])[\\s\\S]*?(?:^|\\n)(?:Plans:)[^\\n]*)`, 'i');
+            const insertRowsPatternB = new RegExp(`(#{2,4}\\s*Phase\\s+${phasePattern}(?=[:\\s])[\\s\\S]*?(?:\\*\\*Plans\\*\\*:|\\*\\*Plans:\\*\\*)[^\\n]*)`, 'i');
+            const sortedMissing = [...missingPlans].sort();
+            const newRows = sortedMissing.map(p => `- [ ] ${p}`).join('\n');
+            const inserter = (match) => `${match}\n${newRows}`;
+            // Scope insertion to the active (post-</details>) milestone region to
+            // prevent duplicate phase headings in archived sections from receiving rows.
+            // replaceInCurrentMilestone only accepts a string replacement, so we
+            // perform the scoped replace manually here (same strategy as that helper).
+            // Note: lastDetailsClose was computed above (shared with detection).
+            const scopedReplace = (src, pat) => src.replace(pat, inserter);
+            let withRows;
+            if (lastDetailsClose === -1) {
+                // activeRegion === roadmapContent when there are no </details> blocks.
+                const regionA = scopedReplace(activeRegion, insertRowsPatternA);
+                withRows = regionA !== activeRegion ? regionA : scopedReplace(activeRegion, insertRowsPatternB);
+            }
+            else {
+                const beforeDetails = roadmapContent.slice(0, lastDetailsClose + '</details>'.length);
+                const regionA = scopedReplace(activeRegion, insertRowsPatternA);
+                const afterWithRows = regionA !== activeRegion ? regionA : scopedReplace(activeRegion, insertRowsPatternB);
+                withRows = beforeDetails + afterWithRows;
+            }
+            if (withRows !== roadmapContent) {
+                roadmapContent = withRows;
+                // Mark any newly-inserted rows that already have summaries as complete
+                for (const summaryFile of phaseInfo.summaries) {
+                    const planId = summaryFile.replace('-SUMMARY.md', '').replace('SUMMARY.md', '');
+                    if (!planId)
+                        continue;
+                    const planEscaped = escapeRegex(planId);
+                    const planCheckboxPattern = new RegExp(`(-\\s*\\[) (\\]\\s*(?:\\*\\*)?${planEscaped}(?:\\*\\*)?)`, 'i');
+                    roadmapContent = roadmapContent.replace(planCheckboxPattern, '$1x$2');
+                }
+            }
         }
         (0, shell_command_projection_cjs_1.platformWriteSync)(roadmapPath, roadmapContent);
     });
@@ -581,7 +712,10 @@ function cmdRoadmapAnnotateDependencies(cwd, phaseNum, raw) {
             }
         }
         const newListBlock = annotatedLines.join('\n') + '\n';
-        const newPhaseSection = phaseSection.replace(plansBlockMatch[0], plansHeader + newListBlock);
+        // #1103: when `(?:^|\n)` consumed a leading `\n` (mid-string match), re-emit it
+        // so the line preceding the Plans: header is not fused onto it.
+        const leadingNewline = plansBlockMatch[0].startsWith('\n') ? '\n' : '';
+        const newPhaseSection = phaseSection.replace(plansBlockMatch[0], leadingNewline + plansHeader + newListBlock);
         const nextContent = content.slice(0, phaseStart) + newPhaseSection + content.slice(phaseEnd);
         if (nextContent === content)
             return;
@@ -597,6 +731,7 @@ function cmdRoadmapAnnotateDependencies(cwd, phaseNum, raw) {
 }
 module.exports = {
     cmdRoadmapGetPhase,
+    getRoadmapPhaseWithFallback,
     cmdRoadmapAnalyze,
     cmdRoadmapUpdatePlanProgress,
     cmdRoadmapAnnotateDependencies,

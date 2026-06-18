@@ -6,8 +6,8 @@
  *
  * Imported by:
  *   - config.cjs (isValidConfigKey validator)
- *   - core.cjs
  *   - many tests (config-schema.property.test.cjs, bug-*, feat-*, etc.)
+ * (core.cjs re-export spine retired in epic #1267)
  *
  * See Phase 2 Cycle 5 (#3536) — schema manifest migration.
  *
@@ -16,14 +16,43 @@
  * the prior hand-written .cjs; only types are added.
  */
 const configuration_cjs_1 = require("./configuration.cjs");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const capabilityRegistry = require('./capability-registry.cjs');
+function isCapabilityConfigKey(keyPath) {
+    if (typeof keyPath !== 'string')
+        return false;
+    const schema = capabilityRegistry.configSchema;
+    if (!schema || typeof schema !== 'object')
+        return false;
+    return Object.prototype.hasOwnProperty.call(schema, keyPath);
+}
 /**
- * Returns true if keyPath is a valid config key (exact, dynamic pattern, or runtime state).
+ * Returns true for keys owned by the central schema adapter rather than a
+ * federated Capability config slice.
  */
-function isValidConfigKey(keyPath) {
+function isCentralConfigKey(keyPath) {
+    if (typeof keyPath !== 'string')
+        return false;
     if (configuration_cjs_1.VALID_CONFIG_KEYS.has(keyPath))
         return true;
     if (configuration_cjs_1.RUNTIME_STATE_KEYS.has(keyPath))
         return true;
     return configuration_cjs_1.DYNAMIC_KEY_PATTERNS.some((p) => p.test(keyPath));
 }
-module.exports = { VALID_CONFIG_KEYS: configuration_cjs_1.VALID_CONFIG_KEYS, RUNTIME_STATE_KEYS: configuration_cjs_1.RUNTIME_STATE_KEYS, DYNAMIC_KEY_PATTERNS: configuration_cjs_1.DYNAMIC_KEY_PATTERNS, isValidConfigKey };
+/**
+ * Returns true if keyPath is a valid central, runtime-state, dynamic, or
+ * federated Capability config key.
+ */
+function isValidConfigKey(keyPath) {
+    if (isCentralConfigKey(keyPath))
+        return true;
+    return isCapabilityConfigKey(keyPath);
+}
+module.exports = {
+    VALID_CONFIG_KEYS: configuration_cjs_1.VALID_CONFIG_KEYS,
+    RUNTIME_STATE_KEYS: configuration_cjs_1.RUNTIME_STATE_KEYS,
+    DYNAMIC_KEY_PATTERNS: configuration_cjs_1.DYNAMIC_KEY_PATTERNS,
+    isCapabilityConfigKey,
+    isCentralConfigKey,
+    isValidConfigKey,
+};

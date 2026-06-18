@@ -425,3 +425,431 @@ async def test_incident_api_rejects_invalid_inputs_without_source_exception_text
         "password leaked",
     ):
         assert fragment not in serialized
+
+
+
+
+async def test_list_incidents_offset_metadata_and_cursor_coexistence(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        first = await _seed_incident(
+            session,
+            rule_name="offset-a",
+            group_key="host:o-a",
+            host="o-a",
+            service="cpu",
+            severity=Severity.WARNING,
+            event_time=_event_time(0),
+        )
+        second = await _seed_incident(
+            session,
+            rule_name="offset-b",
+            group_key="host:o-b",
+            host="o-b",
+            service="disk",
+            severity=Severity.CRITICAL,
+            event_time=_event_time(2),
+        )
+        third = await _seed_incident(
+            session,
+            rule_name="offset-c",
+            group_key="host:o-c",
+            host="o-c",
+            service=None,
+            severity=Severity.UNKNOWN,
+            event_time=_event_time(4),
+        )
+
+    expected_newest_first = [str(third.id), str(second.id), str(first.id)]
+
+    app = _app(session_factory)
+    async for client in get_client(app):
+        default_page = await client.get("/v1/incidents", params={"limit": 2})
+        offset_page = await client.get(
+            "/v1/incidents", params={"limit": 1, "offset": 1}
+        )
+
+    assert default_page.status_code == 200
+    default_body = default_page.json()
+    assert [item["id"] for item in default_body["items"]] == expected_newest_first[:2]
+    assert default_body["next_cursor"] is not None
+    assert default_body["total"] == 3
+    assert default_body["limit"] == 2
+    assert default_body["offset"] == 0
+
+    assert offset_page.status_code == 200
+    offset_body = offset_page.json()
+    assert [item["id"] for item in offset_body["items"]] == [str(second.id)]
+    assert offset_body["next_cursor"] is None
+    assert offset_body["total"] == 3
+    assert offset_body["limit"] == 1
+    assert offset_body["offset"] == 1
+
+    app = _app(session_factory)
+    async for client in get_client(app):
+        cursor_wins = await client.get(
+            "/v1/incidents",
+            params={"limit": 2, "cursor": default_body["next_cursor"], "offset": 0},
+        )
+
+    assert cursor_wins.status_code == 200
+    cursor_body = cursor_wins.json()
+    assert [item["id"] for item in cursor_body["items"]] == [str(first.id)]
+    assert cursor_body["offset"] == 0
+    assert cursor_body["total"] == 3
+
+
+async def test_list_incidents_acknowledged_filter_is_derived_and_open_includes_acknowledged(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        acknowledged = await _seed_incident(
+            session,
+            rule_name="ack-filter",
+            group_key="host:ack-f",
+            host="ack-f",
+            service="cpu",
+            severity=Severity.WARNING,
+            event_time=_event_time(0),
+        )
+        plain = await _seed_incident(
+            session,
+            rule_name="open-filter",
+            group_key="host:open-f",
+            host="open-f",
+            service="disk",
+            severity=Severity.CRITICAL,
+            event_time=_event_time(1),
+        )
+
+    app = _app(session_factory)
+    async for client in get_client(app):
+        ack = await client.post(
+            f"/v1/incidents/{acknowledged.id}/ack", json={"operator": "operator-a"}
+        )
+        acked = await client.get(
+            "/v1/incidents", params={"status": "ACKNOWLEDGED"}
+        )
+        open_all = await client.get("/v1/incidents", params={"status": "OPEN"})
+
+    assert ack.status_code == 200
+    assert ack.json()["status"] == "OPEN"
+    assert ack.json()["acknowledgement"]["acknowledged_by"] == "operator-a"
+
+    assert acked.status_code == 200
+    acked_body = acked.json()
+    assert [item["id"] for item in acked_body["items"]] == [str(acknowledged.id)]
+    assert acked_body["items"][0]["status"] == "OPEN"
+    assert acked_body["items"][0]["acknowledgement"]["acknowledged_by"] == "operator-a"
+
+    assert open_all.status_code == 200
+    open_ids = {item["id"] for item in open_all.json()["items"]}
+    assert {str(acknowledged.id), str(plain.id)} <= open_ids
+
+
+async def test_incident_detail_preserves_rich_fields_for_compatibility(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        incident = await _seed_incident(
+            session,
+            rule_name="rich-detail",
+            group_key="host:rich-1",
+            host="rich-1",
+            service="http",
+            severity=Severity.CRITICAL,
+            event_time=_event_time(0),
+        )
+
+    app = _app(session_factory)
+    async for client in get_client(app):
+        response = await client.get(f"/v1/incidents/{incident.id}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == str(incident.id)
+    assert body["affected_hosts"] == ["rich-1"]
+    assert body["affected_services"] == ["http"]
+    assert "decision_context" in body
+    assert isinstance(body["decision_context"], dict)
+    assert "window_state" in body
+    assert isinstance(body["window_state"], dict)
+    assert "acknowledgement" in body
+    assert body["acknowledgement"]["acknowledged_by"] is None
+    for rich_field in (
+        "start_time",
+        "last_update_time",
+        "created_at",
+        "updated_at",
+    ):
+        assert rich_field in body
+
+
+async def test_patch_acknowledges_with_vigilo_defaults_and_is_idempotent(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        incident = await _seed_incident(
+            session,
+            rule_name="patch-ack",
+            group_key="host:patch-ack",
+            host="patch-ack",
+            service="cpu",
+            severity=Severity.WARNING,
+            event_time=_event_time(0),
+        )
+
+    app = _app(session_factory)
+    async for client in get_client(app):
+        first = await client.patch(
+            f"/v1/incidents/{incident.id}", json={"status": "ACKNOWLEDGED"}
+        )
+        second = await client.patch(
+            f"/v1/incidents/{incident.id}", json={"status": "ACKNOWLEDGED"}
+        )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["status"] == "OPEN"
+    assert second.json()["status"] == "OPEN"
+    assert first.json()["acknowledgement"]["acknowledged_by"] == "vigilo-compat"
+    assert second.json()["acknowledgement"]["acknowledged_by"] == "vigilo-compat"
+
+
+async def test_patch_close_and_delete_close_with_vigilo_defaults_are_idempotent(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        patch_incident = await _seed_incident(
+            session,
+            rule_name="patch-close",
+            group_key="host:patch-close",
+            host="patch-close",
+            service="disk",
+            severity=Severity.CRITICAL,
+            event_time=_event_time(0),
+        )
+        delete_incident = await _seed_incident(
+            session,
+            rule_name="delete-close",
+            group_key="host:delete-close",
+            host="delete-close",
+            service="disk",
+            severity=Severity.CRITICAL,
+            event_time=_event_time(1),
+        )
+
+    app = _app(session_factory)
+    async for client in get_client(app):
+        first_close = await client.patch(
+            f"/v1/incidents/{patch_incident.id}", json={"status": "CLOSED"}
+        )
+        repeat_close = await client.patch(
+            f"/v1/incidents/{patch_incident.id}", json={"status": "CLOSED"}
+        )
+        first_delete = await client.delete(
+            f"/v1/incidents/{delete_incident.id}"
+        )
+        repeat_delete = await client.delete(
+            f"/v1/incidents/{delete_incident.id}"
+        )
+
+    assert first_close.status_code == 200
+    assert repeat_close.status_code == 200
+    assert first_close.json()["status"] == "CLOSED"
+    assert repeat_close.json()["status"] == "CLOSED"
+    assert first_delete.status_code == 200
+    assert repeat_delete.status_code == 200
+    assert first_delete.json()["status"] == "CLOSED"
+    assert repeat_delete.json()["status"] == "CLOSED"
+
+
+async def test_patch_rejects_summary_mutation_and_missing_status_with_compact_422(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        incident = await _seed_incident(
+            session,
+            rule_name="patch-reject",
+            group_key="host:patch-reject",
+            host="patch-reject",
+            service="cpu",
+            severity=Severity.WARNING,
+            event_time=_event_time(0),
+        )
+    original_summary = incident.summary
+
+    app = _app(session_factory)
+    nil_uuid = "00000000-0000-0000-0000-000000000000"
+    async for client in get_client(app):
+        missing_status_cases = [
+            await client.patch(f"/v1/incidents/{incident.id}", json={}),
+            await client.patch(
+                f"/v1/incidents/{incident.id}", content=b"[1,2,3]", headers={"content-type": "application/json"}
+            ),
+            await client.patch(
+                f"/v1/incidents/{incident.id}", content=b"", headers={"content-type": "application/json"}
+            ),
+            await client.patch(
+                f"/v1/incidents/{incident.id}", content=b"{", headers={"content-type": "application/json"}
+            ),
+            await client.patch(
+                f"/v1/incidents/{incident.id}", json={"status": "OPEN"}
+            ),
+            await client.patch(
+                f"/v1/incidents/{incident.id}", json={"status": "RESOLVED"}
+            ),
+            await client.patch(
+                f"/v1/incidents/{incident.id}", json={"status": "UNKNOWN"}
+            ),
+            await client.patch(
+                f"/v1/incidents/{incident.id}", json={"status": 123}
+            ),
+        ]
+        summary_mutation_cases = [
+            await client.patch(
+                f"/v1/incidents/{incident.id}", json={"summary": "x"}
+            ),
+            await client.patch(
+                f"/v1/incidents/{incident.id}",
+                json={"status": "ACKNOWLEDGED", "summary": "x"},
+            ),
+        ]
+        not_found_ack = await client.patch(
+            f"/v1/incidents/{nil_uuid}", json={"status": "ACKNOWLEDGED"}
+        )
+        not_found_closed = await client.patch(
+            f"/v1/incidents/{nil_uuid}", json={"status": "CLOSED"}
+        )
+        verify_get = await client.get(f"/v1/incidents/{incident.id}")
+
+    for resp in missing_status_cases:
+        assert resp.status_code == 422, resp.text
+        assert resp.json() == {"detail": "status is required"}, resp.text
+    for resp in summary_mutation_cases:
+        assert resp.status_code == 422, resp.text
+        assert resp.json() == {"detail": "summary mutation is not supported"}, resp.text
+    assert not_found_ack.status_code == 404
+    assert not_found_ack.json() == {"detail": "incident not found"}
+    assert not_found_closed.status_code == 404
+    assert not_found_closed.json() == {"detail": "incident not found"}
+    assert verify_get.status_code == 200
+    assert verify_get.json()["summary"] == original_summary
+    assert verify_get.json()["acknowledgement"]["acknowledged_by"] is None
+
+
+async def test_explicit_ack_and_close_endpoints_remain_available_alongside_aliases(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        ack_incident = await _seed_incident(
+            session,
+            rule_name="explicit-ack",
+            group_key="host:explicit-ack",
+            host="explicit-ack",
+            service="cpu",
+            severity=Severity.WARNING,
+            event_time=_event_time(0),
+        )
+        close_incident = await _seed_incident(
+            session,
+            rule_name="explicit-close",
+            group_key="host:explicit-close",
+            host="explicit-close",
+            service="disk",
+            severity=Severity.CRITICAL,
+            event_time=_event_time(1),
+        )
+
+    app = _app(session_factory)
+    async for client in get_client(app):
+        ack_ok = await client.post(
+            f"/v1/incidents/{ack_incident.id}/ack",
+            json={"operator": "operator-a"},
+        )
+        close_ok = await client.post(
+            f"/v1/incidents/{close_incident.id}/close",
+            json={"operator": "operator-a", "reason": "handled manually"},
+        )
+        ack_missing_body = await client.post(
+            f"/v1/incidents/{ack_incident.id}/ack", json={}
+        )
+        close_missing_body = await client.post(
+            f"/v1/incidents/{close_incident.id}/close", json={}
+        )
+
+    assert ack_ok.status_code == 200
+    assert ack_ok.json()["acknowledgement"]["acknowledged_by"] == "operator-a"
+    assert close_ok.status_code == 200
+    assert close_ok.json()["status"] == "CLOSED"
+    assert ack_missing_body.status_code == 422
+    assert close_missing_body.status_code == 422
+
+
+async def test_compatibility_mutations_emit_safe_json_logs(
+    session_factory: async_sessionmaker[AsyncSession],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async with session_factory() as session:
+        ack_incident = await _seed_incident(
+            session,
+            rule_name="compat-log-ack",
+            group_key="host:compat-log-ack",
+            host="compat-log-ack",
+            service="cpu",
+            severity=Severity.WARNING,
+            event_time=_event_time(0),
+        )
+        close_incident = await _seed_incident(
+            session,
+            rule_name="compat-log-close",
+            group_key="host:compat-log-close",
+            host="compat-log-close",
+            service="disk",
+            severity=Severity.CRITICAL,
+            event_time=_event_time(1),
+        )
+        delete_incident = await _seed_incident(
+            session,
+            rule_name="compat-log-delete",
+            group_key="host:compat-log-delete",
+            host="compat-log-delete",
+            service="disk",
+            severity=Severity.CRITICAL,
+            event_time=_event_time(2),
+        )
+
+    app = _app(session_factory)
+    caplog.set_level(logging.INFO)
+    async for client in get_client(app):
+        await client.patch(
+            f"/v1/incidents/{ack_incident.id}", json={"status": "ACKNOWLEDGED"}
+        )
+        await client.patch(
+            f"/v1/incidents/{close_incident.id}", json={"status": "CLOSED"}
+        )
+        await client.delete(f"/v1/incidents/{delete_incident.id}")
+
+    events = [
+        record.__dict__
+        for record in caplog.records
+        if record.__dict__.get("event") == "operator_mutation"
+    ]
+    assert [event["effect"] for event in events] == [
+        "acknowledged",
+        "closed",
+        "closed",
+    ]
+    assert {event["incident_id"] for event in events} == {
+        str(ack_incident.id),
+        str(close_incident.id),
+        str(delete_incident.id),
+    }
+    assert {event["operator"] for event in events} == {"vigilo-compat"}
+    assert {event["reason"] for event in events} == {"acknowledged", "manual_close"}
+    serialized = "\n".join(
+        record.getMessage() + repr(record.__dict__) for record in caplog.records
+    )
+    for fragment in ("raw_payload", "password", "token-secret", "summary"):
+        assert fragment not in serialized

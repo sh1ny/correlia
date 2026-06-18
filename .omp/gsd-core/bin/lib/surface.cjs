@@ -424,6 +424,7 @@ function _syncGsdDir(stagedDir, destDir, kind, manifest) {
             if (!entry.isDirectory())
                 continue;
             const destSubDir = node_path_1.default.join(destDir, entry.name);
+            node_fs_1.default.rmSync(destSubDir, { recursive: true, force: true });
             node_fs_1.default.cpSync(node_path_1.default.join(stagedDir, entry.name), destSubDir, { recursive: true });
             stagedDestNames.add(entry.name);
         }
@@ -438,6 +439,22 @@ function _syncGsdDir(stagedDir, destDir, kind, manifest) {
                 node_fs_1.default.rmSync(node_path_1.default.join(destDir, entry.name), { recursive: true, force: true });
             }
             catch { /* ignore */ }
+        }
+    }
+    else if (kindName === 'rules') {
+        const stagedFiles = node_fs_1.default.readdirSync(stagedDir).filter(f => f.endsWith('.md') || f.endsWith('.mdc'));
+        const stagedDestNames = new Set();
+        for (const file of stagedFiles) {
+            node_fs_1.default.copyFileSync(node_path_1.default.join(stagedDir, file), node_path_1.default.join(destDir, file));
+            stagedDestNames.add(file);
+        }
+        for (const file of node_fs_1.default.readdirSync(destDir).filter(f => f.endsWith('.md') || f.endsWith('.mdc'))) {
+            if (!stagedDestNames.has(file)) {
+                try {
+                    node_fs_1.default.unlinkSync(node_path_1.default.join(destDir, file));
+                }
+                catch { /* ignore */ }
+            }
         }
     }
     else {

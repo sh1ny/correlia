@@ -27,8 +27,8 @@ const node_path_1 = __importDefault(require("node:path"));
 const shell_command_projection_cjs_1 = require("./shell-command-projection.cjs");
 const runtime_slash_cjs_1 = require("./runtime-slash.cjs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const core = require("./core.cjs");
-const { output } = core;
+const ioMod = require("./io.cjs");
+const { output } = ioMod;
 // ─── Utilities ──────────────────────────────────────────────────────────────
 function readOptional(filePath) {
     try {

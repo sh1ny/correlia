@@ -13,8 +13,22 @@ const node_fs_1 = __importDefault(require("node:fs"));
 const node_path_1 = __importDefault(require("node:path"));
 const node_os_1 = __importDefault(require("node:os"));
 const shell_command_projection_cjs_1 = require("./shell-command-projection.cjs");
-// eslint-disable-next-line @typescript-eslint/no-require-imports -- core.cjs is an export= CommonJS module
-const core = require("./core.cjs");
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- io.cjs is an export= CommonJS module
+const io = require("./io.cjs");
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- config-loader.cjs is an export= CommonJS module
+const configLoader = require("./config-loader.cjs");
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- model-resolver.cjs is an export= CommonJS module
+const modelResolver = require("./model-resolver.cjs");
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- phase-locator.cjs is an export= CommonJS module
+const phaseLocator = require("./phase-locator.cjs");
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- roadmap-parser.cjs is an export= CommonJS module
+const roadmapParser = require("./roadmap-parser.cjs");
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- core-utils.cjs is an export= CommonJS module
+const coreUtils = require("./core-utils.cjs");
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- phase-id.cjs is an export= CommonJS module
+const phaseId = require("./phase-id.cjs");
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- worktree-safety.cjs is an export= CommonJS module
+const worktreeSafety = require("./worktree-safety.cjs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- planning-workspace.cjs is an export= CommonJS module
 const planningWorkspace = require("./planning-workspace.cjs");
 const secrets_cjs_1 = require("./secrets.cjs");
@@ -28,7 +42,20 @@ const security_cjs_1 = require("./security.cjs");
 const runtime_homes_cjs_1 = require("./runtime-homes.cjs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- frontmatter.cjs is an export= CommonJS module
 const frontmatterMod = require("./frontmatter.cjs");
-const { loadConfig, resolveModelInternal, resolveGranularityInternal, assertValidGranularityOverride, findPhaseInternal, getRoadmapPhaseInternal, pathExistsInternal, gitWorktreeInfoInternal, generateSlugInternal, getMilestoneInfo, getMilestonePhaseFilter, stripShippedMilestones, extractCurrentMilestone, normalizePhaseName, toPosixPath, output, error, checkAgentsInstalled, phaseTokenMatches, } = core;
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- agent-install-check.cjs is an export= CommonJS module
+const agentInstallCheck = require("./agent-install-check.cjs");
+const { checkAgentsInstalled } = agentInstallCheck;
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- git-base-branch.cjs is an export= CommonJS module
+const gitBaseBranch = require("./git-base-branch.cjs");
+const { gitWorktreeInfoInternal } = gitBaseBranch;
+const { output, error } = io;
+const { loadConfig } = configLoader;
+const { resolveModelInternal, resolveGranularityInternal, assertValidGranularityOverride } = modelResolver;
+const { findPhaseInternal } = phaseLocator;
+const { getRoadmapPhaseInternal, getMilestoneInfo, getMilestonePhaseFilter, stripShippedMilestones, extractCurrentMilestone, } = roadmapParser;
+const { pathExistsInternal, generateSlugInternal, toPosixPath } = coreUtils;
+const { normalizePhaseName, phaseTokenMatches } = phaseId;
+const { pruneOrphanedWorktrees } = worktreeSafety;
 const { planningPaths, planningDir, planningRoot, findContextMdIn, } = planningWorkspace;
 const { determinePhaseStatus } = commandsMod;
 const { extractFrontmatter } = frontmatterMod;
@@ -182,10 +209,11 @@ function cmdInitExecutePhase(cwd, phase, raw, options = {}) {
         ? reqMatch[1].replace(/[\[\]]/g, '').split(',').map((s) => s.trim()).filter(Boolean).join(', ')
         : null;
     const phase_req_ids = reqExtracted && reqExtracted !== 'TBD' ? reqExtracted : null;
+    const wf = (config.workflow ?? {});
     const result = {
         executor_model: resolveModelInternal(cwd, 'gsd-executor'),
         verifier_model: resolveModelInternal(cwd, 'gsd-verifier'),
-        tdd_mode: options['tdd'] || config.tdd_mode || false,
+        tdd_mode: options['tdd'] || Boolean(wf['tdd_mode']) || false,
         commit_docs: config.commit_docs,
         sub_repos: config.sub_repos,
         parallelization: config.parallelization,
@@ -300,15 +328,16 @@ function cmdInitPlanPhase(cwd, phase, raw, options = {}) {
     const granularityOverride = options['granularity'];
     assertValidGranularityOverride(granularityOverride, error);
     const granularity = resolveGranularityInternal(cwd, 'planning', granularityOverride || undefined);
+    const wf = (config.workflow ?? {});
     const result = {
         researcher_model: resolveModelInternal(cwd, 'gsd-phase-researcher'),
         planner_model: resolveModelInternal(cwd, 'gsd-planner'),
         checker_model: resolveModelInternal(cwd, 'gsd-plan-checker'),
-        tdd_mode: options['tdd'] || config.tdd_mode || false,
+        tdd_mode: options['tdd'] || Boolean(wf['tdd_mode']) || false,
         granularity,
-        research_enabled: config.research,
+        research_enabled: wf['research'],
         plan_checker_enabled: config.plan_checker,
-        nyquist_validation_enabled: config.nyquist_validation,
+        nyquist_validation_enabled: wf['nyquist_validation'],
         commit_docs: config.commit_docs,
         text_mode: config.text_mode,
         auto_advance: !!(config.auto_advance),
@@ -507,12 +536,13 @@ function cmdInitNewMilestone(cwd, raw) {
     catch {
         /* intentionally empty */
     }
+    const wf = (config.workflow ?? {});
     const result = {
         researcher_model: resolveModelInternal(cwd, 'gsd-project-researcher'),
         synthesizer_model: resolveModelInternal(cwd, 'gsd-research-synthesizer'),
         roadmapper_model: resolveModelInternal(cwd, 'gsd-roadmapper'),
         commit_docs: config.commit_docs,
-        research_enabled: config.research,
+        research_enabled: wf['research'],
         current_milestone: milestone['version'],
         current_milestone_name: milestone['name'],
         latest_completed_milestone: latestCompleted?.version || null,
@@ -1219,7 +1249,6 @@ function cmdInitManager(cwd, raw) {
 }
 function cmdInitProgress(cwd, raw) {
     try {
-        const { pruneOrphanedWorktrees } = core;
         pruneOrphanedWorktrees(cwd);
     }
     catch {
@@ -1530,7 +1559,9 @@ function buildAgentSkillsBlock(config, agentType, projectRoot) {
     // It returns [] cheaply when no roots are configured, so the realpath cost only
     // occurs when the caller has actually set trusted_global_roots.
     const trustedGlobalRoots = (0, security_cjs_1.loadTrustedGlobalRoots)(config);
-    const validPaths = [];
+    // Each entry is either a filesystem include ({ kind: 'include', ref, display }) or a
+    // Skill-tool directive ({ kind: 'directive', name }) for plugin-provided namespaced skills.
+    const validEntries = [];
     for (const skillPath of skillPaths) {
         if (typeof skillPath !== 'string')
             continue;
@@ -1540,10 +1571,25 @@ function buildAgentSkillsBlock(config, agentType, projectRoot) {
                 process.stderr.write(`[agent-skills] WARNING: "global:" prefix with empty skill name — skipping\n`);
                 continue;
             }
-            if (!/^[a-zA-Z0-9_-]+$/.test(skillName)) {
+            // Accept: one or more [A-Za-z0-9_-]+ segments joined by single colons.
+            // Rejects: empty segments (::), leading/trailing colon, dots, slashes, backslashes.
+            if (!/^[A-Za-z0-9_-]+(:[A-Za-z0-9_-]+)*$/.test(skillName)) {
                 process.stderr.write(`[agent-skills] WARNING: Invalid global skill name "${skillName}" — skipping\n`);
                 continue;
             }
+            const isNamespaced = skillName.includes(':');
+            if (isNamespaced) {
+                // Plugin-provided namespaced skill: no filesystem path exists locally.
+                if (runtime === 'claude') {
+                    // Emit a natural-language Skill-tool directive (not a @-include).
+                    validEntries.push({ kind: 'directive', name: skillName });
+                }
+                else {
+                    process.stderr.write(`[agent-skills] WARNING: Plugin-namespaced skill "global:${skillName}" requires a Skill-tool-capable runtime (claude) — skipping on runtime "${runtime}"\n`);
+                }
+                continue;
+            }
+            // Non-namespaced bare name: attempt filesystem resolution as before.
             if (globalSkillsBase === null) {
                 process.stderr.write(`[agent-skills] WARNING: Runtime "${runtime}" does not use a skills directory — "global:${skillName}" is not supported on this runtime\n`);
                 continue;
@@ -1567,7 +1613,7 @@ function buildAgentSkillsBlock(config, agentType, projectRoot) {
                 }
                 process.stderr.write(`[agent-skills] NOTE: Global skill "${skillName}" accepted via trusted_global_roots (resolves outside the default skills dir)\n`);
             }
-            validPaths.push({ ref: `${globalSkillDir}/SKILL.md`, display: displayPath });
+            validEntries.push({ kind: 'include', ref: `${globalSkillDir}/SKILL.md`, display: displayPath });
             continue;
         }
         const pathCheck = (0, security_cjs_1.validatePath)(skillPath, projectRoot);
@@ -1580,11 +1626,16 @@ function buildAgentSkillsBlock(config, agentType, projectRoot) {
             process.stderr.write(`[agent-skills] WARNING: Skill not found at "${skillPath}/SKILL.md" — skipping\n`);
             continue;
         }
-        validPaths.push({ ref: `${skillPath}/SKILL.md`, display: skillPath });
+        validEntries.push({ kind: 'include', ref: `${skillPath}/SKILL.md`, display: skillPath });
     }
-    if (validPaths.length === 0)
+    if (validEntries.length === 0)
         return '';
-    const lines = validPaths.map((p) => `- @${p.ref}`).join('\n');
+    const lines = validEntries.map((entry) => {
+        if (entry.kind === 'directive') {
+            return `- Load the \`${entry.name}\` skill via the Skill tool before proceeding (plugin-provided).`;
+        }
+        return `- @${entry.ref}`;
+    }).join('\n');
     return `<agent_skills>\nRead these user-configured skills:\n${lines}\n</agent_skills>`;
 }
 function cmdAgentSkills(cwd, agentType, raw, jsonMode) {
