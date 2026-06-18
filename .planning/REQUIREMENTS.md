@@ -27,10 +27,10 @@ Requirements for the Vigilo/VDE compatibility milestone. Each requirement maps t
 
 ### Incident Event Audit
 
-- [ ] **AUD-01**: Maintainers can migrate the database to include an append-only `incident_events` table with the required traceability columns and indexes.
-- [ ] **AUD-02**: Correlia records one audit row for every accepted normalized event with raw payload, normalized event, decision summary, source ID, fingerprint, severity, host, service, and timestamps.
-- [ ] **AUD-03**: Correlia records audit rows without using them to decide incident aggregation, notification thresholds, recovery, or lifecycle transitions.
-- [ ] **AUD-04**: Operators can correlate audit rows to incidents when an incident exists and can inspect no-op accepted events when no incident was created or updated.
+- [x] **AUD-01**: Maintainers can migrate the database to include an append-only `incident_events` table with the required traceability columns and indexes.
+- [x] **AUD-02**: Correlia records one audit row for every accepted normalized event with raw payload, normalized event, decision summary, source ID, fingerprint, severity, host, service, and timestamps.
+- [x] **AUD-03**: Correlia records audit rows without using them to decide incident aggregation, notification thresholds, recovery, or lifecycle transitions.
+- [x] **AUD-04**: Operators can correlate audit rows to incidents when an incident exists and can inspect no-op accepted events when no incident was created or updated.
 
 ### Vigilo Config Migration
 
@@ -104,10 +104,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | API-05 | Phase 6 | Complete |
 | API-06 | Phase 6 | Complete |
 | API-07 | Phase 6 | Complete |
-| AUD-01 | Phase 7 | Pending |
-| AUD-02 | Phase 7 | Pending |
-| AUD-03 | Phase 7 | Pending |
-| AUD-04 | Phase 7 | Pending |
+| AUD-01 | Phase 7 | Complete |
+| AUD-02 | Phase 7 | Complete |
+| AUD-03 | Phase 7 | Complete |
+| AUD-04 | Phase 7 | Complete |
 | CFG-01 | Phase 8 | Pending |
 | CFG-02 | Phase 8 | Pending |
 | CFG-03 | Phase 8 | Pending |
