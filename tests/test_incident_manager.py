@@ -109,13 +109,58 @@ class PluginNames:
         self.config_hash = "sha256:plugins"
 
 
-def test_incident_manager_commits_before_notify_submit() -> None:
+def test_incident_manager_defers_commit_and_notification_submit_to_caller() -> None:
+    """The manager must not commit or submit notifications; that is now the
+    ingress caller's responsibility (D-01/D-02/D-03)."""
+
     import app.processing.incident_manager as incident_manager
 
     source = inspect.getsource(incident_manager.IncidentManager)
-    commit_pos = source.index("await self._session.commit()")
-    submit_pos = source.index('await self._task_runner.submit("notify"')
-    assert commit_pos < submit_pos
+    # apply_problem must not call commit or the task runner; both are owned
+    # by the ingress layer now.
+    assert "await self._session.commit()" not in source
+    assert 'await self._task_runner.submit("notify"' not in source
+    # The post-commit notification submission helper was removed entirely.
+    assert "_submit_notifications" not in source
+
+
+async def test_apply_problem_defers_commit_to_caller(
+    db_session: AsyncSession,
+) -> None:
+    """apply_problem must write the incident but not commit, so a second
+    independent session cannot see the row until the caller commits.
+    Proves D-01/D-02: commit ownership belongs to ingress."""
+
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app.processing.incident_manager import IncidentManager
+
+    timestamp = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    result = await IncidentManager(
+        db_session,
+        plugin_registry=PluginNames("email-oncall"),
+    ).apply_problem(_event("fp-defer", timestamp), _decision(timestamp, threshold=1))
+
+    # The same session can see its own uncommitted writes.
+    visible_in_session = await db_session.scalar(
+        sa.text("SELECT id FROM incidents WHERE id = :id"),
+        {"id": result.incident_id},
+    )
+    assert visible_in_session is not None
+
+    # A second, independent session (no implicit transaction sharing) must
+    # NOT see the row until the caller commits. This is the D-01
+    # transaction-ownership proof.
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+    async with factory() as other_session:
+        isolated = await other_session.scalar(
+            sa.text("SELECT id FROM incidents WHERE id = :id"),
+            {"id": result.incident_id},
+        )
+    assert isolated is None, (
+        "IncidentManager.apply_problem must defer commit; the row leaked into "
+        "an independent session, which means the manager committed."
+    )
 
 
 
@@ -140,24 +185,15 @@ async def test_apply_problem_returns_inserted_below_threshold_result(
     assert result.incident_id is not None
     assert result.status == "OPEN"
     assert result.threshold_crossed is False
-    assert result.notification_triggered is False
-    assert result.notification_failed is False
+    assert result.notification_intent == "no_dispatch"
     assert result.no_dispatch_reason == NoDispatchReason.BELOW_THRESHOLD.value
-    assert result.notification_results == ()
     assert runner.submissions == []
 
 
 async def test_apply_problem_reports_updated_threshold_crossed_then_already_notified(
     db_session: AsyncSession,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from app.processing.incident_manager import IncidentManager, NoDispatchReason
-
-    attempts: list[tuple[str, str]] = []
-    monkeypatch.setattr(
-        "app.processing.incident_manager.record_notification_attempt",
-        lambda plugin_name, category: attempts.append((plugin_name, category)),
-    )
 
     runner = RecordingRunner()
     manager = IncidentManager(
@@ -183,21 +219,15 @@ async def test_apply_problem_reports_updated_threshold_crossed_then_already_noti
     assert crossed.effect == "updated"
     assert crossed.threshold_crossed is True
     assert crossed.first_threshold_transition is True
-    assert crossed.notification_triggered is True
-    assert crossed.notification_results[0].category == "dispatched"
-    assert crossed.notification_results[1].category == "dispatched"
-    assert len(runner.submissions) == 2
-    assert runner.submissions[0][0] == "notify"
-    assert runner.submissions[0][1]["plugin_name"] == "audit-log"
-    assert runner.submissions[1][1]["plugin_name"] == "email-oncall"
+    assert crossed.notification_intent == "dispatch_planned"
     assert crossed.no_dispatch_reason is None
-    assert attempts == []
+    assert len(runner.submissions) == 0
     assert already.effect == "updated"
     assert already.threshold_crossed is True
     assert already.first_threshold_transition is False
-    assert already.notification_triggered is False
+    assert already.notification_intent == "no_dispatch"
     assert already.no_dispatch_reason == NoDispatchReason.ALREADY_NOTIFIED.value
-    assert len(runner.submissions) == 2
+    assert len(runner.submissions) == 0
 
 
 async def test_apply_problem_reports_replay_without_retriggering(
@@ -221,26 +251,18 @@ async def test_apply_problem_reports_replay_without_retriggering(
     )
 
     assert replay.replay is True
-    assert replay.notification_triggered is False
+    assert replay.notification_intent == "no_dispatch"
     assert replay.no_dispatch_reason == NoDispatchReason.REPLAY.value
     assert runner.submissions == []
 
 
-async def test_apply_problem_returns_missing_plugin_and_submission_failures_after_commit(
+async def test_apply_problem_does_not_submit_or_record_notifications(
     db_session: AsyncSession,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Manager no longer owns notification dispatch (D-02/D-03); it returns
+    a notification_intent field and leaves submission to the ingress caller."""
+
     from app.processing.incident_manager import IncidentManager
-    attempts: list[tuple[str, str]] = []
-    failures: list[tuple[str, str]] = []
-    monkeypatch.setattr(
-        "app.processing.incident_manager.record_notification_attempt",
-        lambda plugin_name, category: attempts.append((plugin_name, category)),
-    )
-    monkeypatch.setattr(
-        "app.processing.incident_manager.record_notification_failure",
-        lambda plugin_name, category: failures.append((plugin_name, category)),
-    )
 
     timestamp = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
     missing_plugin = await IncidentManager(
@@ -249,34 +271,15 @@ async def test_apply_problem_returns_missing_plugin_and_submission_failures_afte
         plugin_registry=PluginNames("email-oncall"),
     ).apply_problem(_event("fp-missing", timestamp), _decision(timestamp, threshold=1))
 
-    assert missing_plugin.notification_failed is True
-    assert missing_plugin.notification_results[0].category == "missing_plugin"
+    # Manager must report dispatch_planned intent without actually submitting
+    # or recording per-plugin metrics; that is the ingress layer's job.
+    assert missing_plugin.notification_intent == "dispatch_planned"
 
     row = await db_session.execute(
         sa.text("SELECT COUNT(*) FROM incidents WHERE id = :id"),
         {"id": missing_plugin.incident_id},
     )
     assert row.scalar_one() == 1
-
-    fail_time = datetime(2026, 1, 1, 12, 10, tzinfo=timezone.utc)
-    submission_failed = await IncidentManager(
-        db_session,
-        task_runner=RecordingRunner(fail=True),
-        plugin_registry=PluginNames("email-oncall", "audit-log"),
-    ).apply_problem(
-        _event("fp-submit", fail_time, host="db-2"),
-        _decision(fail_time, threshold=1, group_key="service=postgres|topology.role=database|host=db-2"),
-    )
-
-    assert submission_failed.notification_failed is True
-    assert {r.category for r in submission_failed.notification_results} == {"dispatch_failed"}
-    assert attempts.count(("audit-log", "missing_plugin")) == 1
-    assert sorted(category for _, category in attempts) == [
-        "dispatch_failed",
-        "dispatch_failed",
-        "missing_plugin",
-    ]
-    assert failures == attempts
 
 
 async def test_apply_problem_persists_only_safe_decision_context(

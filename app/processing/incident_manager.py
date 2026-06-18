@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import logging
 from enum import StrEnum
+from typing import Literal
 from uuid import UUID
 
 from sqlalchemy import update
@@ -10,19 +11,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.events import EventType, NormalizedEvent
 from app.domain.incidents import DecisionContext
-from app.domain.rules import NotificationResult, RuleDecision
+from app.domain.rules import RuleDecision
 from app.persistence.incidents import (
     IncidentAggregationWriteResult,
     IncidentUpsertInput,
-    record_notification_result,
     record_problem_incident,
 )
 from app.persistence.models import Incident
-from app.processing.metrics import (
-    record_incident_effect,
-    record_notification_attempt,
-    record_notification_failure,
-)
+from app.processing.metrics import record_incident_effect
 from app.processing.logging import safe_log_extra
 from app.processing.task_runner import TaskRunner
 
@@ -35,8 +31,20 @@ class NoDispatchReason(StrEnum):
     ALREADY_NOTIFIED = "already_notified"
 
 
+NotificationIntent = Literal["dispatch_planned", "no_dispatch"]
+
+
 @dataclass(frozen=True, slots=True)
 class IncidentAggregationResult:
+    """Result of an ingress-driven problem aggregation.
+
+    The caller (ingress) owns the database transaction: the manager writes
+    incident/decision_context rows but does not commit and does not submit
+    notification tasks. ``notification_intent`` communicates whether the
+    caller should plan a notification dispatch after committing the audit
+    and incident rows, or skip dispatch with a documented reason.
+    """
+
     incident_id: UUID
     effect: str
     status: str
@@ -46,10 +54,8 @@ class IncidentAggregationResult:
     counted_count: int
     threshold_crossed: bool
     first_threshold_transition: bool
-    notification_triggered: bool
-    notification_failed: bool
+    notification_intent: NotificationIntent
     no_dispatch_reason: str | None
-    notification_results: tuple[NotificationResult, ...]
 
 
 class IncidentManager:
@@ -133,21 +139,23 @@ class IncidentManager:
             .values(decision_context=final_context.model_dump(mode="json"))
         )
         write_result.incident.decision_context = final_context.model_dump(mode="json")
-        await self._session.commit()
 
-        notification_results = await self._submit_notifications(write_result, decision)
-        notification_failed = any(not result.success for result in notification_results)
-        notification_triggered = any(result.success for result in notification_results)
-
+        notification_intent = (
+            "dispatch_planned" if no_dispatch_reason is None else "no_dispatch"
+        )
         logger.info(
-            "notification decision recorded",
+            "problem aggregation completed",
             extra=safe_log_extra(
-                event="notification_decision",
+                event="problem_aggregation",
                 incident_id=str(write_result.incident.id),
                 rule_name=decision.rule_name,
                 group_key=decision.group_key,
-                reason=no_dispatch_reason.value if no_dispatch_reason is not None else "dispatched",
-                notification_count=sum(1 for result in notification_results if result.success),
+                effect=write_result.effect,
+                notification_intent=notification_intent,
+                no_dispatch_reason=(
+                    no_dispatch_reason.value if no_dispatch_reason is not None else None
+                ),
+                first_threshold_transition=write_result.first_threshold_transition,
             ),
         )
         return IncidentAggregationResult(
@@ -160,74 +168,11 @@ class IncidentManager:
             counted_count=write_result.counted_count,
             threshold_crossed=write_result.threshold_crossed,
             first_threshold_transition=write_result.first_threshold_transition,
-            notification_triggered=notification_triggered,
-            notification_failed=notification_failed,
-            no_dispatch_reason=no_dispatch_reason.value if no_dispatch_reason is not None else None,
-            notification_results=notification_results,
+            notification_intent=notification_intent,
+            no_dispatch_reason=(
+                no_dispatch_reason.value if no_dispatch_reason is not None else None
+            ),
         )
-
-    async def _submit_notifications(
-        self, write_result: IncidentAggregationWriteResult, decision: RuleDecision
-    ) -> tuple[NotificationResult, ...]:
-        if not write_result.first_threshold_transition:
-            return ()
-
-        results: list[NotificationResult] = []
-        known_plugins = set(getattr(self._plugin_registry, "names", ()))
-        for plugin_name in sorted(set(decision.actions)):
-            if plugin_name not in known_plugins:
-                result = NotificationResult(
-                    success=False,
-                    category="missing_plugin",
-                    message="configured output plugin is missing",
-                )
-                record_notification_attempt(plugin_name, result.category)
-                record_notification_failure(plugin_name, result.category)
-                await self._record_notification(write_result.incident.id, plugin_name, result)
-                results.append(result)
-                continue
-            if self._task_runner is None:
-                result = NotificationResult(
-                    success=False,
-                    category="dispatch_failed",
-                    message="notification task runner is unavailable",
-                )
-                record_notification_attempt(plugin_name, result.category)
-                record_notification_failure(plugin_name, result.category)
-                await self._record_notification(write_result.incident.id, plugin_name, result)
-                results.append(result)
-                continue
-            try:
-                await self._task_runner.submit("notify", {
-                    "incident_id": str(write_result.incident.id),
-                    "plugin_name": plugin_name,
-                    "config_hash": self._config_hash,
-                })
-            except Exception:
-                result = NotificationResult(
-                    success=False,
-                    category="dispatch_failed",
-                    message="notification task submission failed",
-                )
-                record_notification_attempt(plugin_name, result.category)
-                record_notification_failure(plugin_name, result.category)
-                await self._record_notification(write_result.incident.id, plugin_name, result)
-                results.append(result)
-                continue
-            results.append(
-                NotificationResult(
-                    success=True,
-                    category="dispatched",
-                    message="notification task submitted",
-                )
-            )
-        return tuple(results)
-
-    async def _record_notification(
-        self, incident_id: UUID, plugin_name: str, result: NotificationResult
-    ) -> None:
-        await record_notification_result(self._session, incident_id, plugin_name, result)
-        await self._session.commit()
 
     def _decision_context(
         self,

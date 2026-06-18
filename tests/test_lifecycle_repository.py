@@ -385,6 +385,62 @@ async def test_manual_close_is_idempotent_and_frees_open_slot(
     assert replacement.status == IncidentStatus.OPEN.value
 
 
+async def test_resolve_for_event_defers_commit_to_caller(
+    db_session: AsyncSession,
+) -> None:
+    """resolve_for_event writes the recovery but does not commit. A second
+    independent session opened right after the call must still see the
+    incident as OPEN, until the caller commits (D-01/D-02)."""
+
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app.domain.events import EventType, NormalizedEvent
+    from app.processing.lifecycle import LifecycleManager
+
+    # Seed an open incident (committed inside the helper).
+    incident = await _seed_incident(db_session)
+
+    # The session has no explicit transaction in flight, so subsequent writes
+    # will be auto-begun by SQLAlchemy. The manager must NOT commit.
+    manager = LifecycleManager(db_session)
+    result = await manager.resolve_for_event(
+        NormalizedEvent(
+            fingerprint="recovery-fp-defer",
+            source_id="icinga2:host:web-01",
+            host="web-01",
+            service=None,
+            severity=Severity.OK,
+            event_type=EventType.RECOVERY,
+            timestamp=_event_time(),
+            tags={},
+            message="recovery",
+        )
+    )
+    assert result.incident_ids  # found and resolved
+    assert result.notification_intent == "no_dispatch"
+
+    # Right after the manager call, before any caller commit, an independent
+    # session must still see the open incident status.
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+    async with factory() as other_session:
+        after = await other_session.get(type(incident), incident.id)
+    assert after is not None
+    assert after.status == "OPEN", (
+        "LifecycleManager.resolve_for_event must defer commit; the resolution "
+        "leaked into an independent session, which means the manager committed."
+    )
+
+
+def test_lifecycle_manager_source_defers_commit_to_caller() -> None:
+    """The source for resolve_for_event must contain no self._session.commit()"""
+
+    import app.processing.lifecycle as lifecycle_module
+
+    source = inspect.getsource(lifecycle_module.LifecycleManager.resolve_for_event)
+    assert "await self._session.commit()" not in source
+
+
+
 def test_lifecycle_repository_source_is_postgresql_only_and_non_insert_path() -> None:
     from app.persistence import incidents as incidents_module
 
