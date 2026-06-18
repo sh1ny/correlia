@@ -101,7 +101,7 @@ def upgrade() -> None:
             name="ck_incident_events_normalized_event_object",
         ),
         sa.CheckConstraint(
-            "raw_payload IS NULL OR jsonb_typeof(raw_payload) = 'object'",
+            "jsonb_typeof(raw_payload) = 'object'",
             name="ck_incident_events_raw_payload_object",
         ),
         sa.CheckConstraint(
