@@ -1,5 +1,4 @@
 from datetime import UTC, datetime
-from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -7,9 +6,10 @@ from pydantic import ValidationError
 from app.domain.incidents import (
     Acknowledgement,
     DecisionContext,
-    IncidentStatus,
     IncidentAckRequest,
     IncidentCloseRequest,
+    IncidentStatus,
+    IncidentStatusFilter,
     LifecycleOutcome,
     is_terminal_status,
     validate_incident_transition,
@@ -20,7 +20,12 @@ from app.domain.rules import NotificationResult
 def test_incident_status_values_are_lifecycle_only() -> None:
     assert [status.value for status in IncidentStatus] == ["OPEN", "RESOLVED", "CLOSED"]
     assert "ACKNOWLEDGED" not in {status.value for status in IncidentStatus}
-    assert "ACKNOWLEDGED" not in Path("app/domain/incidents.py").read_text()
+    assert [status.value for status in IncidentStatusFilter] == [
+        "OPEN",
+        "ACKNOWLEDGED",
+        "RESOLVED",
+        "CLOSED",
+    ]
 
 
 def test_acknowledgement_is_metadata_on_open_incident() -> None:
