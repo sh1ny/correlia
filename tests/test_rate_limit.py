@@ -462,3 +462,15 @@ async def test_in_process_rate_limiter_sweep_expired_returns_count(
     removed = await limiter.sweep_expired()
     assert removed == 2
     assert limiter._counters == {}
+
+
+async def test_incident_events_inherit_operator_rate_limit() -> None:
+    app = _app(_auth_settings(rate_limit_requests_operator=1))
+    async for client in get_client(app):
+        resp1 = await client.get("/v1/incident-events")
+        assert resp1.status_code == 401
+        assert resp1.json() == {"detail": "unauthorized"}
+
+        resp2 = await client.get("/v1/incident-events")
+        assert resp2.status_code == 429
+        assert resp2.json() == {"detail": "rate limit exceeded"}
