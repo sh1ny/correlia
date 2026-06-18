@@ -11,9 +11,9 @@ from app.domain.events import EventType, NormalizedEvent, Severity
 from app.domain.rules import RuleDecision, ThresholdDecision
 from app.persistence.incidents import IncidentAggregationWriteResult, LifecycleWriteResult
 from app.persistence.models import Incident
-from app.processing.incident_manager import IncidentAggregationResult, IncidentManager
+from app.processing.incident_manager import IncidentManager
 from app.processing.ingress import Icinga2DecisionProcessor
-from app.processing.lifecycle import LifecycleManager, LifecycleResult
+from app.processing.lifecycle import LifecycleManager
 from app.processing.lifecycle_worker import LifecycleWorker
 from app.processing.notification_dispatcher import NotificationDispatcher
 from app.processing.task_runner import AsyncIOTaskRunner
@@ -227,15 +227,11 @@ async def test_ingest_lifecycle_notification_and_worker_metrics_use_low_cardinal
         return None
     monkeypatch.setattr(ingress_module, "insert_incident_event", _noop_insert)
 
-
     from app.plugins.inputs.icinga2 import Icinga2WebhookPayload
 
     from app.persistence.incidents import (
         IncidentAggregationWriteResult,
         LifecycleWriteResult,
-        resolve_host_recovery as _real_resolve_host_recovery,
-        resolve_service_recovery as _real_resolve_service_recovery,
-        record_problem_incident as _real_record_problem_incident,
     )
     from app.processing import incident_manager as im_module
     from app.processing import lifecycle as lm_module
@@ -353,21 +349,15 @@ async def test_ingest_lifecycle_notification_and_worker_metrics_use_low_cardinal
     monkeypatch.setattr(lm_module, "resolve_host_recovery", _fake_resolve_host_recovery)
     monkeypatch.setattr(lm_module, "resolve_service_recovery", _fake_resolve_service_recovery)
 
-    # Monkeypatch the audit insert so the fake session can satisfy it.
-    async def _noop_insert(*args: object, **kwargs: object) -> None:
-        return None
-    import app.processing.ingress as ingress_module
-    monkeypatch.setattr(ingress_module, "insert_incident_event", _noop_insert)
-
     decision = _decision()
-    problem_processor = InstrumentedProcessor(
+    problem_processor = Icinga2DecisionProcessor(
         FakePlugin(_event(EventType.PROBLEM, severity=Severity.CRITICAL)),
         rule_engine=FakeRuleEngine(decision),
         sessionmaker=_NoopSessionFactory(),
         audit_raw_payload_max_bytes=1024,
         audit_raw_payload_hmac_key="test-audit-hmac",
     )
-    recovery_processor = InstrumentedProcessor(
+    recovery_processor = Icinga2DecisionProcessor(
         FakePlugin(_event(EventType.RECOVERY, severity=Severity.OK)),
         rule_engine=FakeRuleEngine(decision),
         sessionmaker=_NoopSessionFactory(),

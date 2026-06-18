@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import cast
 
 import pytest
 from pydantic import ValidationError
@@ -47,7 +46,6 @@ def test_audit_decision_summary_rejects_extra_fields() -> None:
 
 
 def test_audit_decision_summary_rejects_invalid_literals() -> None:
-    base = _valid_decision_summary_kwargs()
     bad: list[tuple[str, object]] = [
         ("decision_kind", "resolved"),
         ("incident_effect", "deleted"),

@@ -140,7 +140,7 @@ class IncidentManager:
         )
         write_result.incident.decision_context = final_context.model_dump(mode="json")
 
-        notification_intent = (
+        notification_intent: NotificationIntent = (
             "dispatch_planned" if no_dispatch_reason is None else "no_dispatch"
         )
         logger.info(
