@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Vigilo/VDE Compatibility
 status: executing
-stopped_at: Wave 1 complete; ready to dispatch 07-02
-last_updated: "2026-06-18T14:20:45.137Z"
-last_activity: 2026-06-18 -- Wave 1 (07-01) complete
+stopped_at: Wave 2 complete; ready to dispatch 07-03
+last_updated: "2026-06-18T15:40:00.000Z"
+last_activity: 2026-06-18 -- Phase 07 Plan 02 complete (07-02-SUMMARY.md)
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 6
-  completed_plans: 4
-  percent: 33
+  completed_plans: 5
+  percent: 42
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-17)
 
 **Core value:** Operators receive one accurate, topology-aware incident for a related alert storm instead of many disconnected raw alerts.
-**Current focus:** Phase 7 — incident-event-audit-trail
+**Current focus:** Phase 07 — incident-event-audit-trail
 
 ## Current Position
 
-Phase: 7 (incident-event-audit-trail) — EXECUTING
+Phase: 07 (incident-event-audit-trail) — EXECUTING
 Plan: 2 of 3
-Status: Wave 1 complete; Wave 2 ready
-Last activity: 2026-06-18 -- Wave 1 (07-01) complete
+Status: Wave 2 complete; ready to dispatch 07-03
+Last activity: 2026-06-18 -- Phase 07 Plan 02 complete
 
-Progress: [██░░░░░░░░] 33%
+Progress: [████░░░░░░] 42%
 
 ## Milestone Archive
 
@@ -66,6 +66,8 @@ v1.1 roadmap decisions:
 - [Phase ?]: Size limiter is installed outermost so oversized requests are rejected before the rate limiter counts them.
 - [Phase ?]: Rate-limit identity uses SHA-256 hashed Bearer token first, then remote IP, with no raw token in logs or limiter keys.
 - [Phase ?]: Extended SAFE_LOG_KEYS with route_class, identity_hash, content_length, retry_after, limit, and window_seconds for safe control-event logging.
+- [Phase 7]: Moved commit ownership from IncidentManager.apply_problem and LifecycleManager.resolve_for_event to Icinga2DecisionProcessor.process_payload (D-01/D-02). Managers return commit-free result objects with notification_intent; ingress inserts the audit row and commits once.
+- [Phase 7]: Audit rows record notification_intent only; actual plugin delivery results stay out of the append-only incident_events table (D-03). Notification submission runs after the incident/audit commit.
 
 ### Deferred Items
 
@@ -85,11 +87,11 @@ Items acknowledged and carried forward from milestone close:
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/07-incident-event-audit-trail/07-CONTEXT.md
+**Resume file:** .planning/phases/07-incident-event-audit-trail/07-02-SUMMARY.md
 
-Last session: 2026-06-18T14:20:45.134Z
-Stopped at: context exhaustion at 75% (2026-06-18)
-Resume: Phase 7 planning not started — resume from ROADMAP.md Phase 7 when ready
+Last session: 2026-06-18T15:40:00.000Z
+Stopped at: 07-02 complete; ready to dispatch 07-03
+Resume: Phase 7 Plan 02 complete — resume from ROADMAP.md Phase 7 Plan 03 when ready
 
 ## Performance Metrics
 
@@ -97,3 +99,4 @@ Resume: Phase 7 planning not started — resume from ROADMAP.md Phase 7 when rea
 |-------|------|----------|-------|
 | Phase 05-security-and-http-controls P01 | 19min | 2 tasks | 18 files |
 | Phase 05-security-and-http-controls P02 | 15min | 2 tasks | 9 files |
+| Phase 07-incident-event-audit-trail P02 | 60min | 3 tasks | 10 files |
