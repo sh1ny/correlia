@@ -16,7 +16,7 @@ from app.config.settings import Settings
 from app.domain.events import Severity
 from app.domain.incidents import DecisionContext, IncidentStatus
 from app.main import create_app
-from app.persistence.models import Incident
+from app.persistence.models import Incident, IncidentEvent
 
 pytestmark = pytest.mark.anyio
 
@@ -59,9 +59,11 @@ async def session_factory(postgres_url: str):
     maker = async_sessionmaker(engine, expire_on_commit=False)
     async with engine.begin() as conn:
         await conn.execute(Incident.__table__.delete())
+        await conn.execute(IncidentEvent.__table__.delete())
     yield maker
     async with engine.begin() as cleanup:
         await cleanup.execute(Incident.__table__.delete())
+        await cleanup.execute(IncidentEvent.__table__.delete())
     await engine.dispose()
 
 
@@ -288,6 +290,13 @@ async def test_ack_is_idempotent_and_keeps_incident_open(
         )
     assert count == 1
 
+    # AUD-03: operator ACK mutations must not create audit rows.
+    async with session_factory() as session:
+        audit_count = await session.scalar(
+            select(func.count()).select_from(IncidentEvent)
+        )
+    assert audit_count == 0
+
 
 async def test_manual_close_is_idempotent_and_frees_open_slot(
     session_factory: async_sessionmaker[AsyncSession],
@@ -325,6 +334,13 @@ async def test_manual_close_is_idempotent_and_frees_open_slot(
         )
     assert reopened.id != incident.id
     assert reopened.status == IncidentStatus.OPEN.value
+
+    # AUD-03: operator CLOSE mutations must not create audit rows.
+    async with session_factory() as session:
+        audit_count = await session.scalar(
+            select(func.count()).select_from(IncidentEvent)
+        )
+    assert audit_count == 0
 
 
 async def test_operator_mutations_emit_safe_json_logs(
@@ -617,6 +633,13 @@ async def test_patch_acknowledges_with_vigilo_defaults_and_is_idempotent(
     assert first.json()["acknowledgement"]["acknowledged_by"] == "vigilo-compat"
     assert second.json()["acknowledgement"]["acknowledged_by"] == "vigilo-compat"
 
+    # AUD-03: PATCH compatibility ack must not create audit rows.
+    async with session_factory() as session:
+        audit_count = await session.scalar(
+            select(func.count()).select_from(IncidentEvent)
+        )
+    assert audit_count == 0
+
 
 async def test_patch_close_and_delete_close_with_vigilo_defaults_are_idempotent(
     session_factory: async_sessionmaker[AsyncSession],
@@ -664,6 +687,13 @@ async def test_patch_close_and_delete_close_with_vigilo_defaults_are_idempotent(
     assert repeat_delete.status_code == 200
     assert first_delete.json()["status"] == "CLOSED"
     assert repeat_delete.json()["status"] == "CLOSED"
+
+    # AUD-03: PATCH/DELETE compatibility close must not create audit rows.
+    async with session_factory() as session:
+        audit_count = await session.scalar(
+            select(func.count()).select_from(IncidentEvent)
+        )
+    assert audit_count == 0
 
 
 async def test_patch_rejects_summary_mutation_and_missing_status_with_compact_422(
