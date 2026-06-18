@@ -19,7 +19,7 @@ v1.1 makes Correlia a practical Vigilo/VDE replacement at the auth, HTTP-control
 
 - [x] **Phase 5: Security and HTTP Controls** - Protected routes use production-safe Bearer auth, configurable public health/readiness exposure, request-size limits, and route rate limits. (completed 2026-06-17)
 - [x] **Phase 6: Canonical Incident API Operation Parity** - `/v1/incidents` supports Vigilo-compatible list/detail/mutation workflows while preserving Correlia's richer canonical API and lifecycle rules. (completed 2026-06-17)
-- [ ] **Phase 7: Incident Event Audit Trail** - Accepted normalized events are recorded in an append-only audit table without influencing aggregation or lifecycle decisions.
+- [x] **Phase 7: Incident Event Audit Trail** - Accepted normalized events are recorded in an append-only audit table without influencing aggregation or lifecycle decisions. (completed 2026-06-18)
 - [ ] **Phase 8: Vigilo Config Migration** - Maintainers can convert supported Vigilo/VDE rules, topology, and email output config into validated Correlia YAML, with clear failures for unsupported semantics.
 - [ ] **Phase 9: Plugin and Notification Boundaries** - Output plugin loading and notification dispatch stay allowlisted, bounded, structured, and non-blocking.
 - [ ] **Phase 10: Deployment and Operational Visibility** - Docker/compose runtime artifacts, sample config, compatibility metrics, readiness, and safe logs make the compatibility surface operable.
@@ -75,7 +75,7 @@ Plans:
   3. Incident aggregation, notification thresholds, recovery, and lifecycle transitions produce the same decisions from primary incident state rather than audit rows.
   4. Operators can correlate audit rows to incidents when one exists and inspect accepted no-op events when no incident was created or updated.
 
-**Plans**: 2/3 plans executed
+**Plans**: 3/3 plans complete
 **Wave 1**
 
 - [x] 07-01-PLAN.md — Audit schema, domain models, persistence repository, raw-payload redactor/HMAC, and foundation tests.
@@ -84,9 +84,9 @@ Plans:
 
 - [x] 07-02-PLAN.md — Ingress transaction refactor, manager commit ownership move, and audit write integration for all accepted event paths.
 
-**Wave 3** *(ready)*
+**Wave 3**
 
-- [ ] 07-03-PLAN.md — Read-only `/v1/incident-events` operator API, route classification, bounded response projection, and integration tests.
+- [x] 07-03-PLAN.md — Read-only `/v1/incident-events` operator API, route classification, bounded response projection, and integration tests.
 
 ### Phase 8: Vigilo Config Migration
 
@@ -181,10 +181,10 @@ Plans:
 |-------|-----------|----------------|--------|-----------|
 | 5. Security and HTTP Controls | v1.1 | 2/2 | Complete    | 2026-06-17 |
 | 6. Canonical Incident API Operation Parity | v1.1 | 1/1 | Complete    | 2026-06-17 |
-| 7. Incident Event Audit Trail | v1.1 | 2/3 | Executing |  |
+| 7. Incident Event Audit Trail | v1.1 | 3/3 | Complete    | 2026-06-18 |
 | 8. Vigilo Config Migration | v1.1 | 0/TBD | Not started | - |
 | 9. Plugin and Notification Boundaries | v1.1 | 0/TBD | Not started | - |
 | 10. Deployment and Operational Visibility | v1.1 | 0/TBD | Not started | - |
 
 ---
-*Last updated: 2026-06-14 for v1.1 Vigilo/VDE Compatibility roadmap creation*
+*Last updated: 2026-06-18 — Phase 7 complete, Phase 8 ready*
