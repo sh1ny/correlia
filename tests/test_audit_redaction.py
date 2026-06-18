@@ -138,7 +138,7 @@ def test_redact_normalized_event_message_tags_redacts_sensitive_keys_and_values(
 
     assert safe_message == AUDIT_REDACTION_PLACEHOLDER
     assert safe_tags["env"] == "prod"
-    assert safe_tags["api_key"] == AUDIT_REDACTION_PLACEHOLDER
+    assert "api_key" not in safe_tags
     assert safe_tags["safe.tag"] == "visible"
 
     # Idempotency: running again on already-redacted output is safe.
@@ -146,16 +146,15 @@ def test_redact_normalized_event_message_tags_redacts_sensitive_keys_and_values(
         safe_message, safe_tags
     )
     assert safe_message2 == safe_message
-    assert safe_tags2 == safe_tags
+    assert safe_tags2 == safe_tags  # keys already omitted, values already redacted
 
 
-def test_redact_normalized_event_message_tags_preserves_tag_keys() -> None:
-    tags = {"api_key": "leaky-value"}
+def test_redact_normalized_event_message_tags_omits_sensitive_tag_keys() -> None:
+    tags = {"api_key": "leaky-value", "safe": "ok"}
     _, safe_tags = redact_normalized_event_message_tags(None, tags)
-    # Key is preserved (not renamed to [redacted]) so TagKey pattern holds.
-    assert "api_key" in safe_tags
-    assert safe_tags["api_key"] == AUDIT_REDACTION_PLACEHOLDER
-
+    # Sensitive keys are omitted entirely (D-08); safe keys remain.
+    assert "api_key" not in safe_tags
+    assert safe_tags["safe"] == "ok"
 
 def test_redact_normalized_event_message_tags_truncates_long_message() -> None:
     # D-08: non-sensitive messages up to 4096 chars in NormalizedEvent must
