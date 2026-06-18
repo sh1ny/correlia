@@ -6,6 +6,7 @@ RouteClass = Literal["operator", "ingress", "metrics", "readyz", "health"]
 
 ROUTE_CLASS_PREFIXES: Final[tuple[tuple[str, RouteClass], ...]] = (
     ("/v1/icinga2/events", "ingress"),
+    ("/v1/incident-events", "operator"),
     ("/v1/incidents", "operator"),
     ("/v1/rules", "operator"),
     ("/v1/topology", "operator"),

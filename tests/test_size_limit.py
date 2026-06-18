@@ -76,6 +76,8 @@ async def get_client(app) -> AsyncIterator[AsyncClient]:
     ("path", "expected"),
     [
         ("/v1/icinga2/events", "ingress"),
+        ("/v1/incident-events", "operator"),
+        ("/v1/incident-events/example-id", "operator"),
         ("/v1/incidents", "operator"),
         ("/v1/incidents/123", "operator"),
         ("/v1/rules", "operator"),
