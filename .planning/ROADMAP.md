@@ -75,7 +75,11 @@ Plans:
   3. Incident aggregation, notification thresholds, recovery, and lifecycle transitions produce the same decisions from primary incident state rather than audit rows.
   4. Operators can correlate audit rows to incidents when one exists and inspect accepted no-op events when no incident was created or updated.
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+- [ ] 07-01-PLAN.md — Audit schema, domain models, persistence repository, raw-payload redactor/HMAC, and foundation tests.
+- [ ] 07-02-PLAN.md — Ingress transaction refactor, manager commit ownership move, and audit write integration for all accepted event paths.
+- [ ] 07-03-PLAN.md — Read-only `/v1/incident-events` operator API, route classification, bounded response projection, and integration tests.
 
 ### Phase 8: Vigilo Config Migration
 
