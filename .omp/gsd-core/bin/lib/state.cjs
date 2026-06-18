@@ -12,8 +12,17 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 const node_fs_1 = __importDefault(require("node:fs"));
 const node_path_1 = __importDefault(require("node:path"));
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const core = require("./core.cjs");
-const { escapeRegex, loadConfig, getMilestoneInfo, getMilestonePhaseFilter, extractCurrentMilestone, output, error } = core;
+const ioMod = require("./io.cjs");
+const { output, error } = ioMod;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const configLoaderMod = require("./config-loader.cjs");
+const { loadConfig } = configLoaderMod;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const phaseIdMod = require("./phase-id.cjs");
+const { escapeRegex } = phaseIdMod;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const roadmapParserMod = require("./roadmap-parser.cjs");
+const { getMilestoneInfo, getMilestonePhaseFilter, extractCurrentMilestone } = roadmapParserMod;
 const shell_command_projection_cjs_1 = require("./shell-command-projection.cjs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const planningWorkspace = require("./planning-workspace.cjs");
@@ -245,34 +254,76 @@ function updateCurrentPositionFields(content, fields) {
     let posBody = posMatch[2];
     const statusDefaults = state_document_cjs_1.KNOWN_TEMPLATE_DEFAULTS['Status'];
     const lastActivityDefaults = state_document_cjs_1.KNOWN_TEMPLATE_DEFAULTS['Last Activity'];
-    if (fields.status && /^Status:/m.test(posBody)) {
-        // Only replace when the existing Current Position Status is a known template default.
-        const existingStatusMatch = posBody.match(/^Status:\s*(.+)$/m);
-        const existingStatus = existingStatusMatch ? existingStatusMatch[1].trim() : null;
-        const isInList = existingStatus && statusDefaults.some(d => d.toLowerCase() === existingStatus.toLowerCase());
-        const matchesPattern = existingStatus && state_document_cjs_1.KNOWN_STATUS_PATTERNS.some(p => p.test(existingStatus));
-        const isDefault = !existingStatus || isInList || matchesPattern;
-        if (isDefault) {
-            posBody = posBody.replace(/^Status:.*$/m, `Status: ${fields.status}`);
+    if (fields.status) {
+        if (/^Status:/m.test(posBody)) {
+            // Inline format: Status: value — only replace when the existing value is a
+            // known template default (Knuth invariant: preserve executor-authored values).
+            const existingStatusMatch = posBody.match(/^Status:\s*(.+)$/m);
+            const existingStatus = existingStatusMatch ? existingStatusMatch[1].trim() : null;
+            const isInList = existingStatus && statusDefaults.some(d => d.toLowerCase() === existingStatus.toLowerCase());
+            const matchesPattern = existingStatus && state_document_cjs_1.KNOWN_STATUS_PATTERNS.some(p => p.test(existingStatus));
+            const isDefault = !existingStatus || isInList || matchesPattern;
+            if (isDefault) {
+                posBody = posBody.replace(/^Status:.*$/m, `Status: ${fields.status}`);
+            }
+        }
+        else {
+            // Table format: | Status | value | — apply the same preserve-authored guard
+            // as the inline branch: only overwrite a known template default.
+            // (Finding 2 code-review: the table branch was unconditional before this fix.)
+            const existingStatus = (0, state_document_cjs_1.stateExtractField)(posBody, 'Status');
+            const isInList = existingStatus && statusDefaults.some(d => d.toLowerCase() === existingStatus.toLowerCase());
+            const matchesPattern = existingStatus && state_document_cjs_1.KNOWN_STATUS_PATTERNS.some(p => p.test(existingStatus));
+            const isDefault = !existingStatus || isInList || matchesPattern;
+            if (isDefault) {
+                const replaced = (0, state_document_cjs_1.stateReplaceField)(posBody, 'Status', fields.status);
+                if (replaced !== null)
+                    posBody = replaced;
+            }
         }
     }
-    if (fields.lastActivity && /^Last activity:/im.test(posBody)) {
-        // Only replace when the existing Current Position Last activity is a known template
-        // default (a bare ISO date).  Executor-authored narrative prose is preserved.
-        const existingActivityMatch = posBody.match(/^Last activity:\s*(.+)$/im);
-        const existingActivity = existingActivityMatch ? existingActivityMatch[1].trim() : null;
-        // A bare ISO date (YYYY-MM-DD with nothing after) is handler-generated.
-        // A date with a narrative suffix (e.g. "2026-02-15 -- blocked by infra...")
-        // was authored by the executor and must be preserved.
-        const isDateShape = existingActivity && /^\d{4}-\d{2}-\d{2}$/.test(existingActivity);
-        const inList = existingActivity && lastActivityDefaults.some(d => d.toLowerCase() === existingActivity.toLowerCase());
-        const isDefault = !existingActivity || isDateShape || inList;
-        if (isDefault) {
-            posBody = posBody.replace(/^Last activity:.*$/im, `Last activity: ${fields.lastActivity}`);
+    if (fields.lastActivity) {
+        if (/^Last activity:/im.test(posBody)) {
+            // Inline format — only replace when the existing value is a known template
+            // default (a bare ISO date).  Executor-authored narrative prose is preserved.
+            const existingActivityMatch = posBody.match(/^Last activity:\s*(.+)$/im);
+            const existingActivity = existingActivityMatch ? existingActivityMatch[1].trim() : null;
+            // A bare ISO date (YYYY-MM-DD with nothing after) is handler-generated.
+            // A date with a narrative suffix (e.g. "2026-02-15 -- blocked by infra...")
+            // was authored by the executor and must be preserved.
+            const isDateShape = existingActivity && /^\d{4}-\d{2}-\d{2}$/.test(existingActivity);
+            const inList = existingActivity && lastActivityDefaults.some(d => d.toLowerCase() === existingActivity.toLowerCase());
+            const isDefault = !existingActivity || isDateShape || inList;
+            if (isDefault) {
+                posBody = posBody.replace(/^Last activity:.*$/im, `Last activity: ${fields.lastActivity}`);
+            }
+        }
+        else {
+            // Table format — apply the same preserve-authored guard as the inline branch:
+            // only overwrite a bare ISO date or a known default; preserve narrative prose.
+            // (Finding 2 code-review: the table branch was unconditional before this fix.)
+            const existingActivity = (0, state_document_cjs_1.stateExtractField)(posBody, 'Last Activity')
+                ?? (0, state_document_cjs_1.stateExtractField)(posBody, 'Last activity');
+            const isDateShape = existingActivity && /^\d{4}-\d{2}-\d{2}$/.test(existingActivity);
+            const inList = existingActivity && lastActivityDefaults.some(d => d.toLowerCase() === existingActivity.toLowerCase());
+            const isDefault = !existingActivity || isDateShape || inList;
+            if (isDefault) {
+                const replaced = (0, state_document_cjs_1.stateReplaceField)(posBody, 'Last Activity', fields.lastActivity)
+                    ?? (0, state_document_cjs_1.stateReplaceField)(posBody, 'Last activity', fields.lastActivity);
+                if (replaced !== null)
+                    posBody = replaced;
+            }
         }
     }
-    if (fields.plan && /^Plan:/m.test(posBody)) {
-        posBody = posBody.replace(/^Plan:.*$/m, `Plan: ${fields.plan}`);
+    if (fields.plan) {
+        if (/^Plan:/m.test(posBody)) {
+            posBody = posBody.replace(/^Plan:.*$/m, `Plan: ${fields.plan}`);
+        }
+        else {
+            const replaced = (0, state_document_cjs_1.stateReplaceField)(posBody, 'Plan', fields.plan);
+            if (replaced !== null)
+                posBody = replaced;
+        }
     }
     return content.replace(posPattern, () => `${posMatch[1]}${posBody}`);
 }
@@ -560,6 +611,101 @@ function cmdStateAddBlocker(cwd, text, raw) {
         result['created'] = true;
     output(result, raw, 'true');
 }
+function cmdStateAddRoadmapEvolution(cwd, options, raw) {
+    const statePath = planningPaths(cwd).state;
+    if (!node_fs_1.default.existsSync(statePath)) {
+        output({ error: 'STATE.md not found' }, raw, undefined);
+        return;
+    }
+    const { phase, action, after, note, note_file, urgent } = options;
+    let noteText = undefined;
+    try {
+        noteText = readTextArgOrFile(cwd, note, note_file, 'note');
+    }
+    catch (err) {
+        output({ added: false, reason: err.message }, raw, 'false');
+        return;
+    }
+    // Reject missing / empty / whitespace-only notes — an evolution entry with no
+    // narrative is meaningless and would corrupt the section with a dangling bullet.
+    if (!noteText || !noteText.trim()) {
+        output({ error: 'note required' }, raw, undefined);
+        return;
+    }
+    // Flatten line breaks so the entry is always a single Markdown bullet. The
+    // dedupe + rendering contract is line-oriented; a multiline --note-file would
+    // otherwise spill continuation lines outside the bullet and defeat dedupe.
+    // Internal spacing (e.g. dollar columns) is preserved.
+    const flatNote = noteText.replace(/\s*[\r\n]+\s*/g, ' ').trim();
+    const actionText = (action && action.trim()) || 'changed';
+    const afterText = after && after.trim() ? ` after Phase ${after.trim()}` : '';
+    const urgentText = urgent ? ' (URGENT)' : '';
+    const entry = `- Phase ${phase || '?'} ${actionText}${afterText}: ${flatNote}${urgentText}`;
+    let duplicate = false;
+    let created = false;
+    let subsectionCreated = false;
+    // The Roadmap Evolution subsection lives under `## Accumulated Context`. Scope
+    // every lookup to that section's body so a `### Roadmap Evolution` heading in an
+    // unrelated h2 section (or a fenced example) can never be matched or mutated.
+    // The accBody lookahead stops only at the next h2 (`\n##[^#]`), so nested h3
+    // subsections stay inside the captured Accumulated Context body.
+    // Section boundaries mirror the sibling handlers (add-decision/add-blocker):
+    // a trailing CR on a CRLF STATE.md is absorbed by the lazy body and trimmed,
+    // so following sections are preserved without data loss (see the CRLF test).
+    readModifyWriteStateMd(statePath, (content) => {
+        const accPattern = /(##\s*Accumulated Context\s*\n)([\s\S]*?)(?=\n##[^#]|$)/i;
+        const accMatch = content.match(accPattern);
+        if (accMatch) {
+            const accHeader = accMatch[1];
+            const accBody = accMatch[2];
+            // Find `### Roadmap Evolution` WITHIN the Accumulated Context body only.
+            // Bounded by the next h3/h2 or the end of the section body.
+            const subPattern = /(###\s*Roadmap Evolution\s*\n)([\s\S]*?)(?=\n###?|$)/i;
+            const subMatch = accBody.match(subPattern);
+            if (subMatch) {
+                let subBody = subMatch[2];
+                // Dedupe: exact (trimmed) line already present is a no-op replay.
+                if (subBody.split('\n').some((line) => line.trim() === entry.trim())) {
+                    duplicate = true;
+                    return content;
+                }
+                subBody = subBody.replace(/None yet\.?\s*\n?/gi, '');
+                subBody = subBody.trimEnd() + '\n' + entry + '\n';
+                const newAccBody = accBody.replace(subPattern, (_m, header) => `${header}${subBody}`);
+                return content.replace(accPattern, () => `${accHeader}${newAccBody}`);
+            }
+            // Subsection missing — append it at the end of the Accumulated Context body.
+            subsectionCreated = true;
+            const trimmedAcc = accBody.trimEnd();
+            const block = `${trimmedAcc ? `${trimmedAcc}\n\n` : ''}### Roadmap Evolution\n\n${entry}\n`;
+            return content.replace(accPattern, () => `${accHeader}${block}`);
+        }
+        // No `## Accumulated Context` — DWIM: create both at end of file.
+        // Mirrors the add-decision / add-blocker auto-create behavior.
+        created = true;
+        subsectionCreated = true;
+        const scaffold = [
+            '',
+            '## Accumulated Context',
+            '',
+            '### Roadmap Evolution',
+            '',
+            entry,
+            '',
+        ].join('\n');
+        return content.trimEnd() + '\n' + scaffold;
+    }, cwd);
+    if (duplicate) {
+        output({ added: false, reason: 'duplicate', entry }, raw, 'false');
+        return;
+    }
+    const result = { added: true, entry };
+    if (created)
+        result['created'] = true;
+    if (subsectionCreated)
+        result['subsection_created'] = true;
+    output(result, raw, 'true');
+}
 function cmdStateResolveBlocker(cwd, text, raw) {
     const statePath = planningPaths(cwd).state;
     if (!node_fs_1.default.existsSync(statePath)) {
@@ -679,7 +825,9 @@ function cmdStateRecordSession(cwd, options, raw) {
         // newly-written Stopped at / Resume file end up in the second (invisible) block.
         // Fix: when a `## Session` heading already exists, normalize THAT block in place
         // (insert / replace canonical bold-label lines within the existing section).
-        // Only append a brand-new section when NO `## Session` heading exists at all.
+        // A `## Session Continuity` heading (bootstrap shape) is handled additively —
+        // missing canonical fields are inserted while the heading and any prose are
+        // preserved (#1101). Only append a brand-new section when NEITHER heading exists.
         const callerSuppliedValues = !!(options.stopped_at || (options.resume_file !== undefined && options.resume_file !== null));
         const needsStoppedAt = options.stopped_at && !updated.includes('Stopped At');
         const needsResumeFile = options.resume_file !== undefined && options.resume_file !== null && !updated.includes('Resume File');
@@ -689,9 +837,14 @@ function cmdStateRecordSession(cwd, options, raw) {
                 ? options.resume_file
                 : 'None';
             const stoppedAtValue = options.stopped_at || 'None';
-            // Determine whether a ## Session heading already exists in the body.
-            const existingSessionHeading = /^## Session\s*$/im.test(content);
-            if (existingSessionHeading) {
+            // Determine whether a session heading already exists in the body. The
+            // canonical normalized form is `## Session`; the bootstrap templates
+            // (workstream.cts, gsd2-import.cts, templates/state.md) instead emit
+            // `## Session Continuity`. Treat each separately so we never append a
+            // duplicate section alongside an existing one.
+            const existingCanonicalSession = /^## Session[ \t]*$/im.test(content);
+            const existingSessionContinuity = /^## Session Continuity[ \t]*$/im.test(content);
+            if (existingCanonicalSession) {
                 // Normalize in place: replace the ENTIRE BODY of the existing ## Session
                 // section (heading + all content up to the next ## heading or EOF) with
                 // canonical bold-label lines. The negative-lookahead per-line pattern
@@ -708,8 +861,31 @@ function cmdStateRecordSession(cwd, options, raw) {
                     '',
                 ].join('\n'));
             }
+            else if (existingSessionContinuity) {
+                // #1101: a `## Session Continuity` section already exists (bootstrap
+                // shape). Previously this fell through to the append branch and created
+                // a SECOND `## Session` block — a duplicate. Instead, insert only the
+                // canonical fields that are still missing, right after the heading,
+                // preserving the `## Session Continuity` heading and ALL existing lines
+                // (e.g. prose like "Next recommended action"). Fields already updated in
+                // place above (needs* false) are not re-inserted. A function replacement
+                // is used so `$`-bearing caller values are inserted literally (#3454).
+                const linesToInsert = [];
+                if (needsLastSession)
+                    linesToInsert.push(`**Last session:** ${now}`);
+                if (needsStoppedAt)
+                    linesToInsert.push(`**Stopped at:** ${stoppedAtValue}`);
+                if (needsResumeFile)
+                    linesToInsert.push(`**Resume file:** ${resumeValue}`);
+                if (linesToInsert.length > 0) {
+                    // Case-insensitive to match the `existingSessionContinuity` detection
+                    // above (#1101 review F3) — otherwise a lowercase heading would detect
+                    // but no-op the insert while still reporting the fields as updated.
+                    content = content.replace(/^(## Session Continuity[ \t]*\n)/im, (_m, heading) => heading + linesToInsert.join('\n') + '\n');
+                }
+            }
             else {
-                // No ## Session heading exists at all — append a new canonical section.
+                // No session heading exists at all — append a new canonical section.
                 const scaffold = [
                     '',
                     '## Session',
@@ -740,6 +916,20 @@ function cmdStateRecordSession(cwd, options, raw) {
     else {
         output({ recorded: false, reason: 'No session fields found in STATE.md' }, raw, 'false');
     }
+}
+/**
+ * Match the session section body from a STATE.md body. #1101: recognise the
+ * bootstrap `## Session Continuity` heading but PREFER the normalized `## Session`
+ * block when both exist (legacy duplicate files), so the reader agrees with the
+ * writer (which updates `## Session` first). `(?:^|\n)` line-anchors (kept out of
+ * `/m` so `$` stays end-of-string for the `(?=\n##|$)` section boundary), which
+ * excludes an h3 `### Session Continuity`; the trailing-` Archive` boundary still
+ * excludes `## Session Continuity Archive` (preserving the #2444 scoping).
+ * Returns the match whose group 1 is the section body, or null.
+ */
+function matchSessionSection(body) {
+    return body.match(/(?:^|\n)##[ \t]*Session[ \t]*\n([\s\S]*?)(?=\n##|$)/i)
+        || body.match(/(?:^|\n)##[ \t]*Session Continuity[ \t]*\n([\s\S]*?)(?=\n##|$)/i);
 }
 function cmdStateSnapshot(cwd, raw) {
     const statePath = planningPaths(cwd).state;
@@ -816,7 +1006,9 @@ function cmdStateSnapshot(cwd, raw) {
         stopped_at: null,
         resume_file: null,
     };
-    const sessionMatch = body.match(/##\s*Session\s*\n([\s\S]*?)(?=\n##|$)/i);
+    // #1101: prefer the canonical `## Session` block, falling back to the bootstrap
+    // `## Session Continuity` heading. See matchSessionSection for the anchoring.
+    const sessionMatch = matchSessionSection(body);
     if (sessionMatch) {
         const sessionSection = sessionMatch[1];
         // Accept both `**Last Date:**` (canonical template form) and `**Last session:**`
@@ -872,7 +1064,9 @@ function buildStateFrontmatter(bodyContent, cwd) {
     // historical "Stopped at:" prose elsewhere in the body (e.g. in a
     // Session Continuity Archive section) never overwrites the current value.
     // Fall back to full-body search only when no ## Session section exists.
-    const sessionSectionMatch = bodyContent.match(/##\s*Session\s*\n([\s\S]*?)(?=\n##|$)/i);
+    // #1101: prefer the canonical `## Session` block, falling back to the bootstrap
+    // `## Session Continuity` heading. See matchSessionSection for the anchoring.
+    const sessionSectionMatch = matchSessionSection(bodyContent);
     const sessionBodyScope = sessionSectionMatch ? sessionSectionMatch[1] : bodyContent;
     const stoppedAt = (0, state_document_cjs_1.stateExtractField)(sessionBodyScope, 'Stopped At') || (0, state_document_cjs_1.stateExtractField)(sessionBodyScope, 'Stopped at');
     const pausedAt = (0, state_document_cjs_1.stateExtractField)(bodyContent, 'Paused At');
@@ -1142,6 +1336,19 @@ function acquireStateLock(statePath, clock) {
     const staleThresholdMs = 10000;
     const maxWaitMs = 30000;
     const startedAt = clock.now();
+    // Shared helper: check the time budget then back off with jitter before the
+    // next retry.  Both the EEXIST contention path and the recoverable-errno path
+    // must go through this so neither can busy-spin (#1217).
+    const checkBudgetAndSleep = (context) => {
+        if (clock.now() - startedAt >= maxWaitMs) {
+            const e = new Error('acquireStateLock: ' + lockPath + ' ' + context + ' for ' +
+                (clock.now() - startedAt) + 'ms (exceeded ' + maxWaitMs + 'ms budget)');
+            e.lockBudgetExceeded = true;
+            throw e;
+        }
+        const jitter = Math.floor(Math.random() * 50);
+        clock.sleep(retryDelay + jitter);
+    };
     while (true) {
         try {
             const fd = node_fs_1.default.openSync(lockPath, node_fs_1.default.constants.O_CREAT | node_fs_1.default.constants.O_EXCL | node_fs_1.default.constants.O_WRONLY);
@@ -1153,9 +1360,11 @@ function acquireStateLock(statePath, clock) {
         }
         catch (err) {
             // Transient filesystem errors (Docker overlay-fs, NFS, OS signals, AV scanners)
-            // are recoverable — retry the acquisition loop rather than propagating.
+            // are recoverable — retry with the same budget + backoff as the EEXIST path so
+            // a permanently-failing errno cannot busy-spin at 100% CPU (#1217).
             // See ACQUIRE_LOCK_RETRY_ERRNOS for the full list and rationale.
             if (ACQUIRE_LOCK_RETRY_ERRNOS.has(err.code)) {
+                checkBudgetAndSleep(err.code + ' persisted');
                 continue;
             }
             if (err.code !== 'EEXIST')
@@ -1166,22 +1375,39 @@ function acquireStateLock(statePath, clock) {
             try {
                 const stat = node_fs_1.default.statSync(lockPath);
                 if ((clock).now() - stat.mtimeMs > staleThresholdMs) {
+                    let removed = false;
                     try {
                         node_fs_1.default.unlinkSync(lockPath);
+                        removed = true;
                     }
-                    catch { /* already gone */ }
+                    catch { /* swallow: bounded below */ }
+                    if (removed) {
+                        // Successful steal — retry immediately to grab the just-freed lock.
+                        // Must NOT call checkBudgetAndSleep here: a throw-after-delete would
+                        // corrupt the filesystem state, and the budget is already bounded on
+                        // the next iteration's EEXIST or open attempt (#1217 regression fix).
+                        continue;
+                    }
+                    // Persistent unlinkSync failure — apply budget + backoff so it cannot
+                    // busy-spin (#1217).
+                    checkBudgetAndSleep('stale lock removal failed');
                     continue;
                 }
             }
-            catch {
-                continue; /* released between EEXIST and stat */
+            catch (err) {
+                // Re-throw a budget-exceeded error from the unlinkSync failure path above
+                // unchanged — its message already names the real cause ("stale lock removal
+                // failed") and double-wrapping it would replace that with the misleading
+                // "statSync failed after EEXIST" context string (#1217 diagnostic fix).
+                if (err?.lockBudgetExceeded)
+                    throw err;
+                // statSync failed — lock was likely released between our EEXIST and this
+                // stat call.  Apply budget + backoff so a persistent statSync failure
+                // cannot busy-spin (#1217).
+                checkBudgetAndSleep('statSync failed after EEXIST');
+                continue;
             }
-            if ((clock).now() - startedAt >= maxWaitMs) {
-                throw new Error('acquireStateLock: ' + lockPath + ' held by live process for ' +
-                    ((clock).now() - startedAt) + 'ms (exceeded ' + maxWaitMs + 'ms budget)');
-            }
-            const jitter = Math.floor(Math.random() * 50);
-            (clock).sleep(retryDelay + jitter);
+            checkBudgetAndSleep('held by live process');
         }
     }
 }
@@ -1256,6 +1482,26 @@ function readModifyWriteStateMd(statePath, transformFn, cwd, options, clock) {
         // Snapshot the existing progress block BEFORE the transform so we can
         // restore it when resync is false.
         const preFm = resync ? null : extractFrontmatter(content);
+        // Bug #1230: delta heuristic — snapshot pre-transform body source fields so
+        // we can detect whether THIS write changed them. syncStateFrontmatter
+        // re-derives frontmatter status/stopped_at from the body on every write;
+        // when the body's source field was NOT changed by the transform, the
+        // existing frontmatter value (e.g. a hand-set 'completed') must win over
+        // the body-derived value (e.g. 'verifying' from a stale "Status: Verifying
+        // Phase 3" line that an earlier tool wrote). We do NOT disturb `preFm`
+        // above (null when resync:true) — these are independent snapshots.
+        // Strip frontmatter before calling stateExtractField so the YAML `status:`
+        // key in the frontmatter block cannot shadow the body field we are tracking.
+        const preBody = stripFrontmatter(content);
+        const preFmSnapshot = extractFrontmatter(content);
+        const preBodyStatus = (0, state_document_cjs_1.stateExtractField)(preBody, 'Status');
+        // Bug #1230 / Change B: scope stopped_at delta to the ## Session section,
+        // mirroring buildStateFrontmatter's sessionBodyScope logic (line ~1172).
+        // A stale "Stopped at:" in a non-Session section (e.g. Session Continuity
+        // Archive prose) must not interfere with the delta comparison.
+        const preSessionMatch = matchSessionSection(preBody);
+        const preSessionScope = preSessionMatch ? preSessionMatch[1] : preBody;
+        const preBodyStoppedAt = (0, state_document_cjs_1.stateExtractField)(preSessionScope, 'Stopped At') || (0, state_document_cjs_1.stateExtractField)(preSessionScope, 'Stopped at');
         const modified = transformFn(content);
         // Bug #948: no-op guard — if the transform produced no change, do NOT write
         // the file. An unconditional write would bump `last_updated`, reset
@@ -1268,14 +1514,53 @@ function readModifyWriteStateMd(statePath, transformFn, cwd, options, clock) {
             return;
         }
         let synced = syncStateFrontmatter(modified, cwd);
-        if (!resync && preFm && preFm['progress']) {
+        // Compute postFm once and apply BOTH the progress-restore (when !resync)
+        // AND the status/stopped_at preservation (#1230) before reconstructing.
+        // This avoids double-wrapping the frontmatter block.
+        const needsProgressRestore = !resync && preFm && preFm['progress'];
+        // Post-transform body source fields used for the delta comparison (#1230).
+        // Use `modified` (not `synced`): syncStateFrontmatter only rewrites the frontmatter block, so the body is identical in both — and we need the body the transform produced.
+        // Strip frontmatter so the YAML status key cannot shadow the body field.
+        const postBody = stripFrontmatter(modified);
+        const postBodyStatus = (0, state_document_cjs_1.stateExtractField)(postBody, 'Status');
+        // Bug #1230 / Change B: scope stopped_at delta to the ## Session section,
+        // consistent with the pre-transform snapshot above and buildStateFrontmatter.
+        const postSessionMatch = matchSessionSection(postBody);
+        const postSessionScope = postSessionMatch ? postSessionMatch[1] : postBody;
+        const postBodyStoppedAt = (0, state_document_cjs_1.stateExtractField)(postSessionScope, 'Stopped At') || (0, state_document_cjs_1.stateExtractField)(postSessionScope, 'Stopped at');
+        let mutated = false;
+        const postFm = extractFrontmatter(synced);
+        if (needsProgressRestore) {
             // Re-apply the curated progress block that syncStateFrontmatter just
             // overwrote with disk-derived values.  Only restore keys that were present
             // in the snapshot — this preserves any new non-progress frontmatter fields
             // (e.g., status, current_phase) that syncStateFrontmatter legitimately
             // derived from the updated body.
-            const postFm = extractFrontmatter(synced);
             postFm['progress'] = preFm['progress'];
+            mutated = true;
+        }
+        // Bug #1230: preserve existing frontmatter status when this write did NOT
+        // change the body's Status field. A write that doesn't touch Status must
+        // not silently revert a hand-set frontmatter status (e.g. 'completed') to
+        // whatever the stale body Status happens to derive (e.g. 'verifying').
+        // Only apply when the existing frontmatter held a real, non-unknown status.
+        if (postBodyStatus === preBodyStatus &&
+            typeof preFmSnapshot['status'] === 'string' &&
+            preFmSnapshot['status'].length > 0 &&
+            preFmSnapshot['status'] !== 'unknown' &&
+            postFm['status'] !== preFmSnapshot['status']) {
+            postFm['status'] = preFmSnapshot['status'];
+            mutated = true;
+        }
+        // Bug #1230: same delta heuristic for stopped_at.
+        if (postBodyStoppedAt === preBodyStoppedAt &&
+            typeof preFmSnapshot['stopped_at'] === 'string' &&
+            preFmSnapshot['stopped_at'].length > 0 &&
+            postFm['stopped_at'] !== preFmSnapshot['stopped_at']) {
+            postFm['stopped_at'] = preFmSnapshot['stopped_at'];
+            mutated = true;
+        }
+        if (mutated) {
             const yamlStr = reconstructFrontmatter(postFm);
             const body = stripFrontmatter(synced);
             synced = `---\n${yamlStr}\n---\n\n${body}`;
@@ -1344,74 +1629,89 @@ function cmdStateBeginPhase(cwd, phaseNumber, phaseName, planCount, raw) {
     const today = clock_cjs_1.realClock.today();
     const updated = [];
     readModifyWriteStateMd(statePath, (content) => {
+        // Bug #1255: all body-field replacements must operate on the body only
+        // (frontmatter stripped), not on the full content.  When the full content is
+        // passed to stateReplaceField the YAML `status: planning` key matches the
+        // plain-text pattern (`^Status:\s*`) before the body pipe-table row, so the
+        // pipe-table `| Status | Planning |` is never updated and syncStateFrontmatter
+        // re-derives 'planning' from the unchanged body — the status never advances.
+        const existingFm = extractFrontmatter(content);
+        const hasFrontmatter = Object.keys(existingFm).length > 0;
+        let body = stripFrontmatter(content);
+        // Helper to reassemble content for field-replacement checks; callers that
+        // only need to test/replace body fields use `body` directly, and the final
+        // return reassembles the frontmatter block with the updated body.
+        const reassemble = (b) => hasFrontmatter ? `---\n${reconstructFrontmatter(existingFm)}\n---\n\n${b}` : b;
         // Idempotency guard (#3127): if the phase is already mid-flight, do NOT
         // overwrite execution-progress fields (Current Plan, plan body line,
         // Last Activity Description). Only update fields that are safe to
         // refresh on resume (Last Activity date, Status if inconsistent).
         // A phase is considered mid-flight when Status contains 'Executing Phase N'
         // for the current phase number.
-        const currentStatus = (0, state_document_cjs_1.stateExtractField)(content, 'Status') || '';
+        // #1255: extract from body (not full content) so the YAML `status:` key
+        // cannot shadow the body Status field.
+        const currentStatus = (0, state_document_cjs_1.stateExtractField)(body, 'Status') || '';
         const isAlreadyExecuting = new RegExp(`Executing Phase\\s+${escapeRegex(String(phaseNumber))}\\b`, 'i').test(currentStatus);
-        // Update Status field
+        // Update Status field (body only — #1255)
         const statusValue = `Executing Phase ${phaseNumber}`;
-        let result = (0, state_document_cjs_1.stateReplaceField)(content, 'Status', statusValue);
+        let result = (0, state_document_cjs_1.stateReplaceField)(body, 'Status', statusValue);
         if (result) {
-            content = result;
+            body = result;
             updated.push('Status');
         }
         // Update Last Activity (safe to update on resume — tracks when execute-phase ran)
-        result = (0, state_document_cjs_1.stateReplaceField)(content, 'Last Activity', today);
+        result = (0, state_document_cjs_1.stateReplaceField)(body, 'Last Activity', today);
         if (result) {
-            content = result;
+            body = result;
             updated.push('Last Activity');
         }
         if (!isAlreadyExecuting) {
             // First-time execution: set all progress fields
             // Update Last Activity Description
             const activityDesc = `Phase ${phaseNumber} execution started`;
-            result = (0, state_document_cjs_1.stateReplaceField)(content, 'Last Activity Description', activityDesc);
+            result = (0, state_document_cjs_1.stateReplaceField)(body, 'Last Activity Description', activityDesc);
             if (result) {
-                content = result;
+                body = result;
                 updated.push('Last Activity Description');
             }
             // Update Current Phase
-            result = (0, state_document_cjs_1.stateReplaceField)(content, 'Current Phase', String(phaseNumber));
+            result = (0, state_document_cjs_1.stateReplaceField)(body, 'Current Phase', String(phaseNumber));
             if (result) {
-                content = result;
+                body = result;
                 updated.push('Current Phase');
             }
             // Update Current Phase Name
             if (phaseName) {
-                result = (0, state_document_cjs_1.stateReplaceField)(content, 'Current Phase Name', phaseName);
+                result = (0, state_document_cjs_1.stateReplaceField)(body, 'Current Phase Name', phaseName);
                 if (result) {
-                    content = result;
+                    body = result;
                     updated.push('Current Phase Name');
                 }
             }
             // Update Current Plan to 1 (starting from the first plan)
-            result = (0, state_document_cjs_1.stateReplaceField)(content, 'Current Plan', '1');
+            result = (0, state_document_cjs_1.stateReplaceField)(body, 'Current Plan', '1');
             if (result) {
-                content = result;
+                body = result;
                 updated.push('Current Plan');
             }
             // Update Total Plans in Phase
             if (planCount) {
-                result = (0, state_document_cjs_1.stateReplaceField)(content, 'Total Plans in Phase', String(planCount));
+                result = (0, state_document_cjs_1.stateReplaceField)(body, 'Total Plans in Phase', String(planCount));
                 if (result) {
-                    content = result;
+                    body = result;
                     updated.push('Total Plans in Phase');
                 }
             }
             // Update **Current focus:** body text line (#1104)
             const focusLabel = phaseName ? `Phase ${phaseNumber} — ${phaseName}` : `Phase ${phaseNumber}`;
             const focusPattern = /(\*\*Current focus:\*\*\s*).*/i;
-            if (focusPattern.test(content)) {
-                content = content.replace(focusPattern, (_match, prefix) => `${prefix}${focusLabel}`);
+            if (focusPattern.test(body)) {
+                body = body.replace(focusPattern, (_match, prefix) => `${prefix}${focusLabel}`);
                 updated.push('Current focus');
             }
             // Update ## Current Position section (#1104, #1365)
             const positionPattern = /(##\s*Current Position\s*\n)([\s\S]*?)(?=\n##|$)/i;
-            const positionMatch = content.match(positionPattern);
+            const positionMatch = body.match(positionPattern);
             if (positionMatch) {
                 const header = positionMatch[1];
                 let posBody = positionMatch[2];
@@ -1421,7 +1721,13 @@ function cmdStateBeginPhase(cwd, phaseNumber, phaseName, planCount, raw) {
                     posBody = posBody.replace(/^Phase:.*$/m, newPhase);
                 }
                 else {
-                    posBody = newPhase + '\n' + posBody;
+                    // Pipe-table format in Current Position (#1257): update the | Phase | … |
+                    // cell rather than prepending a spurious inline `Phase:` line (which left
+                    // the table cell stale). Mirrors the Status/Last-activity table branches.
+                    const phaseValue = `${phaseNumber}${phaseName ? ` (${phaseName})` : ''} — EXECUTING`;
+                    const replaced = (0, state_document_cjs_1.stateReplaceField)(posBody, 'Phase', phaseValue);
+                    if (replaced !== null)
+                        posBody = replaced;
                 }
                 // Update or insert Plan line
                 const newPlan = `Plan: 1 of ${planCount || '?'}`;
@@ -1429,19 +1735,39 @@ function cmdStateBeginPhase(cwd, phaseNumber, phaseName, planCount, raw) {
                     posBody = posBody.replace(/^Plan:.*$/m, newPlan);
                 }
                 else {
-                    posBody = posBody.replace(/^(Phase:.*$)/m, `$1\n${newPlan}`);
+                    // Pipe-table format in Current Position (#1257): update the | Plan | … |
+                    // cell rather than appending after a prepended inline line.
+                    const planValue = `1 of ${planCount || '?'}`;
+                    const replaced = (0, state_document_cjs_1.stateReplaceField)(posBody, 'Plan', planValue);
+                    if (replaced !== null)
+                        posBody = replaced;
                 }
                 // Update Status line if present
                 const newStatus = `Status: Executing Phase ${phaseNumber}`;
                 if (/^Status:/m.test(posBody)) {
                     posBody = posBody.replace(/^Status:.*$/m, newStatus);
                 }
+                else {
+                    // Pipe-table format in Current Position (#1255)
+                    const replaced = (0, state_document_cjs_1.stateReplaceField)(posBody, 'Status', `Executing Phase ${phaseNumber}`);
+                    if (replaced !== null)
+                        posBody = replaced;
+                }
                 // Update Last activity line if present
                 const newActivity = `Last activity: ${today} -- Phase ${phaseNumber} execution started`;
                 if (/^Last activity:/im.test(posBody)) {
                     posBody = posBody.replace(/^Last activity:.*$/im, newActivity);
                 }
-                content = content.replace(positionPattern, () => `${header}${posBody}`);
+                else {
+                    // Pipe-table format in Current Position (#1255)
+                    // Value must match the inline branch (date + narrative), not bare date.
+                    const activityValue = `${today} -- Phase ${phaseNumber} execution started`;
+                    const replaced = (0, state_document_cjs_1.stateReplaceField)(posBody, 'Last Activity', activityValue)
+                        ?? (0, state_document_cjs_1.stateReplaceField)(posBody, 'Last activity', activityValue);
+                    if (replaced !== null)
+                        posBody = replaced;
+                }
+                body = body.replace(positionPattern, () => `${header}${posBody}`);
                 updated.push('Current Position');
             }
         }
@@ -1449,19 +1775,29 @@ function cmdStateBeginPhase(cwd, phaseNumber, phaseName, planCount, raw) {
             // Resume path: only update Last activity timestamp in Current Position
             // (do not touch Plan:, stopped_at, progress.percent, or plan counter)
             const positionPattern = /(##\s*Current Position\s*\n)([\s\S]*?)(?=\n##|$)/i;
-            const positionMatch = content.match(positionPattern);
+            const positionMatch = body.match(positionPattern);
             if (positionMatch) {
                 const header = positionMatch[1];
                 let posBody = positionMatch[2];
                 const resumeActivity = `Last activity: ${today} -- Phase ${phaseNumber} execution resumed (wave continue)`;
                 if (/^Last activity:/im.test(posBody)) {
                     posBody = posBody.replace(/^Last activity:.*$/im, resumeActivity);
-                    content = content.replace(positionPattern, () => `${header}${posBody}`);
+                    body = body.replace(positionPattern, () => `${header}${posBody}`);
                     updated.push('Last activity (resume)');
+                }
+                else {
+                    // Pipe-table format in Current Position (#1255)
+                    const replaced = (0, state_document_cjs_1.stateReplaceField)(posBody, 'Last Activity', resumeActivity)
+                        ?? (0, state_document_cjs_1.stateReplaceField)(posBody, 'Last activity', resumeActivity);
+                    if (replaced !== null) {
+                        posBody = replaced;
+                        body = body.replace(positionPattern, () => `${header}${posBody}`);
+                        updated.push('Last activity (resume)');
+                    }
                 }
             }
         }
-        return content;
+        return reassemble(body);
     }, cwd);
     output({ updated, phase: phaseNumber, phase_name: phaseName || null, plan_count: planCount || null }, raw, updated.length > 0 ? 'true' : 'false');
 }
@@ -1561,43 +1897,54 @@ function cmdStatePlannedPhase(cwd, phaseNumber, planCount, raw) {
     // doing so tramples curated/known-good counters. Route through the body-only
     // write contract (resync:false), the same guard state.update uses. (#500 RC1)
     readModifyWriteStateMd(statePath, (content) => {
+        // Bug #1257: all body-field replacements must operate on the body only
+        // (frontmatter stripped), not on the full content. When the full content is
+        // passed to stateReplaceFieldIfTemplate the YAML `status: planning` key matches
+        // the plain-text pattern (`^Status:\s*`) before the body pipe-table row, so the
+        // pipe-table `| Status | Planning |` cell is never updated and syncStateFrontmatter
+        // re-derives 'planning' from the unchanged body — the status never advances.
+        // (Mirrors the begin/complete-phase fix from #1255/#1256.)
+        const existingFm = extractFrontmatter(content);
+        const hasFrontmatter = Object.keys(existingFm).length > 0;
+        let body = stripFrontmatter(content);
+        const reassemble = (b) => hasFrontmatter ? `---\n${reconstructFrontmatter(existingFm)}\n---\n\n${b}` : b;
         // Update Status — only when the existing value is a known template default
         // (Knuth invariant: preserve executor-authored values).
-        const newContent = (0, state_document_cjs_1.stateReplaceFieldIfTemplate)(content, 'Status', statusDefaults, 'Ready to execute');
-        if (newContent !== content) {
-            content = newContent;
+        const newBody = (0, state_document_cjs_1.stateReplaceFieldIfTemplate)(body, 'Status', statusDefaults, 'Ready to execute');
+        if (newBody !== body) {
+            body = newBody;
             updated.push('Status');
         }
         // Update Total Plans in Phase
         if (planCount !== null && planCount !== undefined) {
-            const result = (0, state_document_cjs_1.stateReplaceField)(content, 'Total Plans in Phase', String(planCount));
+            const result = (0, state_document_cjs_1.stateReplaceField)(body, 'Total Plans in Phase', String(planCount));
             if (result) {
-                content = result;
+                body = result;
                 updated.push('Total Plans in Phase');
             }
         }
         // Update Last Activity — only when the existing value is a known template default
         {
-            const after = (0, state_document_cjs_1.stateReplaceFieldIfTemplate)(content, 'Last Activity', lastActivityDefaults, today);
-            if (after !== content) {
-                content = after;
+            const after = (0, state_document_cjs_1.stateReplaceFieldIfTemplate)(body, 'Last Activity', lastActivityDefaults, today);
+            if (after !== body) {
+                body = after;
                 updated.push('Last Activity');
             }
         }
         // Update Last Activity Description
         {
-            const result = (0, state_document_cjs_1.stateReplaceField)(content, 'Last Activity Description', `Phase ${phaseNumber} planning complete — ${planCount || '?'} plans ready`);
+            const result = (0, state_document_cjs_1.stateReplaceField)(body, 'Last Activity Description', `Phase ${phaseNumber} planning complete — ${planCount || '?'} plans ready`);
             if (result) {
-                content = result;
+                body = result;
                 updated.push('Last Activity Description');
             }
         }
         // Update Current Position section
-        content = updateCurrentPositionFields(content, {
+        body = updateCurrentPositionFields(body, {
             status: 'Ready to execute',
             lastActivity: `${today} -- Phase ${phaseNumber} planning complete`,
         });
-        return content;
+        return reassemble(body);
     }, cwd, { resync: false });
     output({ updated, phase: phaseNumber, plan_count: planCount }, raw, updated.length > 0 ? 'true' : 'false');
 }
@@ -2078,29 +2425,35 @@ function cmdStateCompletePhase(cwd, raw, overridePhase) {
     const updated = [];
     readModifyWriteStateMd(statePath, (content) => {
         const currentPhase = resolvedPhase;
-        // Update Status field
+        // Bug #1255: operate on body only so the YAML frontmatter `status:` key
+        // cannot shadow the body Status field (pipe-table or inline).
+        const existingFm = extractFrontmatter(content);
+        const hasFrontmatter = Object.keys(existingFm).length > 0;
+        let body = stripFrontmatter(content);
+        const reassemble = (b) => hasFrontmatter ? `---\n${reconstructFrontmatter(existingFm)}\n---\n\n${b}` : b;
+        // Update Status field (body only — #1255)
         const statusValue = `Phase ${currentPhase} complete`;
-        let result = (0, state_document_cjs_1.stateReplaceField)(content, 'Status', statusValue);
+        let result = (0, state_document_cjs_1.stateReplaceField)(body, 'Status', statusValue);
         if (result) {
-            content = result;
+            body = result;
             updated.push('Status');
         }
         // Update Last Activity date
-        result = (0, state_document_cjs_1.stateReplaceField)(content, 'Last Activity', today);
+        result = (0, state_document_cjs_1.stateReplaceField)(body, 'Last Activity', today);
         if (result) {
-            content = result;
+            body = result;
             updated.push('Last Activity');
         }
         // Update Last Activity Description
         const activityDesc = `Phase ${currentPhase} marked complete`;
-        result = (0, state_document_cjs_1.stateReplaceField)(content, 'Last Activity Description', activityDesc);
+        result = (0, state_document_cjs_1.stateReplaceField)(body, 'Last Activity Description', activityDesc);
         if (result) {
-            content = result;
+            body = result;
             updated.push('Last Activity Description');
         }
         // Update ## Current Position section
         const positionPattern = /(##\s*Current Position\s*\n)([\s\S]*?)(?=\n##|$)/i;
-        const positionMatch = content.match(positionPattern);
+        const positionMatch = body.match(positionPattern);
         if (positionMatch) {
             const header = positionMatch[1];
             let posBody = positionMatch[2];
@@ -2109,20 +2462,42 @@ function cmdStateCompletePhase(cwd, raw, overridePhase) {
             if (/^Phase:/m.test(posBody)) {
                 posBody = posBody.replace(/^Phase:.*$/m, newPhase);
             }
+            else {
+                // Pipe-table format in Current Position (#1255)
+                // Value cell must be bare (no "Phase:" label prefix) — the column header already provides the label.
+                const replaced = (0, state_document_cjs_1.stateReplaceField)(posBody, 'Phase', `${currentPhase} — COMPLETE`);
+                if (replaced !== null)
+                    posBody = replaced;
+            }
             // Update Status line if present
             const newStatus = `Status: Phase ${currentPhase} complete`;
             if (/^Status:/m.test(posBody)) {
                 posBody = posBody.replace(/^Status:.*$/m, newStatus);
+            }
+            else {
+                // Pipe-table format in Current Position (#1255)
+                const replaced = (0, state_document_cjs_1.stateReplaceField)(posBody, 'Status', `Phase ${currentPhase} complete`);
+                if (replaced !== null)
+                    posBody = replaced;
             }
             // Update Last activity line if present
             const newActivity = `Last activity: ${today} -- Phase ${currentPhase} marked complete`;
             if (/^Last activity:/im.test(posBody)) {
                 posBody = posBody.replace(/^Last activity:.*$/im, newActivity);
             }
-            content = content.replace(positionPattern, () => `${header}${posBody}`);
+            else {
+                // Pipe-table format in Current Position (#1255)
+                // Value must match the inline branch (date + narrative), not bare date.
+                const activityValue = `${today} -- Phase ${currentPhase} marked complete`;
+                const replaced = (0, state_document_cjs_1.stateReplaceField)(posBody, 'Last Activity', activityValue)
+                    ?? (0, state_document_cjs_1.stateReplaceField)(posBody, 'Last activity', activityValue);
+                if (replaced !== null)
+                    posBody = replaced;
+            }
+            body = body.replace(positionPattern, () => `${header}${posBody}`);
             updated.push('Current Position');
         }
-        return content;
+        return reassemble(body);
     }, cwd);
     output({ updated, phase: resolvedPhase }, raw, updated.length > 0 ? 'true' : 'false');
 }
@@ -2146,6 +2521,7 @@ module.exports = {
     cmdStateUpdateProgress,
     cmdStateAddDecision,
     cmdStateAddBlocker,
+    cmdStateAddRoadmapEvolution,
     cmdStateResolveBlocker,
     cmdStateRecordSession,
     cmdStateSnapshot,

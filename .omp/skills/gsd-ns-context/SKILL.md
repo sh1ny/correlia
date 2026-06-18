@@ -1,6 +1,6 @@
 ---
 name: gsd-ns-context
-description: "codebase intelligence | map graphify docs learnings"
+description: "codebase intel | map graphify docs learnings mempalace"
 ---
 
 
@@ -15,5 +15,7 @@ Route to the appropriate codebase-intelligence skill based on the user's intent.
 | Generate a knowledge graph | Read `skills/graphify/SKILL.md` |
 | Update project documentation | Read `skills/docs-update/SKILL.md` |
 | Extract learnings from a completed phase | Read `skills/extract-learnings/SKILL.md` |
+| Recall prior decisions and patterns before planning | Read `skills/mempalace-recall/SKILL.md` |
+| File a phase artifact into MemPalace | Read `skills/mempalace-capture/SKILL.md` |
 
 Read the matched sub-skill's SKILL.md and follow its instructions. The `skills/<name>/SKILL.md` paths in the right column are relative to this skill's own directory.

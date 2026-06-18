@@ -24,6 +24,7 @@ exports.evaluateWorktreeBaseDegrade = evaluateWorktreeBaseDegrade;
 const node_fs_1 = __importDefault(require("node:fs"));
 const node_path_1 = __importDefault(require("node:path"));
 const shell_command_projection_cjs_1 = require("./shell-command-projection.cjs");
+const runtime_homes_cjs_1 = require("./runtime-homes.cjs");
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 /**
  * Strip JSONC comments (line and block forms) from a string to produce valid JSON.
@@ -153,12 +154,18 @@ function applyWorktreeBaseRef(settings) {
     return { changed: true, settings, skipped: null, previous: null };
 }
 /**
- * Reads settings.local.json then settings.json under claudeDir, extracts
- * worktree.baseRef from the first file that provides a non-null string value.
+ * Reads settings files in a 3-layer cascade and extracts worktree.baseRef from
+ * the first layer that provides a non-null string value. Layers (highest to lowest
+ * precedence):
+ *   1. project local  — <claudeDir>/settings.local.json
+ *   2. project shared — <claudeDir>/settings.json
+ *   3. user/global    — <userClaudeDir>/settings.json  (only when userClaudeDir is
+ *                       provided AND resolves to a different path than claudeDir)
  *
  * deps.readFile(path) must return the file contents or null on any error.
+ * userClaudeDir is optional; when absent/null the user/global layer is skipped.
  */
-function resolveEffectiveBaseRef(claudeDir, deps) {
+function resolveEffectiveBaseRef(claudeDir, deps, userClaudeDir) {
     const readFile = deps?.readFile ?? ((p) => {
         try {
             return node_fs_1.default.readFileSync(p, 'utf8');
@@ -181,21 +188,39 @@ function resolveEffectiveBaseRef(claudeDir, deps) {
             return null;
         }
     }
+    // Layer 1: project local
     const localRef = parseBaseRef(localPath);
     if (localRef !== null)
         return localRef;
-    return parseBaseRef(sharedPath);
+    // Layer 2: project shared
+    const sharedRef = parseBaseRef(sharedPath);
+    if (sharedRef !== null)
+        return sharedRef;
+    // Layer 3: user/global (only when provided and not the same directory as claudeDir)
+    if (userClaudeDir && node_path_1.default.resolve(userClaudeDir) !== node_path_1.default.resolve(claudeDir)) {
+        const userSharedPath = node_path_1.default.join(userClaudeDir, 'settings.json');
+        const userRef = parseBaseRef(userSharedPath);
+        if (userRef !== null)
+            return userRef;
+    }
+    return null;
 }
 /**
  * CLI command: check current worktree base-ref degradation status.
  *
- * Reads effective baseRef from <cwd>/.claude settings, runs degradation
- * evaluation, writes JSON result to stdout (or injected write), and returns
- * the result object.
+ * Reads effective baseRef from <cwd>/.claude settings (3-layer cascade:
+ * project local → project shared → user/global), runs degradation evaluation,
+ * writes JSON result to stdout (or injected write), and returns the result object.
+ *
+ * deps.userClaudeDir overrides the user/global config directory resolution
+ * (default: getGlobalConfigDir('claude'), which honours CLAUDE_CONFIG_DIR).
  */
 function cmdWorktreeBaseCheck(cwd, _args, deps) {
     const claudeDir = node_path_1.default.join(cwd, '.claude');
-    const effectiveBaseRef = resolveEffectiveBaseRef(claudeDir, deps?.readFile ? { readFile: deps.readFile } : undefined);
+    const userClaudeDir = Object.prototype.hasOwnProperty.call(deps ?? {}, 'userClaudeDir')
+        ? deps.userClaudeDir
+        : (0, runtime_homes_cjs_1.getGlobalConfigDir)('claude');
+    const effectiveBaseRef = resolveEffectiveBaseRef(claudeDir, deps?.readFile ? { readFile: deps.readFile } : undefined, userClaudeDir);
     const result = evaluateWorktreeBaseDegrade({
         cwd,
         effectiveBaseRef,
