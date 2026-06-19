@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Vigilo/VDE Compatibility
-status: completed
-stopped_at: Phase 8 context gathered
-last_updated: "2026-06-18T20:17:37.752Z"
-last_activity: 2026-06-18
+status: in_progress
+stopped_at: Phase 8 planning complete (user override)
+last_updated: "2026-06-19T00:00:00.000Z"
+last_activity: 2026-06-19
 progress:
   total_phases: 6
   completed_phases: 3
-  total_plans: 6
+  total_plans: 8
   completed_plans: 6
   percent: 50
 ---
@@ -24,11 +24,18 @@ See: .planning/PROJECT.md (updated 2026-06-17)
 **Current focus:** Phase 08 — Vigilo Config Migration
 
 ## Current Position
-
 Phase: 8
-Plan: Not started
-Status: Phase 7 complete; ready for Phase 8
-Last activity: 2026-06-18
+Plan: 08-01, 08-02 planned
+Status: Phase 8 planning accepted by user override with known issues (plan-check returned 1 blocker, 1 warning, 1 nit)
+Last activity: 2026-06-19
+
+### Accepted planning risks (Phase 8)
+
+Planning for Phase 8 was accepted by explicit user override despite `## ISSUES FOUND` in the final plan check. The remaining items are carried to the executor as implementation/test-tightening work, not re-planning blockers:
+
+- **Blocker accepted:** CFG-05 does not yet define behavior for unknown Vigilo email plugin option keys (e.g. `smtp_timeout`, `connection_pool_size`). The executor must choose either (a) reject with `unsupported_plugin_option` / `CFG-06`, or (b) explicitly document a known-set-only policy and test that unmapped keys are omitted.
+- **Warning accepted:** D-13 multi-input aggregation is not pinned by a named end-to-end test. The executor should add `test_report_aggregates_issues_across_inputs_and_domains` that runs bad rules + bad topology + bad plugins together.
+- **Nit accepted:** Only five non-output plugin section names have fixtures. The executor should add one fixture with an unknown sixth section name to pin the generic "any" rejection.
 
 Progress: [█████░░░░░] 50%
 

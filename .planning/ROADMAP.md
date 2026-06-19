@@ -108,6 +108,8 @@ Plans:
 - [ ] 08-01-PLAN.md — Runtime topology capture-group schema, compiled config, enrichment semantics, and tests.
 - [ ] 08-02-PLAN.md — Standalone Vigilo/VDE migration CLI, fail-closed unsupported reporting, atomic output, loader/plugin validation, fixtures, and documentation.
 
+> **Planning status:** Plans 08-01 and 08-02 were produced and reviewed through 5 plan-check iterations. The final checker returned `## ISSUES FOUND` with 1 blocker, 1 warning, and 1 nit. The operator explicitly chose to proceed to execution with these known risks documented in `.planning/STATE.md`. Plans remain unchecked until execution completes.
+
 ### Phase 9: Plugin and Notification Boundaries
 
 **Goal**: Output plugin execution remains isolated behind Correlia's bounded notification contract while preserving non-blocking ingress behavior.
