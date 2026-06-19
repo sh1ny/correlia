@@ -1126,6 +1126,7 @@ def _promote(staging: Path, out_dir: Path) -> None:
 
     backup_dir = tempfile.mkdtemp(prefix="migrate_backup_", dir=out_dir.parent)
     backed_up: dict[str, Path] = {}
+    promoted: list[str] = []
     try:
         for name in target_files:
             target = out_dir / name
@@ -1136,10 +1137,16 @@ def _promote(staging: Path, out_dir: Path) -> None:
 
         for name, source in target_files.items():
             os.replace(str(source), str(out_dir / name))
+            promoted.append(name)
     except Exception:
         # Best-effort restore of any pre-existing files before re-raising.
         for name, backup in backed_up.items():
             shutil.copy2(str(backup), str(out_dir / name))
+        # Remove newly-promoted files that had no pre-existing backup so the
+        # out-dir is returned to its pre-promotion state.
+        for name in promoted:
+            if name not in backed_up:
+                (out_dir / name).unlink(missing_ok=True)
         raise
     finally:
         shutil.rmtree(backup_dir, ignore_errors=True)
