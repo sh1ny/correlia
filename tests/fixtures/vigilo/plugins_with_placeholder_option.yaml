@@ -6,9 +6,9 @@ outputs:
     config:
       smtp_host: "${SMTP_HOST}"
       smtp_port: 587
-      from_address: "vigilo@example.com"
+      from_address: "{env: OPS_EMAIL}"
       to_addresses:
         - "ops@example.com"
         - env: OPS_EMAIL
-      subject_prefix: "[Correlia]"
+      subject_prefix: "[${ENV}]"
       use_tls: true

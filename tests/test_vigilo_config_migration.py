@@ -375,15 +375,15 @@ def test_plugin_option_placeholders_fail_before_output(tmp_path: Path) -> None:
     report = json.loads(report_path.read_text())
     assert report["ok"] is False
     assert report["generated"] is None
-    assert not (out_dir / "rules.yaml").exists()
-    assert not (out_dir / "topology.yaml").exists()
     assert not (out_dir / "plugins.yaml").exists()
     errors = [e for e in report["errors"] if e["code"] == "unsupported_plugin_option"]
-    assert len(errors) >= 2, f"expected at least two unsupported_plugin_option errors, got {errors}"
+    assert len(errors) >= 4, f"expected at least four unsupported_plugin_option errors, got {errors}"
     assert all(e["requirement"] == "CFG-06" for e in errors)
     locations = {e["location"] for e in errors}
     assert any("config.smtp_host" in loc for loc in locations)
+    assert any("config.from_address" in loc for loc in locations)
     assert any("config.to_addresses[1]" in loc for loc in locations)
+    assert any("config.subject_prefix" in loc for loc in locations)
 
 # ---------------------------------------------------------------------------
 # Multi-input aggregation
@@ -592,3 +592,26 @@ def test_promote_rolls_back_new_files_on_mid_promotion_failure(
     assert not (out_dir / "rules.yaml").exists()
     assert not (out_dir / "topology.yaml").exists()
     assert not (out_dir / "plugins.yaml").exists()
+
+def test_promote_does_not_create_out_dir_on_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    (staging / "rules.yaml").write_text("rules: []")
+    (staging / "topology.yaml").write_text("hostname_rules: []\nsubnet_rules: []")
+    (staging / "plugins.yaml").write_text("outputs: []")
+    out_dir = tmp_path / "out"
+    assert not out_dir.exists()
+
+    def fake_replace(src: str, dst: str) -> None:
+        raise OSError("simulated first-promotion failure")
+
+    monkeypatch.setattr(
+        scripts.migrate_vigilo_config.os, "replace", fake_replace
+    )
+
+    with pytest.raises(OSError):
+        _promote(staging, out_dir)
+
+    assert not out_dir.exists()

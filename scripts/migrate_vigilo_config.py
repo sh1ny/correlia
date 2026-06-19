@@ -50,7 +50,8 @@ _GLOB_METACHARS = frozenset({"*", "?", "[", "]"})
 _TAG_KEY_RE = re.compile(r"^[a-z][a-z0-9_.-]*$")
 _PLACEHOLDER_RE = re.compile(r"\{[^{}]*\}")
 _VALID_PLACEHOLDER_RE = re.compile(r"^\{([a-zA-Z0-9_.-]+)\}$")
-_ENV_VAR_PLACEHOLDER_RE = re.compile(r"^\$\{.*\}$")
+_ENV_VAR_PLACEHOLDER_RE = re.compile(r"\$\{[^}]*\}")
+_ENV_KEY_PLACEHOLDER_RE = re.compile(r"\{env:[^}]*\}")
 
 
 # -----------------------------------------------------------------------------
@@ -823,8 +824,10 @@ def _iter_unsupported_placeholders(value: Any, location: str) -> Iterator[tuple[
     Recurses through lists and mappings only under allowed email option values.
     """
     if isinstance(value, str):
-        if _ENV_VAR_PLACEHOLDER_RE.match(value):
-            yield location, f"unsupported ${{...}} placeholder value '{value}'"
+        if _ENV_VAR_PLACEHOLDER_RE.search(value):
+            yield location, f"unsupported ${{...}} placeholder in value '{value}'"
+        elif _ENV_KEY_PLACEHOLDER_RE.search(value):
+            yield location, f"unsupported {{env: ...}} placeholder in value '{value}'"
     elif isinstance(value, dict):
         if "env" in value:
             yield f"{location}.env", "unsupported {env: ...} placeholder"
@@ -1119,6 +1122,7 @@ def _validate_staged(staging: Path) -> None:
 
 
 def _promote(staging: Path, out_dir: Path) -> None:
+    created_out_dir = not out_dir.exists()
     out_dir.mkdir(parents=True, exist_ok=True)
     target_files = {
         "rules.yaml": staging / "rules.yaml",
@@ -1149,6 +1153,9 @@ def _promote(staging: Path, out_dir: Path) -> None:
         for name in promoted:
             if name not in backed_up:
                 (out_dir / name).unlink(missing_ok=True)
+        # Remove the output directory if we created it and it is now empty.
+        if created_out_dir and out_dir.exists() and not any(out_dir.iterdir()):
+            out_dir.rmdir()
         raise
     finally:
         shutil.rmtree(backup_dir, ignore_errors=True)
