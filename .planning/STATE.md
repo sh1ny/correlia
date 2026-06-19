@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Vigilo/VDE Compatibility
 status: in_progress
-stopped_at: Phase 8 planning complete (user override)
-last_updated: "2026-06-19T00:00:00.000Z"
+stopped_at: Completed 08-01-PLAN.md
+last_updated: "2026-06-19T09:39:25.855Z"
 last_activity: 2026-06-19
 progress:
   total_phases: 6
   completed_phases: 3
-  total_plans: 8
-  completed_plans: 6
-  percent: 50
+  total_plans: 9
+  completed_plans: 7
+  percent: 78
 ---
 
 # Project State
@@ -25,8 +25,8 @@ See: .planning/PROJECT.md (updated 2026-06-17)
 
 ## Current Position
 Phase: 8
-Plan: 08-01, 08-02 planned
-Status: Phase 8 planning accepted by user override with known issues (plan-check returned 1 blocker, 1 warning, 1 nit)
+Plan: 08-02 next (08-01 complete)
+Status: Plan 08-01 executed; runtime topology capture-group support complete
 Last activity: 2026-06-19
 
 ### Accepted planning risks (Phase 8)
@@ -37,10 +37,9 @@ Planning for Phase 8 was accepted by explicit user override despite `## ISSUES F
 - **Warning accepted:** D-13 multi-input aggregation is not pinned by a named end-to-end test. The executor should add `test_report_aggregates_issues_across_inputs_and_domains` that runs bad rules + bad topology + bad plugins together.
 - **Nit accepted:** Only five non-output plugin section names have fixtures. The executor should add one fixture with an unknown sixth section name to pin the generic "any" rejection.
 
-Progress: [█████░░░░░] 50%
+Progress: [████████░░] 78%
 
 ## Milestone Archive
-
 - Roadmap archive: `.planning/milestones/v1.0-ROADMAP.md`
 - Requirements archive: `.planning/milestones/v1.0-REQUIREMENTS.md`
 - Milestone summary: `.planning/MILESTONES.md`
@@ -76,6 +75,9 @@ v1.1 roadmap decisions:
 - [Phase 7]: Moved commit ownership from IncidentManager.apply_problem and LifecycleManager.resolve_for_event to Icinga2DecisionProcessor.process_payload (D-01/D-02). Managers return commit-free result objects with notification_intent; ingress inserts the audit row and commits once.
 - [Phase 7]: Audit rows record notification_intent only; actual plugin delivery results stay out of the append-only incident_events table (D-03). Notification submission runs after the incident/audit commit.
 - [Phase 7]: Audit router uses idempotent redact_normalized_event_message_tags call in _audit_event_response, try/except ValueError for invalid cursors (400), and ValidationError-to-HTTPException(422) conversion for strict filter construction. Route classified as operator in ROUTE_CLASS_PREFIXES (D-16).
+- [Phase 08]: tag_capture_groups is a strict dict[str, int] with Field(default_factory=dict), so existing literal-only topology YAML remains valid. — Decision recorded during execution of 08-01-PLAN.md.
+- [Phase 08]: Derived capture-group tags are applied after literal tags; a derived value that overrides a literal value updates tags_added to the final captured value and records literal->derived in conflicts. — Decision recorded during execution of 08-01-PLAN.md.
+- [Phase 08]: Subnet topology rules intentionally reject tag_capture_groups via Pydantic extra=forbid, preserving D-11 literal-only semantics. — Decision recorded during execution of 08-01-PLAN.md.
 
 ### Deferred Items
 
@@ -95,10 +97,10 @@ Items acknowledged and carried forward from milestone close:
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/08-vigilo-config-migration/08-CONTEXT.md
+**Resume file:** None
 
-Last session: 2026-06-18T20:17:37.747Z
-Stopped at: Phase 8 context gathered
+Last session: 2026-06-19T09:38:57.876Z
+Stopped at: Completed 08-01-PLAN.md
 Resume: Phase 7 complete — begin Phase 8 (Vigilo Config Migration) when ready
 
 ## Performance Metrics
@@ -109,3 +111,4 @@ Resume: Phase 7 complete — begin Phase 8 (Vigilo Config Migration) when ready
 | Phase 05-security-and-http-controls P02 | 15min | 2 tasks | 9 files |
 | Phase 07-incident-event-audit-trail P02 | 60min | 3 tasks | 10 files |
 | Phase 07-incident-event-audit-trail P03 | 28min | 3 tasks | 6 files |
+| Phase 08 P01 | 30min | 3 tasks | 3 files |

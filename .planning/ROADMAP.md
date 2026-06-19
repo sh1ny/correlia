@@ -101,11 +101,11 @@ Plans:
   4. Plaintext SMTP credentials are not copied into generated plugin config.
   5. Unsupported Vigilo semantics such as `min_hosts`, `is_dc_level`, empty actions, non-output plugin sections, LLM config, and unsupported plugin types produce a non-zero migration result before success is reported.
 
-**Plans**: 2 plans
+**Plans**: 1/2 plans executed
 
 Plans:
 
-- [ ] 08-01-PLAN.md — Runtime topology capture-group schema, compiled config, enrichment semantics, and tests.
+- [x] 08-01-PLAN.md — Runtime topology capture-group schema, compiled config, enrichment semantics, and tests.
 - [ ] 08-02-PLAN.md — Standalone Vigilo/VDE migration CLI, fail-closed unsupported reporting, atomic output, loader/plugin validation, fixtures, and documentation.
 
 > **Planning status:** Plans 08-01 and 08-02 were produced and reviewed through 5 plan-check iterations. The final checker returned `## ISSUES FOUND` with 1 blocker, 1 warning, and 1 nit. The operator explicitly chose to proceed to execution with these known risks documented in `.planning/STATE.md`. Plans remain unchecked until execution completes.
@@ -189,9 +189,9 @@ Plans:
 | 5. Security and HTTP Controls | v1.1 | 2/2 | Complete    | 2026-06-17 |
 | 6. Canonical Incident API Operation Parity | v1.1 | 1/1 | Complete    | 2026-06-17 |
 | 7. Incident Event Audit Trail | v1.1 | 3/3 | Complete    | 2026-06-18 |
-| 8. Vigilo Config Migration | v1.1 | 0/TBD | Not started | - |
+| 8. Vigilo Config Migration | v1.1 | 1/2 | In Progress|  |
 | 9. Plugin and Notification Boundaries | v1.1 | 0/TBD | Not started | - |
 | 10. Deployment and Operational Visibility | v1.1 | 0/TBD | Not started | - |
 
 ---
-*Last updated: 2026-06-18 — Phase 7 complete, Phase 8 ready*
+*Last updated: 2026-06-19 — Plan 08-01 complete, Plan 08-02 ready*

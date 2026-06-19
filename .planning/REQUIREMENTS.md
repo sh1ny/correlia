@@ -36,8 +36,8 @@ Requirements for the Vigilo/VDE compatibility milestone. Each requirement maps t
 
 - [ ] **CFG-01**: Maintainers can run `scripts/migrate_vigilo_config.py` with `--rules`, `--topology`, `--plugins`, and `--out-dir` to generate Correlia `rules.yaml`, `topology.yaml`, and `plugins.yaml`.
 - [ ] **CFG-02**: The migration command rewrites supported Vigilo rule fields into strict Correlia rule schema, including severity, host/service patterns, topology tag keys, summary placeholders, and action objects.
-- [ ] **CFG-03**: The migration command rewrites supported Vigilo topology fields into strict Correlia hostname and subnet topology schemas.
-- [ ] **CFG-04**: Correlia supports topology regex capture-group substitution needed to preserve Vigilo hostname-derived topology tags, or the migration fails clearly when substitution is required but unavailable.
+- [x] **CFG-03**: The migration command rewrites supported Vigilo topology fields into strict Correlia hostname and subnet topology schemas.
+- [x] **CFG-04**: Correlia supports topology regex capture-group substitution needed to preserve Vigilo hostname-derived topology tags, or the migration fails clearly when substitution is required but unavailable.
 - [ ] **CFG-05**: The migration command rewrites supported Vigilo email output plugin configuration into Correlia output plugin schema without copying plaintext SMTP credentials.
 - [ ] **CFG-06**: The migration command exits non-zero with a clear unsupported-field error for Vigilo semantics Correlia cannot preserve, including `min_hosts`, `is_dc_level`, empty actions, non-output plugin sections, LLM config, and unsupported plugin types.
 - [ ] **CFG-07**: The migration command validates generated files with Correlia's existing rule, topology, and plugin config loaders before reporting success.
@@ -110,8 +110,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | AUD-04 | Phase 7 | Complete |
 | CFG-01 | Phase 8 | Pending |
 | CFG-02 | Phase 8 | Pending |
-| CFG-03 | Phase 8 | Pending |
-| CFG-04 | Phase 8 | Pending |
+| CFG-03 | Phase 8 | Complete |
+| CFG-04 | Phase 8 | Complete |
 | CFG-05 | Phase 8 | Pending |
 | CFG-06 | Phase 8 | Pending |
 | CFG-07 | Phase 8 | Pending |
