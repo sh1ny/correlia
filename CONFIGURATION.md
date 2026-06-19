@@ -35,7 +35,7 @@ Example `config/rules.yaml`:
 ```yaml
 rules:
   - name: "DC-Level Outage Aggregator"
-    priority: 100
+    priority: 1
     match:
       severities: ["CRITICAL", "WARNING"]
       host_pattern: ".*"
@@ -47,11 +47,11 @@ rules:
       trigger_threshold: 10
     output_summary: "Major outage detected in Datacenter {topology.datacenter}"
     actions:
-      - name: "email-ops"
+      - name: "create_incident"
         plugin: "email-ops"
 
   - name: "Host Alert Aggregator"
-    priority: 50
+    priority: 2
     match:
       severities: ["CRITICAL", "WARNING"]
       host_pattern: ".*"
@@ -61,15 +61,15 @@ rules:
       trigger_threshold: 5
     output_summary: "Multiple alerts on {host}"
     actions:
-      - name: "email-ops"
+      - name: "create_incident"
         plugin: "email-ops"
 ```
 
 Porting notes:
 
 - VDE `match.severity` becomes Correlia `match.severities`.
-- VDE wildcard `host: "*"` becomes regex `host_pattern: ".*"`.
-- VDE `actions: ["email-ops"]` becomes action objects with `name` and `plugin`.
+- VDE wildcard `host`/`service` values are translated with `fnmatch.translate()` into anchored regex `host_pattern`/`service_pattern` values.
+- VDE `actions: ["email-ops"]` becomes action objects with `name: create_incident` and `plugin: <action-name>`.
 - Correlia requires every rule to have at least one action today. VDE's service-tracker rule with `actions: []` will not load without a no-op output plugin or a schema change.
 - Correlia does not currently support VDE's `min_hosts` or `is_dc_level` rule fields directly.
 
@@ -82,14 +82,16 @@ hostname_rules:
   - id: "standard-naming-convention"
     name: "Standard Naming Convention"
     hostname_pattern: "^([a-z0-9]+)-prd-.*"
-    tags:
-      topology.datacenter: "\\1"
+    tags: {}
+    tag_capture_groups:
+      topology.datacenter: 1
 
   - id: "development-environment"
     name: "Development Environment"
     hostname_pattern: "^([a-z0-9]+)-dev-.*"
-    tags:
-      topology.datacenter: "\\1"
+    tags: {}
+    tag_capture_groups:
+      topology.datacenter: 1
 
 subnet_rules:
   - id: "prm1-subnet"
@@ -114,7 +116,7 @@ subnet_rules:
 Porting notes:
 
 - VDE `topology_rules.hostname_patterns[].regex` becomes Correlia `hostname_rules[].hostname_pattern`.
-- VDE `target_tag: "datacenter"` should become `topology.datacenter`; Correlia requires topology tag keys to start with `topology.`.
+- VDE hostname patterns with a parenthesized capture group and a `target_tag` become `tag_capture_groups: {topology.<target_tag>: 1}` instead of literal backreference strings.
 - VDE subnet `cidr` becomes Correlia `subnet`.
 - VDE subnet `value` becomes the value under the selected topology tag.
 
@@ -145,8 +147,34 @@ Porting notes:
 - VDE `smtp_host` maps to Correlia `host`.
 - VDE `smtp_port` maps to Correlia `port`.
 - VDE `from_address`, `to_addresses`, and `subject_prefix` map directly.
+- VDE `use_tls: true` or omitted `use_tls` maps to Correlia `start_tls: true`; explicit `use_tls: false` maps to `start_tls: false`.
 - SMTP credentials should be supplied through environment-specific secret handling, not copied as plaintext from VDE config.
 - VDE task-runner, input plugin, LLM enricher, and LLM processor sections have no direct Correlia config target yet.
+
+## Vigilo/VDE config migration
+
+Use the standalone migration CLI to translate supported Vigilo/VDE YAML into Correlia config:
+
+```bash
+uv run python scripts/migrate_vigilo_config.py \
+  --rules vigilo/rules.yaml \
+  --topology vigilo/topology.yaml \
+  --plugins vigilo/plugins.yaml \
+  --out-dir config/ \
+  --report-path migration-report.json
+```
+
+Behavior:
+
+- The CLI accepts exactly one YAML file per `--rules`, `--topology`, and `--plugins` flag. Directories, globs, missing files, and non-YAML files are rejected.
+- Each of `--rules`, `--topology`, `--plugins`, and `--out-dir` may only be specified once.
+- Vigilo priorities are sorted by descending numeric value and rewritten as Correlia ascending ranks (`1`, `2`, `3`, ...), so Correlia's lower-first rule engine preserves Vigilo's higher-first evaluation order.
+- Supported topology capture-group patterns emit `tag_capture_groups` instead of literal backreference strings.
+- Plaintext SMTP credential keys (`smtp_username`, `smtp_password`, `username`, `password`) cause the migration to fail closed with no output files written.
+- Unknown Vigilo email plugin option keys (e.g. `smtp_timeout`, `connection_pool_size`) are rejected so unmapped semantics are not silently copied or dropped.
+- Any top-level plugin section other than `outputs` is rejected, including generic unknown section names.
+- Unsupported fields across all three input files are aggregated into one structured report (`ok: false`, `errors: [...]`, `generated: null`) before the CLI exits non-zero.
+- Generated files are staged in a temporary directory, validated through Correlia's loaders plus generated email plugin instantiation, and only then atomically promoted to `--out-dir`. A failed migration leaves `--out-dir` untouched.
 
 ## Current gaps before exact VDE parity
 
@@ -154,4 +182,4 @@ Porting notes:
 - No direct config support for VDE `is_dc_level` notification suppression semantics.
 - No actionless tracking rule support because Correlia rejects empty action lists.
 - No config surface yet for input plugins, enrichment plugins, decision/processor plugins, or task-runner adapters.
-- No config migration command exists yet; a future `scripts/migrate_vigilo_config.py` should fail on unsupported VDE fields rather than silently dropping them.
+- No first-class secret references in `plugins.yaml`; operators must supply credentials outside the migration artifact.
