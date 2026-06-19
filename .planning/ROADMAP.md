@@ -101,14 +101,15 @@ Plans:
   4. Plaintext SMTP credentials are not copied into generated plugin config.
   5. Unsupported Vigilo semantics such as `min_hosts`, `is_dc_level`, empty actions, non-output plugin sections, LLM config, and unsupported plugin types produce a non-zero migration result before success is reported.
 
-**Plans**: 2/2 plans complete
+**Plans**: 3/3 plans complete
 
 Plans:
 
 - [x] 08-01-PLAN.md — Runtime topology capture-group schema, compiled config, enrichment semantics, and tests.
 - [x] 08-02-PLAN.md — Standalone Vigilo/VDE migration CLI, fail-closed unsupported reporting, atomic output, loader/plugin validation, fixtures, and documentation.
+- [x] 08-03-PLAN.md — Gap closure for D-05 placeholder rejection and D-14/D-15 promotion rollback edge cases.
 
-> **Planning status:** Plans 08-01 and 08-02 were produced and reviewed through 5 plan-check iterations. The final checker returned `## ISSUES FOUND` with 1 blocker, 1 warning, and 1 nit. The operator explicitly chose to proceed to execution with these known risks documented in `.planning/STATE.md`. Execution resolved all three accepted risks: unknown email plugin options are rejected, multi-input aggregation is pinned by a dedicated test, and generic unknown plugin sections are rejected.
+> **Verification status:** Phase 8 passed final verification after gap closure. All CFG-01..CFG-07 requirements and D-01..D-15 locked decisions are satisfied; full gate passed with `make lint`, `make typecheck`, and `make test` (533 tests).
 
 ### Phase 9: Plugin and Notification Boundaries
 
