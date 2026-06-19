@@ -1,0 +1,14 @@
+# Unsupported: wildcard tag match value containing ?
+rules:
+  - name: "Wildcard Question Rule"
+    priority: 100
+    match:
+      severity: ["CRITICAL"]
+      tags:
+        datacenter: "?"
+    window:
+      duration_seconds: 1800
+      group_by: ["host"]
+      trigger_threshold: 1
+    output_summary: "Wildcard question"
+    actions: ["email-ops"]
