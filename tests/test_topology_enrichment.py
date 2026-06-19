@@ -583,6 +583,150 @@ async def test_no_conflict_when_source_tag_same_value(tmp_path: Path) -> None:
     assert diag.tags_overridden == []
     assert diag.conflicts == []
 
+# ---------------------------------------------------------------------------
+# CFG-04: derived hostname tag enrichment (D-08, D-09)
+# ---------------------------------------------------------------------------
+
+
+async def test_hostname_capture_group_adds_derived_tag(tmp_path: Path) -> None:
+    path = tmp_path / "topology.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "hostname_rules": [
+                    {
+                        "id": "datacenter-hosts",
+                        "name": "Datacenter Hosts",
+                        "hostname_pattern": "^([a-z0-9]+)-prd-.*",
+                        "tags": {},
+                        "tag_capture_groups": {"topology.datacenter": 1},
+                    }
+                ],
+                "subnet_rules": [],
+            }
+        )
+    )
+    config = load_topology_config(path)
+    enricher = StaticTopologyEnricher(config)
+    event = _event(host="prm1-prd-web01")
+    result = await enricher.enrich(event)
+
+    assert result.event.tags["topology.datacenter"] == "prm1"
+    diag = result.diagnostics[0]
+    assert diag.tags_added == {"topology.datacenter": "prm1"}
+    assert diag.tags_overridden == []
+    assert diag.conflicts == []
+
+
+async def test_hostname_capture_group_overrides_literal_or_event_tag(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "topology.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "hostname_rules": [
+                    {
+                        "id": "datacenter-hosts",
+                        "name": "Datacenter Hosts",
+                        "hostname_pattern": "^([a-z0-9]+)-prd-.*",
+                        "tags": {
+                            "topology.datacenter": "literal-dc",
+                            "topology.role": "web",
+                        },
+                        "tag_capture_groups": {"topology.datacenter": 1},
+                    }
+                ],
+                "subnet_rules": [],
+            }
+        )
+    )
+    config = load_topology_config(path)
+    enricher = StaticTopologyEnricher(config)
+    event = _event(host="prm1-prd-web01", tags={"topology.datacenter": "event-dc"})
+    result = await enricher.enrich(event)
+
+    assert result.event.tags["topology.datacenter"] == "prm1"
+    assert result.event.tags["topology.role"] == "web"
+    diag = result.diagnostics[0]
+    assert diag.tags_added == {"topology.role": "web"}
+    assert diag.tags_overridden == [
+        ("topology.datacenter", "event-dc", "literal-dc"),
+        ("topology.datacenter", "literal-dc", "prm1"),
+    ]
+    assert diag.conflicts == [
+        ("topology.datacenter", "event-dc", "literal-dc"),
+        ("topology.datacenter", "literal-dc", "prm1"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("hostname_pattern", "host", "group_index"),
+    [
+        ("^web(-?[0-9]*).*", "web", 1),  # empty string group
+        ("^(web)(?:-(\\d+))?.*", "web", 2),  # unmatched optional group (None)
+    ],
+)
+async def test_hostname_capture_group_skips_empty_capture(
+    tmp_path: Path,
+    hostname_pattern: str,
+    host: str,
+    group_index: int,
+) -> None:
+    path = tmp_path / "topology.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "hostname_rules": [
+                    {
+                        "id": "optional-suffix",
+                        "name": "Optional Suffix",
+                        "hostname_pattern": hostname_pattern,
+                        "tags": {},
+                        "tag_capture_groups": {"topology.suffix": group_index},
+                    }
+                ],
+                "subnet_rules": [],
+            }
+        )
+    )
+    config = load_topology_config(path)
+    enricher = StaticTopologyEnricher(config)
+    event = _event(host=host)
+    result = await enricher.enrich(event)
+
+    assert "topology.suffix" not in result.event.tags
+    diag = result.diagnostics[0]
+    assert diag.tags_added == {}
+    assert diag.tags_overridden == []
+    assert diag.conflicts == []
+
+async def test_hostname_capture_group_rejects_overlong_capture(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "topology.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "hostname_rules": [
+                    {
+                        "id": "overlong-capture",
+                        "name": "Overlong Capture",
+                        "hostname_pattern": "^(.*)$",
+                        "tags": {},
+                        "tag_capture_groups": {"topology.big": 1},
+                    }
+                ],
+                "subnet_rules": [],
+            }
+        )
+    )
+    config = load_topology_config(path)
+    enricher = StaticTopologyEnricher(config)
+    event = _event(host="x" * 257)
+    with pytest.raises(ValueError, match="exceeds 256 characters"):
+        await enricher.enrich(event)
+
 
 # ---------------------------------------------------------------------------
 # TOP-05: enrichment diagnostics shape
