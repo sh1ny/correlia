@@ -50,6 +50,7 @@ _GLOB_METACHARS = frozenset({"*", "?", "[", "]"})
 _TAG_KEY_RE = re.compile(r"^[a-z][a-z0-9_.-]*$")
 _PLACEHOLDER_RE = re.compile(r"\{[^{}]*\}")
 _VALID_PLACEHOLDER_RE = re.compile(r"^\{([a-zA-Z0-9_.-]+)\}$")
+_ENV_VAR_PLACEHOLDER_RE = re.compile(r"^\$\{.*\}$")
 
 
 # -----------------------------------------------------------------------------
@@ -816,6 +817,24 @@ def _transform_topology(raw_topology: dict[str, Any]) -> dict[str, Any]:
 # -----------------------------------------------------------------------------
 # Plugin transforms
 # -----------------------------------------------------------------------------
+def _iter_unsupported_placeholders(value: Any, location: str) -> Iterator[tuple[str, str]]:
+    """Yield (location, description) for unsupported ${...} or {env: ...} forms.
+
+    Recurses through lists and mappings only under allowed email option values.
+    """
+    if isinstance(value, str):
+        if _ENV_VAR_PLACEHOLDER_RE.match(value):
+            yield location, f"unsupported ${{...}} placeholder value '{value}'"
+    elif isinstance(value, dict):
+        if "env" in value:
+            yield f"{location}.env", "unsupported {env: ...} placeholder"
+        else:
+            for key, val in value.items():
+                yield from _iter_unsupported_placeholders(val, f"{location}.{key}")
+    elif isinstance(value, list):
+        for idx, item in enumerate(value):
+            yield from _iter_unsupported_placeholders(item, f"{location}[{idx}]")
+
 
 
 def _preflight_plugins(raw_plugins: dict[str, Any]) -> list[MigrationIssue]:
@@ -923,6 +942,20 @@ def _preflight_plugins(raw_plugins: dict[str, Any]) -> list[MigrationIssue]:
                         requirement="CFG-06",
                     )
                 )
+            else:
+                for subloc, description in _iter_unsupported_placeholders(
+                    config[key], f"{loc}.config.{key}"
+                ):
+                    issues.append(
+                        MigrationIssue(
+                            domain="plugins",
+                            location=subloc,
+                            code="unsupported_plugin_option",
+                            message=description,
+                            requirement="CFG-06",
+                        )
+                    )
+
 
     return issues
 
@@ -952,6 +985,11 @@ def _transform_plugins(raw_plugins: dict[str, Any]) -> dict[str, Any]:
             options["start_tls"] = bool(use_tls)
         else:
             options["start_tls"] = True
+
+        if list(_iter_unsupported_placeholders(options, "")):
+            raise ValueError(
+                f"unsupported placeholder syntax in generated options for output '{name}'"
+            )
 
         output_list.append(
             {
