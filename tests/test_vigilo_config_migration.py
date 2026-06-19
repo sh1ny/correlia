@@ -615,3 +615,30 @@ def test_promote_does_not_create_out_dir_on_failure(
         _promote(staging, out_dir)
 
     assert not out_dir.exists()
+
+
+def test_promote_removes_new_out_dir_on_mkdtemp_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression for the narrow D-14 path where tempfile.mkdtemp raises after
+    _promote creates a missing --out-dir.
+    """
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    (staging / "rules.yaml").write_text("rules: []")
+    (staging / "topology.yaml").write_text("hostname_rules: []\nsubnet_rules: []")
+    (staging / "plugins.yaml").write_text("outputs: []")
+    out_dir = tmp_path / "out"
+    assert not out_dir.exists()
+
+    def fake_mkdtemp(*args: Any, **kwargs: Any) -> str:
+        raise OSError("simulated mkdtemp failure")
+
+    monkeypatch.setattr(
+        scripts.migrate_vigilo_config.tempfile, "mkdtemp", fake_mkdtemp
+    )
+
+    with pytest.raises(OSError):
+        _promote(staging, out_dir)
+
+    assert not out_dir.exists()

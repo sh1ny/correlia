@@ -1123,17 +1123,18 @@ def _validate_staged(staging: Path) -> None:
 
 def _promote(staging: Path, out_dir: Path) -> None:
     created_out_dir = not out_dir.exists()
-    out_dir.mkdir(parents=True, exist_ok=True)
     target_files = {
         "rules.yaml": staging / "rules.yaml",
         "topology.yaml": staging / "topology.yaml",
         "plugins.yaml": staging / "plugins.yaml",
     }
 
-    backup_dir = tempfile.mkdtemp(prefix="migrate_backup_", dir=out_dir.parent)
+    backup_dir: str | None = None
     backed_up: dict[str, Path] = {}
     promoted: list[str] = []
     try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        backup_dir = tempfile.mkdtemp(prefix="migrate_backup_", dir=out_dir.parent)
         for name in target_files:
             target = out_dir / name
             if target.exists():
@@ -1158,7 +1159,8 @@ def _promote(staging: Path, out_dir: Path) -> None:
             out_dir.rmdir()
         raise
     finally:
-        shutil.rmtree(backup_dir, ignore_errors=True)
+        if backup_dir is not None:
+            shutil.rmtree(backup_dir, ignore_errors=True)
 
 
 # -----------------------------------------------------------------------------
