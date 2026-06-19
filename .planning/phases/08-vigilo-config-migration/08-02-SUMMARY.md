@@ -152,6 +152,14 @@ Each task was committed atomically:
 **Total deviations:** 4 auto-fixed (3 missing critical, 1 planner-accepted risk)
 **Impact on plan:** All fixes close correctness gaps identified during execution or accepted during planning. No scope creep.
 
+### Post-execution gate fix
+
+- **Lint gate failure:** `make lint` failed on `scripts/migrate_vigilo_config.py` because app imports follow a `sys.path` insertion for direct invocation (E402). Added `# noqa: E402` to those imports.
+- **Files modified:** `scripts/migrate_vigilo_config.py`
+- **Verification:** `make lint && make typecheck && make test` passes (525 tests).
+- **Committed in:** post-summary lint-fix commit
+
+
 ## Issues Encountered
 
 - Early `CONFIGURATION.md` edit corrupted the plugin YAML code fence by inserting the migration bash block in the wrong location; rewrote the docs section cleanly.
