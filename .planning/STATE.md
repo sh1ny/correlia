@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Vigilo/VDE Compatibility
 status: in_progress
-stopped_at: Completed 08-01-PLAN.md
-last_updated: "2026-06-19T09:39:25.855Z"
+stopped_at: Completed 08-02-PLAN.md
+last_updated: "2026-06-19T11:30:00.000Z"
 last_activity: 2026-06-19
 progress:
   total_phases: 6
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 9
-  completed_plans: 7
-  percent: 78
+  completed_plans: 9
+  percent: 67
 ---
 
 # Project State
@@ -21,25 +21,25 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-17)
 
 **Core value:** Operators receive one accurate, topology-aware incident for a related alert storm instead of many disconnected raw alerts.
-**Current focus:** Phase 08 — Vigilo Config Migration
+**Current focus:** Phase 09 — next
 
 ## Current Position
-Phase: 8
-Plan: 08-02 next (08-01 complete)
-Status: Plan 08-01 executed; runtime topology capture-group support complete
+
+Phase: 8 complete
+Plan: 08-02 complete (08-01 complete)
+Status: Vigilo/VDE config migration CLI implemented and tested.
 Last activity: 2026-06-19
 
-### Accepted planning risks (Phase 8)
+### Accepted planning risks (Phase 8) — RESOLVED
 
-Planning for Phase 8 was accepted by explicit user override despite `## ISSUES FOUND` in the final plan check. The remaining items are carried to the executor as implementation/test-tightening work, not re-planning blockers:
+- **Resolved:** Unknown Vigilo email plugin option keys are rejected as `unsupported_plugin_option` / `CFG-06` (fixture `plugins_with_unknown_email_option.yaml`).
+- **Resolved:** Multi-input aggregation is pinned by `test_report_aggregates_issues_across_inputs_and_domains`.
+- **Resolved:** Generic non-output section rejection is pinned by `plugins_with_unknown_section.yaml` (`mystery_section`).
 
-- **Blocker accepted:** CFG-05 does not yet define behavior for unknown Vigilo email plugin option keys (e.g. `smtp_timeout`, `connection_pool_size`). The executor must choose either (a) reject with `unsupported_plugin_option` / `CFG-06`, or (b) explicitly document a known-set-only policy and test that unmapped keys are omitted.
-- **Warning accepted:** D-13 multi-input aggregation is not pinned by a named end-to-end test. The executor should add `test_report_aggregates_issues_across_inputs_and_domains` that runs bad rules + bad topology + bad plugins together.
-- **Nit accepted:** Only five non-output plugin section names have fixtures. The executor should add one fixture with an unknown sixth section name to pin the generic "any" rejection.
-
-Progress: [████████░░] 78%
+Progress: [██████████] 100%
 
 ## Milestone Archive
+
 - Roadmap archive: `.planning/milestones/v1.0-ROADMAP.md`
 - Requirements archive: `.planning/milestones/v1.0-REQUIREMENTS.md`
 - Milestone summary: `.planning/MILESTONES.md`
@@ -99,9 +99,9 @@ Items acknowledged and carried forward from milestone close:
 
 **Resume file:** None
 
-Last session: 2026-06-19T09:38:57.876Z
-Stopped at: Completed 08-01-PLAN.md
-Resume: Phase 7 complete — begin Phase 8 (Vigilo Config Migration) when ready
+Last session: 2026-06-19T11:30:00.000Z
+Stopped at: Completed 08-02-PLAN.md
+Resume: Phase 8 complete — begin Phase 9 (Plugin and Notification Boundaries) when ready
 
 ## Performance Metrics
 
@@ -112,3 +112,4 @@ Resume: Phase 7 complete — begin Phase 8 (Vigilo Config Migration) when ready
 | Phase 07-incident-event-audit-trail P02 | 60min | 3 tasks | 10 files |
 | Phase 07-incident-event-audit-trail P03 | 28min | 3 tasks | 6 files |
 | Phase 08 P01 | 30min | 3 tasks | 3 files |
+| Phase 08 P02 | 90min | 3 tasks | 45 files |
