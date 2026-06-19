@@ -14,6 +14,7 @@ import yaml
 # transform assertions.  The script arranges for app.* imports to work.
 from scripts.migrate_vigilo_config import (
     UNSUPPORTED_FIELD_CATALOG_CODES,
+    _promote,
     _rewrite_group_by,
     _rewrite_match_tags,
     _rewrite_summary,
@@ -22,6 +23,7 @@ from scripts.migrate_vigilo_config import (
     _transform_rules,
     _transform_topology,
 )
+import scripts.migrate_vigilo_config
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "vigilo"
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "migrate_vigilo_config.py"
@@ -551,3 +553,35 @@ def test_validation_failure_leaves_existing_out_dir_untouched(tmp_path: Path) ->
     assert result.returncode != 0
     assert existing.read_text() == "preserve me"
     assert not (out_dir / "rules.yaml").exists()
+
+def test_promote_rolls_back_new_files_on_mid_promotion_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    (staging / "rules.yaml").write_text("rules: []")
+    (staging / "topology.yaml").write_text("hostname_rules: []\nsubnet_rules: []")
+    (staging / "plugins.yaml").write_text("outputs: []")
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    real_replace = scripts.migrate_vigilo_config.os.replace
+    call_count = 0
+
+    def fake_replace(src: str, dst: str) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count > 1:
+            raise OSError("simulated mid-promotion failure")
+        real_replace(src, dst)
+
+    monkeypatch.setattr(
+        scripts.migrate_vigilo_config.os, "replace", fake_replace
+    )
+
+    with pytest.raises(OSError):
+        _promote(staging, out_dir)
+
+    assert not (out_dir / "rules.yaml").exists()
+    assert not (out_dir / "topology.yaml").exists()
+    assert not (out_dir / "plugins.yaml").exists()
