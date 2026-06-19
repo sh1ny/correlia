@@ -286,6 +286,7 @@ UNSUPPORTED_FIELD_CASES: list[tuple[str, str, str]] = [
     ("plugins_with_unknown_email_option.yaml", "unsupported_plugin_option", "CFG-06"),
     ("plugins_with_placeholder_option.yaml", "unsupported_plugin_option", "CFG-06"),
     ("plugins_with_unknown_section.yaml", "unsupported_plugin_section", "CFG-06"),
+    ("plugins_with_placeholder_name.yaml", "unsupported_plugin_option", "CFG-06"),
 ]
 
 
@@ -361,6 +362,7 @@ def test_action_plugin_must_exist_in_outputs(tmp_path: Path) -> None:
     errors = [e for e in report["errors"] if e["code"] == "unknown_action_plugin"]
     assert any("email-ops" in e["message"] for e in errors)
 
+
 def test_plugin_option_placeholders_fail_before_output(tmp_path: Path) -> None:
     out_dir = tmp_path / "out"
     report_path = tmp_path / "report.json"
@@ -384,6 +386,15 @@ def test_plugin_option_placeholders_fail_before_output(tmp_path: Path) -> None:
     assert any("config.from_address" in loc for loc in locations)
     assert any("config.to_addresses[1]" in loc for loc in locations)
     assert any("config.subject_prefix" in loc for loc in locations)
+
+
+def test_transform_plugins_rejects_placeholder_in_output_name() -> None:
+    raw = yaml.safe_load(_fixture_path("plugins_valid.yaml").read_text())
+    # Move the valid output to a placeholder-bearing name.
+    raw["outputs"]["${SMTP_HOST}"] = raw["outputs"].pop("email-ops")
+    with pytest.raises(ValueError, match="unsupported placeholder syntax"):
+        _transform_plugins(raw)
+
 
 # ---------------------------------------------------------------------------
 # Multi-input aggregation

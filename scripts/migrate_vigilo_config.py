@@ -872,6 +872,18 @@ def _preflight_plugins(raw_plugins: dict[str, Any]) -> list[MigrationIssue]:
 
     for name, output in outputs.items():
         loc = f"plugins.outputs.{name}"
+        # Reject placeholder syntax in the source output name so generated
+        # plugins.yaml cannot carry ${...} or {env: ...} anywhere.
+        for subloc, description in _iter_unsupported_placeholders(name, loc):
+            issues.append(
+                MigrationIssue(
+                    domain="plugins",
+                    location=subloc,
+                    code="unsupported_plugin_option",
+                    message=description,
+                    requirement="CFG-06",
+                )
+            )
         if not isinstance(output, dict):
             issues.append(
                 MigrationIssue(
@@ -972,6 +984,12 @@ def _transform_plugins(raw_plugins: dict[str, Any]) -> dict[str, Any]:
     for name, output in outputs.items():
         if not isinstance(output, dict):
             continue
+        # Fail closed for direct callers even if preflight was bypassed.
+        if list(_iter_unsupported_placeholders(name, "name")):
+            raise ValueError(
+                f"unsupported placeholder syntax in generated output name '{name}'"
+            )
+
         config = output.get("config", {})
         if not isinstance(config, dict):
             config = {}
