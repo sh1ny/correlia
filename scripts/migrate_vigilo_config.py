@@ -17,7 +17,7 @@ import re
 import shutil
 import sys
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -972,6 +972,13 @@ def _transform_plugins(raw_plugins: dict[str, Any]) -> dict[str, Any]:
         config = output.get("config", {})
         if not isinstance(config, dict):
             config = {}
+        for key in config:
+            if key in _ALLOWED_EMAIL_CONFIG_KEYS:
+                if list(_iter_unsupported_placeholders(config[key], f"config.{key}")):
+                    raise ValueError(
+                        f"unsupported placeholder syntax in generated options for output '{name}'"
+                    )
+
         options: dict[str, Any] = {
             "host": config.get("smtp_host", "localhost"),
             "port": config.get("smtp_port", 587),
@@ -985,11 +992,6 @@ def _transform_plugins(raw_plugins: dict[str, Any]) -> dict[str, Any]:
             options["start_tls"] = bool(use_tls)
         else:
             options["start_tls"] = True
-
-        if list(_iter_unsupported_placeholders(options, "")):
-            raise ValueError(
-                f"unsupported placeholder syntax in generated options for output '{name}'"
-            )
 
         output_list.append(
             {

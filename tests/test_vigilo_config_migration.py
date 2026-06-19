@@ -182,6 +182,13 @@ def test_migrate_email_plugin() -> None:
     assert out["options"]["start_tls"] is True
 
 
+def test_transform_plugins_rejects_placeholder_in_allowed_options() -> None:
+    raw = yaml.safe_load(_fixture_path("plugins_valid.yaml").read_text())
+    raw["outputs"]["email-ops"]["config"]["use_tls"] = {"env": "TLS"}
+    with pytest.raises(ValueError, match="unsupported placeholder syntax"):
+        _transform_plugins(raw)
+
+
 # ---------------------------------------------------------------------------
 # Transform helpers
 # ---------------------------------------------------------------------------
