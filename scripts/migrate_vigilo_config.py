@@ -90,8 +90,8 @@ UNSUPPORTED_FIELD_CATALOG_CODES: frozenset[str] = frozenset(
         "unsupported_plugin_class",
         "plaintext_smtp_credentials",
         "unsupported_plugin_option",
+        "unknown_action_plugin",
         "invalid_input_path",
-        "duplicate_flag",
     }
 )
 
@@ -965,6 +965,42 @@ def _transform_plugins(raw_plugins: dict[str, Any]) -> dict[str, Any]:
     return {"outputs": output_list}
 
 
+def _extract_output_names(raw_plugins: dict[str, Any]) -> set[str]:
+    if not isinstance(raw_plugins, dict):
+        return set()
+    outputs = raw_plugins.get("outputs", {})
+    if not isinstance(outputs, dict):
+        return set()
+    return {name for name, output in outputs.items() if isinstance(output, dict)}
+
+
+def _check_action_plugins_exist(
+    raw_rules: list[Any], output_names: set[str]
+) -> list[MigrationIssue]:
+    issues: list[MigrationIssue] = []
+    if not isinstance(raw_rules, list):
+        return issues
+    for idx, rule in enumerate(raw_rules):
+        if not isinstance(rule, dict):
+            continue
+        actions = rule.get("actions", [])
+        if not isinstance(actions, list):
+            continue
+        for a_idx, action in enumerate(actions):
+            if not isinstance(action, str):
+                continue
+            if action not in output_names:
+                issues.append(
+                    MigrationIssue(
+                        domain="rules",
+                        location=f"rules[{idx}].actions[{a_idx}]",
+                        code="unknown_action_plugin",
+                        message=f"action plugin '{action}' is not defined in plugins.outputs",
+                        requirement="CFG-06",
+                    )
+                )
+    return issues
+
 # -----------------------------------------------------------------------------
 # Input path validation
 # -----------------------------------------------------------------------------
@@ -1145,6 +1181,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     issues.extend(_preflight_rules(rules_list))
     issues.extend(_preflight_topology(topology_rules))
     issues.extend(_preflight_plugins(raw_plugins))
+    issues.extend(
+        _check_action_plugins_exist(rules_list, _extract_output_names(raw_plugins))
+    )
 
     if issues:
         report = _build_report(False, issues, None)

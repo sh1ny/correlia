@@ -339,6 +339,18 @@ def test_unsupported_field_catalog_table_complete() -> None:
     assert not missing, f"catalog codes missing from script: {missing}"
 
 
+def test_action_plugin_must_exist_in_outputs(tmp_path: Path) -> None:
+    report = _run_migration_expect_issue(
+        rules="rules_valid.yaml",
+        topology="topology_valid.yaml",
+        plugins="plugins_with_no_outputs.yaml",
+        expected_code="unknown_action_plugin",
+        expected_requirement="CFG-06",
+        tmp_path=tmp_path,
+    )
+    errors = [e for e in report["errors"] if e["code"] == "unknown_action_plugin"]
+    assert any("email-ops" in e["message"] for e in errors)
+
 # ---------------------------------------------------------------------------
 # Multi-input aggregation
 # ---------------------------------------------------------------------------
