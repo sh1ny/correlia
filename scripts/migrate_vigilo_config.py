@@ -27,12 +27,12 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-import yaml
+import yaml  # noqa: E402
 
-from app.config.plugins import load_plugin_registry_config
-from app.config.rules import _KNOWN_NORMALIZED_FIELDS, load_rules_config
-from app.config.topology import load_topology_config
-from app.plugins.loader import load_plugin_registry
+from app.config.plugins import load_plugin_registry_config  # noqa: E402
+from app.config.rules import _KNOWN_NORMALIZED_FIELDS, load_rules_config  # noqa: E402
+from app.config.topology import load_topology_config  # noqa: E402
+from app.plugins.loader import load_plugin_registry  # noqa: E402
 
 
 # -----------------------------------------------------------------------------
