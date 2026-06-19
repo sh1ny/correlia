@@ -118,6 +118,118 @@ def test_load_topology_config_rejects_invalid_regex(tmp_path: Path) -> None:
     with pytest.raises(Exception):
         load_topology_config(path)
 
+# ---------------------------------------------------------------------------
+# CFG-04: hostname tag capture groups (D-07, D-09, D-11)
+# ---------------------------------------------------------------------------
+
+
+def test_load_topology_config_accepts_hostname_tag_capture_groups(tmp_path: Path) -> None:
+    path = tmp_path / "topology.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "hostname_rules": [
+                    {
+                        "id": "datacenter-hosts",
+                        "name": "Datacenter Hosts",
+                        "hostname_pattern": "^([a-z0-9]+)-prd-.*",
+                        "tags": {"topology.env": "production"},
+                        "tag_capture_groups": {"topology.datacenter": 1},
+                    }
+                ],
+                "subnet_rules": [],
+            }
+        )
+    )
+    config = load_topology_config(path)
+    assert len(config.hostname_rules) == 1
+    rule = config.hostname_rules[0]
+    assert rule.tags == {"topology.env": "production"}
+    assert rule.tag_capture_groups == {"topology.datacenter": 1}
+    match = rule.pattern.match("prm1-prd-web01")
+    assert match is not None
+    assert match.group(1) == "prm1"
+
+
+@pytest.mark.parametrize(
+    ("group_index", "expected_snippet"),
+    [
+        (0, "must be >= 1"),
+        (-1, "must be >= 1"),
+        (2, "is 2 but pattern"),
+    ],
+)
+def test_load_topology_config_rejects_invalid_capture_group_index(
+    tmp_path: Path,
+    group_index: int,
+    expected_snippet: str,
+) -> None:
+    path = tmp_path / "topology.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "hostname_rules": [
+                    {
+                        "id": "bad-group",
+                        "name": "Bad Group",
+                        "hostname_pattern": "^([a-z0-9]+)-prd-.*",
+                        "tags": {},
+                        "tag_capture_groups": {"topology.datacenter": group_index},
+                    }
+                ],
+                "subnet_rules": [],
+            }
+        )
+    )
+    with pytest.raises(ValueError, match=expected_snippet):
+        load_topology_config(path)
+
+
+def test_load_topology_config_rejects_capture_group_key_without_topology_prefix(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "topology.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "hostname_rules": [
+                    {
+                        "id": "bad-key",
+                        "name": "Bad Key",
+                        "hostname_pattern": "^([a-z0-9]+)-prd-.*",
+                        "tags": {},
+                        "tag_capture_groups": {"datacenter": 1},
+                    }
+                ],
+                "subnet_rules": [],
+            }
+        )
+    )
+    with pytest.raises(Exception):  # Pydantic ValidationError
+        load_topology_config(path)
+
+
+def test_load_topology_config_rejects_subnet_tag_capture_groups(tmp_path: Path) -> None:
+    path = tmp_path / "topology.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "hostname_rules": [],
+                "subnet_rules": [
+                    {
+                        "id": "subnet-capture",
+                        "name": "Subnet Capture",
+                        "subnet": "192.0.2.0/24",
+                        "tags": {"topology.site": "dc1"},
+                        "tag_capture_groups": {"topology.foo": 1},
+                    }
+                ],
+            }
+        )
+    )
+    with pytest.raises(Exception):  # Pydantic ValidationError (extra="forbid")
+        load_topology_config(path)
+
 
 # ---------------------------------------------------------------------------
 # TOP-02: subnet_rules YAML loading

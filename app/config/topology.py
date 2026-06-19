@@ -16,6 +16,7 @@ class HostnameTopologyRule(BaseModel):
     name: str
     hostname_pattern: str
     tags: dict[str, str]
+    tag_capture_groups: dict[str, int] = Field(default_factory=dict)
 
     @field_validator("tags")
     @classmethod
@@ -25,6 +26,21 @@ class HostnameTopologyRule(BaseModel):
                 raise ValueError(f"tag key must start with 'topology.': {key}")
         return value
 
+    @field_validator("tag_capture_groups")
+    @classmethod
+    def _capture_groups_must_be_valid(
+        cls, value: dict[str, int]
+    ) -> dict[str, int]:
+        for key, group in value.items():
+            if not key.startswith("topology."):
+                raise ValueError(
+                    f"capture group key must start with 'topology.': {key}"
+                )
+            if group < 1:
+                raise ValueError(
+                    f"capture group index for '{key}' must be >= 1, got {group}"
+                )
+        return value
 
 class SubnetTopologyRule(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
@@ -78,6 +94,7 @@ class CompiledHostnameRule:
     name: str
     pattern: re.Pattern[str]
     tags: dict[str, str]
+    tag_capture_groups: dict[str, int]
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,12 +126,21 @@ def load_topology_config(path: Path) -> CompiledTopologyConfig:
                 f"Invalid regex in hostname rule '{hostname_rule.id}': "
                 f"{hostname_rule.hostname_pattern}"
             ) from exc
+        for key, group_index in hostname_rule.tag_capture_groups.items():
+            if group_index > pattern.groups:
+                raise ValueError(
+                    f"capture group index for '{key}' in hostname rule "
+                    f"'{hostname_rule.id}' is {group_index} but pattern "
+                    f"'{hostname_rule.hostname_pattern}' only has "
+                    f"{pattern.groups} group(s)"
+                )
         compiled_hostname_rules.append(
             CompiledHostnameRule(
                 id=hostname_rule.id,
                 name=hostname_rule.name,
                 pattern=pattern,
                 tags=dict(hostname_rule.tags),
+                tag_capture_groups=dict(hostname_rule.tag_capture_groups),
             )
         )
 
