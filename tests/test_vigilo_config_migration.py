@@ -275,6 +275,7 @@ UNSUPPORTED_FIELD_CASES: list[tuple[str, str, str]] = [
     ("plugins_with_password_credential.yaml", "plaintext_smtp_credentials", "CFG-06"),
     ("plugins_with_credentials.yaml", "plaintext_smtp_credentials", "CFG-06"),
     ("plugins_with_unknown_email_option.yaml", "unsupported_plugin_option", "CFG-06"),
+    ("plugins_with_placeholder_option.yaml", "unsupported_plugin_option", "CFG-06"),
     ("plugins_with_unknown_section.yaml", "unsupported_plugin_section", "CFG-06"),
 ]
 
@@ -350,6 +351,30 @@ def test_action_plugin_must_exist_in_outputs(tmp_path: Path) -> None:
     )
     errors = [e for e in report["errors"] if e["code"] == "unknown_action_plugin"]
     assert any("email-ops" in e["message"] for e in errors)
+
+def test_plugin_option_placeholders_fail_before_output(tmp_path: Path) -> None:
+    out_dir = tmp_path / "out"
+    report_path = tmp_path / "report.json"
+    result = _run_cli(
+        rules=str(_fixture_path("rules_valid.yaml")),
+        topology=str(_fixture_path("topology_valid.yaml")),
+        plugins=str(_fixture_path("plugins_with_placeholder_option.yaml")),
+        out_dir=str(out_dir),
+        report_path=str(report_path),
+    )
+    assert result.returncode != 0, result.stdout
+    report = json.loads(report_path.read_text())
+    assert report["ok"] is False
+    assert report["generated"] is None
+    assert not (out_dir / "rules.yaml").exists()
+    assert not (out_dir / "topology.yaml").exists()
+    assert not (out_dir / "plugins.yaml").exists()
+    errors = [e for e in report["errors"] if e["code"] == "unsupported_plugin_option"]
+    assert len(errors) >= 2, f"expected at least two unsupported_plugin_option errors, got {errors}"
+    assert all(e["requirement"] == "CFG-06" for e in errors)
+    locations = {e["location"] for e in errors}
+    assert any("config.smtp_host" in loc for loc in locations)
+    assert any("config.to_addresses[1]" in loc for loc in locations)
 
 # ---------------------------------------------------------------------------
 # Multi-input aggregation
