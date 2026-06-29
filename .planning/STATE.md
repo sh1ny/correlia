@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Vigilo/VDE Compatibility
-status: in_progress
+status: "Phase 08 shipped — PR #3"
 stopped_at: Ready for Phase 9
-last_updated: "2026-06-19T14:35:00.000Z"
-last_activity: 2026-06-19
+last_updated: "2026-06-29T12:50:27.382Z"
+last_activity: 2026-06-29
 progress:
   total_phases: 6
   completed_phases: 4
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-06-17)
 
 Phase: 8 complete
 Plan: 08-01, 08-02, 08-03 complete
-Status: Vigilo/VDE config migration CLI implemented, gap-closed, and verified.
-Last activity: 2026-06-19
+Status: Phase 08 shipped — PR #3
+Last activity: 2026-06-29
 
 ### Accepted planning risks (Phase 8) — RESOLVED
 
