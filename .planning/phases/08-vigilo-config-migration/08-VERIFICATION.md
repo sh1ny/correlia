@@ -1,6 +1,6 @@
 ---
 phase: 08-vigilo-config-migration
-verified: 2026-06-19T13:31:41Z
+verified: 2026-06-19T14:09:09Z
 status: passed
 score: 10/10 must-haves verified
 behavior_unverified: 0
@@ -20,15 +20,14 @@ human_verification: []
 
 **Phase Goal:** Maintainers can translate supported Vigilo/VDE YAML into strict Correlia config and get clear failures whenever Vigilo semantics cannot be preserved.
 
-**Verified:** 2026-06-19T13:31:41Z
+**Verified:** 2026-06-19T14:09:09Z
 
 **Status:** `passed`
 
-**Re-verification:** Yes — clean verification on the committed HEAD after hardening D-05 coverage for output-name placeholders.
+**Re-verification:** Yes — clean verification on the Phase 8 implementation/docs target after final state and roadmap updates.
 
 **Code under verification:**
-- HEAD commit `1ffa5e8610b2b18d800773aaaa736174e9ca463f` — `fix(08-03): reject placeholder syntax in Vigilo output names; add regression test`
-- Committed code tree: clean (`git status --short` shows only the modified verification report)
+- Implementation verification target: Phase 8 implementation plus final STATE/ROADMAP updates
 
 ## Goal Achievement
 
@@ -143,7 +142,7 @@ No phase-declared probes found; skipped.
 
 ### D-05 Hardening Details
 
-The committed HEAD `1ffa5e86` closes a narrow D-05 edge case where a Vigilo source output name containing `${...}` or `{env: ...}` would have been copied verbatim into `plugins.yaml` because placeholder scanning was limited to allowed email option values.
+The implementation verification target closes a narrow D-05 edge case where a Vigilo source output name containing `${...}` or `{env: ...}` would have been copied verbatim into `plugins.yaml` because placeholder scanning was limited to allowed email option values.
 
 - `scripts/migrate_vigilo_config.py:874-886` — `_preflight_plugins` now runs `_iter_unsupported_placeholders(name, loc)` for every output name and reports any match as `unsupported_plugin_option` / CFG-06.
 - `scripts/migrate_vigilo_config.py:985-991` — `_transform_plugins` now raises `ValueError` if a direct caller supplies a placeholder-bearing output name, mirroring the existing option-value guard.
@@ -152,7 +151,7 @@ The committed HEAD `1ffa5e86` closes a narrow D-05 edge case where a Vigilo sour
 
 ### Anti-Patterns Found
 
-No `TBD`, `FIXME`, `XXX`, `TODO`, `HACK`, or placeholder comments were found in the modified files. No stub implementations, hardcoded empty data, or console-only handlers were identified.
+No `TBD`, `FIXME`, `XXX`, `TODO`, `HACK`, or placeholder comments were found in the Phase 8 implementation files. No stub implementations, hardcoded empty data, or console-only handlers were identified.
 
 ### Human Verification Required
 
@@ -160,11 +159,11 @@ None. All phase-8 behaviors are covered by automated tests.
 
 ### Gaps Summary
 
-No gaps remain. All CFG-01..CFG-07 requirements are satisfied, all D-01..D-15 locked decisions are honored, and the full workspace regression suite (533 tests), lint, and typecheck gates pass on the committed HEAD `1ffa5e86`.
+No gaps remain. All CFG-01..CFG-07 requirements are satisfied, all D-01..D-15 locked decisions are honored, and the full workspace regression suite (533 tests), lint, and typecheck gates pass on the Phase 8 implementation verification target.
 
 ---
 
-_Verified: 2026-06-19T13:31:41Z_
+_Verified: 2026-06-19T14:09:09Z_
 _Verifier: Claude (gsd-verifier)_
 
 ## VERIFICATION PASSED
