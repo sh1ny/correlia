@@ -15,7 +15,7 @@ Phase 7 does not implement notification plugin delivery confirmation, long-term 
 <decisions>
 ## Implementation Decisions
 
-### Audit Write Timing
+## Audit Write Timing
 - **D-01:** Audit rows are written in the same database transaction as the incident upsert/lifecycle write. This satisfies AUD-02's "every accepted normalized event" crash-safety requirement.
 - **D-02:** Transaction commit ownership moves upward from `IncidentManager.apply_problem` and `LifecycleManager.resolve_for_event` to the ingress caller. Managers return their write result and notification intent; the ingress layer inserts the audit row and commits once.
 - **D-03:** Notification task submission (`_submit_notifications`) remains post-commit, preserving current envelope behavior. Audit rows record notification **intent** only (`notification_intent = dispatch_planned | no_dispatch` with `no_dispatch_reason`), not actual plugin delivery results.
