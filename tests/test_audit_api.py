@@ -264,6 +264,22 @@ class _InProcessPluginRegistry:
     config_hash = "in-process-test-config"
 
 
+class _RecordingTaskRunner:
+    registered_task_names = ("notify",)
+
+    def __init__(self) -> None:
+        self.submissions: list[tuple[str, dict[str, object]]] = []
+
+    def register(self, task_name: str, handler: object) -> None:
+        raise AssertionError(f"unexpected registration: {task_name}")
+
+    async def submit(self, task_name: str, payload: dict[str, object]) -> None:
+        self.submissions.append((task_name, dict(payload)))
+
+    async def drain(self) -> None:
+        return None
+
+
 def _write_plugins(_path: Path) -> _InProcessPluginRegistry:
     return _InProcessPluginRegistry()
 
@@ -271,7 +287,7 @@ def _build_processor(
     session_factory: async_sessionmaker[AsyncSession],
     rules_path: Path,
     plugin_registry: _InProcessPluginRegistry,
-    task_runner: AsyncIOTaskRunner,
+    task_runner: _RecordingTaskRunner,
 ) -> Icinga2DecisionProcessor:
     return _real_build_icinga2_processor(
         rules_path=rules_path,
@@ -715,13 +731,7 @@ async def test_ingress_incident_and_noop_events_are_queryable(
     rules_path = tmp_path / "rules.yaml"
     _write_rules(rules_path, threshold=1)
     plugin_registry = _write_plugins(tmp_path / "plugins.yaml")
-    task_runner = AsyncIOTaskRunner()
-    submitted: list[dict[str, object]] = []
-
-    async def capture_notify(payload: dict[str, object]) -> None:
-        submitted.append(dict(payload))
-
-    task_runner.register("notify", capture_notify)
+    task_runner = _RecordingTaskRunner()
     processor = _build_processor(
         session_factory, rules_path, plugin_registry, task_runner
     )
@@ -753,13 +763,15 @@ async def test_ingress_incident_and_noop_events_are_queryable(
             "/v1/icinga2/events", json=problem_payload, headers=headers
         )
         assert resp_problem.status_code == 200
-        await task_runner.drain()
-        assert submitted == [
-            {
-                "incident_id": resp_problem.json()["incident_id"],
-                "plugin_name": "email-oncall",
-                "config_hash": plugin_registry.config_hash,
-            }
+        assert task_runner.submissions == [
+            (
+                "notify",
+                {
+                    "incident_id": resp_problem.json()["incident_id"],
+                    "plugin_name": "email-oncall",
+                    "config_hash": plugin_registry.config_hash,
+                },
+            )
         ]
 
         # Recovery event for a host with no open incident → no-op accepted
