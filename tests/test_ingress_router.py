@@ -18,10 +18,15 @@ from testcontainers.postgres import PostgresContainer
 from app.config.plugins import load_plugin_registry_config
 from app.config.settings import Settings
 from app.domain.events import Severity
+from app.domain.rules import RuleDecision, ThresholdDecision
 from app.main import create_app
 from app.persistence.incidents import IncidentUpsertInput, upsert_open_incident
+from app.plugins.inputs.icinga2 import Icinga2InputPlugin
 from app.plugins.loader import PluginRegistry
-from app.processing.ingress import build_icinga2_processor as _real_build_icinga2_processor
+from app.processing.ingress import (
+    Icinga2DecisionProcessor,
+    build_icinga2_processor as _real_build_icinga2_processor,
+)
 from app.processing.task_runner import AsyncIOTaskRunner
 
 
@@ -243,6 +248,62 @@ def _payload(
     return payload
 
 
+async def test_submit_notifications_without_task_runner_reports_failed_result_per_action(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts: list[tuple[str, str]] = []
+    failures: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "app.processing.ingress.record_notification_attempt",
+        lambda plugin_name, category: attempts.append((plugin_name, category)),
+    )
+    monkeypatch.setattr(
+        "app.processing.ingress.record_notification_failure",
+        lambda plugin_name, category: failures.append((plugin_name, category)),
+    )
+    decision = RuleDecision(
+        rule_name="critical-rule",
+        priority=10,
+        matched_rules=["critical-rule"],
+        group_key="service=http",
+        threshold_decision=ThresholdDecision(
+            rule_name="critical-rule",
+            group_key="service=http",
+            window_start=_event_time(),
+            window_end=_event_time(),
+            threshold=1,
+            counted_fingerprints=["first"],
+            counted=1,
+            crossed=True,
+        ),
+        summary="critical http service",
+        actions=["zeta", "alpha", "zeta"],
+    )
+    processor = Icinga2DecisionProcessor(
+        plugin=Icinga2InputPlugin(),
+        audit_raw_payload_max_bytes=1024,
+        audit_raw_payload_hmac_key="test-audit-hmac",
+    )
+
+    results = await processor._submit_notifications("incident-1", decision)
+
+    assert [(result.success, result.category) for result in results] == [
+        (False, "dispatch_failed"),
+        (False, "dispatch_failed"),
+    ]
+    assert attempts == [
+        ("alpha", "dispatch_failed"),
+        ("zeta", "dispatch_failed"),
+    ]
+    assert failures == attempts
+    assert await processor._submit_notifications("incident-1", None) == ()
+    assert attempts == [
+        ("alpha", "dispatch_failed"),
+        ("zeta", "dispatch_failed"),
+    ]
+    assert failures == attempts
+
+
 async def test_icinga2_problem_webhook_aggregates_and_submits_notifications_once(
     tmp_path: Path,
     session_factory: async_sessionmaker[AsyncSession],
@@ -353,7 +414,7 @@ async def test_icinga2_problem_webhook_aggregates_and_submits_notifications_once
     assert already_body["notification_count"] == 0
     assert already_body["no_dispatch_reason"] == "already_notified"
     assert len(submitted) == 1
-    assert attempts == [("email-oncall", "dispatched")]
+    assert attempts == []
     # AUD-02: every accepted event must write exactly one audit row.
     assert (await _count_audit_rows(session_factory)) == 4
 

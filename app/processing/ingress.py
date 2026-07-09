@@ -330,9 +330,20 @@ class Icinga2DecisionProcessor:
         incident_id: Any,
         decision: RuleDecision | None,
     ) -> tuple[NotificationResult, ...]:
-        if self._task_runner is None or decision is None:
+        if decision is None:
             return ()
         results: list[NotificationResult] = []
+        if self._task_runner is None:
+            for plugin_name in sorted(set(decision.actions)):
+                result = NotificationResult(
+                    success=False,
+                    category="dispatch_failed",
+                    message="notification task runner is unavailable",
+                )
+                record_notification_attempt(plugin_name, result.category)
+                record_notification_failure(plugin_name, result.category)
+                results.append(result)
+            return tuple(results)
         known_plugins = set(getattr(self._plugin_registry, "names", ()))
         for plugin_name in sorted(set(decision.actions)):
             if plugin_name not in known_plugins:
@@ -364,7 +375,6 @@ class Icinga2DecisionProcessor:
                 record_notification_failure(plugin_name, result.category)
                 results.append(result)
                 continue
-            record_notification_attempt(plugin_name, "dispatched")
             results.append(
                 NotificationResult(
                     success=True,
