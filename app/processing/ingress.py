@@ -364,6 +364,7 @@ class Icinga2DecisionProcessor:
                 record_notification_failure(plugin_name, result.category)
                 results.append(result)
                 continue
+            record_notification_attempt(plugin_name, "dispatched")
             results.append(
                 NotificationResult(
                     success=True,
@@ -479,7 +480,9 @@ def _build_noop_audit_summary(
         affected_incident_count=0,
         incident_ids_truncated=False,
         decision_reason=noop_reason or "no matching rule",
-        no_dispatch_reason="no_matching_rule" if not matched_rules else None,
+        no_dispatch_reason=(noop_reason or "no_matching_rule")
+        if not matched_rules
+        else None,
         notification_intent="no_dispatch",
         counted_count=None,
         threshold_count=None,

@@ -87,6 +87,10 @@ class AuditEventCursor:
     id: UUID
 
 
+class InvalidAuditCursorError(ValueError):
+    """Raised when an audit pagination cursor cannot be decoded safely."""
+
+
 @dataclass(frozen=True, slots=True)
 class AuditEventListRow:
     """Default safe list projection for an audit event (D-08/D-15).
@@ -383,15 +387,18 @@ def redact_payload(
 # ---------------------------------------------------------------------------
 
 
+
+
 def _redact_normalized_event_message_tags(
     message: str | None,
     tags: dict[str, Any] | None,
 ) -> tuple[str, dict[str, Any]]:
     """Idempotently redact a projected normalized event message and tags.
 
-    The repository and the router can both call this safely. Tags whose
-    key contains a sensitive fragment are omitted entirely. Sensitive
-    fragments in tag values are replaced with ``AUDIT_REDACTION_PLACEHOLDER``.
+    The repository and the router can both call this safely. Top-level
+    sensitive tag keys are omitted; nested sensitive keys and string values
+    are replaced recursively, while safe nested containers are copied without
+    mutation.
     """
 
     raw_message = message or ""
@@ -407,15 +414,13 @@ def _redact_normalized_event_message_tags(
         safe_message = safe_message[:AUDIT_MESSAGE_MAX_LENGTH]
     safe_tags: dict[str, Any] = {}
     if tags:
-        for key, value in tags.items():
-            key_text = key.lower() if isinstance(key, str) else str(key).lower()
-            # Omit tags whose key contains a sensitive fragment (D-08/D-15).
-            if _contains_sensitive_fragment(key_text):
-                continue
-            if isinstance(value, str) and _contains_sensitive_fragment(value):
-                safe_tags[key] = AUDIT_REDACTION_PLACEHOLDER
-            else:
-                safe_tags[key] = value
+        safe_tags = {
+            key: _redact_value(value)
+            for key, value in tags.items()
+            if not _contains_sensitive_fragment(
+                key.lower() if isinstance(key, str) else str(key).lower()
+            )
+        }
     return safe_message, safe_tags
 
 
@@ -450,23 +455,20 @@ def decode_audit_cursor(value: str) -> AuditEventCursor:
     """Decode and validate an audit cursor.
 
     Rejects malformed base64/JSON, non-UTF-8 bytes, missing keys, invalid
-    UUIDs, and naive datetimes with ``ValueError("invalid audit event
-    cursor")``. Unlike the incident cursor helper, this also catches
-    ``binascii.Error`` and ``UnicodeDecodeError`` so malformed base64 or
-    non-UTF-8 payloads cannot bypass the exception list.
+    UUIDs, and naive datetimes with ``InvalidAuditCursorError``.
     """
 
     try:
         padded = value + ("=" * (-len(value) % 4))
-        payload = json.loads(base64.urlsafe_b64decode(padded.encode()).decode())
+        payload = json.loads(
+            base64.b64decode(padded.encode(), altchars=b"-_", validate=True).decode()
+        )
         accepted_at = datetime.fromisoformat(payload["accepted_at"])
         if accepted_at.tzinfo is None or accepted_at.utcoffset() is None:
             raise ValueError("cursor timestamp must be timezone-aware")
         return AuditEventCursor(accepted_at=accepted_at, id=UUID(payload["id"]))
     except UnicodeDecodeError as exc:
-        # Valid urlsafe base64 that decodes to non-UTF-8 bytes (e.g. "____")
-        # bypasses binascii.Error and fails at .decode(); catch explicitly.
-        raise ValueError("invalid audit event cursor") from exc
+        raise InvalidAuditCursorError("invalid audit event cursor") from exc
     except (
         KeyError,
         TypeError,
@@ -474,7 +476,7 @@ def decode_audit_cursor(value: str) -> AuditEventCursor:
         json.JSONDecodeError,
         binascii.Error,
     ) as exc:
-        raise ValueError("invalid audit event cursor") from exc
+        raise InvalidAuditCursorError("invalid audit event cursor") from exc
 
 
 # ---------------------------------------------------------------------------

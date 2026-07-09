@@ -1,6 +1,7 @@
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from pathlib import Path
+import inspect
 import logging
 import subprocess
 import os
@@ -245,6 +246,7 @@ def _payload(
 async def test_icinga2_problem_webhook_aggregates_and_submits_notifications_once(
     tmp_path: Path,
     session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     rules_path = tmp_path / "rules.yaml"
     topology_path = tmp_path / "topology.yaml"
@@ -253,6 +255,14 @@ async def test_icinga2_problem_webhook_aggregates_and_submits_notifications_once
     _write_topology(topology_path)
     plugin_registry = _write_plugins(plugins_path)
     task_runner = AsyncIOTaskRunner()
+    attempts: list[tuple[str, str]] = []
+
+    def capture_attempt(plugin_name: str, category: str) -> None:
+        attempts.append((plugin_name, category))
+
+    monkeypatch.setattr(
+        "app.processing.ingress.record_notification_attempt", capture_attempt
+    )
     submitted: list[dict[str, object]] = []
 
     async def capture_notify(payload: dict[str, object]) -> None:
@@ -343,8 +353,34 @@ async def test_icinga2_problem_webhook_aggregates_and_submits_notifications_once
     assert already_body["notification_count"] == 0
     assert already_body["no_dispatch_reason"] == "already_notified"
     assert len(submitted) == 1
+    assert attempts == [("email-oncall", "dispatched")]
     # AUD-02: every accepted event must write exactly one audit row.
     assert (await _count_audit_rows(session_factory)) == 4
+
+
+async def test_ingress_without_rule_engine_persists_configuration_reason(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    processor = build_icinga2_processor(sessionmaker=session_factory)
+    app = create_app(
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        sessionmaker=session_factory,
+        icinga2_processor=processor,
+        lifecycle_worker=NoopLifecycleWorker(),  # type: ignore[arg-type]
+    )
+
+    async for client in get_client(app):
+        response = await client.post(
+            "/v1/icinga2/events",
+            json=valid_icinga2_service_payload(),
+        )
+        assert response.status_code == 200
+        audit_response = await client.get("/v1/incident-events")
+
+    assert audit_response.status_code == 200
+    assert audit_response.json()["items"][0]["decision_summary"][
+        "no_dispatch_reason"
+    ] == "no rule engine configured"
 
 
 async def test_ingress_logs_safe_json_events(
@@ -556,15 +592,16 @@ async def test_recovery_response_contains_lifecycle_outcome_without_notification
 
 
 def test_recovery_branch_does_not_call_apply_problem_or_raw_state_names() -> None:
-    import inspect
     import app.processing.ingress as ingress_module
 
-    source = inspect.getsource(ingress_module)
-    # The ingress module must not call IncidentManager.apply_problem in the
-    # RECOVERY branch. In the new architecture the RECOVERY branch
-    # constructs LifecycleManager directly, so we just assert the source
-    # contains no IncidentManager construction under the recovery branch.
-    assert "IncidentManager(" not in source or "resolve_for_event" in source
+    source = inspect.getsource(ingress_module.Icinga2DecisionProcessor.process_payload)
+    recovery_start = source.index("elif event.event_type is EventType.RECOVERY:")
+    recovery_end = source.index("\n\n            summary =", recovery_start)
+    recovery_branch = source[recovery_start:recovery_end]
+
+    assert "LifecycleManager(" in recovery_branch
+    assert "resolve_for_event" in recovery_branch
+    assert "IncidentManager(" not in recovery_branch
     # Raw Icinga2 fields must not appear in ingress.
     assert "state_type" not in source
     assert "check_output" not in source

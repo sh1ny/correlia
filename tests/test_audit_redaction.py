@@ -156,6 +156,47 @@ def test_redact_normalized_event_message_tags_omits_sensitive_tag_keys() -> None
     assert "api_key" not in safe_tags
     assert safe_tags["safe"] == "ok"
 
+
+def test_redact_normalized_event_message_tags_redacts_nested_contents_without_mutating_input() -> None:
+    tags = {
+        "environment": "prod",
+        "nested": {
+            "safe": "visible",
+            "api_key": "secret-key",
+            "details": {"description": "contains a token", "region": "us-east-1"},
+        },
+        "items": [{"name": "healthy"}, {"credential": "secret"}],
+    }
+
+    _, safe_tags = redact_normalized_event_message_tags(None, tags)
+
+    assert safe_tags == {
+        "environment": "prod",
+        "nested": {
+            "safe": "visible",
+            "api_key": AUDIT_REDACTION_PLACEHOLDER,
+            "details": {
+                "description": AUDIT_REDACTION_PLACEHOLDER,
+                "region": "us-east-1",
+            },
+        },
+        "items": [
+            {"name": "healthy"},
+            {"credential": AUDIT_REDACTION_PLACEHOLDER},
+        ],
+    }
+    assert tags == {
+        "environment": "prod",
+        "nested": {
+            "safe": "visible",
+            "api_key": "secret-key",
+            "details": {"description": "contains a token", "region": "us-east-1"},
+        },
+        "items": [{"name": "healthy"}, {"credential": "secret"}],
+    }
+    assert safe_tags["nested"] is not tags["nested"]
+    assert safe_tags["items"] is not tags["items"]
+
 def test_redact_normalized_event_message_tags_truncates_long_message() -> None:
     # D-08: non-sensitive messages up to 4096 chars in NormalizedEvent must
     # be capped to the 512-char response-surface bound.
@@ -204,6 +245,16 @@ def test_decode_audit_cursor_rejects_invalid_or_naive_values() -> None:
     # Valid urlsafe base64 that decodes to non-UTF-8 bytes.
     with pytest.raises(ValueError, match="invalid audit event cursor"):
         decode_audit_cursor("____")
+
+
+def test_decode_audit_cursor_rejects_invalid_byte_appended_to_valid_cursor() -> None:
+    cursor = AuditEventCursor(
+        accepted_at=datetime(2026, 6, 18, 12, 0, 0, tzinfo=UTC),
+        id=uuid4(),
+    )
+
+    with pytest.raises(ValueError, match="invalid audit event cursor"):
+        decode_audit_cursor(f"{encode_audit_cursor(cursor)}!")
 
 
 def _encode_raw(payload: dict[str, str]) -> str:

@@ -94,6 +94,9 @@ UNSUPPORTED_FIELD_CATALOG_CODES: frozenset[str] = frozenset(
         "unsupported_plugin_option",
         "unknown_action_plugin",
         "invalid_input_path",
+        "invalid_yaml",
+        "invalid_source_document",
+        "missing_top_level_wrapper",
     }
 )
 
@@ -868,6 +871,15 @@ def _preflight_plugins(raw_plugins: dict[str, Any]) -> list[MigrationIssue]:
 
     outputs = raw_plugins.get("outputs", {})
     if not isinstance(outputs, dict):
+        issues.append(
+            MigrationIssue(
+                domain="plugins",
+                location="plugins.outputs",
+                code="unsupported_plugin_section",
+                message="plugins.outputs must be a mapping",
+                requirement="CFG-06",
+            )
+        )
         return issues
 
     for name, output in outputs.items():
@@ -958,18 +970,29 @@ def _preflight_plugins(raw_plugins: dict[str, Any]) -> list[MigrationIssue]:
                     )
                 )
             else:
-                for subloc, description in _iter_unsupported_placeholders(
-                    config[key], f"{loc}.config.{key}"
-                ):
+                if key == "use_tls" and not isinstance(config[key], bool):
                     issues.append(
                         MigrationIssue(
                             domain="plugins",
-                            location=subloc,
+                            location=f"{loc}.config.use_tls",
                             code="unsupported_plugin_option",
-                            message=description,
+                            message="use_tls must be a boolean",
                             requirement="CFG-06",
                         )
                     )
+                else:
+                    for subloc, description in _iter_unsupported_placeholders(
+                        config[key], f"{loc}.config.{key}"
+                    ):
+                        issues.append(
+                            MigrationIssue(
+                                domain="plugins",
+                                location=subloc,
+                                code="unsupported_plugin_option",
+                                message=description,
+                                requirement="CFG-06",
+                            )
+                        )
 
 
     return issues
@@ -978,7 +1001,7 @@ def _preflight_plugins(raw_plugins: dict[str, Any]) -> list[MigrationIssue]:
 def _transform_plugins(raw_plugins: dict[str, Any]) -> dict[str, Any]:
     outputs = raw_plugins.get("outputs", {})
     if not isinstance(outputs, dict):
-        outputs = {}
+        raise ValueError("plugins.outputs must be a mapping")
 
     output_list: list[dict[str, Any]] = []
     for name, output in outputs.items():
@@ -1008,9 +1031,11 @@ def _transform_plugins(raw_plugins: dict[str, Any]) -> dict[str, Any]:
         }
         if "subject_prefix" in config:
             options["subject_prefix"] = config["subject_prefix"]
-        use_tls = config.get("use_tls")
-        if use_tls is not None:
-            options["start_tls"] = bool(use_tls)
+        if "use_tls" in config:
+            use_tls = config["use_tls"]
+            if not isinstance(use_tls, bool):
+                raise ValueError("use_tls must be a boolean")
+            options["start_tls"] = use_tls
         else:
             options["start_tls"] = True
 
@@ -1115,6 +1140,16 @@ def _validate_input_path(path: Path, flag: str) -> list[MigrationIssue]:
         )
 
     return issues
+
+
+def _nearest_existing_directory(path: Path) -> Path:
+    """Return an existing ancestor so staging never creates output paths."""
+    existing = path
+    while not existing.exists():
+        existing = existing.parent
+    if not existing.is_dir():
+        raise NotADirectoryError(f"staging parent is not a directory: {existing}")
+    return existing
 
 
 # -----------------------------------------------------------------------------
@@ -1245,12 +1280,67 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"  [{issue.code}] {issue.message}", file=sys.stderr)
         return 1
 
-    raw_rules = _load_yaml(rules_path)
-    raw_topology = _load_yaml(topology_path)
-    raw_plugins = _load_yaml(plugins_path)
+    raw_documents: dict[str, Any] = {}
+    for domain, path in (
+        ("rules", rules_path),
+        ("topology", topology_path),
+        ("plugins", plugins_path),
+    ):
+        try:
+            raw_documents[domain] = _load_yaml(path)
+        except yaml.YAMLError as exc:
+            issues.append(
+                MigrationIssue(
+                    domain=domain,
+                    location=str(path),
+                    code="invalid_yaml",
+                    message=f"could not parse YAML: {exc}",
+                    requirement="CFG-06",
+                )
+            )
 
-    rules_list = raw_rules.get("rules", []) if isinstance(raw_rules, dict) else []
-    topology_rules = raw_topology.get("topology_rules", {}) if isinstance(raw_topology, dict) else {}
+    if issues:
+        report = _build_report(False, issues, None)
+        if report_path is not None:
+            report_path.write_text(json.dumps(report, indent=2))
+        print("Migration failed:", file=sys.stderr)
+        for issue in issues:
+            print(f"  [{issue.code}] {issue.location}: {issue.message}", file=sys.stderr)
+        return 1
+
+    raw_rules = raw_documents["rules"]
+    raw_topology = raw_documents["topology"]
+    raw_plugins = raw_documents["plugins"]
+    rules_list: Any = []
+    topology_rules: Any = {}
+    for domain, raw_document, wrapper in (
+        ("rules", raw_rules, "rules"),
+        ("topology", raw_topology, "topology_rules"),
+    ):
+        if not isinstance(raw_document, dict):
+            issues.append(
+                MigrationIssue(
+                    domain=domain,
+                    location=domain,
+                    code="invalid_source_document",
+                    message=f"{domain} source document must be a mapping",
+                    requirement="CFG-06",
+                )
+            )
+        elif wrapper not in raw_document:
+            issues.append(
+                MigrationIssue(
+                    domain=domain,
+                    location=wrapper,
+                    code="missing_top_level_wrapper",
+                    message=f"{domain} source document is missing top-level '{wrapper}'",
+                    requirement="CFG-06",
+                )
+            )
+        elif domain == "rules":
+            rules_list = raw_document[wrapper]
+        else:
+            topology_rules = raw_document[wrapper]
 
     issues.extend(_preflight_rules(rules_list))
     issues.extend(_preflight_topology(topology_rules))
@@ -1272,7 +1362,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     transformed_topology = _transform_topology(topology_rules)
     transformed_plugins = _transform_plugins(raw_plugins)
 
-    staging = tempfile.mkdtemp(prefix="migrate_staging_", dir=out_dir.parent)
+    staging = tempfile.mkdtemp(
+        prefix="migrate_staging_",
+        dir=_nearest_existing_directory(out_dir.parent),
+    )
     try:
         staging_path = Path(staging)
         _write_yaml(staging_path / "rules.yaml", transformed_rules)

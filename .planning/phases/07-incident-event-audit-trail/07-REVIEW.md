@@ -2,8 +2,8 @@
 phase: 07-incident-event-audit-trail
 reviewed: 2026-06-18T18:45:00Z
 depth: standard
-severity: warning
-max_severity: warning
+severity: critical
+max_severity: critical
 files_reviewed: 32
 files_reviewed_list:
   - app/api/routers/audit.py
@@ -39,8 +39,8 @@ files_reviewed_list:
   - tests/test_settings.py
   - tests/test_size_limit.py
 findings:
-  critical: 0
-  warning: 2
+  critical: 1
+  warning: 1
   info: 2
   total: 4
 status: issues_found
@@ -57,9 +57,46 @@ status: issues_found
 
 Reviewed the full Phase 7 incident-event audit trail implementation across all three plans (07-01 schema/contracts, 07-02 ingress transaction refactor, 07-03 read-only operator API). The implementation is well-structured: the audit table uses server-generated UUIDs, the redactor is audit-owned, the ingress transaction is correctly single-session with post-commit notification submission, the operator API uses router-level auth with bounded projection and cursor pagination, and dependency-boundary tests enforce AUD-03 isolation.
 
-No critical (blocker) issues found. Two warnings identified — one design safety gap in the insert API's type contract that permits unredacted payloads, and one boundary mismatch between unbounded ingress fields and bounded response contracts that can cause transaction-consistency bugs. Two informational findings on test coverage and filter design.
+No critical findings were identified initially. This review revision upgrades one issue to critical because accepted inputs can return a 500 after the audit and incident transaction commits; one warning identifies a type-contract gap in the insert API; two informational findings cover test coverage and filter design.
 
-**Recommendation: APPROVE (no blocking issues) — fix warnings before next phase.**
+**Recommendation: BLOCK — fix the critical finding before the next phase.**
+
+## Critical Issues
+
+### CR-01: Unbounded `fingerprint`/`source_id`/`host`/`service` at ingress violates bounded response contracts — causes 500 with committed side effects
+
+**Files:** `app/domain/events.py:41-45`, `app/domain/rules.py:131-136`, `app/domain/audit.py:122-136`, `app/processing/ingress.py:269-310`, `app/api/routers/audit.py:86-118`
+**Issue:** `NormalizedEvent` constrains `fingerprint`, `source_id`, `host`, and `service` with `min_length=1` but no `max_length`:
+
+```python
+# app/domain/events.py:41-45
+fingerprint: Annotated[str, Field(min_length=1)]
+source_id: Annotated[str, Field(min_length=1)]
+host: Annotated[str, Field(min_length=1)]
+service: Annotated[str, Field(min_length=1)] | None = None
+```
+
+These unbounded values flow into two downstream contracts that both use `BoundedString` (max_length=256):
+
+1. **Ingress response (transaction-consistency bug):** After the audit/incident transaction commits at `app/processing/ingress.py:253`, `process_payload` constructs an `IngressDecisionEnvelope` (`app/domain/rules.py:129-167`) with `fingerprint: BoundedString | None`, `source_id: BoundedString | None`, `host: BoundedString | None`, `service: BoundedString | None`. The `fingerprint` field is used *twice* — as both `event_id` and `fingerprint` on the envelope (`app/processing/ingress.py:271-272`). If any of these four values exceeds 256 chars, Pydantic raises `ValidationError` — the client receives a 500 despite the incident and audit row having already been durably committed. There is no rollback mechanism.
+
+2. **Audit read endpoint (500 on query):** `_audit_event_response` (`app/api/routers/audit.py:86-118`) constructs `AuditEventResponse` whose `fingerprint`, `source_id`, `host`, and `service` fields are typed as `BoundedString` (max 256). The `except ValueError` at line 123 only wraps `list_incident_events`, not the response mapping — a `PydanticValidationError` (a `ValueError` subclass) from the mapper escapes unhandled as 500.
+
+In practice, current Icinga2 payloads produce short composite identifiers (e.g., `icinga2:service:web-01:http`), so this is unlikely to trigger today. But a future input plugin or topology-enrichment tag injection could produce a long `source_id`, and the failure mode is a 500 response with committed side effects — the worst kind of client-facing inconsistency.
+
+**Fix:** Align bounds at the write boundary. Add `max_length` to `NormalizedEvent` field annotations so accepted events are rejected before any durable side effects:
+
+```python
+# app/domain/events.py
+fingerprint: Annotated[str, Field(min_length=1, max_length=256)]
+source_id: Annotated[str, Field(min_length=1, max_length=256)]
+host: Annotated[str, Field(min_length=1, max_length=256)]
+service: Annotated[str, Field(min_length=1, max_length=256)] | None = None
+```
+
+This prevents unbounded data from entering the database and guarantees both the ingress response and audit read path will never fail on field-length validation. If longer identifiers or fingerprints are needed in the future, increase the `NormalizedEvent` bound first, then propagate to `IngressDecisionEnvelope` and `AuditEventResponse` simultaneously.
+
+---
 
 ## Warnings
 
@@ -106,40 +143,6 @@ Then update the ingress callsite (`app/processing/ingress.py:232-251`) to pass `
 
 ---
 
-### WR-02: Unbounded `fingerprint`/`source_id`/`host`/`service` at ingress violates bounded response contracts — causes 500 with committed side effects
-
-**Files:** `app/domain/events.py:41-45`, `app/domain/rules.py:131-136`, `app/domain/audit.py:122-136`, `app/processing/ingress.py:269-310`, `app/api/routers/audit.py:86-118`
-**Issue:** `NormalizedEvent` constrains `fingerprint`, `source_id`, `host`, and `service` with `min_length=1` but no `max_length`:
-
-```python
-# app/domain/events.py:41-45
-fingerprint: Annotated[str, Field(min_length=1)]
-source_id: Annotated[str, Field(min_length=1)]
-host: Annotated[str, Field(min_length=1)]
-service: Annotated[str, Field(min_length=1)] | None = None
-```
-
-These unbounded values flow into two downstream contracts that both use `BoundedString` (max_length=256):
-
-1. **Ingress response (transaction-consistency bug):** After the audit/incident transaction commits at `app/processing/ingress.py:253`, `process_payload` constructs an `IngressDecisionEnvelope` (`app/domain/rules.py:129-167`) with `fingerprint: BoundedString | None`, `source_id: BoundedString | None`, `host: BoundedString | None`, `service: BoundedString | None`. The `fingerprint` field is used *twice* — as both `event_id` and `fingerprint` on the envelope (`app/processing/ingress.py:271-272`). If any of these four values exceeds 256 chars, Pydantic raises `ValidationError` — the client receives a 500 despite the incident and audit row having already been durably committed. There is no rollback mechanism.
-
-2. **Audit read endpoint (500 on query):** `_audit_event_response` (`app/api/routers/audit.py:86-118`) constructs `AuditEventResponse` whose `fingerprint`, `source_id`, `host`, and `service` fields are typed as `BoundedString` (max 256). The `except ValueError` at line 123 only wraps `list_incident_events`, not the response mapping — a `PydanticValidationError` (a `ValueError` subclass) from the mapper escapes unhandled as 500.
-
-In practice, current Icinga2 payloads produce short composite identifiers (e.g., `icinga2:service:web-01:http`), so this is unlikely to trigger today. But a future input plugin or topology-enrichment tag injection could produce a long `source_id`, and the failure mode is a 500 response with committed side effects — the worst kind of client-facing inconsistency.
-
-**Fix:** Align bounds at the write boundary. Add `max_length` to `NormalizedEvent` field annotations so accepted events are rejected before any durable side effects:
-
-```python
-# app/domain/events.py
-fingerprint: Annotated[str, Field(min_length=1, max_length=256)]
-source_id: Annotated[str, Field(min_length=1, max_length=256)]
-host: Annotated[str, Field(min_length=1, max_length=256)]
-service: Annotated[str, Field(min_length=1, max_length=256)] | None = None
-```
-
-This prevents unbounded data from entering the database and guarantees both the ingress response and audit read path will never fail on field-length validation. If longer identifiers or fingerprints are needed in the future, increase the `NormalizedEvent` bound first, then propagate to `IngressDecisionEnvelope` and `AuditEventResponse` simultaneously.
-
----
 
 ## Info
 

@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 import yaml
 
 from app.config.topology import (
@@ -94,7 +95,7 @@ def test_load_topology_config_rejects_extra_keys_in_hostname_rule(
             }
         )
     )
-    with pytest.raises(Exception):  # Pydantic ValidationError
+    with pytest.raises(ValidationError):
         load_topology_config(path)
 
 
@@ -115,7 +116,7 @@ def test_load_topology_config_rejects_invalid_regex(tmp_path: Path) -> None:
             }
         )
     )
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError, match="Invalid regex"):
         load_topology_config(path)
 
 # ---------------------------------------------------------------------------
@@ -205,7 +206,7 @@ def test_load_topology_config_rejects_capture_group_key_without_topology_prefix(
             }
         )
     )
-    with pytest.raises(Exception):  # Pydantic ValidationError
+    with pytest.raises(ValidationError):
         load_topology_config(path)
 
 
@@ -227,7 +228,7 @@ def test_load_topology_config_rejects_subnet_tag_capture_groups(tmp_path: Path) 
             }
         )
     )
-    with pytest.raises(Exception):  # Pydantic ValidationError (extra="forbid")
+    with pytest.raises(ValidationError):
         load_topology_config(path)
 
 
@@ -308,7 +309,7 @@ def test_load_topology_config_rejects_invalid_cidr(tmp_path: Path) -> None:
             }
         )
     )
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         load_topology_config(path)
 
 
@@ -337,7 +338,7 @@ def test_load_topology_config_rejects_overlapping_conflicting_cidrs(
             }
         )
     )
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         load_topology_config(path)
 
 
@@ -390,7 +391,7 @@ def test_load_topology_config_rejects_non_topology_tags(tmp_path: Path) -> None:
             }
         )
     )
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         load_topology_config(path)
 
 

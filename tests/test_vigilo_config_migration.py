@@ -87,6 +87,117 @@ def test_cli_generates_files(tmp_path: Path) -> None:
     }
 
 
+@pytest.mark.parametrize(
+    ("source", "contents", "expected_code"),
+    [
+        ("rules", "[]", "invalid_source_document"),
+        ("topology", "[]", "invalid_source_document"),
+        ("rules", "{}", "missing_top_level_wrapper"),
+        ("topology", "{}", "missing_top_level_wrapper"),
+    ],
+)
+def test_cli_rejects_invalid_rules_and_topology_source_documents(
+    source: str, contents: str, expected_code: str, tmp_path: Path
+) -> None:
+    source_path = tmp_path / f"{source}.yaml"
+    source_path.write_text(contents)
+    out_dir = tmp_path / "out"
+    report_path = tmp_path / "report.json"
+    kwargs = {
+        "rules": str(_fixture_path("rules_valid.yaml")),
+        "topology": str(_fixture_path("topology_valid.yaml")),
+        "plugins": str(_fixture_path("plugins_valid.yaml")),
+        "out_dir": str(out_dir),
+        "report_path": str(report_path),
+    }
+    kwargs[source] = str(source_path)
+
+    result = _run_cli(**kwargs)
+
+    assert result.returncode != 0, result.stdout
+    assert not (out_dir / "rules.yaml").exists()
+    report = json.loads(report_path.read_text())
+    assert report["ok"] is False
+    assert report["generated"] is None
+    assert any(error["code"] == expected_code for error in report["errors"])
+
+
+@pytest.mark.parametrize("source", ["rules", "topology", "plugins"])
+def test_cli_reports_malformed_yaml_before_output(source: str, tmp_path: Path) -> None:
+    source_path = tmp_path / f"{source}.yaml"
+    source_path.write_text(f"{source}: [")
+    out_dir = tmp_path / "out"
+    report_path = tmp_path / "report.json"
+    kwargs = {
+        "rules": str(_fixture_path("rules_valid.yaml")),
+        "topology": str(_fixture_path("topology_valid.yaml")),
+        "plugins": str(_fixture_path("plugins_valid.yaml")),
+        "out_dir": str(out_dir),
+        "report_path": str(report_path),
+    }
+    kwargs[source] = str(source_path)
+
+    result = _run_cli(**kwargs)
+
+    assert result.returncode != 0, result.stdout
+    assert not (out_dir / "rules.yaml").exists()
+    report = json.loads(report_path.read_text())
+    assert report["ok"] is False
+    assert report["generated"] is None
+    assert any(
+        error["code"] == "invalid_yaml" and error["domain"] == source
+        for error in report["errors"]
+    )
+
+
+def test_cli_creates_nested_new_output_directory(tmp_path: Path) -> None:
+    out_dir = tmp_path / "new" / "nested" / "out"
+
+    result = _run_cli(
+        rules=str(_fixture_path("rules_valid.yaml")),
+        topology=str(_fixture_path("topology_valid.yaml")),
+        plugins=str(_fixture_path("plugins_valid.yaml")),
+        out_dir=str(out_dir),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (out_dir / "rules.yaml").exists()
+    assert (out_dir / "topology.yaml").exists()
+    assert (out_dir / "plugins.yaml").exists()
+
+
+def test_validation_failure_does_not_create_nested_output_parent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    out_dir = tmp_path / "new" / "nested" / "out"
+    report_path = tmp_path / "report.json"
+
+    def fail_validation(_staging: Path) -> None:
+        raise ValueError("forced validation failure")
+
+    monkeypatch.setattr(scripts.migrate_vigilo_config, "_validate_staged", fail_validation)
+
+    result = scripts.migrate_vigilo_config.main(
+        [
+            "--rules",
+            str(_fixture_path("rules_valid.yaml")),
+            "--topology",
+            str(_fixture_path("topology_valid.yaml")),
+            "--plugins",
+            str(_fixture_path("plugins_valid.yaml")),
+            "--out-dir",
+            str(out_dir),
+            "--report-path",
+            str(report_path),
+        ]
+    )
+
+    assert result != 0
+    assert not out_dir.parent.exists()
+    report = json.loads(report_path.read_text())
+    assert any(error["code"] == "validation_failure" for error in report["errors"])
+
+
 def test_migrate_rules() -> None:
     raw = yaml.safe_load(_fixture_path("rules_valid.yaml").read_text())
     migrated = _transform_rules(raw["rules"])
@@ -180,6 +291,84 @@ def test_migrate_email_plugin() -> None:
     assert out["options"]["to_addresses"] == ["ops@example.com"]
     assert out["options"]["subject_prefix"] == "[Correlia]"
     assert out["options"]["start_tls"] is True
+
+
+def test_migrate_email_plugin_preserves_false_tls_boolean() -> None:
+    raw = yaml.safe_load(_fixture_path("plugins_valid.yaml").read_text())
+    raw["outputs"]["email-ops"]["config"]["use_tls"] = False
+
+    migrated = _transform_plugins(raw)
+
+    assert migrated["outputs"][0]["options"]["start_tls"] is False
+
+
+@pytest.mark.parametrize("value", ["true", 1, 0, None])
+def test_transform_plugins_rejects_non_boolean_tls_values(value: Any) -> None:
+    raw = yaml.safe_load(_fixture_path("plugins_valid.yaml").read_text())
+    raw["outputs"]["email-ops"]["config"]["use_tls"] = value
+
+    with pytest.raises(ValueError, match="use_tls must be a boolean"):
+        _transform_plugins(raw)
+
+
+def test_transform_plugins_rejects_non_mapping_outputs() -> None:
+    with pytest.raises(ValueError, match="plugins.outputs must be a mapping"):
+        _transform_plugins({"outputs": []})
+
+
+def test_cli_rejects_non_mapping_plugin_outputs(tmp_path: Path) -> None:
+    plugins_path = tmp_path / "plugins.yaml"
+    plugins_path.write_text("outputs: []")
+    rules_path = tmp_path / "rules.yaml"
+    rules_path.write_text("rules: []")
+    out_dir = tmp_path / "out"
+    report_path = tmp_path / "report.json"
+
+    result = _run_cli(
+        rules=str(rules_path),
+        topology=str(_fixture_path("topology_valid.yaml")),
+        plugins=str(plugins_path),
+        out_dir=str(out_dir),
+        report_path=str(report_path),
+    )
+
+    assert result.returncode != 0, result.stdout
+    assert not (out_dir / "plugins.yaml").exists()
+    report = json.loads(report_path.read_text())
+    assert report["ok"] is False
+    assert any(
+        error["code"] == "unsupported_plugin_section"
+        and error["location"] == "plugins.outputs"
+        for error in report["errors"]
+    )
+
+
+@pytest.mark.parametrize("value", ["true", 1, 0, None])
+def test_cli_rejects_non_boolean_tls_values(value: Any, tmp_path: Path) -> None:
+    raw = yaml.safe_load(_fixture_path("plugins_valid.yaml").read_text())
+    raw["outputs"]["email-ops"]["config"]["use_tls"] = value
+    plugins_path = tmp_path / "plugins.yaml"
+    plugins_path.write_text(yaml.safe_dump(raw))
+    out_dir = tmp_path / "out"
+    report_path = tmp_path / "report.json"
+
+    result = _run_cli(
+        rules=str(_fixture_path("rules_valid.yaml")),
+        topology=str(_fixture_path("topology_valid.yaml")),
+        plugins=str(plugins_path),
+        out_dir=str(out_dir),
+        report_path=str(report_path),
+    )
+
+    assert result.returncode != 0, result.stdout
+    assert not (out_dir / "plugins.yaml").exists()
+    report = json.loads(report_path.read_text())
+    assert report["ok"] is False
+    assert any(
+        error["code"] == "unsupported_plugin_option"
+        and error["location"] == "plugins.outputs.email-ops.config.use_tls"
+        for error in report["errors"]
+    )
 
 
 def test_transform_plugins_rejects_placeholder_in_allowed_options() -> None:

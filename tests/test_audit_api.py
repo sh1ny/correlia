@@ -7,6 +7,7 @@ PostgreSQL with real Alembic migrations.
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import os
 import subprocess
 from collections.abc import AsyncIterator
@@ -21,12 +22,12 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from testcontainers.postgres import PostgresContainer
 
-from app.config.plugins import load_plugin_registry_config
+from app.api.routers import audit as audit_router
+from app.domain.audit import AuditEventListFilters
 from app.config.settings import Settings
 from app.main import create_app
 from app.persistence.audit import insert_incident_event, redact_payload
 from app.persistence.models import Incident, IncidentEvent
-from app.plugins.loader import PluginRegistry
 from app.processing.ingress import Icinga2DecisionProcessor, build_icinga2_processor as _real_build_icinga2_processor
 from app.processing.task_runner import AsyncIOTaskRunner
 
@@ -169,7 +170,7 @@ async def _seed_audit_event(
             host=host,
             service=service,
         )
-    payload = raw_payload or {"host": host, "service": service}
+    payload = {"host": host, "service": service} if raw_payload is None else raw_payload
     redacted = redact_payload(payload, max_bytes=65_536, hmac_key=HMAC_KEY)
     summary: dict[str, Any] = {
         "schema_version": 1,
@@ -216,6 +217,16 @@ async def _seed_audit_event(
     return event
 
 
+async def test_seed_audit_event_preserves_explicit_empty_raw_payload(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        event = await _seed_audit_event(session, raw_payload={})
+        await session.commit()
+
+    assert event.raw_payload == {}
+
+
 # ---------------------------------------------------------------------------
 # Ingress helpers (mirror test_ingress_router.py patterns)
 # ---------------------------------------------------------------------------
@@ -248,41 +259,24 @@ def _write_rules(path: Path, threshold: int = 1) -> None:
     )
 
 
-def _write_plugins(path: Path) -> PluginRegistry:
-    path.write_text(
-        yaml.safe_dump(
-            {
-                "outputs": [
-                    {
-                        "name": "email-oncall",
-                        "plugin_type": "email",
-                        "class_path": "app.plugins.outputs.email.SmtpOutputPlugin",
-                        "options": {
-                            "host": "localhost",
-                            "port": 1025,
-                            "to_addresses": ["ops@example.test"],
-                            "username": "operator",
-                            "password": "super-secret",
-                            "start_tls": True,
-                        },
-                    }
-                ]
-            }
-        )
-    )
-    config = load_plugin_registry_config(path)
-    return PluginRegistry(config.outputs, config.config_hash)
+class _InProcessPluginRegistry:
+    names = ("email-oncall",)
+    config_hash = "in-process-test-config"
 
+
+def _write_plugins(_path: Path) -> _InProcessPluginRegistry:
+    return _InProcessPluginRegistry()
 
 def _build_processor(
     session_factory: async_sessionmaker[AsyncSession],
     rules_path: Path,
-    plugin_registry: PluginRegistry,
+    plugin_registry: _InProcessPluginRegistry,
+    task_runner: AsyncIOTaskRunner,
 ) -> Icinga2DecisionProcessor:
     return _real_build_icinga2_processor(
         rules_path=rules_path,
         sessionmaker=session_factory,
-        task_runner=AsyncIOTaskRunner(),
+        task_runner=task_runner,
         plugin_registry=plugin_registry,
         audit_raw_payload_max_bytes=65_536,
         audit_raw_payload_hmac_key=HMAC_KEY,
@@ -681,6 +675,31 @@ async def test_list_incident_events_cursor_pagination_and_invalid_cursor(
         assert resp_bad.json() == {"detail": "invalid cursor"}
 
 
+async def test_list_incident_events_does_not_relabel_unrelated_value_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    @asynccontextmanager
+    async def session_context() -> AsyncIterator[object]:
+        yield object()
+
+    class SessionMaker:
+        def __call__(self):
+            return session_context()
+
+    async def raise_unrelated_value_error(*args: object) -> object:
+        raise ValueError("unexpected repository validation failure")
+
+    monkeypatch.setattr(
+        audit_router, "list_incident_events", raise_unrelated_value_error
+    )
+
+    with pytest.raises(ValueError, match="unexpected repository validation failure"):
+        await audit_router.list_incident_events_endpoint(
+            AuditEventListFilters(),
+            SessionMaker(),  # type: ignore[arg-type]
+        )
+
+
 # ---------------------------------------------------------------------------
 # Ingress correlation (end-to-end via ingress endpoint)
 # ---------------------------------------------------------------------------
@@ -696,12 +715,22 @@ async def test_ingress_incident_and_noop_events_are_queryable(
     rules_path = tmp_path / "rules.yaml"
     _write_rules(rules_path, threshold=1)
     plugin_registry = _write_plugins(tmp_path / "plugins.yaml")
-    processor = _build_processor(session_factory, rules_path, plugin_registry)
+    task_runner = AsyncIOTaskRunner()
+    submitted: list[dict[str, object]] = []
+
+    async def capture_notify(payload: dict[str, object]) -> None:
+        submitted.append(dict(payload))
+
+    task_runner.register("notify", capture_notify)
+    processor = _build_processor(
+        session_factory, rules_path, plugin_registry, task_runner
+    )
 
     app = _app(
         session_factory,
         api_auth_enabled=True,
         icinga2_processor=processor,
+        task_runner=task_runner,
     )
 
     async for client in get_client(app):
@@ -724,6 +753,14 @@ async def test_ingress_incident_and_noop_events_are_queryable(
             "/v1/icinga2/events", json=problem_payload, headers=headers
         )
         assert resp_problem.status_code == 200
+        await task_runner.drain()
+        assert submitted == [
+            {
+                "incident_id": resp_problem.json()["incident_id"],
+                "plugin_name": "email-oncall",
+                "config_hash": plugin_registry.config_hash,
+            }
+        ]
 
         # Recovery event for a host with no open incident → no-op accepted
         noop_payload = {
