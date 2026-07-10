@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.domain.events import Severity
-from app.domain.rules import NotificationCategory, NotificationResult
+from app.domain.notifications import NotificationCategory, NotificationResult
 from app.persistence.incidents import record_notification_result
 from app.persistence.models import Incident
 from app.plugins.interfaces import NotificationEnvelope
@@ -118,7 +118,7 @@ class NotificationDispatcher:
                     exception_type=type(exc).__name__,
                 ),
             )
-            result = _result(False, "plugin_exception", f"plugin exception: {type(exc).__name__}")
+            result = _result(False, "plugin_exception", "notification plugin failed")
             record_notification_attempt(task.plugin_name, result.category)
             record_notification_failure(task.plugin_name, result.category)
             await self._record_if_incident_exists(task.incident_id, task.plugin_name, result)

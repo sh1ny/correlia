@@ -336,3 +336,45 @@ def test_load_rules_config_rejects_missing_plugin_reference(tmp_path: Path) -> N
             known_actions=frozenset({"create_incident"}),
             known_plugins=frozenset({"default_output"}),
         )
+
+
+def test_load_rules_config_accepts_twenty_unique_output_plugins(tmp_path: Path) -> None:
+    data = _valid_rule_yaml()
+    actions = [
+        {"name": "create_incident", "plugin": f"output-{index:02d}"}
+        for index in range(20)
+    ]
+    data["rules"][0]["actions"] = actions
+    path = tmp_path / "rules.yaml"
+    path.write_text(yaml.safe_dump(data))
+
+    config = load_rules_config(path)
+
+    assert [action.plugin for action in config.rules[0].definition.actions] == [
+        action["plugin"] for action in actions
+    ]
+
+
+@pytest.mark.parametrize(
+    "actions",
+    [
+        [
+            {"name": "create_incident", "plugin": f"output-{index:02d}"}
+            for index in range(21)
+        ],
+        [
+            {"name": "create_incident", "plugin": "default_output"},
+            {"name": "create_incident", "plugin": "default_output"},
+        ],
+    ],
+)
+def test_load_rules_config_rejects_over_capacity_or_duplicate_output_plugins(
+    tmp_path: Path, actions: list[dict[str, str]]
+) -> None:
+    data = _valid_rule_yaml()
+    data["rules"][0]["actions"] = actions
+    path = tmp_path / "rules.yaml"
+    path.write_text(yaml.safe_dump(data))
+
+    with pytest.raises(ValueError, match="actions|duplicate plugin"):
+        load_rules_config(path)

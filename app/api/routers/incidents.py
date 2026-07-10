@@ -43,7 +43,12 @@ VIGILO_COMPAT_REASON = "vigilo-compat"
 
 def _safe_decision_context(incident: Incident) -> DecisionContext:
     data = dict(incident.decision_context or {})
-    for key in ("matched_rule_names", "enrichment_refs", "action_names"):
+    for key in (
+        "matched_rule_names",
+        "enrichment_refs",
+        "action_names",
+        "notification_delivery_results",
+    ):
         value = data.get(key)
         if isinstance(value, list):
             data[key] = tuple(value)

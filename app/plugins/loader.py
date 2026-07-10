@@ -14,6 +14,9 @@ _ALLOWED_CLASS_PREFIX = "app.plugins.outputs."
 class PluginRegistry:
     def __init__(self, entries: tuple[PluginRegistryEntry, ...], config_hash: str) -> None:
         self._entries = {entry.name: entry for entry in entries}
+        self._entry_positions = {
+            entry.name: position for position, entry in enumerate(entries, start=1)
+        }
         self.config_hash = config_hash
         self._plugins: dict[str, OutputPlugin] = {}
         for name in self._entries:
@@ -26,7 +29,7 @@ class PluginRegistry:
         entry = self._entries.get(name)
         if entry is None:
             raise KeyError(f"unknown output plugin: {name}")
-        plugin = _instantiate_plugin(entry)
+        plugin = _instantiate_plugin(entry, self._entry_positions[name])
         self._plugins[name] = plugin
         return plugin
 
@@ -55,13 +58,16 @@ def load_plugin_registry(path: Path) -> PluginRegistry:
     return PluginRegistry(config.outputs, config.config_hash)
 
 
-def _instantiate_plugin(entry: PluginRegistryEntry) -> OutputPlugin:
+def _instantiate_plugin(entry: PluginRegistryEntry, position: int) -> OutputPlugin:
     module_name, _, class_name = entry.class_path.rpartition(".")
     if not module_name.startswith(_ALLOWED_CLASS_PREFIX):
         raise ValueError("plugin module must live under app.plugins.outputs")
     module = importlib.import_module(module_name)
     cls = _get_plugin_class(module, class_name)
-    instance = cls(**entry.options)
+    try:
+        instance = cls(**entry.options)
+    except Exception:
+        raise ValueError(f"unable to construct output plugin #{position}") from None
     if not callable(getattr(instance, "send_notification", None)) or not callable(
         getattr(instance, "plugin_status", None)
     ):
