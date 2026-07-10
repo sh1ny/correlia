@@ -1,0 +1,13 @@
+# Unsupported: empty actions
+rules:
+  - name: "No Action Rule"
+    priority: 100
+    match:
+      severity: ["CRITICAL"]
+      host: "*"
+    window:
+      duration_seconds: 1800
+      group_by: ["host"]
+      trigger_threshold: 1
+    output_summary: "No action"
+    actions: []

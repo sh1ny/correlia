@@ -18,6 +18,7 @@ from app.middleware.size_limit import RequestSizeLimiterMiddleware
 from app.api.routers.config_status import router as config_status_router
 from app.api.routers.health import build_router as build_health_router
 from app.api.routers.incidents import router as incidents_router
+from app.api.routers.audit import router as audit_router
 from app.api.routers.ingress import router as ingress_router
 from app.api.routers.metrics import build_router as build_metrics_router
 from app.api.routers.plugins import router as plugins_router
@@ -171,6 +172,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             sessionmaker=app.state.sessionmaker,
             task_runner=app.state.task_runner,
             plugin_registry=app.state.plugin_registry,
+            audit_raw_payload_max_bytes=(
+                app.state.settings.audit_raw_payload_max_bytes
+            ),
+            audit_raw_payload_hmac_key=(
+                app.state.settings.audit_raw_payload_hmac_key
+            ),
         )
 
     if not hasattr(app.state, "lifecycle_worker"):
@@ -263,5 +270,6 @@ def create_app(
     app.include_router(plugins_router)
     app.include_router(config_status_router)
     app.include_router(incidents_router)
+    app.include_router(audit_router)
     app.include_router(metrics_router)
     return app

@@ -1,0 +1,25 @@
+# Unsupported: duplicate priority
+rules:
+  - name: "Rule One"
+    priority: 100
+    match:
+      severity: ["CRITICAL"]
+      host: "*"
+    window:
+      duration_seconds: 1800
+      group_by: ["host"]
+      trigger_threshold: 1
+    output_summary: "One"
+    actions: ["email-ops"]
+
+  - name: "Rule Two"
+    priority: 100
+    match:
+      severity: ["CRITICAL"]
+      host: "*"
+    window:
+      duration_seconds: 1800
+      group_by: ["host"]
+      trigger_threshold: 1
+    output_summary: "Two"
+    actions: ["email-ops"]

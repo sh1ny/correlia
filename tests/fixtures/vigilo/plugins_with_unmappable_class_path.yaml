@@ -1,0 +1,11 @@
+# Unsupported: source module/class cannot map to SmtpOutputPlugin
+outputs:
+  email-ops:
+    module: "some.external.email"
+    class: "EmailPlugin"
+    config:
+      smtp_host: "smtp.example.com"
+      smtp_port: 587
+      from_address: "vigilo@example.com"
+      to_addresses:
+        - "ops@example.com"

@@ -1,0 +1,13 @@
+# Unsupported: window.group_by entry not convertible to topology key
+rules:
+  - name: "Bad Group By Rule"
+    priority: 100
+    match:
+      severity: ["CRITICAL"]
+      host: "*"
+    window:
+      duration_seconds: 1800
+      group_by: ["bad key", "host"]
+      trigger_threshold: 1
+    output_summary: "Bad group by"
+    actions: ["email-ops"]

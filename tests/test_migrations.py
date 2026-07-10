@@ -6,7 +6,7 @@ import os
 
 import subprocess
 import sys
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 import sqlalchemy as sa
@@ -258,4 +258,174 @@ async def test_resolved_does_not_block_new_open(postgres_url: str) -> None:
             },
         )
 
+    await engine.dispose()
+    await engine.dispose()
+
+
+# Phase 7 incident_events audit table migration tests
+
+async def test_migration_creates_incident_events_table(postgres_url: str) -> None:
+    await _run_alembic_upgrade(postgres_url)
+
+    engine = create_async_engine(postgres_url)
+    async with engine.connect() as conn:
+        tables = await conn.run_sync(
+            lambda sync_conn: sa.inspect(sync_conn).get_table_names()
+        )
+
+    assert "incident_events" in tables
+    await engine.dispose()
+
+
+async def test_incident_events_columns_and_types(postgres_url: str) -> None:
+    await _run_alembic_upgrade(postgres_url)
+
+    engine = create_async_engine(postgres_url)
+    async with engine.connect() as conn:
+        columns_info = await conn.run_sync(
+            lambda sync_conn: sa.inspect(sync_conn).get_columns("incident_events")
+        )
+        columns = {c["name"]: c for c in columns_info}
+
+    expected = {
+        "id", "accepted_at", "event_timestamp", "source_id", "fingerprint",
+        "event_type", "severity", "host", "service", "incident_ids",
+        "incident_effect", "decision_summary", "normalized_event", "raw_payload",
+        "raw_payload_original_byte_length", "raw_payload_stored_byte_length",
+        "raw_payload_truncated", "redaction_version", "redacted_path_count",
+        "raw_payload_hmac",
+    }
+    assert expected.issubset(set(columns.keys()))
+
+    assert str(columns["incident_ids"]["type"]).lower() == "jsonb"
+    assert str(columns["decision_summary"]["type"]).lower() == "jsonb"
+    assert str(columns["normalized_event"]["type"]).lower() == "jsonb"
+    assert str(columns["raw_payload"]["type"]).lower() == "jsonb"
+    assert "timestamp" in str(columns["accepted_at"]["type"]).lower()
+    assert str(columns["raw_payload_truncated"]["type"]).lower() == "boolean"
+    assert "uuid" in str(columns["id"]["type"]).lower()
+
+    # raw_payload and all raw-payload metadata/HMAC columns are non-null per D-04/D-07
+    for non_null_col in (
+        "raw_payload",
+        "raw_payload_original_byte_length",
+        "raw_payload_stored_byte_length",
+        "raw_payload_truncated",
+        "redaction_version",
+        "redacted_path_count",
+        "raw_payload_hmac",
+    ):
+        assert columns[non_null_col]["nullable"] is False, (
+            f"{non_null_col} must be non-null per D-04/D-07"
+        )
+    # service is the only optional audit column
+    assert columns["service"]["nullable"] is True
+
+    await engine.dispose()
+
+
+async def test_incident_events_check_constraints(postgres_url: str) -> None:
+    await _run_alembic_upgrade(postgres_url)
+
+    engine = create_async_engine(postgres_url)
+    async with engine.connect() as conn:
+        constraints = await conn.run_sync(
+            lambda sync_conn: sa.inspect(sync_conn).get_check_constraints("incident_events")
+        )
+
+    names = {c["name"] for c in constraints}
+    assert "ck_incident_events_event_type" in names
+    assert "ck_incident_events_severity" in names
+    assert "ck_incident_events_incident_effect" in names
+    assert "ck_incident_events_incident_ids_array" in names
+    assert "ck_incident_events_decision_summary_object" in names
+    assert "ck_incident_events_normalized_event_object" in names
+    assert "ck_incident_events_raw_payload_object" in names
+    assert "ck_incident_events_raw_payload_byte_lengths_non_negative" in names
+    assert "ck_incident_events_raw_payload_stored_lte_original" in names
+    assert "ck_incident_events_redaction_version_positive" in names
+    assert "ck_incident_events_redacted_path_count_non_negative" in names
+
+    event_type_def = next(c for c in constraints if c["name"] == "ck_incident_events_event_type")
+    assert "PROBLEM" in event_type_def["sqltext"]
+    assert "RECOVERY" in event_type_def["sqltext"]
+
+    effect_def = next(c for c in constraints if c["name"] == "ck_incident_events_incident_effect")
+    assert "none" in effect_def["sqltext"]
+    assert "inserted" in effect_def["sqltext"]
+    assert "affected_set_shrunk" in effect_def["sqltext"]
+
+    # raw_payload is non-null per D-04/D-07, so the object CHECK must not
+    # carry an `IS NULL` escape; it must enforce the jsonb typeof directly.
+    raw_payload_def = next(
+        c for c in constraints if c["name"] == "ck_incident_events_raw_payload_object"
+    )
+    assert "jsonb_typeof(raw_payload)" in raw_payload_def["sqltext"]
+    assert "IS NULL" not in raw_payload_def["sqltext"].upper()
+    await engine.dispose()
+
+
+async def test_incident_events_indexes(postgres_url: str) -> None:
+    await _run_alembic_upgrade(postgres_url)
+
+    engine = create_async_engine(postgres_url)
+    async with engine.connect() as conn:
+        indexes = await conn.run_sync(
+            lambda sync_conn: sa.inspect(sync_conn).get_indexes("incident_events")
+        )
+
+    by_name = {i["name"]: i for i in indexes}
+    assert "ix_incident_events_accepted_at_id" in by_name
+    assert by_name["ix_incident_events_accepted_at_id"]["column_names"] == ["accepted_at", "id"]
+
+    assert "ix_incident_events_incident_ids_gin" in by_name
+    gin = by_name["ix_incident_events_incident_ids_gin"]
+    assert gin["column_names"] == ["incident_ids"]
+    assert gin.get("dialect_options", {}).get("postgresql_using") == "gin"
+
+    assert "ix_incident_events_no_dispatch_reason" in by_name
+    assert "ix_incident_events_fingerprint" in by_name
+    assert "ix_incident_events_source_id" in by_name
+    assert "ix_incident_events_event_type" in by_name
+    assert "ix_incident_events_severity" in by_name
+    assert "ix_incident_events_host" in by_name
+    assert "ix_incident_events_service" in by_name
+    assert "ix_incident_events_incident_effect" in by_name
+    assert "ix_incident_events_event_timestamp" in by_name
+
+    await engine.dispose()
+
+
+async def test_audit_id_is_server_generated(postgres_url: str) -> None:
+    await _run_alembic_upgrade(postgres_url)
+
+    engine = create_async_engine(postgres_url)
+    async with engine.begin() as conn:
+        await conn.execute(
+            sa.text("""
+                INSERT INTO incident_events (
+                    event_timestamp, source_id, fingerprint, event_type, severity,
+                    host, incident_ids, incident_effect, decision_summary,
+                    normalized_event, raw_payload, raw_payload_original_byte_length,
+                    raw_payload_stored_byte_length, raw_payload_truncated,
+                    redaction_version, redacted_path_count, raw_payload_hmac
+                ) VALUES (
+                    NOW(), 'src-1', 'fp-1', 'PROBLEM', 'CRITICAL',
+                    'host-1', '[]'::jsonb, 'none', '{}'::jsonb,
+                    '{}'::jsonb, '{}'::jsonb, 2, 2, false,
+                    1, 0, 'hmac-1'
+                )
+            """)
+        )
+
+    async with engine.connect() as conn:
+        result = await conn.execute(
+            sa.text("SELECT id, raw_payload_hmac FROM incident_events WHERE source_id = 'src-1'")
+        )
+        row = result.one()
+
+    assert row[0] is not None
+    parsed = UUID(str(row[0]))
+    assert parsed is not None
+    assert row[1] == "hmac-1"
     await engine.dispose()

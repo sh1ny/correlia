@@ -1,0 +1,14 @@
+# Unsupported: is_dc_level
+rules:
+  - name: "DC Level Rule"
+    is_dc_level: true
+    priority: 100
+    match:
+      severity: ["CRITICAL"]
+      host: "*"
+    window:
+      duration_seconds: 1800
+      group_by: ["host"]
+      trigger_threshold: 5
+    output_summary: "DC level"
+    actions: ["email-ops"]

@@ -33,12 +33,22 @@ LifecycleResultEffect = Literal[
 
 @dataclass(frozen=True, slots=True)
 class LifecycleResult:
+    """Result of an ingress-driven source-recovery lifecycle.
+
+    The caller (ingress) owns the database transaction. The manager does
+    not commit and does not submit notification tasks. Recovery events do
+    not trigger notification dispatch (D-03 / D-13); ``notification_intent``
+    is always ``"no_dispatch"`` for this path so audit rows can record the
+    intent without consulting plugins.
+    """
+
     incident_ids: tuple[UUID, ...]
     effect: LifecycleResultEffect
     transitioned_to: str | None
     previous_host_count: int
     previous_service_count: int
     affected_object_removed: bool
+    notification_intent: Literal["no_dispatch"] = "no_dispatch"
 
     @property
     def incident_id(self) -> UUID | None:
@@ -76,7 +86,6 @@ class LifecycleManager:
                 fingerprint=event.fingerprint,
                 source_id=event.source_id,
             )
-        await self._session.commit()
         for write_result in write_results:
             record_incident_effect(write_result.effect)
         logger.info(

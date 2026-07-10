@@ -1,0 +1,13 @@
+# Unsupported: non-int priority
+rules:
+  - name: "Non Int Priority Rule"
+    priority: "high"
+    match:
+      severity: ["CRITICAL"]
+      host: "*"
+    window:
+      duration_seconds: 1800
+      group_by: ["host"]
+      trigger_threshold: 1
+    output_summary: "Non int priority"
+    actions: ["email-ops"]

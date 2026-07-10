@@ -11,9 +11,9 @@ from app.domain.events import EventType, NormalizedEvent, Severity
 from app.domain.rules import RuleDecision, ThresholdDecision
 from app.persistence.incidents import IncidentAggregationWriteResult, LifecycleWriteResult
 from app.persistence.models import Incident
-from app.processing.incident_manager import IncidentAggregationResult, IncidentManager
+from app.processing.incident_manager import IncidentManager
 from app.processing.ingress import Icinga2DecisionProcessor
-from app.processing.lifecycle import LifecycleManager, LifecycleResult
+from app.processing.lifecycle import LifecycleManager
 from app.processing.lifecycle_worker import LifecycleWorker
 from app.processing.notification_dispatcher import NotificationDispatcher
 from app.processing.task_runner import AsyncIOTaskRunner
@@ -36,10 +36,11 @@ FORBIDDEN_METRIC_LABELS = {
 pytestmark = pytest.mark.anyio
 
 @pytest.fixture(autouse=True)
-def _auth_env_for_metrics_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+def _auth_env_for_metrics_tests(monkeypatch: pytest.MonkeyPatch, clean_settings_env: None) -> None:
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost:5432/correlia")
     monkeypatch.setenv("CORRELIA_OPERATOR_API_TOKEN", "operator-token")
     monkeypatch.setenv("CORRELIA_INGRESS_API_TOKEN", "ingress-token")
+    monkeypatch.setenv("CORRELIA_AUDIT_RAW_PAYLOAD_HMAC_KEY", "test-audit-hmac")
 
 
 
@@ -59,35 +60,6 @@ class FakeRuleEngine:
         return self._decision
 
 
-class InstrumentedProcessor(Icinga2DecisionProcessor):
-    async def _apply_problem(
-        self, event: NormalizedEvent, decision: RuleDecision
-    ) -> IncidentAggregationResult:
-        return IncidentAggregationResult(
-            incident_id=uuid4(),
-            effect="inserted",
-            status="OPEN",
-            replay=False,
-            inside_window=True,
-            counted=True,
-            counted_count=1,
-            threshold_crossed=True,
-            first_threshold_transition=True,
-            notification_triggered=False,
-            notification_failed=False,
-            no_dispatch_reason=None,
-            notification_results=(),
-        )
-
-    async def _apply_recovery(self, event: NormalizedEvent) -> LifecycleResult:
-        return LifecycleResult(
-            incident_ids=(uuid4(),),
-            effect="resolved",
-            transitioned_to="RESOLVED",
-            previous_host_count=1,
-            previous_service_count=1,
-            affected_object_removed=True,
-        )
 
 
 class FakeSession:
@@ -149,6 +121,20 @@ def _decision() -> RuleDecision:
         summary="do not expose this summary",
         actions=["email-oncall"],
     )
+
+
+def _icinga2_payload_dict() -> dict[str, object]:
+    return {
+        "source_id": "icinga2:service:db-1:postgres",
+        "host": "db-1",
+        "service": "postgres",
+        "state": "CRITICAL",
+        "state_type": "HARD",
+        "timestamp": "2026-06-09T12:00:00+00:00",
+        "check_output": "postgres is critical",
+        "ip_address": "10.0.0.10",
+        "tags": {"team.name": "platform"},
+    }
 
 
 def _incident(incident_id: UUID) -> Incident:
@@ -227,26 +213,162 @@ async def test_metric_declarations_exclude_high_cardinality_labels() -> None:
 async def test_ingest_lifecycle_notification_and_worker_metrics_use_low_cardinality_labels(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import app.processing.ingress as ingress_module
     import app.processing.lifecycle as lifecycle_module
     import app.processing.notification_dispatcher as notification_module
     import app.processing.metrics as metrics
     import app.processing.incident_manager as incident_manager_module
 
+    # The ingress now writes an audit row inside its own transaction and
+    # builds the IncidentManager/LifecycleManager directly; the fake
+    # session in this test cannot satisfy that path. Replace the audit
+    # insert with a no-op so the metric-label assertions remain the focus.
+    async def _noop_insert(*args: object, **kwargs: object) -> object:
+        return None
+    monkeypatch.setattr(ingress_module, "insert_incident_event", _noop_insert)
+
+    from app.plugins.inputs.icinga2 import Icinga2WebhookPayload
+
+    from app.persistence.incidents import (
+        IncidentAggregationWriteResult,
+        LifecycleWriteResult,
+    )
+    from app.processing import incident_manager as im_module
+    from app.processing import lifecycle as lm_module
+
+    class _NoopDbSession:
+        def __init__(self) -> None:
+            self.commits = 0
+            self.flushes = 0
+
+        async def commit(self) -> None:
+            self.commits += 1
+
+        async def flush(self) -> None:
+            self.flushes += 1
+
+        async def execute(self, *args: object, **kwargs: object) -> object:
+            return _NoopResult()
+
+        def add(self, obj: object) -> None:
+            return None
+
+        async def __aenter__(self) -> "_NoopDbSession":
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+    class _NoopResult:
+        def scalars(self) -> "_NoopScalars":
+            return _NoopScalars()
+
+        def all(self) -> tuple[object, ...]:
+            return ()
+
+        def first(self) -> object | None:
+            return None
+
+        def one(self) -> object:
+            raise RuntimeError("no row")
+
+        def mappings(self) -> object:
+            return self
+
+    class _NoopScalars:
+        def all(self) -> tuple[object, ...]:
+            return ()
+
+        def __iter__(self) -> object:
+            return iter(())
+
+        async def __aiter__(self) -> "_NoopScalars":
+            return self
+
+        async def __anext__(self) -> object:
+            raise StopAsyncIteration
+
+    class _NoopSessionFactory:
+        def __call__(self) -> "_NoopSessionFactory":
+            return self
+
+        async def __aenter__(self) -> _NoopDbSession:
+            return _NoopDbSession()
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+    # Monkeypatch the persistence-layer functions so the fake session
+    # can satisfy the manager code paths.
+    async def _fake_record_problem_incident(session: object, inp: object) -> IncidentAggregationWriteResult:
+        return IncidentAggregationWriteResult(
+            incident=_incident(uuid4()),
+            effect="inserted",
+            replay=False,
+            inside_window=True,
+            counted=True,
+            threshold_crossed=True,
+            first_threshold_transition=True,
+            counted_count=1,
+            counted_fingerprints=("fp-secret-value",),
+        )
+
+    async def _fake_resolve_host_recovery(
+        session: object,
+        *,
+        host: str,
+        recovery_time: object,
+        fingerprint: str,
+        source_id: str,
+    ) -> tuple[LifecycleWriteResult, ...]:
+        inc = _incident(uuid4())
+        inc.status = "RESOLVED"
+        return (
+            LifecycleWriteResult(
+                incident=inc,
+                effect="resolved",
+                transitioned_to="RESOLVED",
+                previous_host_count=1,
+                previous_service_count=0,
+                affected_object_removed=True,
+            ),
+        )
+
+    async def _fake_resolve_service_recovery(
+        session: object,
+        *,
+        host: str,
+        service: str,
+        recovery_time: object,
+        fingerprint: str,
+        source_id: str,
+    ) -> tuple[LifecycleWriteResult, ...]:
+        return ()
+
+    monkeypatch.setattr(im_module, "record_problem_incident", _fake_record_problem_incident)
+    monkeypatch.setattr(lm_module, "resolve_host_recovery", _fake_resolve_host_recovery)
+    monkeypatch.setattr(lm_module, "resolve_service_recovery", _fake_resolve_service_recovery)
 
     decision = _decision()
-    problem_processor = InstrumentedProcessor(
+    problem_processor = Icinga2DecisionProcessor(
         FakePlugin(_event(EventType.PROBLEM, severity=Severity.CRITICAL)),
         rule_engine=FakeRuleEngine(decision),
-        sessionmaker=FakeSessionFactory(),
+        sessionmaker=_NoopSessionFactory(),
+        audit_raw_payload_max_bytes=1024,
+        audit_raw_payload_hmac_key="test-audit-hmac",
     )
-    recovery_processor = InstrumentedProcessor(
+    recovery_processor = Icinga2DecisionProcessor(
         FakePlugin(_event(EventType.RECOVERY, severity=Severity.OK)),
         rule_engine=FakeRuleEngine(decision),
-        sessionmaker=FakeSessionFactory(),
+        sessionmaker=_NoopSessionFactory(),
+        audit_raw_payload_max_bytes=1024,
+        audit_raw_payload_hmac_key="test-audit-hmac",
     )
 
-    await problem_processor.process_payload({})
-    await recovery_processor.process_payload({})
+    problem_payload = Icinga2WebhookPayload.model_validate(_icinga2_payload_dict())
+    recovery_payload = Icinga2WebhookPayload.model_validate(_icinga2_payload_dict())
+    await problem_processor.process_payload(problem_payload)
+    await recovery_processor.process_payload(recovery_payload)
 
     async def fake_record_problem_incident(*args: object, **kwargs: object) -> IncidentAggregationWriteResult:
         return IncidentAggregationWriteResult(

@@ -16,7 +16,7 @@ from testcontainers.postgres import PostgresContainer
 from app.domain.events import Severity
 from app.domain.incidents import DecisionContext, IncidentStatus
 from app.persistence.incidents import IncidentUpsertInput, upsert_open_incident
-from app.persistence.models import Incident
+from app.persistence.models import Incident, IncidentEvent
 
 
 def _run_alembic_upgrade(database_url: str) -> None:
@@ -55,13 +55,17 @@ async def db_session(postgres_url: str):
     engine = create_async_engine(postgres_url)
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with async_session() as session:
-        await session.execute(text("TRUNCATE TABLE incidents RESTART IDENTITY CASCADE"))
+        await session.execute(
+            text("TRUNCATE TABLE incident_events, incidents RESTART IDENTITY CASCADE")
+        )
         await session.commit()
         yield session
         await session.rollback()
     cleanup = create_async_engine(postgres_url, isolation_level="AUTOCOMMIT")
     async with cleanup.begin() as connection:
-        await connection.execute(text("TRUNCATE TABLE incidents RESTART IDENTITY CASCADE"))
+        await connection.execute(
+            text("TRUNCATE TABLE incident_events, incidents RESTART IDENTITY CASCADE")
+        )
     await engine.dispose()
     await cleanup.dispose()
 
@@ -129,6 +133,13 @@ async def test_expiration_uses_database_time_and_rule_window(db_session: AsyncSe
         ("long-window", IncidentStatus.OPEN.value),
         ("short-window", IncidentStatus.CLOSED.value),
     ]
+
+    # AUD-03: stale expiration sweeps must not create audit rows.
+    audit_count = await db_session.scalar(
+        select(func.count()).select_from(IncidentEvent)
+    )
+    assert audit_count == 0
+
 
 
 async def test_expiration_closes_only_stale_open_rows(db_session: AsyncSession) -> None:

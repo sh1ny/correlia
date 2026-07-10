@@ -1,0 +1,14 @@
+# Vigilo Plugin Configuration with unsupported placeholder syntax
+outputs:
+  email-ops:
+    module: "app.plugins.outputs.email"
+    class: "EmailPlugin"
+    config:
+      smtp_host: "${SMTP_HOST}"
+      smtp_port: 587
+      from_address: "{env: OPS_EMAIL}"
+      to_addresses:
+        - "ops@example.com"
+        - env: OPS_EMAIL
+      subject_prefix: "[${ENV}]"
+      use_tls: true

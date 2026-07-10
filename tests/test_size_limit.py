@@ -51,6 +51,7 @@ def _settings(max_body_bytes_ingress: int | None = None) -> Settings:
         api_auth_enabled=False,
         max_body_bytes=2_048,
         max_body_bytes_ingress=max_body_bytes_ingress,
+        audit_raw_payload_hmac_key="test-audit-hmac",
     )
 
 
@@ -75,6 +76,8 @@ async def get_client(app) -> AsyncIterator[AsyncClient]:
     ("path", "expected"),
     [
         ("/v1/icinga2/events", "ingress"),
+        ("/v1/incident-events", "operator"),
+        ("/v1/incident-events/example-id", "operator"),
         ("/v1/incidents", "operator"),
         ("/v1/incidents/123", "operator"),
         ("/v1/rules", "operator"),
@@ -158,6 +161,7 @@ async def test_default_cap_applies_when_class_override_is_none() -> None:
             api_auth_enabled=False,
             max_body_bytes=1_024,
             max_body_bytes_ingress=None,
+            audit_raw_payload_hmac_key="test-audit-hmac",
         ),
         processor=processor,
     )
