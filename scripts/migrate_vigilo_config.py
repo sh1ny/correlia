@@ -237,6 +237,17 @@ def _rewrite_match_tags(tags: dict[str, Any]) -> tuple[dict[str, str], list[Migr
     issues: list[MigrationIssue] = []
     rewritten: dict[str, str] = {}
     for key, value in tags.items():
+        if not isinstance(key, str):
+            issues.append(
+                MigrationIssue(
+                    domain="rules",
+                    location=f"match.tags[{key}]",
+                    code="invalid_topology_tag_key",
+                    message=f"tag key '{key}' must be a string",
+                    requirement="CFG-06",
+                )
+            )
+            continue
         if not isinstance(value, str):
             issues.append(
                 MigrationIssue(
@@ -493,7 +504,7 @@ def _preflight_rules(raw_rules: list[Any]) -> list[MigrationIssue]:
                     requirement="CFG-06",
                 )
             )
-        elif not isinstance(priority, int):
+        elif isinstance(priority, bool) or not isinstance(priority, int):
             issues.append(
                 MigrationIssue(
                     domain="rules",

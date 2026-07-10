@@ -164,6 +164,91 @@ rules:
     } in report["errors"]
 
 @pytest.mark.parametrize(
+    ("yaml_key", "reported_key"),
+    [
+        ("42", "42"),
+        ("true", "True"),
+    ],
+)
+def test_cli_rejects_non_string_rule_tag_keys_before_rewrite(
+    yaml_key: str, reported_key: str, tmp_path: Path
+) -> None:
+    rules_path = tmp_path / "rules.yaml"
+    rules_path.write_text(
+        f"""\
+rules:
+  - name: "Malformed tag key"
+    priority: 1
+    match:
+      severity: ["CRITICAL"]
+      tags:
+        {yaml_key}: "production"
+    window:
+      group_by: []
+    actions:
+      - email-ops
+    output_summary: "Malformed tag key"
+"""
+    )
+    out_dir = tmp_path / "out"
+    report_path = tmp_path / "report.json"
+
+    result = _run_cli(
+        rules=str(rules_path),
+        topology=str(_fixture_path("topology_valid.yaml")),
+        plugins=str(_fixture_path("plugins_valid.yaml")),
+        out_dir=str(out_dir),
+        report_path=str(report_path),
+    )
+
+    assert result.returncode != 0, result.stdout
+    assert "Traceback" not in result.stderr
+    assert not out_dir.exists()
+    report = json.loads(report_path.read_text())
+    assert report["ok"] is False
+    assert report["generated"] is None
+    assert {
+        "domain": "rules",
+        "location": f"rules[0].match.tags[{reported_key}]",
+        "code": "invalid_topology_tag_key",
+        "message": f"tag key '{reported_key}' must be a string",
+        "requirement": "CFG-06",
+    } in report["errors"]
+
+@pytest.mark.parametrize("priority", [True, False])
+def test_cli_rejects_boolean_rule_priorities_before_output(
+    priority: bool, tmp_path: Path
+) -> None:
+    raw = yaml.safe_load(_fixture_path("rules_valid.yaml").read_text())
+    raw["rules"][0]["priority"] = priority
+    rules_path = tmp_path / "rules.yaml"
+    rules_path.write_text(yaml.safe_dump(raw))
+    out_dir = tmp_path / "out"
+    report_path = tmp_path / "report.json"
+
+    result = _run_cli(
+        rules=str(rules_path),
+        topology=str(_fixture_path("topology_valid.yaml")),
+        plugins=str(_fixture_path("plugins_valid.yaml")),
+        out_dir=str(out_dir),
+        report_path=str(report_path),
+    )
+
+    assert result.returncode != 0, result.stdout
+    assert "Traceback" not in result.stderr
+    assert not out_dir.exists()
+    report = json.loads(report_path.read_text())
+    assert report["ok"] is False
+    assert report["generated"] is None
+    assert {
+        "domain": "rules",
+        "location": "rules[0].priority",
+        "code": "invalid_rule_priority",
+        "message": "priority must be an integer",
+        "requirement": "CFG-06",
+    } in report["errors"]
+
+@pytest.mark.parametrize(
     ("field", "value", "message"),
     [
         ("host", None, "match.host must be a string when present"),
