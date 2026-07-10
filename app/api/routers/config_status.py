@@ -52,7 +52,7 @@ async def list_topology_summary(
                 "id": rule.id,
                 "name": rule.name,
                 "match_type": "hostname",
-                "tag_keys": sorted(rule.tags),
+                "tag_keys": sorted(rule.tags.keys() | rule.tag_capture_groups.keys()),
             }
         )
     for subnet_rule in topology_config.subnet_rules:

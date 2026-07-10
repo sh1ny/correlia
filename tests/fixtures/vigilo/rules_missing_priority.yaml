@@ -1,0 +1,12 @@
+# Unsupported: missing priority
+rules:
+  - name: "Missing Priority Rule"
+    match:
+      severity: ["CRITICAL"]
+      host: "*"
+    window:
+      duration_seconds: 1800
+      group_by: ["host"]
+      trigger_threshold: 1
+    output_summary: "Missing priority"
+    actions: ["email-ops"]

@@ -1,0 +1,14 @@
+# Unsupported: window.min_hosts
+rules:
+  - name: "Min Hosts Rule"
+    priority: 100
+    match:
+      severity: ["CRITICAL"]
+      host: "*"
+    window:
+      duration_seconds: 1800
+      group_by: ["host"]
+      trigger_threshold: 5
+      min_hosts: 3
+    output_summary: "Many hosts down"
+    actions: ["email-ops"]

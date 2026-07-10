@@ -1,0 +1,29 @@
+# Vigilo Topology Enrichment Configuration
+topology_rules:
+  hostname_patterns:
+    - name: "Standard Naming Convention"
+      regex: "^([a-z0-9]+)-prd-.*"
+      target_tag: "datacenter"
+
+    - name: "Development Environment"
+      regex: "^([a-z0-9]+)-dev-.*"
+      target_tag: "datacenter"
+
+    - name: "Literal Tag Rule"
+      regex: "^web-.*"
+      tags:
+        environment: "production"
+        role: "web"
+
+  ip_subnets:
+    - cidr: "10.10.0.0/16"
+      value: "prm1"
+      target_tag: "datacenter"
+
+    - cidr: "10.20.0.0/16"
+      value: "prm2"
+      target_tag: "datacenter"
+
+    - cidr: "192.168.0.0/16"
+      value: "dev"
+      target_tag: "datacenter"

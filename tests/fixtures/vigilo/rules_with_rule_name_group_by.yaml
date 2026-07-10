@@ -1,0 +1,13 @@
+# Unsupported: window.group_by: rule_name explicitly rejected
+rules:
+  - name: "Rule Name Group By Rule"
+    priority: 100
+    match:
+      severity: ["CRITICAL"]
+      host: "*"
+    window:
+      duration_seconds: 1800
+      group_by: ["rule_name"]
+      trigger_threshold: 1
+    output_summary: "Rule name group by"
+    actions: ["email-ops"]
