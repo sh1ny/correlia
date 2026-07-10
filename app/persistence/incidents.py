@@ -22,7 +22,7 @@ from app.domain.incidents import (
     IncidentWindowState,
     validate_incident_transition,
 )
-from app.domain.rules import NotificationResult
+from app.domain.notifications import NotificationDeliveryRecord, NotificationResult
 from app.persistence.models import Incident
 
 MAX_AFFECTED_HOSTS = 100
@@ -31,6 +31,18 @@ MAX_WINDOW_FINGERPRINTS = 100
 MAX_ACTIVE_SERVICE_PAIRS = 100
 SERVICE_PAIR_SEPARATOR = "\x1f"
 
+
+_SAFE_NOTIFICATION_MESSAGES = frozenset(
+    {
+        "configured output plugin is missing",
+        "notification dispatched",
+        "notification plugin failed",
+        "notification result redacted",
+        "notification task runner is unavailable",
+        "notification task submission failed",
+        "stale plugin configuration",
+    }
+)
 
 IncidentEffect = Literal["inserted", "updated"]
 
@@ -346,57 +358,64 @@ def _next_window_state(
 def _decision_context_dump(input: IncidentUpsertInput) -> dict[str, Any]:
     if input.decision_context is None:
         return {}
-    return input.decision_context.model_dump(mode="json")
-
-
-def _safe_notification_notes(
-    context: dict[str, Any], plugin_name: str, result: NotificationResult
-) -> dict[str, Any]:
-    notes = dict(context.get("notes") or {})
-    existing_indexes = [
-        int(key.split(".")[1])
-        for key in notes
-        if key.startswith("notification.") and key.endswith(".category") and key.split(".")[1].isdigit()
-    ]
-    next_index = max(existing_indexes, default=-1) + 1
-    prefix = f"notification.{next_index}"
-    notes[f"{prefix}.plugin"] = plugin_name[:256]
-    notes[f"{prefix}.category"] = result.category
-    notes[f"{prefix}.success"] = "true" if result.success else "false"
-    notes[f"{prefix}.message"] = result.message[:256]
-    if len(notes) > 20:
-        ordered = sorted(notes.items())
-        notification_items = [item for item in ordered if item[0].startswith("notification.")]
-        other_items = [item for item in ordered if not item[0].startswith("notification.")]
-        notes = dict((other_items + notification_items)[-20:])
-    return notes
+    data = input.decision_context.model_dump(mode="json")
+    if not input.decision_context.notification_delivery_results:
+        data.pop("notification_delivery_results")
+    return data
 
 
 def _normalizable_decision_context(context: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(context)
-    for key in ("matched_rule_names", "enrichment_refs", "action_names"):
+    for key in (
+        "matched_rule_names",
+        "enrichment_refs",
+        "action_names",
+        "notification_delivery_results",
+    ):
         value = normalized.get(key)
         if isinstance(value, list):
             normalized[key] = tuple(value)
     return normalized
 
 
+def _safe_delivery_result(result: NotificationResult) -> NotificationResult:
+    if result.message in _SAFE_NOTIFICATION_MESSAGES:
+        return result
+    return result.model_copy(update={"message": "notification result redacted"})
+
+
 def _validated_notification_context(
     context: dict[str, Any], plugin_name: str, result: NotificationResult
 ) -> dict[str, Any]:
-    candidate = _normalizable_decision_context(context)
-    candidate["notes"] = _safe_notification_notes(candidate, plugin_name, result)
-    try:
-        return DecisionContext.model_validate(candidate).model_dump(mode="json")
-    except ValueError:
-        redacted = NotificationResult(
-            success=result.success,
-            category=result.category,
-            message="notification result redacted",
-        )
-        redacted_candidate = _normalizable_decision_context(context)
-        redacted_candidate["notes"] = _safe_notification_notes(redacted_candidate, plugin_name, redacted)
-        return DecisionContext.model_validate(redacted_candidate).model_dump(mode="json")
+    existing = DecisionContext.model_validate(_normalizable_decision_context(context))
+    records_by_plugin = {
+        record.plugin_name: record for record in existing.notification_delivery_results
+    }
+    records_by_plugin[plugin_name] = NotificationDeliveryRecord(
+        plugin_name=plugin_name,
+        result=_safe_delivery_result(result),
+    )
+    return DecisionContext.model_validate(
+        {
+            **existing.model_dump(),
+            "notification_delivery_results": tuple(
+                records_by_plugin[name] for name in sorted(records_by_plugin)
+            ),
+        }
+    ).model_dump(mode="json")
+
+
+def _preserve_notification_delivery_results(
+    existing_context: dict[str, Any], incoming_context: dict[str, Any]
+) -> dict[str, Any]:
+    existing = _normalizable_decision_context(existing_context)
+    incoming = _normalizable_decision_context(incoming_context)
+    records = existing.get("notification_delivery_results")
+    if records is None:
+        return incoming
+    merged = dict(incoming)
+    merged["notification_delivery_results"] = records
+    return DecisionContext.model_validate(merged).model_dump(mode="json")
 
 
 async def record_notification_result(
@@ -604,7 +623,9 @@ def build_open_incident_upsert(input: IncidentUpsertInput) -> Any:
             Incident.summary: stmt.excluded.summary,
             Incident.affected_hosts: new_hosts,
             Incident.affected_services: new_services,
-            Incident.decision_context: stmt.excluded.decision_context,
+            Incident.decision_context: Incident.decision_context.op("||")(
+                stmt.excluded.decision_context
+            ),
             Incident.window_state: stmt.excluded.window_state,
             Incident.threshold_crossed: case(
                 (Incident.threshold_crossed.is_(False), stmt.excluded.threshold_crossed),
@@ -676,7 +697,9 @@ async def record_problem_incident(
                 input.affected_services,
                 MAX_AFFECTED_SERVICES,
             ),
-            decision_context=_decision_context_dump(input),
+            decision_context=_preserve_notification_delivery_results(
+                dict(existing.decision_context or {}), _decision_context_dump(input)
+            ),
             window_state=_window_state_dump(window_state),
             threshold_crossed=threshold_crossed,
             updated_at=func.now(),

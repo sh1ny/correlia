@@ -14,6 +14,7 @@ from testcontainers.postgres import PostgresContainer
 
 from app.config.settings import Settings
 from app.domain.events import Severity
+from app.domain.notifications import NotificationDeliveryRecord, NotificationResult
 from app.domain.incidents import DecisionContext, IncidentStatus
 from app.main import create_app
 from app.persistence.models import Incident, IncidentEvent
@@ -135,6 +136,16 @@ async def _seed_incident(
                 matched_rule_names=(rule_name,),
                 notes={"notification.plugin": "email-oncall", "lifecycle.reason": "created"},
                 action_names=("create_incident",),
+                notification_delivery_results=(
+                    NotificationDeliveryRecord(
+                        plugin_name="email-oncall",
+                        result=NotificationResult(
+                            success=True,
+                            category="dispatched",
+                            message="notification dispatched",
+                        ),
+                    ),
+                ),
             ),
         ),
     )
@@ -239,6 +250,17 @@ async def test_incident_detail_excludes_raw_payloads_and_secrets(
     assert body["id"] == str(incident.id)
     assert body["status"] == "OPEN"
     assert body["decision_context"]["notes"]["notification.plugin"] == "email-oncall"
+    assert body["decision_context"]["notification_delivery_results"] == [
+        {
+            "schema_version": 1,
+            "plugin_name": "email-oncall",
+            "result": {
+                "success": True,
+                "category": "dispatched",
+                "message": "notification dispatched",
+            },
+        }
+    ]
     assert body["affected_hosts"] == ["web-1"]
     assert body["affected_services"] == ["http"]
     serialized = response.text.lower()

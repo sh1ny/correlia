@@ -14,7 +14,8 @@ from app.domain.incidents import (
     is_terminal_status,
     validate_incident_transition,
 )
-from app.domain.rules import NotificationResult
+from app.domain.notifications import NotificationDeliveryRecord, NotificationResult
+import app.domain.rules as rules
 
 
 def test_incident_status_values_are_lifecycle_only() -> None:
@@ -240,3 +241,50 @@ def test_notification_result_rejects_extra_fields() -> None:
             message="safe",
             raw_payload="secret",
         )
+
+
+def test_decision_context_keeps_frozen_bounded_delivery_records() -> None:
+    record = NotificationDeliveryRecord(
+        schema_version=1,
+        plugin_name="email-oncall",
+        result=NotificationResult(
+            success=False,
+            category="plugin_exception",
+            message="notification plugin failed",
+        ),
+    )
+    context = DecisionContext(notification_delivery_results=(record,))
+
+    assert context.notification_delivery_results == (record,)
+    with pytest.raises(ValidationError):
+        record.plugin_name = "replacement"
+    with pytest.raises(ValidationError):
+        DecisionContext(
+            notification_delivery_results=tuple(
+                NotificationDeliveryRecord(
+                    plugin_name=f"plugin-{index}",
+                    result=NotificationResult(
+                        success=True,
+                        category="dispatched",
+                        message="notification dispatched",
+                    ),
+                )
+                for index in range(21)
+            )
+        )
+    with pytest.raises(ValidationError):
+        NotificationDeliveryRecord(
+            plugin_name="",
+            result=record.result,
+            raw_payload="forbidden",
+        )
+    with pytest.raises(ValidationError):
+        DecisionContext(notification_delivery_results=(record, record))
+    parsed = DecisionContext.model_validate(
+        {"notification_delivery_results": [record.model_dump(mode="json")]}
+    )
+    assert parsed.notification_delivery_results == (record,)
+
+
+def test_rules_do_not_reexport_notification_result() -> None:
+    assert not hasattr(rules, "NotificationResult")

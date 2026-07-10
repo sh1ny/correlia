@@ -52,13 +52,15 @@ class RuleDefinitionConfig(BaseModel):
     match: MatchCriteriaConfig
     window: RuleWindowConfig
     output_summary: str = Field(min_length=1)
-    actions: list[RuleActionConfig] = Field(default_factory=list)
+    actions: list[RuleActionConfig] = Field(min_length=1, max_length=20)
 
     @field_validator("actions", mode="after")
     @classmethod
-    def _actions_not_empty(cls, value: list[RuleActionConfig]) -> list[RuleActionConfig]:
-        if not value:
-            raise ValueError("actions must not be empty")
+    def _actions_are_unique_plugins(
+        cls, value: list[RuleActionConfig]
+    ) -> list[RuleActionConfig]:
+        if len({action.plugin for action in value}) != len(value):
+            raise ValueError("actions must reference unique plugins")
         return value
 
 

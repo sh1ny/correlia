@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PLG-03: Structured Notification Outcomes</title>
+<style>
+:root { color-scheme: light dark; --bg:#f7f8fa; --card:#fff; --ink:#172033; --muted:#596579; --line:#cbd3df; --blue:#185abc; --green:#147d45; --amber:#9a5a00; --red:#b42318; --code:#eef2f7; }
+@media (prefers-color-scheme: dark) { :root { --bg:#10141c; --card:#171d27; --ink:#ecf1f8; --muted:#aab5c6; --line:#3b4658; --blue:#82b1ff; --green:#62d596; --amber:#f5b95f; --red:#ff8b82; --code:#222a37; } }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.58 system-ui,-apple-system,"Segoe UI",sans-serif; }
+main { max-width:1040px; margin:0 auto; padding:38px 24px 60px; }
+header, section { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:24px 28px; margin:0 0 20px; }
+h1 { margin:0 0 10px; font-size:2rem; line-height:1.18; }
+h2 { margin:0 0 14px; font-size:1.35rem; }
+h3 { margin:22px 0 8px; font-size:1.06rem; }
+p, ul, ol, pre, .measure { max-width:70ch; }
+.meta { display:grid; grid-template-columns:max-content 1fr; gap:3px 14px; color:var(--muted); font-size:.92rem; }
+.meta strong { color:var(--ink); }
+.lead { font-size:1.14rem; }
+.callout { border-left:5px solid var(--blue); padding:12px 16px; background:color-mix(in srgb, var(--blue) 9%, var(--card)); border-radius:8px; max-width:70ch; }
+.warn { border-left-color:var(--amber); background:color-mix(in srgb, var(--amber) 10%, var(--card)); }
+.good { border-left-color:var(--green); background:color-mix(in srgb, var(--green) 9%, var(--card)); }
+code { background:var(--code); padding:.12em .35em; border-radius:5px; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; }
+pre { background:var(--code); border:1px solid var(--line); border-radius:10px; padding:15px; overflow:auto; }
+.grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+.card { border:1px solid var(--line); border-radius:11px; padding:16px; }
+.card h3 { margin-top:0; }
+.tag { display:inline-block; border:1px solid var(--line); border-radius:999px; padding:2px 8px; margin:0 4px 5px 0; font-size:.84rem; }
+svg { display:block; width:100%; height:auto; margin:8px 0 16px; }
+svg text { font-family:system-ui,-apple-system,"Segoe UI",sans-serif; fill:var(--ink); }
+svg .box { fill:var(--card); stroke:var(--line); stroke-width:2; }
+svg .arrow { stroke:var(--blue); stroke-width:2.5; fill:none; marker-end:url(#arrow); }
+svg .eventual { stroke:var(--green); }
+svg .label { font-size:15px; font-weight:650; }
+svg .small { font-size:12px; fill:var(--muted); }
+table { border-collapse:collapse; width:100%; font-size:.94rem; }
+th, td { border-bottom:1px solid var(--line); padding:10px 9px; text-align:left; vertical-align:top; }
+th { color:var(--muted); }
+footer { color:var(--muted); text-align:center; margin-top:28px; font-size:.88rem; }
+@media (max-width:760px) { .grid { grid-template-columns:1fr; } main { padding:20px 12px 40px; } header,section { padding:20px; } }
+</style>
+</head>
+<body>
+<main>
+<header>
+<h1>PLG-03: Structured Notification Outcomes</h1>
+<div class="meta">
+<strong>Date</strong><span>2026-07-10</span>
+<strong>Input shape</strong><span>concept</span>
+<strong>Subject</strong><span>Correlia Phase 9 requirement PLG-03</span>
+</div>
+</header>
+
+<section>
+<h2>The requirement in one sentence</h2>
+<p class="lead"><strong>PLG-03 says a plugin failure must become data, not merely a log line.</strong></p>
+<div class="callout">
+Notification dispatch converts plugin exceptions into structured <code>NotificationResult</code> records instead of relying on logs alone.
+</div>
+<p>This matters because background delivery is detached from the ingress request. If an email plugin fails after ingress has already returned, the original caller cannot learn that from the HTTP response. Correlia therefore needs a bounded, queryable outcome attached to durable incident state.</p>
+</section>
+
+<section>
+<h2>Two results exist at two different times</h2>
+<svg viewBox="0 0 980 285" role="img" aria-label="Immediate submission result and eventual delivery result flow">
+<defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="context-stroke"/></marker></defs>
+<rect class="box" x="20" y="75" width="165" height="76" rx="10"/><text class="label" x="102" y="105" text-anchor="middle">Ingress</text><text class="small" x="102" y="128" text-anchor="middle">commit incident + audit</text>
+<rect class="box" x="235" y="25" width="190" height="76" rx="10"/><text class="label" x="330" y="55" text-anchor="middle">Task runner</text><text class="small" x="330" y="78" text-anchor="middle">accept + schedule</text>
+<rect class="box" x="235" y="180" width="190" height="76" rx="10"/><text class="label" x="330" y="210" text-anchor="middle">HTTP response</text><text class="small" x="330" y="233" text-anchor="middle">submission result</text>
+<rect class="box" x="485" y="25" width="190" height="76" rx="10"/><text class="label" x="580" y="55" text-anchor="middle">Dispatcher</text><text class="small" x="580" y="78" text-anchor="middle">run in background</text>
+<rect class="box" x="735" y="25" width="210" height="76" rx="10"/><text class="label" x="840" y="55" text-anchor="middle">Output plugin</text><text class="small" x="840" y="78" text-anchor="middle">succeed or raise</text>
+<rect class="box" x="610" y="180" width="255" height="76" rx="10"/><text class="label" x="738" y="210" text-anchor="middle">Incident decision context</text><text class="small" x="738" y="233" text-anchor="middle">eventual delivery result</text>
+<path class="arrow" d="M185 92 L235 66"/><path class="arrow" d="M185 130 L235 212"/><path class="arrow" d="M425 63 L485 63"/><path class="arrow" d="M675 63 L735 63"/><path class="arrow eventual" d="M840 101 C840 145 770 150 740 180"/>
+<text class="small" x="210" y="78">submit</text><text class="small" x="196" y="174">return now</text><text class="small" x="680" y="155">persist later</text>
+</svg>
+<div class="grid">
+<div class="card">
+<h3>1. Immediate: task submission</h3>
+<p>Owned by <code>Icinga2DecisionProcessor</code>. A successful result means the in-process runner accepted and scheduled the task.</p>
+<pre>success: true
+category: dispatched
+message: "notification task submitted"</pre>
+<p>It does <strong>not</strong> mean SMTP or another plugin completed.</p>
+<p>If a selected plugin cannot produce a task because the plugin or runner is unavailable or submission raises, that immediate failure is terminal. Phase 9 persists the same safe failure after the incident commit; an accepted submission remains response-only until the dispatcher completes.</p>
+</div>
+<div class="card">
+<h3>2. Eventual: plugin delivery</h3>
+<p>Owned by <code>NotificationDispatcher</code>. It is produced only after the background handler invokes the output plugin.</p>
+<pre>success: false
+category: plugin_exception
+message: "plugin exception: RuntimeError"</pre>
+<p>PLG-03 primarily governs the dispatcher result, plus terminal ingress failures for which no delivery task can exist.</p>
+</div>
+</div>
+</section>
+
+<section>
+<h2>What “structured” means here</h2>
+<p>A <code>NotificationResult</code> has a closed shape rather than arbitrary exception text:</p>
+<ul>
+<li><code>success</code>: boolean.</li>
+<li><code>category</code>: one of <code>dispatched</code>, <code>missing_plugin</code>, <code>missing_incident</code>, <code>plugin_exception</code>, or <code>dispatch_failed</code>.</li>
+<li><code>message</code>: non-empty and capped at 256 characters.</li>
+</ul>
+<p>When a plugin raises, Correlia catches the exception, records only its type, increments bounded metrics, and persists a safe result. A secret-bearing exception such as <code>RuntimeError("password=...")</code> becomes <code>plugin exception: RuntimeError</code>; the raw message and traceback are not placed in operator-visible state.</p>
+<div class="callout good"><strong>Logs remain useful diagnostics, but they are no longer the only truth.</strong> An operator can inspect the incident and see plugin, category, success, and safe message facts after background completion.</div>
+</section>
+
+<section>
+<h2>Current storage before Phase 9 convergence</h2>
+<p>Correlia stores eventual outcomes inside <code>Incident.decision_context.notes</code>. One outcome consumes four note entries:</p>
+<pre>notification.0.plugin   = "email-oncall"
+notification.0.category = "plugin_exception"
+notification.0.success  = "false"
+notification.0.message  = "plugin exception: RuntimeError"</pre>
+<p>A successful result also sets <code>Incident.notified_at</code>. A failed result leaves it unset. This keeps notification observability incident-local and avoids introducing the durable delivery/outbox machinery deferred to FUT-01.</p>
+</section>
+
+<section>
+<h2>The Phase 9 retention decision</h2>
+<p class="lead"><strong>Approved: use a dedicated, bounded latest-result collection inside <code>DecisionContext</code>.</strong></p>
+<p>The current flattened notes remain the defect being replaced. Four note keys only approximate one record, compete with unrelated incident notes for the same 20-entry budget, and can be partially or completely evicted.</p>
+<div class="callout good"><strong>Target contract: <code>notification_delivery_results</code> holds at most 20 complete records, one latest terminal submission-or-delivery result per selected output plugin.</strong><br>An accepted task is not yet terminal; general notes have independent capacity and are never evicted by notification outcomes.</div>
+<pre>{
+  "notification_delivery_results": [
+    {
+      "schema_version": 1,
+      "plugin_name": "email-oncall",
+      "result": {
+        "success": false,
+        "category": "plugin_exception",
+        "message": "plugin exception: RuntimeError"
+      }
+    }
+  ]
+}</pre>
+<ul>
+<li>A valid rule may contain at most 20 actions, and each action must reference a distinct output plugin.</li>
+<li>When submission fails or delivery completes, recording the same plugin replaces its prior terminal result; this is latest state, not attempt history.</li>
+<li>A 21st distinct record is rejected rather than truncated or evicted.</li>
+<li>Later incident aggregation and a fresh application runtime must preserve and expose the records.</li>
+<li>Historical flattened <code>notification.N.*</code> notes remain readable, but new terminal outcomes write only the dedicated collection.</li>
+</ul>
+<p>This is the middle boundary: stronger than bounded best-effort notes, much smaller than a notification-attempt table or outbox. If the process exits after accepting a task but before dispatch completes, the task and result can still be lost; crash recovery, attempt identity, timestamps, retries, queue ownership, and delivery history remain FUT-01 work.</p>
+</section>
+
+<section>
+<h2>What Phase 9 must prove</h2>
+<ol>
+<li>Rule startup accepts 20 distinct plugin references and rejects a 21st action or a duplicate plugin reference.</li>
+<li>A missing plugin, unavailable runner, or raising task submission returns and persists one safe terminal failure without creating a task.</li>
+<li>A deliberately slow plugin remains blocked while ingress returns only a task-submission result.</li>
+<li>After release, each success or safe <code>plugin_exception</code> becomes one complete dedicated record.</li>
+<li>Twenty plugin records coexist with general notes without truncation or eviction.</li>
+<li>Re-recording one plugin replaces only that plugin's latest terminal state.</li>
+<li>Success sets <code>notified_at</code>; failures alone leave it unset and never clear another plugin's success timestamp.</li>
+<li>Later aggregation, PostgreSQL JSONB decoding, and a fresh application runtime preserve the collection.</li>
+<li>The canonical incident endpoint exposes every field without requiring logs or silently blanking strict decision context.</li>
+</ol>
+<p>PLG-03 still does not require retries, a broker, an outbox, extra transports, or delivery to block ingress. It requires terminal outcomes from the existing output-plugin boundary to become safe, bounded, complete, incident-local domain facts without pretending accepted work is completed delivery.</p>
+</section>
+
+<footer>Composed 2026-07-10 by ce-explain</footer>
+</main>
+</body>
+</html>

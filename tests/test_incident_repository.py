@@ -618,6 +618,221 @@ async def test_decision_context_persisted(db_session: AsyncSession) -> None:
     assert incident.decision_context["source_id"] == "icinga2"
 
 
+
+async def test_delivery_records_replace_per_plugin_preserve_notes_and_reject_overflow(
+    db_session: AsyncSession,
+) -> None:
+    from app.domain.notifications import NotificationResult
+    from app.persistence.incidents import (
+        IncidentUpsertInput,
+        record_notification_result,
+        record_problem_incident,
+    )
+
+    created = await record_problem_incident(
+        db_session,
+        IncidentUpsertInput(
+            rule_name="delivery-rule",
+            group_key="host:db-1",
+            severity=Severity.WARNING,
+            event_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+            summary="delivery records",
+            affected_hosts=("db-1",),
+            fingerprint="delivery-first",
+            decision_context=DecisionContext(
+                notes={"notification.0.plugin": "legacy-output"}
+            ),
+        ),
+    )
+    for index in range(20):
+        assert await record_notification_result(
+            db_session,
+            created.incident.id,
+            f"plugin-{index:02d}",
+            NotificationResult(
+                success=True,
+                category="dispatched",
+                message="notification dispatched",
+            ),
+        )
+    await db_session.commit()
+
+    assert await record_notification_result(
+        db_session,
+        created.incident.id,
+        "plugin-00",
+        NotificationResult(
+            success=False,
+            category="plugin_exception",
+            message="notification plugin failed",
+        ),
+    )
+    assert await record_notification_result(
+        db_session,
+        created.incident.id,
+        "plugin-00",
+        NotificationResult(
+            success=False,
+            category="plugin_exception",
+            message="password=must-not-persist",
+        ),
+    )
+    with pytest.raises(ValueError):
+        await record_notification_result(
+            db_session,
+            created.incident.id,
+            "plugin-overflow",
+            NotificationResult(
+                success=False,
+                category="dispatch_failed",
+                message="notification task submission failed",
+            ),
+        )
+    await db_session.commit()
+
+    row = (
+        await db_session.execute(
+            sa.text(
+                "SELECT decision_context, notified_at FROM incidents WHERE id = :id"
+            ),
+            {"id": created.incident.id},
+        )
+    ).one()
+    assert row.notified_at is not None
+    context = row.decision_context
+    assert context["notes"] == {"notification.0.plugin": "legacy-output"}
+    records = context["notification_delivery_results"]
+    assert [record["plugin_name"] for record in records] == [
+        f"plugin-{index:02d}" for index in range(20)
+    ]
+    assert records[0]["result"] == {
+        "success": False,
+        "category": "plugin_exception",
+        "message": "notification result redacted",
+    }
+
+
+async def test_aggregation_preserves_delivery_records_under_locked_update(
+    db_session: AsyncSession,
+) -> None:
+    from app.domain.notifications import NotificationResult
+    from app.persistence.incidents import (
+        IncidentUpsertInput,
+        record_notification_result,
+        record_problem_incident,
+    )
+
+    first = await record_problem_incident(
+        db_session,
+        IncidentUpsertInput(
+            rule_name="aggregate-delivery",
+            group_key="host:db-1",
+            severity=Severity.WARNING,
+            event_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+            summary="first",
+            affected_hosts=("db-1",),
+            fingerprint="aggregate-first",
+            decision_context=DecisionContext(notes={"legacy.note": "historical"}),
+        ),
+    )
+    await record_notification_result(
+        db_session,
+        first.incident.id,
+        "email-oncall",
+        NotificationResult(
+            success=True,
+            category="dispatched",
+            message="notification dispatched",
+        ),
+    )
+    await db_session.commit()
+
+    updated = await record_problem_incident(
+        db_session,
+        IncidentUpsertInput(
+            rule_name="aggregate-delivery",
+            group_key="host:db-1",
+            severity=Severity.CRITICAL,
+            event_time=datetime(2026, 1, 1, 12, 1, tzinfo=timezone.utc),
+            summary="second",
+            affected_hosts=("db-1",),
+            fingerprint="aggregate-second",
+            decision_context=DecisionContext(notes={"ordinary.note": "updated"}),
+        ),
+    )
+    await db_session.commit()
+
+    assert updated.incident.decision_context["notes"] == {"ordinary.note": "updated"}
+    assert updated.incident.decision_context["notification_delivery_results"] == [
+        {
+            "schema_version": 1,
+            "plugin_name": "email-oncall",
+            "result": {
+                "success": True,
+                "category": "dispatched",
+                "message": "notification dispatched",
+            },
+        }
+    ]
+
+
+async def test_atomic_upsert_preserves_existing_delivery_records(
+    db_session: AsyncSession,
+) -> None:
+    from app.domain.notifications import NotificationResult
+    from app.persistence.incidents import (
+        IncidentUpsertInput,
+        build_open_incident_upsert,
+        record_notification_result,
+        record_problem_incident,
+    )
+
+    created = await record_problem_incident(
+        db_session,
+        IncidentUpsertInput(
+            rule_name="atomic-delivery",
+            group_key="host:db-1",
+            severity=Severity.WARNING,
+            event_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+            summary="first",
+            affected_hosts=("db-1",),
+            fingerprint="atomic-first",
+        ),
+    )
+    await record_notification_result(
+        db_session,
+        created.incident.id,
+        "email-oncall",
+        NotificationResult(
+            success=True,
+            category="dispatched",
+            message="notification dispatched",
+        ),
+    )
+    await db_session.execute(
+        build_open_incident_upsert(
+            IncidentUpsertInput(
+                rule_name="atomic-delivery",
+                group_key="host:db-1",
+                severity=Severity.CRITICAL,
+                event_time=datetime(2026, 1, 1, 12, 1, tzinfo=timezone.utc),
+                summary="second",
+                affected_hosts=("db-1",),
+                fingerprint="atomic-second",
+                decision_context=DecisionContext(notes={"ordinary.note": "updated"}),
+            )
+        )
+    )
+    await db_session.commit()
+
+    context = (
+        await db_session.execute(
+            sa.text("SELECT decision_context FROM incidents WHERE id = :id"),
+            {"id": created.incident.id},
+        )
+    ).scalar_one()
+    assert context["notification_delivery_results"][0]["plugin_name"] == "email-oncall"
+
 async def test_closed_row_does_not_block_new_open(db_session: AsyncSession) -> None:
     from app.persistence.incidents import IncidentUpsertInput, upsert_open_incident
 

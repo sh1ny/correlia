@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import ast
+import traceback
 from pathlib import Path
 
 import pytest
 
 from app.config.plugins import load_plugin_registry_config
+from app.config.settings import Settings
+from app.main import create_app
 from app.plugins.loader import PluginRegistry, load_plugin_registry
 from app.plugins.outputs.email import SmtpOutputPlugin
 
@@ -13,6 +16,33 @@ from app.plugins.outputs.email import SmtpOutputPlugin
 def write_registry(path: Path, text: str) -> Path:
     path.write_text(text)
     return path
+
+
+def strict_option_failure_registry(
+    credential_sentinel: str, failed_plugin_name: str
+) -> str:
+    return f"""
+outputs:
+  - name: valid-email
+    plugin_type: email
+    class_path: app.plugins.outputs.email.SmtpOutputPlugin
+  - name: {failed_plugin_name}
+    plugin_type: email
+    class_path: app.plugins.outputs.email.SmtpOutputPlugin
+    options:
+      password: {credential_sentinel}
+"""
+
+
+def assert_secret_free_plugin_failure(
+    error: ValueError, *, position: int, forbidden_values: tuple[str, ...]
+) -> None:
+    assert str(error) == f"unable to construct output plugin #{position}"
+    rendered_failure = "\n".join(
+        (str(error), repr(error), "".join(traceback.format_exception(error)))
+    )
+    for forbidden_value in forbidden_values:
+        assert forbidden_value not in rendered_failure
 
 
 def test_registry_loads_named_outputs_caches_instances_and_lists_safe_status(tmp_path: Path) -> None:
@@ -139,6 +169,70 @@ outputs:
     with pytest.raises(ValueError, match=match):
         load_plugin_registry(registry_path)
 
+
+
+def test_registry_redacts_later_plugin_strict_option_failure(tmp_path: Path) -> None:
+    credential_sentinel = "smtp-credential-sentinel"
+    failed_plugin_name = "hostile-plugin-name-sentinel"
+    registry_path = write_registry(
+        tmp_path / "plugins.yaml",
+        strict_option_failure_registry(credential_sentinel, failed_plugin_name),
+    )
+
+    with pytest.raises(ValueError) as failure:
+        load_plugin_registry(registry_path)
+
+    assert_secret_free_plugin_failure(
+        failure.value,
+        position=2,
+        forbidden_values=(credential_sentinel, failed_plugin_name),
+    )
+
+
+async def test_lifespan_aborts_before_runtime_startup_for_redacted_plugin_failure(
+    tmp_path: Path,
+) -> None:
+    class RecordingLifecycleWorker:
+        started = False
+
+        async def start(self) -> None:
+            self.started = True
+
+        async def stop(self) -> None:
+            return None
+
+    credential_sentinel = "smtp-credential-sentinel"
+    failed_plugin_name = "hostile-plugin-name-sentinel"
+    registry_path = write_registry(
+        tmp_path / "plugins.yaml",
+        strict_option_failure_registry(credential_sentinel, failed_plugin_name),
+    )
+    lifecycle_worker = RecordingLifecycleWorker()
+    app = create_app(
+        settings=Settings(
+            DATABASE_URL="postgresql+asyncpg://user:pass@localhost:5432/correlia",
+            operator_api_token="operator-token",
+            ingress_api_token="ingress-token",
+            audit_raw_payload_hmac_key="test-audit-hmac",
+            plugins_path=registry_path,
+        ),
+        sessionmaker=lambda: object(),
+        icinga2_processor=object(),
+        lifecycle_worker=lifecycle_worker,
+    )
+
+    with pytest.raises(ValueError) as failure:
+        async with app.router.lifespan_context(app):
+            pytest.fail("plugin validation failure must prevent lifespan yield")
+
+    assert_secret_free_plugin_failure(
+        failure.value,
+        position=2,
+        forbidden_values=(credential_sentinel, failed_plugin_name),
+    )
+    assert not hasattr(app.state, "plugin_registry")
+    assert not hasattr(app.state, "task_runner")
+    assert lifecycle_worker.started is False
 
 def test_unknown_plugin_name_raises_key_error() -> None:
     registry = PluginRegistry((), "0" * 64)

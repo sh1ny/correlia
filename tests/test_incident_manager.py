@@ -324,6 +324,57 @@ async def test_apply_problem_persists_only_safe_decision_context(
         assert forbidden not in serialized
 
 
+
+async def test_apply_problem_preserves_existing_delivery_records(
+    db_session: AsyncSession,
+) -> None:
+    from app.domain.notifications import NotificationResult
+    from app.persistence.incidents import record_notification_result
+    from app.processing.incident_manager import IncidentManager
+
+    manager = IncidentManager(
+        db_session,
+        plugin_registry=PluginNames("email-oncall", "audit-log"),
+    )
+    first_time = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    first = await manager.apply_problem(
+        _event("delivery-first", first_time), _decision(first_time, threshold=2)
+    )
+    await db_session.commit()
+    assert await record_notification_result(
+        db_session,
+        first.incident_id,
+        "email-oncall",
+        NotificationResult(
+            success=True,
+            category="dispatched",
+            message="notification dispatched",
+        ),
+    )
+    await db_session.commit()
+
+    second_time = datetime(2026, 1, 1, 12, 1, tzinfo=timezone.utc)
+    second = await manager.apply_problem(
+        _event("delivery-second", second_time), _decision(second_time, threshold=2)
+    )
+    await db_session.commit()
+
+    context = await db_session.scalar(
+        sa.text("SELECT decision_context FROM incidents WHERE id = :id"),
+        {"id": second.incident_id},
+    )
+    assert context["notification_delivery_results"] == [
+        {
+            "schema_version": 1,
+            "plugin_name": "email-oncall",
+            "result": {
+                "success": True,
+                "category": "dispatched",
+                "message": "notification dispatched",
+            },
+        }
+    ]
+
 def test_incident_manager_source_does_not_store_unsafe_context() -> None:
     import app.processing.incident_manager as incident_manager
 

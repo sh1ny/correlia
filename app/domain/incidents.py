@@ -8,6 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.domain.events import Severity, TagKey, TagValue
+from app.domain.notifications import NotificationDeliveryRecord
 
 
 class IncidentStatus(StrEnum):
@@ -73,6 +74,28 @@ class DecisionContext(BaseModel):
     first_threshold_transition: bool | None = None
     replay: bool | None = None
     action_names: BoundedStringTuple = ()
+    notification_delivery_results: tuple[NotificationDeliveryRecord, ...] = Field(
+        default_factory=tuple, max_length=20
+    )
+
+    @field_validator("notification_delivery_results", mode="before")
+    @classmethod
+    def normalize_notification_delivery_results(
+        cls, value: object
+    ) -> object:
+        if isinstance(value, list):
+            return tuple(value)
+        return value
+
+    @field_validator("notification_delivery_results", mode="after")
+    @classmethod
+    def require_unique_delivery_plugins(
+        cls, value: tuple[NotificationDeliveryRecord, ...]
+    ) -> tuple[NotificationDeliveryRecord, ...]:
+        if len({record.plugin_name for record in value}) != len(value):
+            raise ValueError("notification delivery records must have unique plugins")
+        return value
+
 
 
     @field_validator("notes", mode="after")
