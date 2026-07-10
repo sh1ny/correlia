@@ -7,6 +7,7 @@ PostgreSQL with real Alembic migrations.
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import os
 import subprocess
 from collections.abc import AsyncIterator
@@ -18,13 +19,18 @@ from uuid import uuid4
 import pytest
 import yaml
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from testcontainers.postgres import PostgresContainer
 
+from app.api.routers import audit as audit_router
 from app.config.plugins import load_plugin_registry_config
 from app.config.settings import Settings
+from app.domain.audit import AUDIT_INCIDENT_IDS_MAX, AuditEventListFilters
+from app.domain.events import Severity
 from app.main import create_app
 from app.persistence.audit import insert_incident_event, redact_payload
+from app.persistence.incidents import IncidentUpsertInput, upsert_open_incident
 from app.persistence.models import Incident, IncidentEvent
 from app.plugins.loader import PluginRegistry
 from app.processing.ingress import Icinga2DecisionProcessor, build_icinga2_processor as _real_build_icinga2_processor
@@ -148,6 +154,8 @@ async def _seed_audit_event(
     accepted_offset: int = 0,
     event_timestamp_offset: int = 0,
     incident_ids: list[str] | None = None,
+    decision_summary_incident_ids: list[str] | None = None,
+    decision_summary_incident_ids_truncated: bool = False,
     incident_effect: str = "none",
     decision_kind: str = "noop",
     no_dispatch_reason: str | None = None,
@@ -169,7 +177,7 @@ async def _seed_audit_event(
             host=host,
             service=service,
         )
-    payload = raw_payload or {"host": host, "service": service}
+    payload = {"host": host, "service": service} if raw_payload is None else raw_payload
     redacted = redact_payload(payload, max_bytes=65_536, hmac_key=HMAC_KEY)
     summary: dict[str, Any] = {
         "schema_version": 1,
@@ -177,8 +185,12 @@ async def _seed_audit_event(
         "incident_effect": incident_effect,
         "notification_intent": "no_dispatch",
         "affected_incident_count": 0,
-        "incident_ids_truncated": False,
-        "incident_ids": tuple(incident_ids or ()),
+        "incident_ids_truncated": decision_summary_incident_ids_truncated,
+        "incident_ids": tuple(
+            decision_summary_incident_ids
+            if decision_summary_incident_ids is not None
+            else (incident_ids or ())
+        ),
     }
     if no_dispatch_reason is not None:
         summary["no_dispatch_reason"] = no_dispatch_reason
@@ -215,6 +227,15 @@ async def _seed_audit_event(
         await session.flush()
     return event
 
+
+async def test_seed_audit_event_preserves_explicit_empty_raw_payload(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        event = await _seed_audit_event(session, raw_payload={})
+        await session.commit()
+
+    assert event.raw_payload == {}
 
 # ---------------------------------------------------------------------------
 # Ingress helpers (mirror test_ingress_router.py patterns)
@@ -274,15 +295,32 @@ def _write_plugins(path: Path) -> PluginRegistry:
     return PluginRegistry(config.outputs, config.config_hash)
 
 
+class _RecordingTaskRunner:
+    registered_task_names = ("notify",)
+
+    def __init__(self) -> None:
+        self.submissions: list[tuple[str, dict[str, object]]] = []
+
+    def register(self, task_name: str, handler: object) -> None:
+        raise AssertionError(f"unexpected registration: {task_name}")
+
+    async def submit(self, task_name: str, payload: dict[str, object]) -> None:
+        self.submissions.append((task_name, dict(payload)))
+
+    async def drain(self) -> None:
+        return None
+
+
 def _build_processor(
     session_factory: async_sessionmaker[AsyncSession],
     rules_path: Path,
     plugin_registry: PluginRegistry,
+    task_runner: _RecordingTaskRunner,
 ) -> Icinga2DecisionProcessor:
     return _real_build_icinga2_processor(
         rules_path=rules_path,
         sessionmaker=session_factory,
-        task_runner=AsyncIOTaskRunner(),
+        task_runner=task_runner,
         plugin_registry=plugin_registry,
         audit_raw_payload_max_bytes=65_536,
         audit_raw_payload_hmac_key=HMAC_KEY,
@@ -494,6 +532,49 @@ async def test_list_incident_events_filters_by_incident_and_noop_fields(
         assert items[0]["fingerprint"] == "fp-below"
 
 
+
+
+async def test_list_incident_events_filters_full_recovery_ids_with_bounded_response(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    incident_ids = [
+        str(uuid4()) for _ in range(AUDIT_INCIDENT_IDS_MAX + 1)
+    ]
+    async with session_factory() as session:
+        await _seed_audit_event(
+            session,
+            accepted_offset=1,
+            incident_ids=incident_ids,
+            decision_summary_incident_ids=incident_ids[:AUDIT_INCIDENT_IDS_MAX],
+            decision_summary_incident_ids_truncated=True,
+            incident_effect="resolved",
+            decision_kind="recovery",
+            event_type="RECOVERY",
+            fingerprint="fp-full-recovery-ids",
+            source_id="src-full-recovery-ids",
+        )
+        await session.commit()
+
+    app = _app(session_factory)
+    async for client in get_client(app):
+        response = await client.get(
+            "/v1/incident-events",
+            params={"incident_id": incident_ids[-1]},
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert len(payload["items"]) == 1
+    item = payload["items"][0]
+    assert item["fingerprint"] == "fp-full-recovery-ids"
+    assert item["incident_ids"] == incident_ids[:AUDIT_INCIDENT_IDS_MAX]
+    assert (
+        item["decision_summary"]["incident_ids"]
+        == incident_ids[:AUDIT_INCIDENT_IDS_MAX]
+    )
+    assert item["decision_summary"]["incident_ids_truncated"] is True
+
 # ---------------------------------------------------------------------------
 # Filter tests — scalar and time ranges
 # ---------------------------------------------------------------------------
@@ -681,6 +762,30 @@ async def test_list_incident_events_cursor_pagination_and_invalid_cursor(
         assert resp_bad.json() == {"detail": "invalid cursor"}
 
 
+async def test_list_incident_events_does_not_relabel_unrelated_value_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    @asynccontextmanager
+    async def session_context() -> AsyncIterator[object]:
+        yield object()
+
+    class SessionMaker:
+        def __call__(self):
+            return session_context()
+
+    async def raise_unrelated_value_error(*args: object) -> object:
+        raise ValueError("unexpected repository validation failure")
+
+    monkeypatch.setattr(
+        audit_router, "list_incident_events", raise_unrelated_value_error
+    )
+
+    with pytest.raises(ValueError, match="unexpected repository validation failure"):
+        await audit_router.list_incident_events_endpoint(
+            AuditEventListFilters(),
+            SessionMaker(),  # type: ignore[arg-type]
+        )
+
 # ---------------------------------------------------------------------------
 # Ingress correlation (end-to-end via ingress endpoint)
 # ---------------------------------------------------------------------------
@@ -696,12 +801,16 @@ async def test_ingress_incident_and_noop_events_are_queryable(
     rules_path = tmp_path / "rules.yaml"
     _write_rules(rules_path, threshold=1)
     plugin_registry = _write_plugins(tmp_path / "plugins.yaml")
-    processor = _build_processor(session_factory, rules_path, plugin_registry)
+    task_runner = _RecordingTaskRunner()
+    processor = _build_processor(
+        session_factory, rules_path, plugin_registry, task_runner
+    )
 
     app = _app(
         session_factory,
         api_auth_enabled=True,
         icinga2_processor=processor,
+        task_runner=task_runner,
     )
 
     async for client in get_client(app):
@@ -724,6 +833,16 @@ async def test_ingress_incident_and_noop_events_are_queryable(
             "/v1/icinga2/events", json=problem_payload, headers=headers
         )
         assert resp_problem.status_code == 200
+        assert task_runner.submissions == [
+            (
+                "notify",
+                {
+                    "incident_id": resp_problem.json()["incident_id"],
+                    "plugin_name": "email-oncall",
+                    "config_hash": plugin_registry.config_hash,
+                },
+            )
+        ]
 
         # Recovery event for a host with no open incident → no-op accepted
         noop_payload = {
@@ -782,3 +901,76 @@ async def test_ingress_incident_and_noop_events_are_queryable(
         assert "orphan-host" in noop_hosts
         # Problem event must not appear in no-incident filter
         assert "web01" not in noop_hosts
+
+
+async def test_ingress_recovery_persists_full_ids_with_bounded_summary(
+    session_factory: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    recovered_host = "shared-recovery-host"
+    async with session_factory() as session:
+        seeded_incidents = []
+        for index in range(AUDIT_INCIDENT_IDS_MAX + 1):
+            seeded_incidents.append(
+                await upsert_open_incident(
+                    session,
+                    IncidentUpsertInput(
+                        rule_name=f"recovery-rule-{index}",
+                        group_key=f"recovery-group-{index}",
+                        severity=Severity.CRITICAL,
+                        event_time=_event_time(0),
+                        summary=f"recovery problem {index}",
+                        affected_hosts=(recovered_host,),
+                        fingerprint=f"recovery-problem-{index}",
+                    ),
+                )
+            )
+        await session.commit()
+
+    seeded_ids = {str(incident.id) for incident in seeded_incidents}
+    rules_path = tmp_path / "rules.yaml"
+    _write_rules(rules_path, threshold=1)
+    plugin_registry = _write_plugins(tmp_path / "plugins.yaml")
+    task_runner = _RecordingTaskRunner()
+    processor = _build_processor(
+        session_factory, rules_path, plugin_registry, task_runner
+    )
+    app = _app(
+        session_factory,
+        api_auth_enabled=True,
+        icinga2_processor=processor,
+        task_runner=task_runner,
+    )
+
+    async for client in get_client(app):
+        ingress_headers = {"Authorization": f"Bearer {INGRESS_TOKEN}"}
+        recovery_response = await client.post(
+            "/v1/icinga2/events",
+            json={
+                "source_id": f"icinga2:host:{recovered_host}",
+                "host": recovered_host,
+                "service": None,
+                "state": "UP",
+                "state_type": "HARD",
+                "timestamp": _event_time(1).isoformat(),
+                "check_output": "Host is up",
+                "ip_address": "192.0.2.99",
+                "tags": {"env": "prod"},
+            },
+            headers=ingress_headers,
+        )
+        assert recovery_response.status_code == 200
+
+        async with session_factory() as session:
+            audit_event = await session.scalar(
+                select(IncidentEvent).where(IncidentEvent.event_type == "RECOVERY")
+            )
+        assert audit_event is not None
+        assert len(audit_event.incident_ids) == AUDIT_INCIDENT_IDS_MAX + 1
+        assert set(audit_event.incident_ids) == seeded_ids
+        assert (
+            audit_event.decision_summary["incident_ids"]
+            == audit_event.incident_ids[:AUDIT_INCIDENT_IDS_MAX]
+        )
+        assert audit_event.decision_summary["incident_ids_truncated"] is True
+

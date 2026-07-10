@@ -238,7 +238,14 @@ class Icinga2DecisionProcessor:
                 severity=event.severity.value,
                 host=event.host,
                 service=event.service,
-                incident_ids=[str(uid) for uid in summary.incident_ids],
+                incident_ids=[
+                    str(uid)
+                    for uid in (
+                        lifecycle_result.incident_ids
+                        if lifecycle_result is not None
+                        else summary.incident_ids
+                    )
+                ],
                 incident_effect=summary.incident_effect,
                 decision_summary=summary.model_dump(mode="json"),
                 normalized_event=event.model_dump(mode="json"),
@@ -330,9 +337,20 @@ class Icinga2DecisionProcessor:
         incident_id: Any,
         decision: RuleDecision | None,
     ) -> tuple[NotificationResult, ...]:
-        if self._task_runner is None or decision is None:
+        if decision is None:
             return ()
         results: list[NotificationResult] = []
+        if self._task_runner is None:
+            for plugin_name in sorted(set(decision.actions)):
+                result = NotificationResult(
+                    success=False,
+                    category="dispatch_failed",
+                    message="notification task runner is unavailable",
+                )
+                record_notification_attempt(plugin_name, result.category)
+                record_notification_failure(plugin_name, result.category)
+                results.append(result)
+            return tuple(results)
         known_plugins = set(getattr(self._plugin_registry, "names", ()))
         for plugin_name in sorted(set(decision.actions)):
             if plugin_name not in known_plugins:
@@ -470,6 +488,11 @@ def _build_noop_audit_summary(
     noop_reason: str | None,
     matched_rules: list[str],
 ) -> AuditDecisionSummary:
+    audit_reason = noop_reason
+    if audit_reason is not None and audit_reason.startswith(
+        "missing required group-by field: "
+    ):
+        audit_reason = "missing_required_group_by_field"
     return AuditDecisionSummary(
         decision_kind="noop",
         incident_effect="none",
@@ -478,8 +501,10 @@ def _build_noop_audit_summary(
         incident_ids=(),
         affected_incident_count=0,
         incident_ids_truncated=False,
-        decision_reason=noop_reason or "no matching rule",
-        no_dispatch_reason="no_matching_rule" if not matched_rules else None,
+        decision_reason=audit_reason or "no matching rule",
+        no_dispatch_reason=(audit_reason or "no_matching_rule")
+        if not matched_rules
+        else None,
         notification_intent="no_dispatch",
         counted_count=None,
         threshold_count=None,

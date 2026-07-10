@@ -1,0 +1,12 @@
+# Unsupported: missing match.severity
+rules:
+  - name: "Missing Severity Rule"
+    priority: 100
+    match:
+      host: "*"
+    window:
+      duration_seconds: 1800
+      group_by: ["host"]
+      trigger_threshold: 1
+    output_summary: "Missing severity"
+    actions: ["email-ops"]

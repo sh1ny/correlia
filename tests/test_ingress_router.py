@@ -1,6 +1,7 @@
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from pathlib import Path
+import inspect
 import logging
 import subprocess
 import os
@@ -17,10 +18,15 @@ from testcontainers.postgres import PostgresContainer
 from app.config.plugins import load_plugin_registry_config
 from app.config.settings import Settings
 from app.domain.events import Severity
+from app.domain.rules import RuleDecision, ThresholdDecision
 from app.main import create_app
 from app.persistence.incidents import IncidentUpsertInput, upsert_open_incident
+from app.plugins.inputs.icinga2 import Icinga2InputPlugin
 from app.plugins.loader import PluginRegistry
-from app.processing.ingress import build_icinga2_processor as _real_build_icinga2_processor
+from app.processing.ingress import (
+    Icinga2DecisionProcessor,
+    build_icinga2_processor as _real_build_icinga2_processor,
+)
 from app.processing.task_runner import AsyncIOTaskRunner
 
 
@@ -242,9 +248,66 @@ def _payload(
     return payload
 
 
+async def test_submit_notifications_without_task_runner_reports_failed_result_per_action(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts: list[tuple[str, str]] = []
+    failures: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "app.processing.ingress.record_notification_attempt",
+        lambda plugin_name, category: attempts.append((plugin_name, category)),
+    )
+    monkeypatch.setattr(
+        "app.processing.ingress.record_notification_failure",
+        lambda plugin_name, category: failures.append((plugin_name, category)),
+    )
+    decision = RuleDecision(
+        rule_name="critical-rule",
+        priority=10,
+        matched_rules=["critical-rule"],
+        group_key="service=http",
+        threshold_decision=ThresholdDecision(
+            rule_name="critical-rule",
+            group_key="service=http",
+            window_start=_event_time(),
+            window_end=_event_time(),
+            threshold=1,
+            counted_fingerprints=["first"],
+            counted=1,
+            crossed=True,
+        ),
+        summary="critical http service",
+        actions=["zeta", "alpha", "zeta"],
+    )
+    processor = Icinga2DecisionProcessor(
+        plugin=Icinga2InputPlugin(),
+        audit_raw_payload_max_bytes=1024,
+        audit_raw_payload_hmac_key="test-audit-hmac",
+    )
+
+    results = await processor._submit_notifications("incident-1", decision)
+
+    assert [(result.success, result.category) for result in results] == [
+        (False, "dispatch_failed"),
+        (False, "dispatch_failed"),
+    ]
+    assert attempts == [
+        ("alpha", "dispatch_failed"),
+        ("zeta", "dispatch_failed"),
+    ]
+    assert failures == attempts
+    assert await processor._submit_notifications("incident-1", None) == ()
+    assert attempts == [
+        ("alpha", "dispatch_failed"),
+        ("zeta", "dispatch_failed"),
+    ]
+    assert failures == attempts
+
+
 async def test_icinga2_problem_webhook_aggregates_and_submits_notifications_once(
     tmp_path: Path,
     session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     rules_path = tmp_path / "rules.yaml"
     topology_path = tmp_path / "topology.yaml"
@@ -253,6 +316,14 @@ async def test_icinga2_problem_webhook_aggregates_and_submits_notifications_once
     _write_topology(topology_path)
     plugin_registry = _write_plugins(plugins_path)
     task_runner = AsyncIOTaskRunner()
+    attempts: list[tuple[str, str]] = []
+
+    def capture_attempt(plugin_name: str, category: str) -> None:
+        attempts.append((plugin_name, category))
+
+    monkeypatch.setattr(
+        "app.processing.ingress.record_notification_attempt", capture_attempt
+    )
     submitted: list[dict[str, object]] = []
 
     async def capture_notify(payload: dict[str, object]) -> None:
@@ -343,9 +414,96 @@ async def test_icinga2_problem_webhook_aggregates_and_submits_notifications_once
     assert already_body["notification_count"] == 0
     assert already_body["no_dispatch_reason"] == "already_notified"
     assert len(submitted) == 1
+    assert attempts == []
     # AUD-02: every accepted event must write exactly one audit row.
     assert (await _count_audit_rows(session_factory)) == 4
 
+
+async def test_ingress_without_rule_engine_persists_configuration_reason(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    processor = build_icinga2_processor(sessionmaker=session_factory)
+    app = create_app(
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        sessionmaker=session_factory,
+        icinga2_processor=processor,
+        lifecycle_worker=NoopLifecycleWorker(),  # type: ignore[arg-type]
+    )
+
+    async for client in get_client(app):
+        response = await client.post(
+            "/v1/icinga2/events",
+            json=valid_icinga2_service_payload(),
+        )
+        assert response.status_code == 200
+        audit_response = await client.get("/v1/incident-events")
+
+    assert audit_response.status_code == 200
+    assert audit_response.json()["items"][0]["decision_summary"][
+        "no_dispatch_reason"
+    ] == "no rule engine configured"
+
+
+async def test_ingress_maps_long_missing_group_by_reason_to_bounded_audit_code(
+    tmp_path: Path,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    long_missing_field = "a" * 256
+    rules_path = tmp_path / "rules.yaml"
+    rules_path.write_text(
+        yaml.safe_dump(
+            {
+                "rules": [
+                    {
+                        "name": "missing-group-by",
+                        "priority": 10,
+                        "match": {
+                            "severities": ["CRITICAL"],
+                            "host_pattern": ".*",
+                            "service_pattern": "http",
+                        },
+                        "window": {
+                            "duration_seconds": 300,
+                            "group_by": [long_missing_field],
+                            "trigger_threshold": 1,
+                        },
+                        "output_summary": "Critical service",
+                        "actions": [
+                            {"name": "create_incident", "plugin": "email-oncall"}
+                        ],
+                    }
+                ]
+            }
+        )
+    )
+    processor = build_icinga2_processor(
+        rules_path=rules_path,
+        sessionmaker=session_factory,
+    )
+    app = create_app(
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        sessionmaker=session_factory,
+        icinga2_processor=processor,
+    )
+
+    async for client in get_client(app):
+        response = await client.post(
+            "/v1/icinga2/events",
+            json=valid_icinga2_service_payload(),
+        )
+        audit_response = await client.get("/v1/incident-events")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["state_accepted"] is True
+    assert body["rule_decision"]["reason"] == (
+        f"missing required group-by field: {long_missing_field}"
+    )
+    assert audit_response.status_code == 200
+    summary = audit_response.json()["items"][0]["decision_summary"]
+    assert summary["decision_kind"] == "noop"
+    assert summary["decision_reason"] == "missing_required_group_by_field"
+    assert summary["no_dispatch_reason"] == "missing_required_group_by_field"
 
 async def test_ingress_logs_safe_json_events(
     tmp_path: Path,
@@ -556,15 +714,16 @@ async def test_recovery_response_contains_lifecycle_outcome_without_notification
 
 
 def test_recovery_branch_does_not_call_apply_problem_or_raw_state_names() -> None:
-    import inspect
     import app.processing.ingress as ingress_module
 
-    source = inspect.getsource(ingress_module)
-    # The ingress module must not call IncidentManager.apply_problem in the
-    # RECOVERY branch. In the new architecture the RECOVERY branch
-    # constructs LifecycleManager directly, so we just assert the source
-    # contains no IncidentManager construction under the recovery branch.
-    assert "IncidentManager(" not in source or "resolve_for_event" in source
+    source = inspect.getsource(ingress_module.Icinga2DecisionProcessor.process_payload)
+    recovery_start = source.index("elif event.event_type is EventType.RECOVERY:")
+    recovery_end = source.index("\n\n            summary =", recovery_start)
+    recovery_branch = source[recovery_start:recovery_end]
+
+    assert "LifecycleManager(" in recovery_branch
+    assert "resolve_for_event" in recovery_branch
+    assert "IncidentManager(" not in recovery_branch
     # Raw Icinga2 fields must not appear in ingress.
     assert "state_type" not in source
     assert "check_output" not in source
@@ -830,6 +989,46 @@ async def test_extra_field_rejected_with_422() -> None:
     async for client in get_client(app):
         response = await client.post("/v1/icinga2/events", json=payload)
     assert response.status_code == 422
+
+
+async def test_oversized_source_id_rejected_before_audit_write(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    processor = build_icinga2_processor(sessionmaker=session_factory)
+    app = create_app(
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        sessionmaker=session_factory,
+        icinga2_processor=processor,
+    )
+    payload = valid_icinga2_service_payload()
+    payload["source_id"] = "x" * 257
+
+    async for client in get_client(app):
+        response = await client.post("/v1/icinga2/events", json=payload)
+
+    assert response.status_code == 422
+    assert await _count_audit_rows(session_factory) == 0
+
+
+@pytest.mark.parametrize("field", ("host", "service"))
+async def test_oversized_host_or_service_rejected_before_audit_write(
+    field: str,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    processor = build_icinga2_processor(sessionmaker=session_factory)
+    app = create_app(
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        sessionmaker=session_factory,
+        icinga2_processor=processor,
+    )
+    payload = valid_icinga2_service_payload()
+    payload[field] = "x" * 257
+
+    async for client in get_client(app):
+        response = await client.post("/v1/icinga2/events", json=payload)
+
+    assert response.status_code == 422
+    assert await _count_audit_rows(session_factory) == 0
 
 
 async def test_host_with_service_state_rejected_with_422() -> None:

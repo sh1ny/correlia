@@ -1,0 +1,13 @@
+# Unsupported: non-list match.severity
+rules:
+  - name: "Non List Severity Rule"
+    priority: 100
+    match:
+      severity: "CRITICAL"
+      host: "*"
+    window:
+      duration_seconds: 1800
+      group_by: ["host"]
+      trigger_threshold: 1
+    output_summary: "Non list severity"
+    actions: ["email-ops"]

@@ -1,0 +1,13 @@
+# Unsupported: invalid output_summary placeholder
+rules:
+  - name: "Bad Summary Rule"
+    priority: 100
+    match:
+      severity: ["CRITICAL"]
+      host: "*"
+    window:
+      duration_seconds: 1800
+      group_by: ["host"]
+      trigger_threshold: 1
+    output_summary: "Bad placeholder {bad key} here"
+    actions: ["email-ops"]
