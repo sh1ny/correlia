@@ -360,6 +360,106 @@ def test_cli_rejects_non_string_hostname_regex_before_compile(tmp_path: Path) ->
     } in report["errors"]
 
 
+@pytest.mark.parametrize(
+    "remove_regex",
+    [True, False],
+    ids=["missing", "empty"],
+)
+def test_cli_rejects_missing_and_empty_hostname_regex_before_output(
+    remove_regex: bool, tmp_path: Path
+) -> None:
+    raw = yaml.safe_load(_fixture_path("topology_valid.yaml").read_text())
+    entry = raw["topology_rules"]["hostname_patterns"][2]
+    if remove_regex:
+        entry.pop("regex")
+    else:
+        entry["regex"] = ""
+    topology_path = tmp_path / "topology.yaml"
+    topology_path.write_text(yaml.safe_dump(raw))
+    out_dir = tmp_path / "out"
+    report_path = tmp_path / "report.json"
+
+    result = _run_cli(
+        rules=str(_fixture_path("rules_valid.yaml")),
+        topology=str(topology_path),
+        plugins=str(_fixture_path("plugins_valid.yaml")),
+        out_dir=str(out_dir),
+        report_path=str(report_path),
+    )
+
+    assert result.returncode != 0, result.stdout
+    assert not out_dir.exists()
+    report = json.loads(report_path.read_text())
+    assert {
+        "domain": "topology",
+        "location": "topology_rules.hostname_patterns[2].regex",
+        "code": "invalid_topology_value",
+        "message": "hostname pattern regex must be a non-empty string",
+        "requirement": "CFG-06",
+    } in report["errors"]
+
+
+def test_cli_rejects_non_mapping_hostname_tags_with_captures_before_output(
+    tmp_path: Path,
+) -> None:
+    raw = yaml.safe_load(_fixture_path("topology_valid.yaml").read_text())
+    raw["topology_rules"]["hostname_patterns"][0]["tags"] = []
+    topology_path = tmp_path / "topology.yaml"
+    topology_path.write_text(yaml.safe_dump(raw))
+    out_dir = tmp_path / "out"
+    report_path = tmp_path / "report.json"
+
+    result = _run_cli(
+        rules=str(_fixture_path("rules_valid.yaml")),
+        topology=str(topology_path),
+        plugins=str(_fixture_path("plugins_valid.yaml")),
+        out_dir=str(out_dir),
+        report_path=str(report_path),
+    )
+
+    assert result.returncode != 0, result.stdout
+    assert not out_dir.exists()
+    report = json.loads(report_path.read_text())
+    assert {
+        "domain": "topology",
+        "location": "topology_rules.hostname_patterns[0].tags",
+        "code": "invalid_topology_value",
+        "message": "hostname pattern tags must be a mapping",
+        "requirement": "CFG-06",
+    } in report["errors"]
+
+
+def test_cli_rejects_non_string_hostname_literal_tag_names_before_output(
+    tmp_path: Path,
+) -> None:
+    raw = yaml.safe_load(_fixture_path("topology_valid.yaml").read_text())
+    tags = raw["topology_rules"]["hostname_patterns"][2]["tags"]
+    tags[1] = tags.pop("environment")
+    topology_path = tmp_path / "topology.yaml"
+    topology_path.write_text(yaml.safe_dump(raw))
+    out_dir = tmp_path / "out"
+    report_path = tmp_path / "report.json"
+
+    result = _run_cli(
+        rules=str(_fixture_path("rules_valid.yaml")),
+        topology=str(topology_path),
+        plugins=str(_fixture_path("plugins_valid.yaml")),
+        out_dir=str(out_dir),
+        report_path=str(report_path),
+    )
+
+    assert result.returncode != 0, result.stdout
+    assert not out_dir.exists()
+    report = json.loads(report_path.read_text())
+    assert {
+        "domain": "topology",
+        "location": "topology_rules.hostname_patterns[2].tags[1]",
+        "code": "invalid_topology_tag_key",
+        "message": "hostname pattern literal tag names must be strings",
+        "requirement": "CFG-06",
+    } in report["errors"]
+
+
 @pytest.mark.parametrize("value", [[], False, 123])
 def test_cli_rejects_non_string_topology_tag_values_before_output(
     value: Any, tmp_path: Path

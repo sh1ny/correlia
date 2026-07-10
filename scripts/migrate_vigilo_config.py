@@ -717,6 +717,17 @@ def _preflight_topology(raw_topology: dict[str, Any]) -> list[MigrationIssue]:
                 )
             )
             continue
+        if not regex:
+            issues.append(
+                MigrationIssue(
+                    domain="topology",
+                    location=f"{loc}.regex",
+                    code="invalid_topology_value",
+                    message="hostname pattern regex must be a non-empty string",
+                    requirement="CFG-06",
+                )
+            )
+            continue
         has_capture = False
         try:
             pattern = re.compile(regex)
@@ -726,6 +737,16 @@ def _preflight_topology(raw_topology: dict[str, Any]) -> list[MigrationIssue]:
 
         tags = entry.get("tags", {})
         if not isinstance(tags, dict):
+            if "tags" in entry:
+                issues.append(
+                    MigrationIssue(
+                        domain="topology",
+                        location=f"{loc}.tags",
+                        code="invalid_topology_value",
+                        message="hostname pattern tags must be a mapping",
+                        requirement="CFG-06",
+                    )
+                )
             tags = {}
         has_literal_tags = bool(tags)
 
@@ -774,6 +795,17 @@ def _preflight_topology(raw_topology: dict[str, Any]) -> list[MigrationIssue]:
 
         for tag_name, tag_value in tags.items():
             tag_location = f"{loc}.tags[{tag_name}]"
+            if not isinstance(tag_name, str):
+                issues.append(
+                    MigrationIssue(
+                        domain="topology",
+                        location=tag_location,
+                        code="invalid_topology_tag_key",
+                        message="hostname pattern literal tag names must be strings",
+                        requirement="CFG-06",
+                    )
+                )
+                continue
             if not isinstance(tag_value, str):
                 issues.append(
                     MigrationIssue(
@@ -784,7 +816,7 @@ def _preflight_topology(raw_topology: dict[str, Any]) -> list[MigrationIssue]:
                         requirement="CFG-06",
                     )
                 )
-            if _to_correlia_tag_key(str(tag_name)) is None:
+            if _to_correlia_tag_key(tag_name) is None:
                 issues.append(
                     MigrationIssue(
                         domain="topology",
