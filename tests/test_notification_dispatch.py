@@ -13,6 +13,7 @@ from testcontainers.postgres import PostgresContainer
 
 from app.domain.events import Severity
 from app.plugins.interfaces import NotificationEnvelope, PluginStatus
+from pydantic import ValidationError
 
 pytestmark = pytest.mark.anyio
 
@@ -89,6 +90,98 @@ class Registry:
         return ()
 
 
+
+def _notification_envelope(**overrides: object) -> NotificationEnvelope:
+    values: dict[str, object] = {
+        "incident_id": "550e8400-e29b-41d4-a716-446655440000",
+        "rule_name": "database-critical",
+        "group_key": "service=postgres",
+        "severity": Severity.CRITICAL,
+        "summary": "database incident",
+        "affected_hosts": ("db-1",),
+        "affected_services": ("postgres",),
+    }
+    values.update(overrides)
+    return NotificationEnvelope(**values)
+
+
+def test_notification_envelope_accepts_exact_field_and_collection_limits() -> None:
+    envelope = _notification_envelope(
+        incident_id="i" * 256,
+        rule_name="r" * 256,
+        group_key="g" * 256,
+        summary="s" * 256,
+        affected_hosts=tuple("h" * 256 for _ in range(100)),
+        affected_services=tuple("v" * 256 for _ in range(100)),
+    )
+
+    assert envelope.severity is Severity.CRITICAL
+    assert isinstance(envelope.affected_hosts, tuple)
+    assert isinstance(envelope.affected_services, tuple)
+    assert len(envelope.affected_hosts) == 100
+    assert len(envelope.affected_services) == 100
+
+
+@pytest.mark.parametrize("field", ("incident_id", "rule_name", "group_key", "summary"))
+@pytest.mark.parametrize("invalid_value", ("", "x" * 257))
+def test_notification_envelope_rejects_required_string_boundary_violations(
+    field: str, invalid_value: str
+) -> None:
+    with pytest.raises(ValidationError):
+        _notification_envelope(**{field: invalid_value})
+
+
+@pytest.mark.parametrize("field", ("affected_hosts", "affected_services"))
+@pytest.mark.parametrize(
+    "invalid_value",
+    (tuple("entry" for _ in range(101)), ("x" * 257,)),
+)
+def test_notification_envelope_rejects_collection_boundary_violations(
+    field: str, invalid_value: tuple[str, ...]
+) -> None:
+    with pytest.raises(ValidationError):
+        _notification_envelope(**{field: invalid_value})
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("raw_plugin_options", {"password": "super-secret"}),
+        ("incident", {"id": "raw-incident"}),
+    ),
+)
+def test_notification_envelope_rejects_raw_data_extras(field: str, value: object) -> None:
+    with pytest.raises(ValidationError):
+        _notification_envelope(**{field: value})
+
+
+def test_notification_envelope_rejects_non_enum_severity() -> None:
+    with pytest.raises(ValidationError):
+        _notification_envelope(severity="CRITICAL")
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    (
+        ("incident_id", "updated-incident"),
+        ("rule_name", "updated-rule"),
+        ("group_key", "host=updated"),
+        ("severity", Severity.WARNING),
+        ("summary", "updated summary"),
+        ("affected_hosts", ("db-2",)),
+        ("affected_services", ("mysql",)),
+    ),
+)
+def test_notification_envelope_is_frozen_after_construction(field: str, replacement: object) -> None:
+    envelope = _notification_envelope()
+    original = envelope.model_dump()
+
+    with pytest.raises(ValidationError) as exc_info:
+        setattr(envelope, field, replacement)
+
+    assert exc_info.value.errors()[0]["type"] == "frozen_instance"
+    assert envelope.model_dump() == original
+
 async def _insert_incident(session_factory: async_sessionmaker[AsyncSession]) -> UUID:
     from app.domain.events import Severity
     from app.domain.incidents import DecisionContext
@@ -138,6 +231,10 @@ async def test_dispatcher_sends_notification_and_records_safe_success(
     assert result.category == "dispatched"
     assert len(plugin.envelopes) == 1
     assert attempts == [("email-oncall", "dispatched")]
+    envelope = plugin.envelopes[0]
+    assert isinstance(envelope, NotificationEnvelope)
+    assert envelope.affected_hosts == ("db-1",)
+    assert envelope.affected_services == ("postgres",)
     assert plugin.envelopes[0].incident_id == str(incident_id)
     assert plugin.envelopes[0].severity is Severity.CRITICAL
 
@@ -150,8 +247,17 @@ async def test_dispatcher_sends_notification_and_records_safe_success(
         ).one()
     context = row.decision_context
     assert row.notified_at is not None
-    assert context["notes"]["notification.0.category"] == "dispatched"
-    assert context["notes"]["notification.0.plugin"] == "email-oncall"
+    assert context["notification_delivery_results"] == [
+        {
+            "schema_version": 1,
+            "plugin_name": "email-oncall",
+            "result": {
+                "success": True,
+                "category": "dispatched",
+                "message": "notification dispatched",
+            },
+        }
+    ]
 
 
 
@@ -177,8 +283,17 @@ async def test_dispatcher_rejects_stale_plugin_config_without_sending(
         context = (
             await session.execute(sa.text("SELECT decision_context FROM incidents WHERE id = :id"), {"id": incident_id})
         ).scalar_one()
-    assert context["notes"]["notification.0.category"] == "dispatch_failed"
-    assert context["notes"]["notification.0.message"] == "stale plugin configuration"
+    assert context["notification_delivery_results"] == [
+        {
+            "schema_version": 1,
+            "plugin_name": "email-oncall",
+            "result": {
+                "success": False,
+                "category": "dispatch_failed",
+                "message": "stale plugin configuration",
+            },
+        }
+    ]
 
 async def test_dispatcher_maps_missing_plugin_missing_incident_plugin_exception_and_bad_payload(
     session_factory: async_sessionmaker[AsyncSession],
@@ -218,4 +333,92 @@ async def test_dispatcher_maps_missing_plugin_missing_incident_plugin_exception_
     serialized_context = repr(context).lower()
     assert "plugin_exception" in serialized_context
     assert "password" not in serialized_context
+    assert context["notification_delivery_results"] == [
+        {
+            "schema_version": 1,
+            "plugin_name": "failing",
+            "result": {
+                "success": False,
+                "category": "plugin_exception",
+                "message": "notification plugin failed",
+            },
+        },
+        {
+            "schema_version": 1,
+            "plugin_name": "missing",
+            "result": {
+                "success": False,
+                "category": "missing_plugin",
+                "message": "configured output plugin is missing",
+            },
+        },
+    ]
     assert "smtp transcript" not in serialized_context
+
+
+async def test_ingress_persists_post_commit_terminal_runner_failure(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    from app.domain.notifications import NotificationResult
+    from app.domain.rules import RuleDecision, ThresholdDecision
+    from app.processing.ingress import Icinga2DecisionProcessor
+
+    incident_id = await _insert_incident(session_factory)
+    timestamp = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    processor = Icinga2DecisionProcessor(
+        object(),
+        sessionmaker=session_factory,
+        task_runner=None,
+        plugin_registry=Registry({}),
+        audit_raw_payload_max_bytes=1024,
+        audit_raw_payload_hmac_key="test-key",
+    )
+    results = await processor._submit_notifications(
+        incident_id,
+        RuleDecision(
+            rule_name="database-critical",
+            priority=1,
+            matched_rules=["database-critical"],
+            group_key="service=postgres",
+            threshold_decision=ThresholdDecision(
+                rule_name="database-critical",
+                group_key="service=postgres",
+                window_start=timestamp,
+                window_end=timestamp,
+                threshold=1,
+                counted_fingerprints=[],
+                counted=1,
+                crossed=True,
+            ),
+            summary="database incident",
+            actions=["email-oncall"],
+        ),
+    )
+
+    assert results == (
+        NotificationResult(
+            success=False,
+            category="dispatch_failed",
+            message="notification task runner is unavailable",
+        ),
+    )
+    async with session_factory() as session:
+        context = (
+            await session.execute(
+                sa.text(
+                    "SELECT decision_context FROM incidents WHERE id = :id"
+                ),
+                {"id": incident_id},
+            )
+        ).scalar_one()
+    assert context["notification_delivery_results"] == [
+        {
+            "schema_version": 1,
+            "plugin_name": "email-oncall",
+            "result": {
+                "success": False,
+                "category": "dispatch_failed",
+                "message": "notification task runner is unavailable",
+            },
+        }
+    ]

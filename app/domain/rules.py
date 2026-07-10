@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.domain.events import Severity, TagKey, TagValue
+from app.domain.notifications import NotificationResult as _NotificationResult
 from app.domain.incidents import LifecycleOutcome
 
 
@@ -46,13 +47,13 @@ class RuleDefinition(BaseModel):
     match: MatchCriteria
     window: RuleWindow
     output_summary: BoundedString
-    actions: list[RuleAction] = Field(default_factory=list)
+    actions: list[RuleAction] = Field(min_length=1, max_length=20)
 
     @field_validator("actions", mode="after")
     @classmethod
-    def _actions_not_empty(cls, value: list[RuleAction]) -> list[RuleAction]:
-        if not value:
-            raise ValueError("actions must not be empty")
+    def _actions_are_unique_plugins(cls, value: list[RuleAction]) -> list[RuleAction]:
+        if len({action.plugin for action in value}) != len(value):
+            raise ValueError("actions must reference unique plugins")
         return value
 
 
@@ -99,21 +100,6 @@ class IncidentEffectSummary(BaseModel):
     updated: int = Field(default=0, ge=0)
 
 
-NotificationCategory = Literal[
-    "dispatched",
-    "missing_plugin",
-    "missing_incident",
-    "plugin_exception",
-    "dispatch_failed",
-]
-
-
-class NotificationResult(BaseModel):
-    model_config = ConfigDict(strict=True, extra="forbid")
-
-    success: bool
-    category: NotificationCategory
-    message: Annotated[str, Field(min_length=1, max_length=256)]
 
 class IngressDecisionEnvelope(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
@@ -144,6 +130,8 @@ class IngressDecisionEnvelope(BaseModel):
     notification_triggered: bool = False
     notification_failed: bool = False
     no_dispatch_reason: BoundedString | None = None
-    notification_results: tuple[NotificationResult, ...] = Field(default_factory=tuple, max_length=20)
+    notification_results: tuple[_NotificationResult, ...] = Field(
+        default_factory=tuple, max_length=20
+    )
     notification_count: int = Field(default=0, ge=0)
     rejection: dict[str, object] | None = None

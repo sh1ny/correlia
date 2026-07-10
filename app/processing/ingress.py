@@ -7,17 +7,18 @@ from typing import Any, Literal
 from app.domain.audit import AuditDecisionSummary
 from app.domain.events import EventType, NormalizedEvent
 from app.domain.incidents import LifecycleOutcome
+from app.domain.notifications import NotificationResult
 from app.domain.rules import (
     IncidentEffectSummary,
     IngressDecisionEnvelope,
     NoOpDecision,
-    NotificationResult,
     RuleDecision,
 )
 from app.persistence.audit import (
     insert_incident_event,
     redact_payload,
 )
+from app.persistence.incidents import record_notification_result
 
 from app.plugins.inputs.icinga2 import (
     Icinga2InputPlugin,
@@ -349,6 +350,9 @@ class Icinga2DecisionProcessor:
                 )
                 record_notification_attempt(plugin_name, result.category)
                 record_notification_failure(plugin_name, result.category)
+                await self._persist_terminal_notification_result(
+                    incident_id, plugin_name, result
+                )
                 results.append(result)
             return tuple(results)
         known_plugins = set(getattr(self._plugin_registry, "names", ()))
@@ -361,6 +365,9 @@ class Icinga2DecisionProcessor:
                 )
                 record_notification_attempt(plugin_name, result.category)
                 record_notification_failure(plugin_name, result.category)
+                await self._persist_terminal_notification_result(
+                    incident_id, plugin_name, result
+                )
                 results.append(result)
                 continue
             try:
@@ -380,6 +387,9 @@ class Icinga2DecisionProcessor:
                 )
                 record_notification_attempt(plugin_name, result.category)
                 record_notification_failure(plugin_name, result.category)
+                await self._persist_terminal_notification_result(
+                    incident_id, plugin_name, result
+                )
                 results.append(result)
                 continue
             results.append(
@@ -391,8 +401,18 @@ class Icinga2DecisionProcessor:
             )
         return tuple(results)
 
+    async def _persist_terminal_notification_result(
+        self, incident_id: Any, plugin_name: str, result: NotificationResult
+    ) -> None:
+        if self._sessionmaker is None:
+            return
+        async with self._sessionmaker() as session:
+            await record_notification_result(session, incident_id, plugin_name, result)
+            await session.commit()
+
 
 def _build_audit_summary(
+
     *,
     event: NormalizedEvent,
     decision: RuleDecision | None,

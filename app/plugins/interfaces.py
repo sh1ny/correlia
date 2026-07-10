@@ -23,7 +23,7 @@ class PluginStatus(BaseModel):
 
 
 class NotificationEnvelope(BaseModel):
-    model_config = ConfigDict(strict=True, extra="forbid")
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
 
     incident_id: BoundedString
     rule_name: BoundedString

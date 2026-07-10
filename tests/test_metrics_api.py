@@ -345,6 +345,13 @@ async def test_ingest_lifecycle_notification_and_worker_metrics_use_low_cardinal
     ) -> tuple[LifecycleWriteResult, ...]:
         return ()
 
+    async def _fake_record_notification_result(*args: object, **kwargs: object) -> bool:
+        return True
+
+    monkeypatch.setattr(
+        ingress_module, "record_notification_result", _fake_record_notification_result
+    )
+
     monkeypatch.setattr(im_module, "record_problem_incident", _fake_record_problem_incident)
     monkeypatch.setattr(lm_module, "resolve_host_recovery", _fake_resolve_host_recovery)
     monkeypatch.setattr(lm_module, "resolve_service_recovery", _fake_resolve_service_recovery)

@@ -1,6 +1,8 @@
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
+import asyncio
 import inspect
 import logging
 import subprocess
@@ -28,6 +30,7 @@ from app.processing.ingress import (
     build_icinga2_processor as _real_build_icinga2_processor,
 )
 from app.processing.task_runner import AsyncIOTaskRunner
+from app.plugins.interfaces import NotificationEnvelope, PluginStatus
 
 
 def build_icinga2_processor(
@@ -133,6 +136,61 @@ class NoopLifecycleWorker:
     async def stop(self) -> None:
         return None
 
+class GateOutputPlugin:
+    def __init__(self, *, raises_after_release: bool = False) -> None:
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+        self.raises_after_release = raises_after_release
+        self.envelopes: list[NotificationEnvelope] = []
+
+    async def send_notification(self, envelope: NotificationEnvelope) -> None:
+        self.envelopes.append(envelope)
+        self.started.set()
+        await self.release.wait()
+        if self.raises_after_release:
+            raise RuntimeError("controlled output failure")
+
+    def plugin_status(self) -> PluginStatus:
+        return PluginStatus(plugin_type="test", ready=True, status="ready")
+
+
+class SynchronizedOutputRegistry:
+    def __init__(self, plugins: Mapping[str, GateOutputPlugin]) -> None:
+        self._plugins = dict(plugins)
+        self.available_names = set(plugins)
+        self.config_hash = "sha256:integration-plugins"
+
+    @property
+    def names(self) -> tuple[str, ...]:
+        return tuple(sorted(self.available_names))
+
+    def get_plugin(self, name: str) -> GateOutputPlugin:
+        return self._plugins[name]
+
+    def list_plugins(self) -> tuple[dict[str, object], ...]:
+        return ()
+
+
+class RaisingSubmitRunner:
+    registered_task_names: tuple[str, ...] = ()
+
+    def __init__(self) -> None:
+        self.submissions: list[tuple[str, dict[str, Any]]] = []
+
+    @property
+    def pending_count(self) -> int:
+        return 0
+
+    def register(self, task_name: str, handler: Any) -> None:
+        return None
+
+    async def submit(self, task_name: str, payload: Mapping[str, Any]) -> None:
+        self.submissions.append((task_name, dict(payload)))
+        raise RuntimeError("controlled submit failure")
+
+    async def drain(self) -> None:
+        return None
+
 
 
 def valid_icinga2_service_payload() -> dict[str, object]:
@@ -164,13 +222,18 @@ def valid_icinga2_host_payload() -> dict[str, object]:
 
 
 
-def _write_rules(path: Path, threshold: int = 2) -> None:
+def _write_rules(
+    path: Path,
+    threshold: int = 2,
+    actions: tuple[str, ...] = ("email-oncall",),
+    rule_name: str = "service-critical",
+) -> None:
     path.write_text(
         yaml.safe_dump(
             {
                 "rules": [
                     {
-                        "name": "service-critical",
+                        "name": rule_name,
                         "priority": 10,
                         "match": {
                             "severities": ["CRITICAL"],
@@ -183,7 +246,10 @@ def _write_rules(path: Path, threshold: int = 2) -> None:
                             "trigger_threshold": threshold,
                         },
                         "output_summary": "Critical {service} in {topology.site}",
-                        "actions": [{"name": "create_incident", "plugin": "email-oncall"}],
+                        "actions": [
+                            {"name": "create_incident", "plugin": plugin_name}
+                            for plugin_name in actions
+                        ],
                     }
                 ]
             }
@@ -418,6 +484,367 @@ async def test_icinga2_problem_webhook_aggregates_and_submits_notifications_once
     # AUD-02: every accepted event must write exactly one audit row.
     assert (await _count_audit_rows(session_factory)) == 4
 
+async def test_ingress_returns_after_submission_before_slow_plugin_exception_is_terminal(
+    tmp_path: Path,
+    session_factory: async_sessionmaker[AsyncSession],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    rules_path = tmp_path / "rules.yaml"
+    topology_path = tmp_path / "topology.yaml"
+    _write_rules(rules_path, threshold=1)
+    _write_topology(topology_path)
+    plugin = GateOutputPlugin(raises_after_release=True)
+    plugin_registry = SynchronizedOutputRegistry({"email-oncall": plugin})
+    task_runner = AsyncIOTaskRunner()
+    processor = build_icinga2_processor(
+        topology_path=topology_path,
+        rules_path=rules_path,
+        sessionmaker=session_factory,
+        task_runner=task_runner,
+        plugin_registry=plugin_registry,
+    )
+    app = create_app(
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        sessionmaker=session_factory,
+        icinga2_processor=processor,
+        task_runner=task_runner,
+        plugin_registry=plugin_registry,  # type: ignore[arg-type]
+        lifecycle_worker=NoopLifecycleWorker(),  # type: ignore[arg-type]
+    )
+
+    async for client in get_client(app):
+        response = await client.post(
+            "/v1/icinga2/events",
+            json=_payload(host="web-01", source_id="icinga2:service:web-01:http"),
+        )
+        body = response.json()
+        assert response.status_code == 200
+        assert body["notification_results"] == [
+            {
+                "success": True,
+                "category": "dispatched",
+                "message": "notification task submitted",
+            }
+        ]
+
+        await plugin.started.wait()
+        before_release = await client.get(f"/v1/incidents/{body['incident_id']}")
+        assert before_release.status_code == 200
+        assert before_release.json()["notified_at"] is None
+        assert (
+            before_release.json()["decision_context"]["notification_delivery_results"]
+            == []
+        )
+        assert await _count_audit_rows(session_factory) == 1
+
+        plugin.release.set()
+        await task_runner.drain()
+        after_release = await client.get(f"/v1/incidents/{body['incident_id']}")
+
+    assert after_release.status_code == 200
+    assert after_release.json()["notified_at"] is None
+    assert after_release.json()["decision_context"]["notification_delivery_results"] == [
+        {
+            "schema_version": 1,
+            "plugin_name": "email-oncall",
+            "result": {
+                "success": False,
+                "category": "plugin_exception",
+                "message": "notification plugin failed",
+            },
+        }
+    ]
+    assert plugin.envelopes[0].incident_id == body["incident_id"]
+    assert not [
+        record
+        for record in caplog.records
+        if record.getMessage() == "async task handler failed"
+    ]
+
+async def test_ingress_returns_before_slow_plugin_success_becomes_terminal(
+    tmp_path: Path,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    rules_path = tmp_path / "rules.yaml"
+    topology_path = tmp_path / "topology.yaml"
+    _write_rules(rules_path, threshold=1)
+    _write_topology(topology_path)
+    plugin = GateOutputPlugin()
+    plugin_registry = SynchronizedOutputRegistry({"email-oncall": plugin})
+    task_runner = AsyncIOTaskRunner()
+    processor = build_icinga2_processor(
+        topology_path=topology_path,
+        rules_path=rules_path,
+        sessionmaker=session_factory,
+        task_runner=task_runner,
+        plugin_registry=plugin_registry,
+    )
+    app = create_app(
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        sessionmaker=session_factory,
+        icinga2_processor=processor,
+        task_runner=task_runner,
+        plugin_registry=plugin_registry,  # type: ignore[arg-type]
+        lifecycle_worker=NoopLifecycleWorker(),  # type: ignore[arg-type]
+    )
+
+    async for client in get_client(app):
+        response = await client.post(
+            "/v1/icinga2/events",
+            json=_payload(host="web-01", source_id="icinga2:service:web-01:http"),
+        )
+        body = response.json()
+        assert response.status_code == 200
+        await plugin.started.wait()
+
+        before_release = await client.get(f"/v1/incidents/{body['incident_id']}")
+        assert before_release.json()["notified_at"] is None
+        assert (
+            before_release.json()["decision_context"]["notification_delivery_results"]
+            == []
+        )
+
+        plugin.release.set()
+        await task_runner.drain()
+        after_release = await client.get(f"/v1/incidents/{body['incident_id']}")
+
+    assert after_release.json()["notified_at"] is not None
+    assert after_release.json()["decision_context"]["notification_delivery_results"] == [
+        {
+            "schema_version": 1,
+            "plugin_name": "email-oncall",
+            "result": {
+                "success": True,
+                "category": "dispatched",
+                "message": "notification dispatched",
+            },
+        }
+    ]
+
+
+async def test_ingress_retains_twenty_terminal_results_through_aggregation_and_restart(
+    tmp_path: Path,
+    session_factory: async_sessionmaker[AsyncSession],
+    postgres_url: str,
+) -> None:
+    plugin_names = tuple(f"output-{index:02d}" for index in range(20))
+    rules_path = tmp_path / "rules.yaml"
+    topology_path = tmp_path / "topology.yaml"
+    _write_rules(rules_path, threshold=1, actions=plugin_names)
+    _write_topology(topology_path)
+    plugins = {name: GateOutputPlugin() for name in plugin_names}
+    for plugin in plugins.values():
+        plugin.release.set()
+    plugin_registry = SynchronizedOutputRegistry(plugins)
+    task_runner = AsyncIOTaskRunner()
+    processor = build_icinga2_processor(
+        topology_path=topology_path,
+        rules_path=rules_path,
+        sessionmaker=session_factory,
+        task_runner=task_runner,
+        plugin_registry=plugin_registry,
+    )
+    app = create_app(
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        sessionmaker=session_factory,
+        icinga2_processor=processor,
+        task_runner=task_runner,
+        plugin_registry=plugin_registry,  # type: ignore[arg-type]
+        lifecycle_worker=NoopLifecycleWorker(),  # type: ignore[arg-type]
+    )
+
+    async for client in get_client(app):
+        first = await client.post(
+            "/v1/icinga2/events",
+            json=_payload(host="web-01", source_id="icinga2:service:web-01:http"),
+        )
+        assert first.status_code == 200
+        assert len(first.json()["notification_results"]) == 20
+        assert all(
+            result
+            == {
+                "success": True,
+                "category": "dispatched",
+                "message": "notification task submitted",
+            }
+            for result in first.json()["notification_results"]
+        )
+        incident_id = first.json()["incident_id"]
+        await task_runner.drain()
+        completed = await client.get(f"/v1/incidents/{incident_id}")
+        assert completed.status_code == 200
+        completed_context = completed.json()["decision_context"]
+        assert [
+            record["plugin_name"]
+            for record in completed_context["notification_delivery_results"]
+        ] == list(plugin_names)
+        assert all(
+            record["result"]
+            == {
+                "success": True,
+                "category": "dispatched",
+                "message": "notification dispatched",
+            }
+            for record in completed_context["notification_delivery_results"]
+        )
+        notes_before_aggregation = completed_context["notes"]
+
+        later = await client.post(
+            "/v1/icinga2/events",
+            json=_payload(
+                host="web-02",
+                source_id="icinga2:service:web-02:http",
+                timestamp="2026-06-08T12:01:00+00:00",
+            ),
+        )
+        assert later.status_code == 200
+        assert later.json()["incident_id"] == incident_id
+        assert later.json()["notification_results"] == []
+        aggregated = await client.get(f"/v1/incidents/{incident_id}")
+
+    assert aggregated.status_code == 200
+    aggregated_context = aggregated.json()["decision_context"]
+    assert {
+        key: aggregated_context["notes"][key]
+        for key in notes_before_aggregation
+    } == notes_before_aggregation
+    assert [
+        record["plugin_name"]
+        for record in aggregated_context["notification_delivery_results"]
+    ] == list(plugin_names)
+
+    fresh_engine = create_async_engine(postgres_url)
+    fresh_session_factory = async_sessionmaker(fresh_engine, expire_on_commit=False)
+    fresh_plugins = {name: GateOutputPlugin() for name in plugin_names}
+    fresh_registry = SynchronizedOutputRegistry(fresh_plugins)
+    fresh_runner = AsyncIOTaskRunner()
+    fresh_processor = build_icinga2_processor(
+        topology_path=topology_path,
+        rules_path=rules_path,
+        sessionmaker=fresh_session_factory,
+        task_runner=fresh_runner,
+        plugin_registry=fresh_registry,
+    )
+    fresh_app = create_app(
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        sessionmaker=fresh_session_factory,
+        icinga2_processor=fresh_processor,
+        task_runner=fresh_runner,
+        plugin_registry=fresh_registry,  # type: ignore[arg-type]
+        lifecycle_worker=NoopLifecycleWorker(),  # type: ignore[arg-type]
+    )
+    try:
+        async for fresh_client in get_client(fresh_app):
+            reopened = await fresh_client.get(f"/v1/incidents/{incident_id}")
+    finally:
+        await fresh_engine.dispose()
+
+    assert reopened.status_code == 200
+    reopened_context = reopened.json()["decision_context"]
+    assert reopened_context["notes"] == aggregated_context["notes"]
+    assert (
+        reopened_context["notification_delivery_results"]
+        == aggregated_context["notification_delivery_results"]
+    )
+
+async def test_ingress_persists_terminal_submission_failures_without_tasks(
+    tmp_path: Path,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async def assert_submission_failure(
+        *,
+        scenario: str,
+        processor_runner: Any,
+        app_runner: Any,
+        category: str,
+        message: str,
+        hide_plugin_before_submission: bool = False,
+    ) -> None:
+        rules_path = tmp_path / f"{scenario}-rules.yaml"
+        topology_path = tmp_path / f"{scenario}-topology.yaml"
+        _write_rules(
+            rules_path,
+            threshold=1,
+            rule_name=f"submission-{scenario}",
+        )
+        _write_topology(topology_path)
+        registry = SynchronizedOutputRegistry({"email-oncall": GateOutputPlugin()})
+        processor = build_icinga2_processor(
+            topology_path=topology_path,
+            rules_path=rules_path,
+            sessionmaker=session_factory,
+            task_runner=processor_runner,
+            plugin_registry=registry,
+        )
+        if hide_plugin_before_submission:
+            registry.available_names.clear()
+        app = create_app(
+            settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+            sessionmaker=session_factory,
+            icinga2_processor=processor,
+            task_runner=app_runner,
+            plugin_registry=registry,  # type: ignore[arg-type]
+            lifecycle_worker=NoopLifecycleWorker(),  # type: ignore[arg-type]
+        )
+
+        async for client in get_client(app):
+            response = await client.post(
+                "/v1/icinga2/events",
+                json=_payload(
+                    host=f"{scenario}-host",
+                    source_id=f"icinga2:service:{scenario}-host:http",
+                ),
+            )
+            assert response.status_code == 200
+            body = response.json()
+            assert body["notification_results"] == [
+                {"success": False, "category": category, "message": message}
+            ]
+            detail = await client.get(f"/v1/incidents/{body['incident_id']}")
+
+        assert detail.status_code == 200
+        assert detail.json()["notified_at"] is None
+        assert detail.json()["decision_context"]["notification_delivery_results"] == [
+            {
+                "schema_version": 1,
+                "plugin_name": "email-oncall",
+                "result": {
+                    "success": False,
+                    "category": category,
+                    "message": message,
+                },
+            }
+        ]
+        assert app_runner.pending_count == 0
+
+    unavailable_app_runner = AsyncIOTaskRunner()
+    await assert_submission_failure(
+        scenario="no-runner",
+        processor_runner=None,
+        app_runner=unavailable_app_runner,
+        category="dispatch_failed",
+        message="notification task runner is unavailable",
+    )
+
+    missing_runner = AsyncIOTaskRunner()
+    await assert_submission_failure(
+        scenario="missing-plugin",
+        processor_runner=missing_runner,
+        app_runner=missing_runner,
+        category="missing_plugin",
+        message="configured output plugin is missing",
+        hide_plugin_before_submission=True,
+    )
+
+    raising_runner = RaisingSubmitRunner()
+    await assert_submission_failure(
+        scenario="submit-raises",
+        processor_runner=raising_runner,
+        app_runner=raising_runner,
+        category="dispatch_failed",
+        message="notification task submission failed",
+    )
+    assert raising_runner.submissions and raising_runner.submissions[0][0] == "notify"
 
 async def test_ingress_without_rule_engine_persists_configuration_reason(
     session_factory: async_sessionmaker[AsyncSession],
