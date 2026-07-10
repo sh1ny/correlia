@@ -8,6 +8,8 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.domain.events import TagKey
+
 
 class HostnameTopologyRule(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
@@ -16,7 +18,7 @@ class HostnameTopologyRule(BaseModel):
     name: str
     hostname_pattern: str
     tags: dict[str, str]
-    tag_capture_groups: dict[str, int] = Field(default_factory=dict)
+    tag_capture_groups: dict[TagKey, int] = Field(default_factory=dict)
 
     @field_validator("tags")
     @classmethod

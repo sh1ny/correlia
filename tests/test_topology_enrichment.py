@@ -151,6 +151,29 @@ def test_load_topology_config_accepts_hostname_tag_capture_groups(tmp_path: Path
     assert match is not None
     assert match.group(1) == "prm1"
 
+def test_load_topology_config_rejects_capture_group_key_outside_tag_key_contract(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "topology.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "hostname_rules": [
+                    {
+                        "id": "bad-key",
+                        "name": "Bad Key",
+                        "hostname_pattern": "^([a-z0-9]+)-prd-.*",
+                        "tags": {},
+                        "tag_capture_groups": {"topology.Datacenter": 1},
+                    }
+                ],
+                "subnet_rules": [],
+            }
+        )
+    )
+    with pytest.raises(ValidationError):
+        load_topology_config(path)
+
 
 @pytest.mark.parametrize(
     ("group_index", "expected_snippet"),

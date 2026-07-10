@@ -32,6 +32,8 @@ import yaml  # noqa: E402
 from app.config.plugins import load_plugin_registry_config  # noqa: E402
 from app.config.rules import _KNOWN_NORMALIZED_FIELDS, load_rules_config  # noqa: E402
 from app.config.topology import load_topology_config  # noqa: E402
+from app.domain.events import TagValue  # noqa: E402
+from pydantic import TypeAdapter, ValidationError  # noqa: E402
 from app.plugins.loader import load_plugin_registry  # noqa: E402
 
 
@@ -52,6 +54,15 @@ _PLACEHOLDER_RE = re.compile(r"\{[^{}]*\}")
 _VALID_PLACEHOLDER_RE = re.compile(r"^\{([a-zA-Z0-9_.-]+)\}$")
 _ENV_VAR_PLACEHOLDER_RE = re.compile(r"\$\{[^}]*\}")
 _ENV_KEY_PLACEHOLDER_RE = re.compile(r"\{env:[^}]*\}")
+_TAG_VALUE_ADAPTER = TypeAdapter(TagValue)
+
+
+def _is_valid_tag_value(value: str) -> bool:
+    try:
+        _TAG_VALUE_ADAPTER.validate_python(value)
+    except ValidationError:
+        return False
+    return True
 
 
 # -----------------------------------------------------------------------------
@@ -816,6 +827,19 @@ def _preflight_topology(raw_topology: dict[str, Any]) -> list[MigrationIssue]:
                         requirement="CFG-06",
                     )
                 )
+            elif not _is_valid_tag_value(tag_value):
+                issues.append(
+                    MigrationIssue(
+                        domain="topology",
+                        location=tag_location,
+                        code="invalid_topology_value",
+                        message=(
+                            "hostname pattern literal tag values must be non-empty strings "
+                            "no longer than 256 characters"
+                        ),
+                        requirement="CFG-06",
+                    )
+                )
             if _to_correlia_tag_key(tag_name) is None:
                 issues.append(
                     MigrationIssue(
@@ -891,6 +915,16 @@ def _preflight_topology(raw_topology: dict[str, Any]) -> list[MigrationIssue]:
                     location=f"{loc}.value",
                     code="invalid_topology_value",
                     message="subnet value must be a string",
+                    requirement="CFG-06",
+                )
+            )
+        elif "value" in entry and not _is_valid_tag_value(entry["value"]):
+            issues.append(
+                MigrationIssue(
+                    domain="topology",
+                    location=f"{loc}.value",
+                    code="invalid_topology_value",
+                    message="subnet values must be non-empty strings no longer than 256 characters",
                     requirement="CFG-06",
                 )
             )
