@@ -740,7 +740,17 @@ def _preflight_topology(raw_topology: dict[str, Any]) -> list[MigrationIssue]:
             )
 
         target_tag = entry.get("target_tag")
-        if target_tag is not None and _to_correlia_tag_key(str(target_tag)) is None:
+        if has_capture and "target_tag" in entry and not isinstance(target_tag, str):
+            issues.append(
+                MigrationIssue(
+                    domain="topology",
+                    location=f"{loc}.target_tag",
+                    code="invalid_topology_value",
+                    message="hostname pattern target_tag must be a string",
+                    requirement="CFG-06",
+                )
+            )
+        elif isinstance(target_tag, str) and _to_correlia_tag_key(target_tag) is None:
             issues.append(
                 MigrationIssue(
                     domain="topology",
@@ -810,7 +820,17 @@ def _preflight_topology(raw_topology: dict[str, Any]) -> list[MigrationIssue]:
                     )
                 )
         target_tag = entry.get("target_tag")
-        if target_tag is not None and _to_correlia_tag_key(str(target_tag)) is None:
+        if "target_tag" in entry and not isinstance(target_tag, str):
+            issues.append(
+                MigrationIssue(
+                    domain="topology",
+                    location=f"{loc}.target_tag",
+                    code="invalid_topology_value",
+                    message="subnet target_tag must be a string",
+                    requirement="CFG-06",
+                )
+            )
+        elif isinstance(target_tag, str) and _to_correlia_tag_key(target_tag) is None:
             issues.append(
                 MigrationIssue(
                     domain="topology",

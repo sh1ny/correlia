@@ -313,6 +313,44 @@ def test_cli_rejects_non_string_topology_tag_values_before_output(
         "requirement": "CFG-06",
     } in report["errors"]
 
+
+@pytest.mark.parametrize(
+    ("section", "message"),
+    [
+        ("hostname_patterns", "hostname pattern target_tag must be a string"),
+        ("ip_subnets", "subnet target_tag must be a string"),
+    ],
+)
+@pytest.mark.parametrize("target_tag", [None, [], False, 123])
+def test_cli_rejects_non_string_topology_target_tags_before_output(
+    section: str, message: str, target_tag: Any, tmp_path: Path
+) -> None:
+    raw = yaml.safe_load(_fixture_path("topology_valid.yaml").read_text())
+    raw["topology_rules"][section][0]["target_tag"] = target_tag
+    topology_path = tmp_path / "topology.yaml"
+    topology_path.write_text(yaml.safe_dump(raw))
+    out_dir = tmp_path / "out"
+    report_path = tmp_path / "report.json"
+
+    result = _run_cli(
+        rules=str(_fixture_path("rules_valid.yaml")),
+        topology=str(topology_path),
+        plugins=str(_fixture_path("plugins_valid.yaml")),
+        out_dir=str(out_dir),
+        report_path=str(report_path),
+    )
+
+    assert result.returncode != 0, result.stdout
+    assert not out_dir.exists()
+    report = json.loads(report_path.read_text())
+    assert {
+        "domain": "topology",
+        "location": f"topology_rules.{section}[0].target_tag",
+        "code": "invalid_topology_value",
+        "message": message,
+        "requirement": "CFG-06",
+    } in report["errors"]
+
 def test_cli_reports_non_string_group_by_entries_before_rewrite(tmp_path: Path) -> None:
     raw = yaml.safe_load(_fixture_path("rules_valid.yaml").read_text())
     raw["rules"][0]["window"]["group_by"] = ["host", 42]
