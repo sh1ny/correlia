@@ -948,6 +948,26 @@ async def test_oversized_source_id_rejected_before_audit_write(
     assert response.status_code == 422
     assert await _count_audit_rows(session_factory) == 0
 
+@pytest.mark.parametrize("field", ("host", "service"))
+async def test_oversized_host_or_service_rejected_before_audit_write(
+    field: str,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    processor = build_icinga2_processor(sessionmaker=session_factory)
+    app = create_app(
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        sessionmaker=session_factory,
+        icinga2_processor=processor,
+    )
+    payload = valid_icinga2_service_payload()
+    payload[field] = "x" * 257
+
+    async for client in get_client(app):
+        response = await client.post("/v1/icinga2/events", json=payload)
+
+    assert response.status_code == 422
+    assert await _count_audit_rows(session_factory) == 0
+
 
 async def test_host_with_service_state_rejected_with_422() -> None:
     processor = build_icinga2_processor()

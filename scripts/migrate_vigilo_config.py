@@ -77,6 +77,7 @@ UNSUPPORTED_FIELD_CATALOG_CODES: frozenset[str] = frozenset(
         "unsupported_rule_is_dc_level",
         "invalid_rule_severity",
         "invalid_rule_priority",
+        "invalid_rule_tags",
         "duplicate_rule_priority",
         "empty_actions",
         "invalid_action_entry",
@@ -422,18 +423,27 @@ def _preflight_rules(raw_rules: list[Any]) -> list[MigrationIssue]:
 
             tags = match_block.get("tags", {})
             if not isinstance(tags, dict):
-                tags = {}
-            _, tag_issues = _rewrite_match_tags(tags)
-            for issue in tag_issues:
                 issues.append(
                     MigrationIssue(
-                        domain=issue.domain,
-                        location=f"{loc}.{issue.location}",
-                        code=issue.code,
-                        message=issue.message,
-                        requirement=issue.requirement,
+                        domain="rules",
+                        location=f"{loc}.match.tags",
+                        code="invalid_rule_tags",
+                        message="match.tags must be a mapping",
+                        requirement="CFG-06",
                     )
                 )
+            else:
+                _, tag_issues = _rewrite_match_tags(tags)
+                for issue in tag_issues:
+                    issues.append(
+                        MigrationIssue(
+                            domain=issue.domain,
+                            location=f"{loc}.{issue.location}",
+                            code=issue.code,
+                            message=issue.message,
+                            requirement=issue.requirement,
+                        )
+                    )
 
         priority = rule.get("priority")
         if priority is None:
@@ -552,7 +562,7 @@ def _transform_rules(raw_rules: list[Any]) -> dict[str, Any]:
 
         tags = match_block.get("tags", {})
         if not isinstance(tags, dict):
-            tags = {}
+            raise ValueError("match.tags must be a mapping")
         rewritten_tags, _ = _rewrite_match_tags(tags)
 
         raw_window = rule.get("window", {})
@@ -947,7 +957,16 @@ def _preflight_plugins(raw_plugins: dict[str, Any]) -> list[MigrationIssue]:
 
         config = output.get("config", {})
         if not isinstance(config, dict):
-            config = {}
+            issues.append(
+                MigrationIssue(
+                    domain="plugins",
+                    location=f"{loc}.config",
+                    code="unsupported_plugin_option",
+                    message="email output config must be a mapping",
+                    requirement="CFG-06",
+                )
+            )
+            continue
         for key in config:
             if key in _CREDENTIAL_KEYS:
                 issues.append(
@@ -1015,7 +1034,7 @@ def _transform_plugins(raw_plugins: dict[str, Any]) -> dict[str, Any]:
 
         config = output.get("config", {})
         if not isinstance(config, dict):
-            config = {}
+            raise ValueError(f"plugins.outputs.{name}.config must be a mapping")
         for key in config:
             if key in _ALLOWED_EMAIL_CONFIG_KEYS:
                 if list(_iter_unsupported_placeholders(config[key], f"config.{key}")):
