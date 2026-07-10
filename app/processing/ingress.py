@@ -238,7 +238,14 @@ class Icinga2DecisionProcessor:
                 severity=event.severity.value,
                 host=event.host,
                 service=event.service,
-                incident_ids=[str(uid) for uid in summary.incident_ids],
+                incident_ids=[
+                    str(uid)
+                    for uid in (
+                        lifecycle_result.incident_ids
+                        if lifecycle_result is not None
+                        else summary.incident_ids
+                    )
+                ],
                 incident_effect=summary.incident_effect,
                 decision_summary=summary.model_dump(mode="json"),
                 normalized_event=event.model_dump(mode="json"),

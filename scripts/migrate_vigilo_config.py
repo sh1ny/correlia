@@ -89,6 +89,7 @@ UNSUPPORTED_FIELD_CATALOG_CODES: frozenset[str] = frozenset(
         "missing_topology_target_tag",
         "unsupported_hostname_topology",
         "invalid_topology_section",
+        "invalid_topology_value",
         "missing_subnet_field",
         "unsupported_plugin_section",
         "unsupported_plugin_type",
@@ -694,6 +695,17 @@ def _preflight_topology(raw_topology: dict[str, Any]) -> list[MigrationIssue]:
             )
             continue
         regex = entry.get("regex", "")
+        if not isinstance(regex, str):
+            issues.append(
+                MigrationIssue(
+                    domain="topology",
+                    location=f"{loc}.regex",
+                    code="invalid_topology_value",
+                    message="hostname pattern regex must be a string",
+                    requirement="CFG-06",
+                )
+            )
+            continue
         has_capture = False
         try:
             pattern = re.compile(regex)
@@ -739,18 +751,28 @@ def _preflight_topology(raw_topology: dict[str, Any]) -> list[MigrationIssue]:
                 )
             )
 
-        for tag_name in tags:
+        for tag_name, tag_value in tags.items():
+            tag_location = f"{loc}.tags[{tag_name}]"
+            if not isinstance(tag_value, str):
+                issues.append(
+                    MigrationIssue(
+                        domain="topology",
+                        location=tag_location,
+                        code="invalid_topology_value",
+                        message="hostname pattern literal tag values must be strings",
+                        requirement="CFG-06",
+                    )
+                )
             if _to_correlia_tag_key(str(tag_name)) is None:
                 issues.append(
                     MigrationIssue(
                         domain="topology",
-                        location=f"{loc}.tags[{tag_name}]",
+                        location=tag_location,
                         code="invalid_topology_tag_key",
                         message=f"tag name '{tag_name}' cannot be converted to a valid topology.* key",
                         requirement="CFG-06",
                     )
                 )
-
     ip_subnets = raw_topology.get("ip_subnets", [])
     if not isinstance(ip_subnets, list):
         issues.append(
@@ -799,6 +821,16 @@ def _preflight_topology(raw_topology: dict[str, Any]) -> list[MigrationIssue]:
                 )
             )
 
+        if "value" in entry and not isinstance(entry["value"], str):
+            issues.append(
+                MigrationIssue(
+                    domain="topology",
+                    location=f"{loc}.value",
+                    code="invalid_topology_value",
+                    message="subnet value must be a string",
+                    requirement="CFG-06",
+                )
+            )
     return issues
 
 

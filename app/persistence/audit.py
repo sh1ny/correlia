@@ -18,6 +18,7 @@ import binascii
 import hashlib
 import hmac
 import json
+from itertools import islice
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -27,7 +28,7 @@ from uuid import UUID
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.audit import AuditEventListFilters
+from app.domain.audit import AUDIT_INCIDENT_IDS_MAX, AuditEventListFilters
 from app.persistence.models import IncidentEvent
 
 #: Current redaction algorithm version. Bump when the redactor logic changes.
@@ -649,7 +650,13 @@ def _row_to_audit_event_list_row(row: Sequence[Any]) -> AuditEventListRow:
         normalized_event_tags,
     ) = row
 
-    incident_ids_tuple = tuple(incident_ids) if incident_ids is not None else ()
+    # SQL filtering operates on complete persisted JSONB values; cap only
+    # the returned response projection.
+    incident_ids_tuple = (
+        tuple(islice(incident_ids, AUDIT_INCIDENT_IDS_MAX))
+        if incident_ids is not None
+        else ()
+    )
     decision_summary_dict = dict(decision_summary) if decision_summary is not None else {}
     # Normalize ``incident_ids`` inside the decision summary from a JSONB
     # list to a tuple so strict Pydantic validation

@@ -246,6 +246,73 @@ def test_cli_rejects_non_list_topology_sections_before_output(
     with pytest.raises(ValueError, match=re.escape(message)):
         _transform_topology(raw["topology_rules"])
 
+def test_cli_rejects_non_string_hostname_regex_before_compile(tmp_path: Path) -> None:
+    raw = yaml.safe_load(_fixture_path("topology_valid.yaml").read_text())
+    raw["topology_rules"]["hostname_patterns"][0]["regex"] = 123
+    topology_path = tmp_path / "topology.yaml"
+    topology_path.write_text(yaml.safe_dump(raw))
+    out_dir = tmp_path / "out"
+    report_path = tmp_path / "report.json"
+
+    result = _run_cli(
+        rules=str(_fixture_path("rules_valid.yaml")),
+        topology=str(topology_path),
+        plugins=str(_fixture_path("plugins_valid.yaml")),
+        out_dir=str(out_dir),
+        report_path=str(report_path),
+    )
+
+    assert result.returncode != 0, result.stdout
+    assert "Traceback" not in result.stderr
+    assert not out_dir.exists()
+    report = json.loads(report_path.read_text())
+    assert {
+        "domain": "topology",
+        "location": "topology_rules.hostname_patterns[0].regex",
+        "code": "invalid_topology_value",
+        "message": "hostname pattern regex must be a string",
+        "requirement": "CFG-06",
+    } in report["errors"]
+
+
+@pytest.mark.parametrize("value", [[], False, 123])
+def test_cli_rejects_non_string_topology_tag_values_before_output(
+    value: Any, tmp_path: Path
+) -> None:
+    raw = yaml.safe_load(_fixture_path("topology_valid.yaml").read_text())
+    raw["topology_rules"]["hostname_patterns"][2]["tags"]["environment"] = value
+    raw["topology_rules"]["ip_subnets"][0]["value"] = value
+    topology_path = tmp_path / "topology.yaml"
+    topology_path.write_text(yaml.safe_dump(raw))
+    out_dir = tmp_path / "out"
+    report_path = tmp_path / "report.json"
+
+    result = _run_cli(
+        rules=str(_fixture_path("rules_valid.yaml")),
+        topology=str(topology_path),
+        plugins=str(_fixture_path("plugins_valid.yaml")),
+        out_dir=str(out_dir),
+        report_path=str(report_path),
+    )
+
+    assert result.returncode != 0, result.stdout
+    assert not out_dir.exists()
+    report = json.loads(report_path.read_text())
+    assert {
+        "domain": "topology",
+        "location": "topology_rules.hostname_patterns[2].tags[environment]",
+        "code": "invalid_topology_value",
+        "message": "hostname pattern literal tag values must be strings",
+        "requirement": "CFG-06",
+    } in report["errors"]
+    assert {
+        "domain": "topology",
+        "location": "topology_rules.ip_subnets[0].value",
+        "code": "invalid_topology_value",
+        "message": "subnet value must be a string",
+        "requirement": "CFG-06",
+    } in report["errors"]
+
 def test_cli_reports_non_string_group_by_entries_before_rewrite(tmp_path: Path) -> None:
     raw = yaml.safe_load(_fixture_path("rules_valid.yaml").read_text())
     raw["rules"][0]["window"]["group_by"] = ["host", 42]
