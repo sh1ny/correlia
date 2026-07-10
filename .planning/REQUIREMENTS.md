@@ -27,20 +27,20 @@ Requirements for the Vigilo/VDE compatibility milestone. Each requirement maps t
 
 ### Incident Event Audit
 
-- [ ] **AUD-01**: Maintainers can migrate the database to include an append-only `incident_events` table with the required traceability columns and indexes.
-- [ ] **AUD-02**: Correlia records one audit row for every accepted normalized event with raw payload, normalized event, decision summary, source ID, fingerprint, severity, host, service, and timestamps.
-- [ ] **AUD-03**: Correlia records audit rows without using them to decide incident aggregation, notification thresholds, recovery, or lifecycle transitions.
-- [ ] **AUD-04**: Operators can correlate audit rows to incidents when an incident exists and can inspect no-op accepted events when no incident was created or updated.
+- [x] **AUD-01**: Maintainers can migrate the database to include an append-only `incident_events` table with the required traceability columns and indexes.
+- [x] **AUD-02**: Correlia records one audit row for every accepted normalized event with raw payload, normalized event, decision summary, source ID, fingerprint, severity, host, service, and timestamps.
+- [x] **AUD-03**: Correlia records audit rows without using them to decide incident aggregation, notification thresholds, recovery, or lifecycle transitions.
+- [x] **AUD-04**: Operators can correlate audit rows to incidents when an incident exists and can inspect no-op accepted events when no incident was created or updated.
 
 ### Vigilo Config Migration
 
-- [ ] **CFG-01**: Maintainers can run `scripts/migrate_vigilo_config.py` with `--rules`, `--topology`, `--plugins`, and `--out-dir` to generate Correlia `rules.yaml`, `topology.yaml`, and `plugins.yaml`.
-- [ ] **CFG-02**: The migration command rewrites supported Vigilo rule fields into strict Correlia rule schema, including severity, host/service patterns, topology tag keys, summary placeholders, and action objects.
-- [ ] **CFG-03**: The migration command rewrites supported Vigilo topology fields into strict Correlia hostname and subnet topology schemas.
-- [ ] **CFG-04**: Correlia supports topology regex capture-group substitution needed to preserve Vigilo hostname-derived topology tags, or the migration fails clearly when substitution is required but unavailable.
-- [ ] **CFG-05**: The migration command rewrites supported Vigilo email output plugin configuration into Correlia output plugin schema without copying plaintext SMTP credentials.
-- [ ] **CFG-06**: The migration command exits non-zero with a clear unsupported-field error for Vigilo semantics Correlia cannot preserve, including `min_hosts`, `is_dc_level`, empty actions, non-output plugin sections, LLM config, and unsupported plugin types.
-- [ ] **CFG-07**: The migration command validates generated files with Correlia's existing rule, topology, and plugin config loaders before reporting success.
+- [x] **CFG-01**: Maintainers can run `scripts/migrate_vigilo_config.py` with `--rules`, `--topology`, `--plugins`, and `--out-dir` to generate Correlia `rules.yaml`, `topology.yaml`, and `plugins.yaml`.
+- [x] **CFG-02**: The migration command rewrites supported Vigilo rule fields into strict Correlia rule schema, including severity, host/service patterns, topology tag keys, summary placeholders, and action objects.
+- [x] **CFG-03**: The migration command rewrites supported Vigilo topology fields into strict Correlia hostname and subnet topology schemas.
+- [x] **CFG-04**: Correlia supports topology regex capture-group substitution needed to preserve Vigilo hostname-derived topology tags, or the migration fails clearly when substitution is required but unavailable.
+- [x] **CFG-05**: The migration command rewrites supported Vigilo email output plugin configuration into Correlia output plugin schema without copying plaintext SMTP credentials.
+- [x] **CFG-06**: The migration command exits non-zero with a clear unsupported-field error for Vigilo semantics Correlia cannot preserve, including `min_hosts`, `is_dc_level`, empty actions, non-output plugin sections, LLM config, and unsupported plugin types.
+- [x] **CFG-07**: The migration command validates generated files with Correlia's existing rule, topology, and plugin config loaders before reporting success.
 
 ### Plugin and Notification Boundaries
 
@@ -104,17 +104,17 @@ Which phases cover which requirements. Updated during roadmap creation.
 | API-05 | Phase 6 | Complete |
 | API-06 | Phase 6 | Complete |
 | API-07 | Phase 6 | Complete |
-| AUD-01 | Phase 7 | Pending |
-| AUD-02 | Phase 7 | Pending |
-| AUD-03 | Phase 7 | Pending |
-| AUD-04 | Phase 7 | Pending |
-| CFG-01 | Phase 8 | Pending |
-| CFG-02 | Phase 8 | Pending |
-| CFG-03 | Phase 8 | Pending |
-| CFG-04 | Phase 8 | Pending |
-| CFG-05 | Phase 8 | Pending |
-| CFG-06 | Phase 8 | Pending |
-| CFG-07 | Phase 8 | Pending |
+| AUD-01 | Phase 7 | Complete |
+| AUD-02 | Phase 7 | Complete |
+| AUD-03 | Phase 7 | Complete |
+| AUD-04 | Phase 7 | Complete |
+| CFG-01 | Phase 8 | Complete |
+| CFG-02 | Phase 8 | Complete |
+| CFG-03 | Phase 8 | Complete |
+| CFG-04 | Phase 8 | Complete |
+| CFG-05 | Phase 8 | Complete |
+| CFG-06 | Phase 8 | Complete |
+| CFG-07 | Phase 8 | Complete |
 | PLG-01 | Phase 9 | Pending |
 | PLG-02 | Phase 9 | Pending |
 | PLG-03 | Phase 9 | Pending |

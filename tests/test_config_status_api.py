@@ -15,8 +15,9 @@ from app.plugins.loader import PluginRegistry
 pytestmark = pytest.mark.anyio
 
 @pytest.fixture(autouse=True)
-def _disable_auth_for_config_status_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+def _disable_auth_for_config_status_tests(monkeypatch: pytest.MonkeyPatch, clean_settings_env: None) -> None:
     monkeypatch.setenv("CORRELIA_API_AUTH_ENABLED", "false")
+    monkeypatch.setenv("CORRELIA_AUDIT_RAW_PAYLOAD_HMAC_KEY", "test-audit-hmac")
 
 
 VALID_DATABASE_URL = "postgresql+asyncpg://user:pass@localhost:5432/correlia"
@@ -217,3 +218,73 @@ async def test_topology_summary_exposes_match_types_tag_keys_and_hash(tmp_path: 
         "ops@example.test",
     ):
         assert forbidden not in serialized
+
+async def test_topology_summary_includes_capture_group_tag_keys(tmp_path: Path) -> None:
+    plugins_path = tmp_path / "plugins.yaml"
+    rules_path = tmp_path / "rules.yaml"
+    topology_path = tmp_path / "topology.yaml"
+    registry = _write_plugins(plugins_path)
+    _write_rules(rules_path)
+    topology_path.write_text(
+        yaml.safe_dump(
+            {
+                "hostname_rules": [
+                    {
+                        "id": "capture-only",
+                        "name": "Capture Only",
+                        "hostname_pattern": "^([a-z]+)-capture$",
+                        "tags": {},
+                        "tag_capture_groups": {"topology.datacenter": 1},
+                    },
+                    {
+                        "id": "mixed-tags",
+                        "name": "Mixed Tags",
+                        "hostname_pattern": "^([a-z]+)-([a-z]+)-mixed$",
+                        "tags": {
+                            "topology.environment": "production",
+                            "topology.role": "web",
+                        },
+                        "tag_capture_groups": {
+                            "topology.datacenter": 1,
+                            "topology.role": 2,
+                        },
+                    },
+                ],
+                "subnet_rules": [],
+            }
+        )
+    )
+    app = create_app(
+        settings=Settings(
+            DATABASE_URL=VALID_DATABASE_URL,
+            rules_path=rules_path,
+            topology_path=topology_path,
+            plugins_path=plugins_path,
+        ),
+        sessionmaker=lambda: object(),
+        plugin_registry=registry,
+        lifecycle_worker=NoopLifecycleWorker(),
+    )
+
+    async for client in get_client(app):
+        response = await client.get("/v1/topology")
+
+    assert response.status_code == 200
+    assert response.json()["rules"] == [
+        {
+            "id": "capture-only",
+            "name": "Capture Only",
+            "match_type": "hostname",
+            "tag_keys": ["topology.datacenter"],
+        },
+        {
+            "id": "mixed-tags",
+            "name": "Mixed Tags",
+            "match_type": "hostname",
+            "tag_keys": [
+                "topology.datacenter",
+                "topology.environment",
+                "topology.role",
+            ],
+        },
+    ]

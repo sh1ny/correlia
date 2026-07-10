@@ -11,9 +11,9 @@ Operators receive one accurate, topology-aware incident for a related alert stor
 ## Current State
 
 - **Shipped version:** v1.0 MVP on 2026-06-09.
-- **Milestone scope:** v1.1 compatibility roadmap in progress; Phase 06 complete.
-- **Validated surface:** Icinga2 ingress, topology enrichment, rule evaluation, incident aggregation, notification dispatch, recovery/expiration lifecycle, operator APIs, metrics, readiness, structured logs, static Bearer auth, named public/protected exposure, request-size limits, route-class rate limits, and canonical `/v1/incidents` Vigilo-compatible list/detail/mutation workflows.
-- **Current focus:** Phase 07 — incident event audit trail.
+- **Milestone scope:** v1.1 compatibility roadmap in progress; Phase 07 complete.
+- **Validated surface:** Icinga2 ingress, topology enrichment, rule evaluation, incident aggregation, notification dispatch, recovery/expiration lifecycle, operator APIs, metrics, readiness, structured logs, static Bearer auth, named public/protected exposure, request-size limits, route-class rate limits, canonical `/v1/incidents` Vigilo-compatible list/detail/mutation workflows, and append-only `incident_events` audit trail with read-only operator inspection.
+- **Current focus:** Phase 08 — Vigilo/VDE YAML config migration.
 
 ## Current Milestone: v1.1 Vigilo/VDE Compatibility
 
@@ -38,6 +38,7 @@ Operators receive one accurate, topology-aware incident for a related alert stor
 - ✓ RECOVERY lifecycle mutation, stale incident expiration, trusted internal `/v1` operator APIs, low-cardinality Prometheus metrics, safe JSON structured logs, and expanded readiness checks — v1.0.
 - ✓ Static Bearer auth, separated operator/ingress tokens, named readiness/metrics exposure, request-size limits, route-class rate limits, and safe HTTP-control logging — Phase 05.
 - ✓ Canonical `/v1/incidents` operation parity for Vigilo-supported listing and mutation workflows: offset/total list metadata, derived `ACKNOWLEDGED` filter, rich detail preservation, PATCH/DELETE compatibility aliases with `vigilo-compat` defaults, summary-mutation rejection, and explicit `/ack`/`/close` endpoint preservation — Phase 06.
+- ✓ Append-only `incident_events` audit trail: schema, ORM model, strict domain contracts, redaction/HMAC helpers, cursor/filter/list repository, per-accepted-event write inside the ingress transaction, read-only `GET /v1/incident-events` operator endpoint with bounded projection, auth/rate-limit/size-limit inheritance, and correlation/no-op inspection coverage — Phase 07.
 
 ### Active
 
@@ -110,4 +111,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-17 after Phase 06 completion*
+*Last updated: 2026-06-18 after Phase 07 completion*

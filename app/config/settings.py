@@ -49,6 +49,10 @@ class Settings(BaseSettings):
     rate_limit_window_seconds_health: int = Field(default=60, ge=1)
     rate_limit_sweep_interval_seconds: int = Field(default=60, ge=1, le=3600)
 
+    # Audit-trail settings (Phase 7)
+    audit_raw_payload_max_bytes: int = Field(default=65_536, ge=1_024, le=1_048_576)
+    audit_raw_payload_hmac_key: SecretStr
+
     @model_validator(mode="after")
     def _require_security_tokens_when_enabled(self) -> Self:
         if not self.api_auth_enabled:
@@ -80,6 +84,23 @@ class Settings(BaseSettings):
             raise ValueError(
                 "api_auth_enabled requires distinct operator_api_token and ingress_api_token"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _require_audit_hmac_key(self) -> Self:
+        if self.audit_raw_payload_hmac_key is None:
+            raise ValueError("audit_raw_payload_hmac_key is required")
+        raw = self.audit_raw_payload_hmac_key.get_secret_value()
+        if raw is None or raw.strip() == "":
+            raise ValueError("audit_raw_payload_hmac_key must be non-empty")
+        # The audit HMAC key must not reuse either auth token when configured.
+        for token_attr in ("operator_api_token", "ingress_api_token"):
+            token = getattr(self, token_attr)
+            if token is not None and token.get_secret_value() == raw:
+                raise ValueError(
+                    "audit_raw_payload_hmac_key must differ from "
+                    f"{token_attr}"
+                )
         return self
 
 

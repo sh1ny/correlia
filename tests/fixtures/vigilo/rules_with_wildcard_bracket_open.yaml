@@ -1,0 +1,14 @@
+# Unsupported: wildcard tag match value containing [
+rules:
+  - name: "Wildcard Bracket Open Rule"
+    priority: 100
+    match:
+      severity: ["CRITICAL"]
+      tags:
+        datacenter: "[abc"
+    window:
+      duration_seconds: 1800
+      group_by: ["host"]
+      trigger_threshold: 1
+    output_summary: "Wildcard bracket open"
+    actions: ["email-ops"]

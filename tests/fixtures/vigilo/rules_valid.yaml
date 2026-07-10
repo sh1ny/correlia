@@ -1,0 +1,40 @@
+# Vigilo Rule Configuration
+rules:
+  - name: "DC-Level Outage Aggregator"
+    priority: 100
+    match:
+      severity: ["CRITICAL", "WARNING"]
+      tags:
+        datacenter: ".+"
+        environment: "production"
+    window:
+      duration_seconds: 1800
+      group_by: ["datacenter", "host"]
+      trigger_threshold: 10
+    output_summary: "Major outage detected in Datacenter {datacenter}"
+    actions: ["email-ops"]
+
+  - name: "Host Alert Aggregator"
+    priority: 50
+    match:
+      severity: ["CRITICAL", "WARNING"]
+      host: "*"
+    window:
+      duration_seconds: 1800
+      group_by: ["host"]
+      trigger_threshold: 5
+    output_summary: "Multiple alerts on {host}"
+    actions: ["email-ops"]
+
+  - name: "Service Event Tracker"
+    priority: 10
+    match:
+      severity: ["CRITICAL", "WARNING"]
+      host: "*"
+      service: "*"
+    window:
+      duration_seconds: 7200
+      group_by: ["host", "service"]
+      trigger_threshold: 1
+    output_summary: "Alert on {host}: {service}"
+    actions: ["email-ops"]

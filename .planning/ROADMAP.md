@@ -19,8 +19,8 @@ v1.1 makes Correlia a practical Vigilo/VDE replacement at the auth, HTTP-control
 
 - [x] **Phase 5: Security and HTTP Controls** - Protected routes use production-safe Bearer auth, configurable public health/readiness exposure, request-size limits, and route rate limits. (completed 2026-06-17)
 - [x] **Phase 6: Canonical Incident API Operation Parity** - `/v1/incidents` supports Vigilo-compatible list/detail/mutation workflows while preserving Correlia's richer canonical API and lifecycle rules. (completed 2026-06-17)
-- [ ] **Phase 7: Incident Event Audit Trail** - Accepted normalized events are recorded in an append-only audit table without influencing aggregation or lifecycle decisions.
-- [ ] **Phase 8: Vigilo Config Migration** - Maintainers can convert supported Vigilo/VDE rules, topology, and email output config into validated Correlia YAML, with clear failures for unsupported semantics.
+- [x] **Phase 7: Incident Event Audit Trail** - Accepted normalized events are recorded in an append-only audit table without influencing aggregation or lifecycle decisions. (completed 2026-06-18)
+- [x] **Phase 8: Vigilo Config Migration** - Maintainers can convert supported Vigilo/VDE rules, topology, and email output config into validated Correlia YAML, with clear failures for unsupported semantics. (completed 2026-06-19)
 - [ ] **Phase 9: Plugin and Notification Boundaries** - Output plugin loading and notification dispatch stay allowlisted, bounded, structured, and non-blocking.
 - [ ] **Phase 10: Deployment and Operational Visibility** - Docker/compose runtime artifacts, sample config, compatibility metrics, readiness, and safe logs make the compatibility surface operable.
 
@@ -75,7 +75,18 @@ Plans:
   3. Incident aggregation, notification thresholds, recovery, and lifecycle transitions produce the same decisions from primary incident state rather than audit rows.
   4. Operators can correlate audit rows to incidents when one exists and inspect accepted no-op events when no incident was created or updated.
 
-**Plans**: TBD
+**Plans**: 3/3 plans complete
+**Wave 1**
+
+- [x] 07-01-PLAN.md — Audit schema, domain models, persistence repository, raw-payload redactor/HMAC, and foundation tests.
+
+**Wave 2**
+
+- [x] 07-02-PLAN.md — Ingress transaction refactor, manager commit ownership move, and audit write integration for all accepted event paths.
+
+**Wave 3**
+
+- [x] 07-03-PLAN.md — Read-only `/v1/incident-events` operator API, route classification, bounded response projection, and integration tests.
 
 ### Phase 8: Vigilo Config Migration
 
@@ -90,7 +101,15 @@ Plans:
   4. Plaintext SMTP credentials are not copied into generated plugin config.
   5. Unsupported Vigilo semantics such as `min_hosts`, `is_dc_level`, empty actions, non-output plugin sections, LLM config, and unsupported plugin types produce a non-zero migration result before success is reported.
 
-**Plans**: TBD
+**Plans**: 3/3 plans complete
+
+Plans:
+
+- [x] 08-01-PLAN.md — Runtime topology capture-group schema, compiled config, enrichment semantics, and tests.
+- [x] 08-02-PLAN.md — Standalone Vigilo/VDE migration CLI, fail-closed unsupported reporting, atomic output, loader/plugin validation, fixtures, and documentation.
+- [x] 08-03-PLAN.md — Gap closure for D-05 placeholder rejection and D-14/D-15 promotion rollback edge cases.
+
+> **Verification status:** Phase 8 passed final verification after gap closure. All CFG-01..CFG-07 requirements and D-01..D-15 locked decisions are satisfied; full gate passed with `make lint`, `make typecheck`, and `make test` (533 tests).
 
 ### Phase 9: Plugin and Notification Boundaries
 
@@ -170,10 +189,10 @@ Plans:
 |-------|-----------|----------------|--------|-----------|
 | 5. Security and HTTP Controls | v1.1 | 2/2 | Complete    | 2026-06-17 |
 | 6. Canonical Incident API Operation Parity | v1.1 | 1/1 | Complete    | 2026-06-17 |
-| 7. Incident Event Audit Trail | v1.1 | 0/TBD | Not started | - |
-| 8. Vigilo Config Migration | v1.1 | 0/TBD | Not started | - |
+| 7. Incident Event Audit Trail | v1.1 | 3/3 | Complete    | 2026-06-18 |
+| 8. Vigilo Config Migration | v1.1 | 2/2 | Complete   | 2026-06-19 |
 | 9. Plugin and Notification Boundaries | v1.1 | 0/TBD | Not started | - |
 | 10. Deployment and Operational Visibility | v1.1 | 0/TBD | Not started | - |
 
 ---
-*Last updated: 2026-06-14 for v1.1 Vigilo/VDE Compatibility roadmap creation*
+*Last updated: 2026-06-19 — Plan 08-02 complete, Phase 8 complete*

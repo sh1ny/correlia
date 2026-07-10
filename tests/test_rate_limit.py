@@ -61,6 +61,7 @@ def _auth_settings(
         rate_limit_enabled=rate_limit_enabled,
         rate_limit_requests_operator=rate_limit_requests_operator,
         rate_limit_window_seconds_operator=rate_limit_window_seconds_operator,
+        audit_raw_payload_hmac_key="test-audit-hmac",
     )
 
 
@@ -191,6 +192,7 @@ async def test_oversized_request_does_not_consume_rate_limit_budget() -> None:
         rate_limit_enabled=True,
         rate_limit_requests_ingress=1,
         rate_limit_window_seconds_ingress=60,
+        audit_raw_payload_hmac_key="test-audit-hmac",
     )
     app = _app(settings)
     app.state.rate_limiter.clear()
@@ -231,6 +233,7 @@ async def test_rate_limit_per_class_configs_are_independent() -> None:
         rate_limit_window_seconds_operator=60,
         rate_limit_requests_health=10,
         rate_limit_window_seconds_health=60,
+        audit_raw_payload_hmac_key="test-audit-hmac",
     )
     app = _app(settings)
     app.state.rate_limiter.clear()
@@ -459,3 +462,15 @@ async def test_in_process_rate_limiter_sweep_expired_returns_count(
     removed = await limiter.sweep_expired()
     assert removed == 2
     assert limiter._counters == {}
+
+
+async def test_incident_events_inherit_operator_rate_limit() -> None:
+    app = _app(_auth_settings(rate_limit_requests_operator=1))
+    async for client in get_client(app):
+        resp1 = await client.get("/v1/incident-events")
+        assert resp1.status_code == 401
+        assert resp1.json() == {"detail": "unauthorized"}
+
+        resp2 = await client.get("/v1/incident-events")
+        assert resp2.status_code == 429
+        assert resp2.json() == {"detail": "rate limit exceeded"}

@@ -1,6 +1,7 @@
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from pathlib import Path
+import inspect
 import logging
 import subprocess
 import os
@@ -14,14 +15,56 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from testcontainers.postgres import PostgresContainer
 
-from app.domain.events import Severity
-from app.persistence.incidents import IncidentUpsertInput, upsert_open_incident
-from app.config.settings import Settings
-from app.main import create_app
-from app.processing.ingress import build_icinga2_processor
 from app.config.plugins import load_plugin_registry_config
+from app.config.settings import Settings
+from app.domain.events import Severity
+from app.domain.rules import RuleDecision, ThresholdDecision
+from app.main import create_app
+from app.persistence.incidents import IncidentUpsertInput, upsert_open_incident
+from app.plugins.inputs.icinga2 import Icinga2InputPlugin
 from app.plugins.loader import PluginRegistry
+from app.processing.ingress import (
+    Icinga2DecisionProcessor,
+    build_icinga2_processor as _real_build_icinga2_processor,
+)
 from app.processing.task_runner import AsyncIOTaskRunner
+
+
+def build_icinga2_processor(
+    topology_path=None,
+    rules_path=None,
+    *,
+    sessionmaker=None,
+    task_runner=None,
+    plugin_registry=None,
+    **extra: object,
+):
+    """Test wrapper supplying default audit kwargs.
+
+    Real-DB tests must pass their own ``sessionmaker=``; rejection and
+    422 validation tests can leave ``sessionmaker=None`` because ingress
+    short-circuits before AUD-02 audit writes. The fail-fast test
+    ``test_accepted_event_without_sessionmaker_fails_fast_for_audit``
+    calls ``_real_build_icinga2_processor`` directly to exercise the
+    audit-misconfiguration path without wrapper interference.
+    """
+    return _real_build_icinga2_processor(
+        topology_path=topology_path,
+        rules_path=rules_path,
+        sessionmaker=sessionmaker,
+        task_runner=task_runner,
+        plugin_registry=plugin_registry,
+        audit_raw_payload_max_bytes=1024,
+        audit_raw_payload_hmac_key="test-audit-hmac",
+    )
+
+
+async def _count_audit_rows(session_factory: async_sessionmaker[AsyncSession]) -> int:
+    async with session_factory() as session:
+        result = await session.execute(sa.text("SELECT COUNT(*) FROM incident_events"))
+    return int(result.scalar_one())
+
+
 
 VALID_DATABASE_URL = "postgresql+asyncpg://user:pass@localhost:5432/correlia"
 
@@ -33,8 +76,9 @@ def _event_time() -> datetime:
 
 pytestmark = pytest.mark.anyio
 @pytest.fixture(autouse=True)
-def _disable_auth_for_ingress_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+def _disable_auth_for_ingress_tests(monkeypatch: pytest.MonkeyPatch, clean_settings_env: None) -> None:
     monkeypatch.setenv("CORRELIA_API_AUTH_ENABLED", "false")
+    monkeypatch.setenv("CORRELIA_AUDIT_RAW_PAYLOAD_HMAC_KEY", "test-audit-hmac")
 
 
 
@@ -68,7 +112,11 @@ async def session_factory(postgres_url: str):
 
     cleanup = create_async_engine(postgres_url)
     async with AsyncSession(cleanup, expire_on_commit=False) as session:
-        await session.execute(sa.text("TRUNCATE TABLE incidents RESTART IDENTITY CASCADE"))
+        # incident_events holds correlation IDs as JSONB, not FKs, so
+        # CASCADE does not reach it; truncate it explicitly.
+        await session.execute(
+            sa.text("TRUNCATE TABLE incident_events, incidents RESTART IDENTITY CASCADE")
+        )
         await session.commit()
     await cleanup.dispose()
 
@@ -200,9 +248,66 @@ def _payload(
     return payload
 
 
+async def test_submit_notifications_without_task_runner_reports_failed_result_per_action(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts: list[tuple[str, str]] = []
+    failures: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "app.processing.ingress.record_notification_attempt",
+        lambda plugin_name, category: attempts.append((plugin_name, category)),
+    )
+    monkeypatch.setattr(
+        "app.processing.ingress.record_notification_failure",
+        lambda plugin_name, category: failures.append((plugin_name, category)),
+    )
+    decision = RuleDecision(
+        rule_name="critical-rule",
+        priority=10,
+        matched_rules=["critical-rule"],
+        group_key="service=http",
+        threshold_decision=ThresholdDecision(
+            rule_name="critical-rule",
+            group_key="service=http",
+            window_start=_event_time(),
+            window_end=_event_time(),
+            threshold=1,
+            counted_fingerprints=["first"],
+            counted=1,
+            crossed=True,
+        ),
+        summary="critical http service",
+        actions=["zeta", "alpha", "zeta"],
+    )
+    processor = Icinga2DecisionProcessor(
+        plugin=Icinga2InputPlugin(),
+        audit_raw_payload_max_bytes=1024,
+        audit_raw_payload_hmac_key="test-audit-hmac",
+    )
+
+    results = await processor._submit_notifications("incident-1", decision)
+
+    assert [(result.success, result.category) for result in results] == [
+        (False, "dispatch_failed"),
+        (False, "dispatch_failed"),
+    ]
+    assert attempts == [
+        ("alpha", "dispatch_failed"),
+        ("zeta", "dispatch_failed"),
+    ]
+    assert failures == attempts
+    assert await processor._submit_notifications("incident-1", None) == ()
+    assert attempts == [
+        ("alpha", "dispatch_failed"),
+        ("zeta", "dispatch_failed"),
+    ]
+    assert failures == attempts
+
+
 async def test_icinga2_problem_webhook_aggregates_and_submits_notifications_once(
     tmp_path: Path,
     session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     rules_path = tmp_path / "rules.yaml"
     topology_path = tmp_path / "topology.yaml"
@@ -211,6 +316,14 @@ async def test_icinga2_problem_webhook_aggregates_and_submits_notifications_once
     _write_topology(topology_path)
     plugin_registry = _write_plugins(plugins_path)
     task_runner = AsyncIOTaskRunner()
+    attempts: list[tuple[str, str]] = []
+
+    def capture_attempt(plugin_name: str, category: str) -> None:
+        attempts.append((plugin_name, category))
+
+    monkeypatch.setattr(
+        "app.processing.ingress.record_notification_attempt", capture_attempt
+    )
     submitted: list[dict[str, object]] = []
 
     async def capture_notify(payload: dict[str, object]) -> None:
@@ -301,7 +414,96 @@ async def test_icinga2_problem_webhook_aggregates_and_submits_notifications_once
     assert already_body["notification_count"] == 0
     assert already_body["no_dispatch_reason"] == "already_notified"
     assert len(submitted) == 1
+    assert attempts == []
+    # AUD-02: every accepted event must write exactly one audit row.
+    assert (await _count_audit_rows(session_factory)) == 4
 
+
+async def test_ingress_without_rule_engine_persists_configuration_reason(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    processor = build_icinga2_processor(sessionmaker=session_factory)
+    app = create_app(
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        sessionmaker=session_factory,
+        icinga2_processor=processor,
+        lifecycle_worker=NoopLifecycleWorker(),  # type: ignore[arg-type]
+    )
+
+    async for client in get_client(app):
+        response = await client.post(
+            "/v1/icinga2/events",
+            json=valid_icinga2_service_payload(),
+        )
+        assert response.status_code == 200
+        audit_response = await client.get("/v1/incident-events")
+
+    assert audit_response.status_code == 200
+    assert audit_response.json()["items"][0]["decision_summary"][
+        "no_dispatch_reason"
+    ] == "no rule engine configured"
+
+
+async def test_ingress_maps_long_missing_group_by_reason_to_bounded_audit_code(
+    tmp_path: Path,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    long_missing_field = "a" * 256
+    rules_path = tmp_path / "rules.yaml"
+    rules_path.write_text(
+        yaml.safe_dump(
+            {
+                "rules": [
+                    {
+                        "name": "missing-group-by",
+                        "priority": 10,
+                        "match": {
+                            "severities": ["CRITICAL"],
+                            "host_pattern": ".*",
+                            "service_pattern": "http",
+                        },
+                        "window": {
+                            "duration_seconds": 300,
+                            "group_by": [long_missing_field],
+                            "trigger_threshold": 1,
+                        },
+                        "output_summary": "Critical service",
+                        "actions": [
+                            {"name": "create_incident", "plugin": "email-oncall"}
+                        ],
+                    }
+                ]
+            }
+        )
+    )
+    processor = build_icinga2_processor(
+        rules_path=rules_path,
+        sessionmaker=session_factory,
+    )
+    app = create_app(
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        sessionmaker=session_factory,
+        icinga2_processor=processor,
+    )
+
+    async for client in get_client(app):
+        response = await client.post(
+            "/v1/icinga2/events",
+            json=valid_icinga2_service_payload(),
+        )
+        audit_response = await client.get("/v1/incident-events")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["state_accepted"] is True
+    assert body["rule_decision"]["reason"] == (
+        f"missing required group-by field: {long_missing_field}"
+    )
+    assert audit_response.status_code == 200
+    summary = audit_response.json()["items"][0]["decision_summary"]
+    assert summary["decision_kind"] == "noop"
+    assert summary["decision_reason"] == "missing_required_group_by_field"
+    assert summary["no_dispatch_reason"] == "missing_required_group_by_field"
 
 async def test_ingress_logs_safe_json_events(
     tmp_path: Path,
@@ -512,14 +714,17 @@ async def test_recovery_response_contains_lifecycle_outcome_without_notification
 
 
 def test_recovery_branch_does_not_call_apply_problem_or_raw_state_names() -> None:
-    import inspect
     import app.processing.ingress as ingress_module
 
-    source = inspect.getsource(ingress_module)
-    recovery_index = source.index("EventType.RECOVERY")
-    next_method_index = source.index("async def _apply_problem")
-    recovery_branch = source[recovery_index:next_method_index]
-    assert "apply_problem" not in recovery_branch
+    source = inspect.getsource(ingress_module.Icinga2DecisionProcessor.process_payload)
+    recovery_start = source.index("elif event.event_type is EventType.RECOVERY:")
+    recovery_end = source.index("\n\n            summary =", recovery_start)
+    recovery_branch = source[recovery_start:recovery_end]
+
+    assert "LifecycleManager(" in recovery_branch
+    assert "resolve_for_event" in recovery_branch
+    assert "IncidentManager(" not in recovery_branch
+    # Raw Icinga2 fields must not appear in ingress.
     assert "state_type" not in source
     assert "check_output" not in source
 
@@ -562,11 +767,13 @@ async def test_icinga2_ingest_failure_logs_only_safe_structured_fields(
         assert fragment not in serialized
 
 
-async def test_post_webhook_icinga2_returns_200_for_hard_service() -> None:
-    processor = build_icinga2_processor()
+async def test_post_webhook_icinga2_returns_200_for_hard_service(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    processor = build_icinga2_processor(sessionmaker=session_factory)
     app = create_app(
         settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
-        sessionmaker=lambda: object(),
+        sessionmaker=session_factory,
         icinga2_processor=processor,
     )
     async for client in get_client(app):
@@ -577,11 +784,13 @@ async def test_post_webhook_icinga2_returns_200_for_hard_service() -> None:
     assert response.status_code == 200
 
 
-async def test_post_webhook_icinga2_returns_200_for_hard_host() -> None:
-    processor = build_icinga2_processor()
+async def test_post_webhook_icinga2_returns_200_for_hard_host(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    processor = build_icinga2_processor(sessionmaker=session_factory)
     app = create_app(
         settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
-        sessionmaker=lambda: object(),
+        sessionmaker=session_factory,
         icinga2_processor=processor,
     )
     async for client in get_client(app):
@@ -593,13 +802,13 @@ async def test_post_webhook_icinga2_returns_200_for_hard_host() -> None:
 
 
 # D-06 / ING-05: decision envelope shape
-
-
-async def test_response_contains_state_accepted_true_for_hard_event() -> None:
-    processor = build_icinga2_processor()
+async def test_response_contains_state_accepted_true_for_hard_event(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    processor = build_icinga2_processor(sessionmaker=session_factory)
     app = create_app(
         settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
-        sessionmaker=lambda: object(),
+        sessionmaker=session_factory,
         icinga2_processor=processor,
     )
     async for client in get_client(app):
@@ -611,11 +820,13 @@ async def test_response_contains_state_accepted_true_for_hard_event() -> None:
     assert body["state_accepted"] is True
 
 
-async def test_response_contains_event_id_equal_to_fingerprint() -> None:
-    processor = build_icinga2_processor()
+async def test_response_contains_event_id_equal_to_fingerprint(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    processor = build_icinga2_processor(sessionmaker=session_factory)
     app = create_app(
         settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
-        sessionmaker=lambda: object(),
+        sessionmaker=session_factory,
         icinga2_processor=processor,
     )
     async for client in get_client(app):
@@ -628,11 +839,13 @@ async def test_response_contains_event_id_equal_to_fingerprint() -> None:
     assert len(body["fingerprint"]) == 32
 
 
-async def test_response_contains_mapped_event_type_and_severity() -> None:
-    processor = build_icinga2_processor()
+async def test_response_contains_mapped_event_type_and_severity(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    processor = build_icinga2_processor(sessionmaker=session_factory)
     app = create_app(
         settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
-        sessionmaker=lambda: object(),
+        sessionmaker=session_factory,
         icinga2_processor=processor,
     )
     async for client in get_client(app):
@@ -645,13 +858,15 @@ async def test_response_contains_mapped_event_type_and_severity() -> None:
     assert body["severity"] == "CRITICAL"
 
 
-async def test_response_contains_mapped_recovery_event_type_and_severity() -> None:
+async def test_response_contains_mapped_recovery_event_type_and_severity(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
     payload = valid_icinga2_host_payload()
     payload["state"] = "UP"
-    processor = build_icinga2_processor()
+    processor = build_icinga2_processor(sessionmaker=session_factory)
     app = create_app(
         settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
-        sessionmaker=lambda: object(),
+        sessionmaker=session_factory,
         icinga2_processor=processor,
     )
     async for client in get_client(app):
@@ -664,11 +879,13 @@ async def test_response_contains_mapped_recovery_event_type_and_severity() -> No
     assert body["severity"] == "OK"
 
 
-async def test_response_contains_final_tags() -> None:
-    processor = build_icinga2_processor()
+async def test_response_contains_final_tags(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    processor = build_icinga2_processor(sessionmaker=session_factory)
     app = create_app(
         settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
-        sessionmaker=lambda: object(),
+        sessionmaker=session_factory,
         icinga2_processor=processor,
     )
     async for client in get_client(app):
@@ -681,12 +898,14 @@ async def test_response_contains_final_tags() -> None:
     assert body["final_tags"]["team.name"] == "platform"
 
 
-async def test_response_contains_empty_matched_rules() -> None:
+async def test_response_contains_empty_matched_rules(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
     """D-16: no-match events return matched_rules == [] before rule engine exists."""
-    processor = build_icinga2_processor()
+    processor = build_icinga2_processor(sessionmaker=session_factory)
     app = create_app(
         settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
-        sessionmaker=lambda: object(),
+        sessionmaker=session_factory,
         icinga2_processor=processor,
     )
     async for client in get_client(app):
@@ -698,11 +917,13 @@ async def test_response_contains_empty_matched_rules() -> None:
     assert body["matched_rules"] == []
 
 
-async def test_response_contains_none_group_key() -> None:
-    processor = build_icinga2_processor()
+async def test_response_contains_none_group_key(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    processor = build_icinga2_processor(sessionmaker=session_factory)
     app = create_app(
         settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
-        sessionmaker=lambda: object(),
+        sessionmaker=session_factory,
         icinga2_processor=processor,
     )
     async for client in get_client(app):
@@ -712,13 +933,13 @@ async def test_response_contains_none_group_key() -> None:
         )
     body = response.json()
     assert body["group_key"] is None
-
-
-async def test_response_contains_zero_incident_effects() -> None:
-    processor = build_icinga2_processor()
+async def test_response_contains_zero_incident_effects(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    processor = build_icinga2_processor(sessionmaker=session_factory)
     app = create_app(
         settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
-        sessionmaker=lambda: object(),
+        sessionmaker=session_factory,
         icinga2_processor=processor,
     )
     async for client in get_client(app):
@@ -770,6 +991,46 @@ async def test_extra_field_rejected_with_422() -> None:
     assert response.status_code == 422
 
 
+async def test_oversized_source_id_rejected_before_audit_write(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    processor = build_icinga2_processor(sessionmaker=session_factory)
+    app = create_app(
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        sessionmaker=session_factory,
+        icinga2_processor=processor,
+    )
+    payload = valid_icinga2_service_payload()
+    payload["source_id"] = "x" * 257
+
+    async for client in get_client(app):
+        response = await client.post("/v1/icinga2/events", json=payload)
+
+    assert response.status_code == 422
+    assert await _count_audit_rows(session_factory) == 0
+
+
+@pytest.mark.parametrize("field", ("host", "service"))
+async def test_oversized_host_or_service_rejected_before_audit_write(
+    field: str,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    processor = build_icinga2_processor(sessionmaker=session_factory)
+    app = create_app(
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        sessionmaker=session_factory,
+        icinga2_processor=processor,
+    )
+    payload = valid_icinga2_service_payload()
+    payload[field] = "x" * 257
+
+    async for client in get_client(app):
+        response = await client.post("/v1/icinga2/events", json=payload)
+
+    assert response.status_code == 422
+    assert await _count_audit_rows(session_factory) == 0
+
+
 async def test_host_with_service_state_rejected_with_422() -> None:
     processor = build_icinga2_processor()
     app = create_app(
@@ -813,11 +1074,12 @@ async def test_naive_timestamp_rejected_with_422() -> None:
 )
 async def test_response_body_does_not_contain_secrets_or_raw_payload(
     secret_fragment: str,
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    processor = build_icinga2_processor()
+    processor = build_icinga2_processor(sessionmaker=session_factory)
     app = create_app(
         settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
-        sessionmaker=lambda: object(),
+        sessionmaker=session_factory,
         icinga2_processor=processor,
     )
     async for client in get_client(app):
@@ -855,22 +1117,54 @@ def test_v1_icinga2_events_route_is_exposed_without_legacy_alias() -> None:
 # Source assertions: processing.ingress must not import persistence
 
 
-def test_processing_ingress_does_not_import_persistence() -> None:
+def test_processing_ingress_dependency_boundaries_for_audit() -> None:
+    """Phase 7 audit-write ownership boundaries (AUD-03).
+
+    Ingress is the only processing module that may import audit persistence
+    or audit domain symbols (for the post-decision audit row insert). The
+    manager, lifecycle, persistence.incidents, and lifecycle worker modules
+    must NOT import audit persistence or audit ORM symbols — keeping audit
+    strictly observational.
+    """
+
     import inspect
     import app.processing.ingress as ingress_module
+    import app.processing.incident_manager as incident_manager_module
+    import app.processing.lifecycle as lifecycle_module
+    import app.persistence.incidents as incidents_module
+    import app.processing.lifecycle_worker as lifecycle_worker_module
 
-    source = inspect.getsource(ingress_module)
-    assert "app.persistence" not in source
-    assert "AsyncSession" not in source
-    assert "yaml.load" not in source
-    assert "eval(" not in source
-    assert "exec(" not in source
+    ingress_source = inspect.getsource(ingress_module)
+    assert "from app.persistence.audit" in ingress_source
+    assert "from app.domain.audit" in ingress_source
+    assert "yaml.load" not in ingress_source
+    assert "eval(" not in ingress_source
+    assert "exec(" not in ingress_source
+
+    forbidden = (
+        "app.persistence.audit",
+        "app.domain.audit",
+        "IncidentEvent",
+    )
+    for module_name, module in (
+        ("incident_manager", incident_manager_module),
+        ("lifecycle", lifecycle_module),
+        ("incidents", incidents_module),
+        ("lifecycle_worker", lifecycle_worker_module),
+    ):
+        module_source = inspect.getsource(module)
+        for needle in forbidden:
+            assert needle not in module_source, (
+                f"{module_name} must not import {needle} — audit must remain "
+                "observational and excluded from decision code"
+            )
 
 # ---------------------------------------------------------------------------
 # Topology enrichment integration via HTTP entrypoint
 # ---------------------------------------------------------------------------
 async def test_response_with_no_topology_match_and_no_ip_returns_source_tags(
     tmp_path: Path,
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     topology_path = tmp_path / "topology.yaml"
     topology_path.write_text(
@@ -888,10 +1182,12 @@ async def test_response_with_no_topology_match_and_no_ip_returns_source_tags(
             }
         )
     )
-    processor = build_icinga2_processor(topology_path=topology_path)
+    processor = build_icinga2_processor(
+        topology_path=topology_path, sessionmaker=session_factory
+    )
     app = create_app(
         settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
-        sessionmaker=lambda: object(),
+        sessionmaker=session_factory,
         icinga2_processor=processor,
     )
     payload = {
@@ -913,7 +1209,10 @@ async def test_response_with_no_topology_match_and_no_ip_returns_source_tags(
     assert body["enrichment_diagnostics"] == []
 
 
-async def test_response_with_subnet_fallback_from_http(tmp_path: Path) -> None:
+async def test_response_with_subnet_fallback_from_http(
+    tmp_path: Path,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
     topology_path = tmp_path / "topology.yaml"
     topology_path.write_text(
         yaml.safe_dump(
@@ -937,10 +1236,12 @@ async def test_response_with_subnet_fallback_from_http(tmp_path: Path) -> None:
             }
         )
     )
-    processor = build_icinga2_processor(topology_path=topology_path)
+    processor = build_icinga2_processor(
+        topology_path=topology_path, sessionmaker=session_factory
+    )
     app = create_app(
         settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
-        sessionmaker=lambda: object(),
+        sessionmaker=session_factory,
         icinga2_processor=processor,
     )
     payload = {
@@ -968,6 +1269,7 @@ async def test_response_with_subnet_fallback_from_http(tmp_path: Path) -> None:
 
 async def test_response_conflict_diagnostic_only_includes_matched_rule(
     tmp_path: Path,
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     topology_path = tmp_path / "topology.yaml"
     topology_path.write_text(
@@ -991,10 +1293,12 @@ async def test_response_conflict_diagnostic_only_includes_matched_rule(
             }
         )
     )
-    processor = build_icinga2_processor(topology_path=topology_path)
+    processor = build_icinga2_processor(
+        topology_path=topology_path, sessionmaker=session_factory
+    )
     app = create_app(
         settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
-        sessionmaker=lambda: object(),
+        sessionmaker=session_factory,
         icinga2_processor=processor,
     )
     payload = {
@@ -1027,6 +1331,7 @@ async def test_response_conflict_diagnostic_only_includes_matched_rule(
 # ---------------------------------------------------------------------------
 async def test_response_with_no_rule_match_returns_empty_matched_rules(
     tmp_path: Path,
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     rules_path = tmp_path / "rules.yaml"
     rules_path.write_text(
@@ -1054,10 +1359,13 @@ async def test_response_with_no_rule_match_returns_empty_matched_rules(
             }
         )
     )
-    processor = build_icinga2_processor(rules_path=rules_path)
+    processor = build_icinga2_processor(
+        rules_path=rules_path,
+        sessionmaker=session_factory,
+    )
     app = create_app(
         settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
-        sessionmaker=lambda: object(),
+        sessionmaker=session_factory,
         icinga2_processor=processor,
     )
     async for client in get_client(app):
@@ -1072,7 +1380,10 @@ async def test_response_with_no_rule_match_returns_empty_matched_rules(
     assert body["threshold_decision"] is None
     assert body["rule_decision"]["reason"] == "no matching rule"
 
-async def test_recovery_event_returns_no_rule_match(tmp_path: Path) -> None:
+async def test_recovery_event_returns_no_rule_match(
+    tmp_path: Path,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
     rules_path = tmp_path / "rules.yaml"
     rules_path.write_text(
         yaml.safe_dump(
@@ -1096,10 +1407,13 @@ async def test_recovery_event_returns_no_rule_match(tmp_path: Path) -> None:
             }
         )
     )
-    processor = build_icinga2_processor(rules_path=rules_path)
+    processor = build_icinga2_processor(
+        rules_path=rules_path,
+        sessionmaker=session_factory,
+    )
     app = create_app(
         settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
-        sessionmaker=lambda: object(),
+        sessionmaker=session_factory,
         icinga2_processor=processor,
     )
     payload = valid_icinga2_host_payload()
@@ -1116,6 +1430,7 @@ async def test_recovery_event_returns_no_rule_match(tmp_path: Path) -> None:
 
 async def test_response_with_rule_match_contains_group_key_and_threshold(
     tmp_path: Path,
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     rules_path = tmp_path / "rules.yaml"
     rules_path.write_text(
@@ -1144,10 +1459,13 @@ async def test_response_with_rule_match_contains_group_key_and_threshold(
             }
         )
     )
-    processor = build_icinga2_processor(rules_path=rules_path)
+    processor = build_icinga2_processor(
+        rules_path=rules_path,
+        sessionmaker=session_factory,
+    )
     app = create_app(
         settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
-        sessionmaker=lambda: object(),
+        sessionmaker=session_factory,
         icinga2_processor=processor,
     )
     async for client in get_client(app):
@@ -1170,7 +1488,7 @@ async def test_response_with_rule_match_contains_group_key_and_threshold(
     assert body["rule_decision"]["rule_name"] == "web-critical"
     assert body["rule_decision"]["priority"] == 10
     assert body["rule_decision"]["summary"] == "Critical http on web-01"
-    assert body["incident_effects"]["inserted"] == 0
+    assert body["incident_effects"]["inserted"] == 1
     assert body["incident_effects"]["updated"] == 0
     assert body["closure_count"] == 0
     assert body["notification_count"] == 0
@@ -1184,3 +1502,64 @@ def test_processing_ingress_has_no_icinga2_raw_state_refs() -> None:
     source = inspect.getsource(ingress_module)
     assert "state_type" not in source
     assert "check_output" not in source
+
+
+# ---------------------------------------------------------------------------
+# Phase 7 Task 2: audit-row coverage for accepted event paths
+# ---------------------------------------------------------------------------
+async def test_no_rule_engine_accepted_event_writes_noop_audit_row(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """An accepted event with no rule engine must still insert exactly one
+    audit row with decision_kind='noop' (AUD-02 + D-12)."""
+
+    processor = build_icinga2_processor(sessionmaker=session_factory)
+    app = create_app(
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        sessionmaker=session_factory,
+        icinga2_processor=processor,
+    )
+    assert (await _count_audit_rows(session_factory)) == 0
+    async for client in get_client(app):
+        response = await client.post(
+            "/v1/icinga2/events",
+            json=valid_icinga2_service_payload(),
+        )
+    assert response.status_code == 200
+    assert (await _count_audit_rows(session_factory)) == 1
+    async with session_factory() as session:
+        row = (
+            await session.execute(
+                sa.text(
+                    "SELECT incident_effect, incident_ids, decision_summary "
+                    "FROM incident_events"
+                )
+            )
+        ).mappings().one()
+    assert row["incident_effect"] == "none"
+    assert row["incident_ids"] == []
+    summary = row["decision_summary"]
+    assert summary["decision_kind"] == "noop"
+    assert summary["incident_effect"] == "none"
+    assert summary["notification_intent"] == "no_dispatch"
+
+
+async def test_accepted_event_without_sessionmaker_fails_fast_for_audit() -> None:
+    """An accepted normalized event without a sessionmaker must fail fast
+    with a clear audit-misconfiguration RuntimeError (AUD-02).
+
+    The HTTP router wraps processor errors as 500, so we exercise the
+    processor directly to assert the precise RuntimeError message.
+    """
+
+    from app.plugins.inputs.icinga2 import Icinga2WebhookPayload
+
+    # Bypass the test wrapper so sessionmaker=None is actually preserved.
+    processor = _real_build_icinga2_processor(
+        sessionmaker=None,
+        audit_raw_payload_max_bytes=1024,
+        audit_raw_payload_hmac_key="test-audit-hmac",
+    )
+    payload = Icinga2WebhookPayload.model_validate(valid_icinga2_service_payload())
+    with pytest.raises(RuntimeError, match="audit"):
+        await processor.process_payload(payload)

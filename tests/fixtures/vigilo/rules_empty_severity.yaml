@@ -1,0 +1,13 @@
+# Unsupported: empty match.severity
+rules:
+  - name: "Empty Severity Rule"
+    priority: 100
+    match:
+      severity: []
+      host: "*"
+    window:
+      duration_seconds: 1800
+      group_by: ["host"]
+      trigger_threshold: 1
+    output_summary: "Empty severity"
+    actions: ["email-ops"]
