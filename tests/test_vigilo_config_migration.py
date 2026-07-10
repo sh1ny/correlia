@@ -163,6 +163,123 @@ rules:
         "requirement": "CFG-06",
     } in report["errors"]
 
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("host", None, "match.host must be a string when present"),
+        ("service", {"invalid": "matcher"}, "match.service must be a string or null when present"),
+    ],
+)
+def test_cli_rejects_present_non_string_rule_matchers_before_output(
+    field: str, value: Any, message: str, tmp_path: Path
+) -> None:
+    raw = yaml.safe_load(_fixture_path("rules_valid.yaml").read_text())
+    default_match = _transform_rules(raw["rules"])["rules"][0]["match"]
+    assert re.compile(default_match["host_pattern"]).match("host-01")
+    assert default_match["service_pattern"] is None
+
+    raw["rules"][0]["match"][field] = value
+    rules_path = tmp_path / "rules.yaml"
+    rules_path.write_text(yaml.safe_dump(raw))
+    out_dir = tmp_path / "out"
+    report_path = tmp_path / "report.json"
+
+    result = _run_cli(
+        rules=str(rules_path),
+        topology=str(_fixture_path("topology_valid.yaml")),
+        plugins=str(_fixture_path("plugins_valid.yaml")),
+        out_dir=str(out_dir),
+        report_path=str(report_path),
+    )
+
+    assert result.returncode != 0, result.stdout
+    assert not out_dir.exists()
+    report = json.loads(report_path.read_text())
+    assert {
+        "domain": "rules",
+        "location": f"rules[0].match.{field}",
+        "code": "invalid_rule_matcher",
+        "message": message,
+        "requirement": "CFG-06",
+    } in report["errors"]
+    with pytest.raises(ValueError, match=re.escape(message)):
+        _transform_rules(raw["rules"])
+
+@pytest.mark.parametrize(
+    ("section", "value"),
+    [
+        ("hostname_patterns", {"invalid": "section"}),
+        ("ip_subnets", {"invalid": "section"}),
+    ],
+)
+def test_cli_rejects_non_list_topology_sections_before_output(
+    section: str, value: Any, tmp_path: Path
+) -> None:
+    assert _transform_topology({}) == {"hostname_rules": [], "subnet_rules": []}
+
+    raw = yaml.safe_load(_fixture_path("topology_valid.yaml").read_text())
+    raw["topology_rules"][section] = value
+    topology_path = tmp_path / "topology.yaml"
+    topology_path.write_text(yaml.safe_dump(raw))
+    out_dir = tmp_path / "out"
+    report_path = tmp_path / "report.json"
+    message = f"topology_rules.{section} must be a list"
+
+    result = _run_cli(
+        rules=str(_fixture_path("rules_valid.yaml")),
+        topology=str(topology_path),
+        plugins=str(_fixture_path("plugins_valid.yaml")),
+        out_dir=str(out_dir),
+        report_path=str(report_path),
+    )
+
+    assert result.returncode != 0, result.stdout
+    assert not out_dir.exists()
+    report = json.loads(report_path.read_text())
+    assert {
+        "domain": "topology",
+        "location": f"topology_rules.{section}",
+        "code": "invalid_topology_section",
+        "message": message,
+        "requirement": "CFG-06",
+    } in report["errors"]
+    with pytest.raises(ValueError, match=re.escape(message)):
+        _transform_topology(raw["topology_rules"])
+
+def test_cli_reports_non_string_group_by_entries_before_rewrite(tmp_path: Path) -> None:
+    raw = yaml.safe_load(_fixture_path("rules_valid.yaml").read_text())
+    raw["rules"][0]["window"]["group_by"] = ["host", 42]
+    rules_path = tmp_path / "rules.yaml"
+    rules_path.write_text(yaml.safe_dump(raw))
+    out_dir = tmp_path / "out"
+    report_path = tmp_path / "report.json"
+    message = "window.group_by entries must be strings"
+
+    result = _run_cli(
+        rules=str(rules_path),
+        topology=str(_fixture_path("topology_valid.yaml")),
+        plugins=str(_fixture_path("plugins_valid.yaml")),
+        out_dir=str(out_dir),
+        report_path=str(report_path),
+    )
+
+    assert result.returncode != 0, result.stdout
+    assert not out_dir.exists()
+    report = json.loads(report_path.read_text())
+    assert {
+        "domain": "rules",
+        "location": "rules[0].window.group_by[1]",
+        "code": "unsupported_group_by",
+        "message": message,
+        "requirement": "CFG-06",
+    } in report["errors"]
+    rewritten, issues = _rewrite_group_by(["host", 42])
+    assert rewritten == ["host"]
+    assert [issue.code for issue in issues] == ["unsupported_group_by"]
+    assert issues[0].location == "window.group_by[1]"
+    with pytest.raises(ValueError, match=re.escape(message)):
+        _transform_rules(raw["rules"])
+
 @pytest.mark.parametrize("source", ["rules", "topology", "plugins"])
 def test_cli_reports_malformed_yaml_before_output(source: str, tmp_path: Path) -> None:
     source_path = tmp_path / f"{source}.yaml"

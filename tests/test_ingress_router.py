@@ -444,6 +444,67 @@ async def test_ingress_without_rule_engine_persists_configuration_reason(
     ] == "no rule engine configured"
 
 
+async def test_ingress_maps_long_missing_group_by_reason_to_bounded_audit_code(
+    tmp_path: Path,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    long_missing_field = "a" * 256
+    rules_path = tmp_path / "rules.yaml"
+    rules_path.write_text(
+        yaml.safe_dump(
+            {
+                "rules": [
+                    {
+                        "name": "missing-group-by",
+                        "priority": 10,
+                        "match": {
+                            "severities": ["CRITICAL"],
+                            "host_pattern": ".*",
+                            "service_pattern": "http",
+                        },
+                        "window": {
+                            "duration_seconds": 300,
+                            "group_by": [long_missing_field],
+                            "trigger_threshold": 1,
+                        },
+                        "output_summary": "Critical service",
+                        "actions": [
+                            {"name": "create_incident", "plugin": "email-oncall"}
+                        ],
+                    }
+                ]
+            }
+        )
+    )
+    processor = build_icinga2_processor(
+        rules_path=rules_path,
+        sessionmaker=session_factory,
+    )
+    app = create_app(
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        sessionmaker=session_factory,
+        icinga2_processor=processor,
+    )
+
+    async for client in get_client(app):
+        response = await client.post(
+            "/v1/icinga2/events",
+            json=valid_icinga2_service_payload(),
+        )
+        audit_response = await client.get("/v1/incident-events")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["state_accepted"] is True
+    assert body["rule_decision"]["reason"] == (
+        f"missing required group-by field: {long_missing_field}"
+    )
+    assert audit_response.status_code == 200
+    summary = audit_response.json()["items"][0]["decision_summary"]
+    assert summary["decision_kind"] == "noop"
+    assert summary["decision_reason"] == "missing_required_group_by_field"
+    assert summary["no_dispatch_reason"] == "missing_required_group_by_field"
+
 async def test_ingress_logs_safe_json_events(
     tmp_path: Path,
     session_factory: async_sessionmaker[AsyncSession],
@@ -947,6 +1008,7 @@ async def test_oversized_source_id_rejected_before_audit_write(
 
     assert response.status_code == 422
     assert await _count_audit_rows(session_factory) == 0
+
 
 @pytest.mark.parametrize("field", ("host", "service"))
 async def test_oversized_host_or_service_rejected_before_audit_write(

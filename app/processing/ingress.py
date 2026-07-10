@@ -481,6 +481,11 @@ def _build_noop_audit_summary(
     noop_reason: str | None,
     matched_rules: list[str],
 ) -> AuditDecisionSummary:
+    audit_reason = noop_reason
+    if audit_reason is not None and audit_reason.startswith(
+        "missing required group-by field: "
+    ):
+        audit_reason = "missing_required_group_by_field"
     return AuditDecisionSummary(
         decision_kind="noop",
         incident_effect="none",
@@ -489,8 +494,8 @@ def _build_noop_audit_summary(
         incident_ids=(),
         affected_incident_count=0,
         incident_ids_truncated=False,
-        decision_reason=noop_reason or "no matching rule",
-        no_dispatch_reason=(noop_reason or "no_matching_rule")
+        decision_reason=audit_reason or "no matching rule",
+        no_dispatch_reason=(audit_reason or "no_matching_rule")
         if not matched_rules
         else None,
         notification_intent="no_dispatch",

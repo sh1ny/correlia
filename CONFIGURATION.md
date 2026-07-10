@@ -9,6 +9,7 @@ CORRELIA_PLUGINS_PATH=config/plugins.yaml
 ```
 
 `DATABASE_URL` is still required by the application settings.
+`CORRELIA_AUDIT_RAW_PAYLOAD_HMAC_KEY` is also required at startup. It protects the audit trail's ability to authenticate a pre-redaction raw audit payload against a candidate original. Supply it through your deployment's secret-management system; never commit it in configuration files.
 
 ## Rate limiting
 

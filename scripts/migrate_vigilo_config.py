@@ -78,6 +78,7 @@ UNSUPPORTED_FIELD_CATALOG_CODES: frozenset[str] = frozenset(
         "invalid_rule_severity",
         "invalid_rule_priority",
         "invalid_rule_tags",
+        "invalid_rule_matcher",
         "duplicate_rule_priority",
         "empty_actions",
         "invalid_action_entry",
@@ -87,6 +88,7 @@ UNSUPPORTED_FIELD_CATALOG_CODES: frozenset[str] = frozenset(
         "unsupported_summary_placeholder",
         "missing_topology_target_tag",
         "unsupported_hostname_topology",
+        "invalid_topology_section",
         "missing_subnet_field",
         "unsupported_plugin_section",
         "unsupported_plugin_type",
@@ -310,10 +312,21 @@ def _rewrite_summary(summary: str, *, location: str = "output_summary") -> tuple
     return rewritten, issues
 
 
-def _rewrite_group_by(entries: list[str]) -> tuple[list[str], list[MigrationIssue]]:
+def _rewrite_group_by(entries: list[Any]) -> tuple[list[str], list[MigrationIssue]]:
     issues: list[MigrationIssue] = []
     rewritten: list[str] = []
-    for entry in entries:
+    for idx, entry in enumerate(entries):
+        if not isinstance(entry, str):
+            issues.append(
+                MigrationIssue(
+                    domain="rules",
+                    location=f"window.group_by[{idx}]",
+                    code="unsupported_group_by",
+                    message="window.group_by entries must be strings",
+                    requirement="CFG-06",
+                )
+            )
+            continue
         if entry in _KNOWN_NORMALIZED_FIELDS:
             rewritten.append(entry)
             continue
@@ -417,6 +430,29 @@ def _preflight_rules(raw_rules: list[Any]) -> list[MigrationIssue]:
                         location=f"{loc}.match.severity",
                         code="invalid_rule_severity",
                         message="match.severity must be a non-empty list",
+                        requirement="CFG-06",
+                    )
+                )
+
+            if "host" in match_block and not isinstance(match_block["host"], str):
+                issues.append(
+                    MigrationIssue(
+                        domain="rules",
+                        location=f"{loc}.match.host",
+                        code="invalid_rule_matcher",
+                        message="match.host must be a string when present",
+                        requirement="CFG-06",
+                    )
+                )
+
+            service = match_block.get("service")
+            if service is not None and not isinstance(service, str):
+                issues.append(
+                    MigrationIssue(
+                        domain="rules",
+                        location=f"{loc}.match.service",
+                        code="invalid_rule_matcher",
+                        message="match.service must be a string or null when present",
                         requirement="CFG-06",
                     )
                 )
@@ -553,12 +589,12 @@ def _transform_rules(raw_rules: list[Any]) -> dict[str, Any]:
         if not isinstance(match_block, dict):
             match_block = {}
 
+        if "host" in match_block and not isinstance(match_block["host"], str):
+            raise ValueError("match.host must be a string when present")
         host_pattern = match_block.get("host", "*")
-        if not isinstance(host_pattern, str):
-            host_pattern = "*"
         service_pattern = match_block.get("service")
         if service_pattern is not None and not isinstance(service_pattern, str):
-            service_pattern = None
+            raise ValueError("match.service must be a string or null when present")
 
         tags = match_block.get("tags", {})
         if not isinstance(tags, dict):
@@ -571,6 +607,8 @@ def _transform_rules(raw_rules: list[Any]) -> dict[str, Any]:
         raw_group_by = raw_window.get("group_by", [])
         if not isinstance(raw_group_by, list):
             raw_group_by = []
+        if any(not isinstance(entry, str) for entry in raw_group_by):
+            raise ValueError("window.group_by entries must be strings")
         rewritten_group_by, _ = _rewrite_group_by(raw_group_by)
 
         summary = rule.get("output_summary", "")
@@ -632,6 +670,15 @@ def _preflight_topology(raw_topology: dict[str, Any]) -> list[MigrationIssue]:
 
     hostname_patterns = raw_topology.get("hostname_patterns", [])
     if not isinstance(hostname_patterns, list):
+        issues.append(
+            MigrationIssue(
+                domain="topology",
+                location="topology_rules.hostname_patterns",
+                code="invalid_topology_section",
+                message="topology_rules.hostname_patterns must be a list",
+                requirement="CFG-06",
+            )
+        )
         hostname_patterns = []
     for idx, entry in enumerate(hostname_patterns):
         loc = f"topology_rules.hostname_patterns[{idx}]"
@@ -706,6 +753,15 @@ def _preflight_topology(raw_topology: dict[str, Any]) -> list[MigrationIssue]:
 
     ip_subnets = raw_topology.get("ip_subnets", [])
     if not isinstance(ip_subnets, list):
+        issues.append(
+            MigrationIssue(
+                domain="topology",
+                location="topology_rules.ip_subnets",
+                code="invalid_topology_section",
+                message="topology_rules.ip_subnets must be a list",
+                requirement="CFG-06",
+            )
+        )
         ip_subnets = []
     for idx, entry in enumerate(ip_subnets):
         loc = f"topology_rules.ip_subnets[{idx}]"
@@ -749,10 +805,10 @@ def _preflight_topology(raw_topology: dict[str, Any]) -> list[MigrationIssue]:
 def _transform_topology(raw_topology: dict[str, Any]) -> dict[str, Any]:
     hostname_patterns = raw_topology.get("hostname_patterns", [])
     if not isinstance(hostname_patterns, list):
-        hostname_patterns = []
+        raise ValueError("topology_rules.hostname_patterns must be a list")
     ip_subnets = raw_topology.get("ip_subnets", [])
     if not isinstance(ip_subnets, list):
-        ip_subnets = []
+        raise ValueError("topology_rules.ip_subnets must be a list")
 
     hostname_names = [
         str(entry.get("name", f"hostname-{idx}"))
