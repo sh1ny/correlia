@@ -930,6 +930,25 @@ async def test_extra_field_rejected_with_422() -> None:
     assert response.status_code == 422
 
 
+async def test_oversized_source_id_rejected_before_audit_write(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    processor = build_icinga2_processor(sessionmaker=session_factory)
+    app = create_app(
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        sessionmaker=session_factory,
+        icinga2_processor=processor,
+    )
+    payload = valid_icinga2_service_payload()
+    payload["source_id"] = "x" * 257
+
+    async for client in get_client(app):
+        response = await client.post("/v1/icinga2/events", json=payload)
+
+    assert response.status_code == 422
+    assert await _count_audit_rows(session_factory) == 0
+
+
 async def test_host_with_service_state_rejected_with_422() -> None:
     processor = build_icinga2_processor()
     app = create_app(

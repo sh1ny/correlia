@@ -26,7 +26,7 @@ _ICINGA_SERVICE_STATES = {
 class Icinga2WebhookPayload(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
 
-    source_id: Annotated[str, Field(min_length=1)]
+    source_id: Annotated[str, Field(min_length=1, max_length=256)]
     host: Annotated[str, Field(min_length=1)]
     service: Annotated[str, Field(min_length=1)] | None = None
     state: str
@@ -35,6 +35,7 @@ class Icinga2WebhookPayload(BaseModel):
     check_output: Annotated[str, Field(min_length=1)]
     ip_address: Annotated[str, Field(min_length=1)] | None = None
     tags: dict[TagKey, TagValue] = Field(default_factory=dict)
+
     @field_validator("timestamp", mode="before")
     @classmethod
     def parse_timestamp(cls, value: object) -> datetime:
