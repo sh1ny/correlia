@@ -25,3 +25,8 @@ The immediate confirmation that notification work was submitted to the in-proces
 ## Relationships
 
 An Incident owns its Notification Delivery Records. An Output Plugin receives a Notification Envelope; the dispatcher converts its completion or exception into the terminal Notification Result and current Notification Delivery Record. Task Acceptance precedes, but does not guarantee, that terminal result.
+
+## Operational Visibility
+
+### Operational Projection
+A bounded serving-time representation of an outcome produced outside the long-lived service, published only after the source summary passes schema and safety validation.
