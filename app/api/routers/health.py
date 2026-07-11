@@ -110,7 +110,7 @@ def _plugin_category_checks(plugin_registry: Any | None) -> dict[str, str]:
     try:
         reported_states = plugin_registry.readiness_states()
         if not isinstance(reported_states, dict):
-            raise TypeError
+            return {category: "not_ready" for category in _OUTPUT_PLUGIN_CATEGORY_KEYS}
         checks: dict[str, str] = {}
         for category in _OUTPUT_PLUGIN_CATEGORY_KEYS:
             state = reported_states.get(category)

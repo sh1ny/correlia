@@ -8,6 +8,8 @@ from httpx import ASGITransport, AsyncClient
 
 from app.config.settings import Settings
 from app.main import create_app
+from app.api.routers.health import _plugin_category_checks
+from app.processing.metrics import OUTPUT_PLUGIN_CATEGORIES
 from app.config.rules import CompiledRuleConfig
 from app.config.topology import CompiledTopologyConfig
 
@@ -79,6 +81,11 @@ class PluginRegistryStatus:
             if not ready
             else "not_ready"
         }
+
+
+class NonDictPluginRegistryStatus:
+    def readiness_states(self) -> list[str]:
+        return ["ready"]
 
 
 class SuccessfulSession:
@@ -373,6 +380,12 @@ async def test_readyz_aggregates_plugin_categories_without_plugin_details() -> N
         "options",
     ):
         assert forbidden not in serialized
+
+
+def test_plugin_category_checks_fail_closed_for_non_dict_result() -> None:
+    assert _plugin_category_checks(NonDictPluginRegistryStatus()) == {
+        category: "not_ready" for category in OUTPUT_PLUGIN_CATEGORIES
+    }
 
 
 async def test_readyz_fails_closed_when_plugin_status_evaluation_raises(

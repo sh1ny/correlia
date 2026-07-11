@@ -180,6 +180,8 @@ uv run python scripts/migrate_vigilo_config.py \
   --out-dir config/ \
   --report-path migration-report.json
 ```
+To project the bounded migration-report gauges on `/v1/metrics`, set `CORRELIA_MIGRATION_REPORT_PATH` to the JSON emitted by `scripts/migrate_vigilo_config.py --report-path`. Leave it unset (the default) to disable projection.
+
 
 Behavior:
 
