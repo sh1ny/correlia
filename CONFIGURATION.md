@@ -1,6 +1,6 @@
 # Configuration
 
-Correlia currently has configuration loaders but no checked-in root configuration files. A Vigilo/VDE port should add these files under `config/` and point Correlia at them with environment variables.
+Correlia ships executable, credential-free samples under `config/` and a matching `.env.example` for the local Compose stack. Copy `.env.example` to `.env` and replace every `replace-with-*` placeholder before starting the stack.
 
 ```bash
 CORRELIA_RULES_PATH=config/rules.yaml
@@ -10,6 +10,22 @@ CORRELIA_PLUGINS_PATH=config/plugins.yaml
 
 `DATABASE_URL` is still required by the application settings.
 `CORRELIA_AUDIT_RAW_PAYLOAD_HMAC_KEY` is also required at startup. It protects the audit trail's ability to authenticate a pre-redaction raw audit payload against a candidate original. Supply it through your deployment's secret-management system; never commit it in configuration files.
+
+## Local Compose stack
+
+`compose.yaml` starts PostgreSQL, one Correlia application container, and [Mailpit](https://github.com/axllent/mailpit) for local SMTP capture:
+
+```bash
+cp .env.example .env
+# Replace every replace-with-* value in .env.
+docker compose up --build
+```
+
+`DATABASE_URL` is the database alias consumed by `Settings`; keep its PostgreSQL username, password, database, and hostname consistent with `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB`. The required `CORRELIA_OPERATOR_API_TOKEN`, `CORRELIA_INGRESS_API_TOKEN`, and `CORRELIA_AUDIT_RAW_PAYLOAD_HMAC_KEY` must be distinct non-empty deployment secrets.
+
+The operator configuration is mounted read-only at `/app/config`. PostgreSQL and SMTP are isolated on private Compose networks; only the Correlia API (`127.0.0.1:8000`) and Mailpit UI (`127.0.0.1:8025`) are published to the host. Mailpit's SMTP listener remains private at `mailpit:1025`.
+
+The sample keeps API authentication enabled, protects `/v1/readyz` with the operator token, leaves `/v1/health` public for the token-free container healthcheck, and preserves metrics exposure through `CORRELIA_EXPOSE_METRICS`.
 
 ## Rate limiting
 
@@ -23,7 +39,7 @@ Default is `60` seconds. Minimum `1`, maximum `3600`. Shorter intervals reduce m
 
 ## Files
 
-Create:
+The checked-in samples are:
 
 - `config/rules.yaml`
 - `config/topology.yaml`

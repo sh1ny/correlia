@@ -18,6 +18,7 @@ import shutil
 import sys
 import tempfile
 from collections.abc import Iterator, Sequence
+from datetime import datetime, timezone
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -42,7 +43,14 @@ from app.plugins.loader import load_plugin_registry  # noqa: E402
 # -----------------------------------------------------------------------------
 
 _ALLOWED_EMAIL_CONFIG_KEYS = frozenset(
-    {"smtp_host", "smtp_port", "from_address", "to_addresses", "subject_prefix", "use_tls"}
+    {
+        "smtp_host",
+        "smtp_port",
+        "from_address",
+        "to_addresses",
+        "subject_prefix",
+        "use_tls",
+    }
 )
 _CREDENTIAL_KEYS = frozenset({"smtp_username", "smtp_password", "username", "password"})
 _EMAIL_MODULE = "app.plugins.outputs.email"
@@ -128,6 +136,15 @@ class DuplicateFlagError(Exception):
         self.option_string = option_string
 
 
+class ArgumentParseError(Exception):
+    """Raised instead of printing unbounded argparse diagnostics."""
+
+
+class _MigrationArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        raise ArgumentParseError(message)
+
+
 class _SingleUseAction(argparse.Action):
     """argparse action that rejects repeated occurrences of a single-path flag."""
 
@@ -140,12 +157,15 @@ class _SingleUseAction(argparse.Action):
     ) -> None:
         if getattr(namespace, self.dest) is not self.default:
             raise DuplicateFlagError(option_string or self.dest)
+        if option_string == "--report-path" and (
+            not isinstance(values, str) or not values or values.startswith("-")
+        ):
+            parser.error("--report-path requires a non-option path value")
         setattr(namespace, self.dest, values)
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="migrate_vigilo_config",
+    parser = _MigrationArgumentParser(
         description=(
             "Translate supported Vigilo/VDE YAML into strict Correlia config. "
             "Vigilo priorities are inverted to Correlia ascending ranks. "
@@ -231,11 +251,19 @@ def _has_glob_metachar(value: str) -> bool:
 
 
 def _extract_report_path(argv: Sequence[str] | None) -> Path | None:
+    """Return a safe report destination only when pre-parse syntax is unambiguous."""
     if argv is None:
         argv = sys.argv[1:]
-    for i, arg in enumerate(argv):
-        if arg == "--report-path" and i + 1 < len(argv):
-            return Path(argv[i + 1])
+    for index, argument in enumerate(argv):
+        if argument == "--report-path":
+            if index + 1 == len(argv) or argv[index + 1].startswith("-"):
+                return None
+            return Path(argv[index + 1])
+        if argument.startswith("--report-path="):
+            value = argument.removeprefix("--report-path=")
+            if not value or value.startswith("-"):
+                return None
+            return Path(value)
     return None
 
 
@@ -244,7 +272,9 @@ def _extract_report_path(argv: Sequence[str] | None) -> Path | None:
 # -----------------------------------------------------------------------------
 
 
-def _rewrite_match_tags(tags: dict[str, Any]) -> tuple[dict[str, str], list[MigrationIssue]]:
+def _rewrite_match_tags(
+    tags: dict[str, Any],
+) -> tuple[dict[str, str], list[MigrationIssue]]:
     issues: list[MigrationIssue] = []
     rewritten: dict[str, str] = {}
     for key, value in tags.items():
@@ -297,7 +327,9 @@ def _rewrite_match_tags(tags: dict[str, Any]) -> tuple[dict[str, str], list[Migr
     return rewritten, issues
 
 
-def _rewrite_summary(summary: str, *, location: str = "output_summary") -> tuple[str, list[MigrationIssue]]:
+def _rewrite_summary(
+    summary: str, *, location: str = "output_summary"
+) -> tuple[str, list[MigrationIssue]]:
     issues: list[MigrationIssue] = []
 
     def replacer(match: re.Match[str]) -> str:
@@ -544,7 +576,9 @@ def _preflight_rules(raw_rules: list[Any]) -> list[MigrationIssue]:
 
         summary = rule.get("output_summary", "")
         if isinstance(summary, str):
-            _, summary_issues = _rewrite_summary(summary, location=f"{loc}.output_summary")
+            _, summary_issues = _rewrite_summary(
+                summary, location=f"{loc}.output_summary"
+            )
             issues.extend(summary_issues)
 
         actions = rule.get("actions", [])
@@ -656,7 +690,9 @@ def _transform_rules(raw_rules: list[Any]) -> dict[str, Any]:
                     "severities": match_block.get("severity", []),
                     "host_pattern": fnmatch.translate(host_pattern),
                     "service_pattern": (
-                        fnmatch.translate(service_pattern) if service_pattern is not None else None
+                        fnmatch.translate(service_pattern)
+                        if service_pattern is not None
+                        else None
                     ),
                     "tags": rewritten_tags,
                 },
@@ -1016,7 +1052,9 @@ def _transform_topology(raw_topology: dict[str, Any]) -> dict[str, Any]:
 # -----------------------------------------------------------------------------
 # Plugin transforms
 # -----------------------------------------------------------------------------
-def _iter_unsupported_placeholders(value: Any, location: str) -> Iterator[tuple[str, str]]:
+def _iter_unsupported_placeholders(
+    value: Any, location: str
+) -> Iterator[tuple[str, str]]:
     """Yield (location, description) for unsupported ${...} or {env: ...} forms.
 
     Recurses through lists and mappings only under allowed email option values.
@@ -1035,7 +1073,6 @@ def _iter_unsupported_placeholders(value: Any, location: str) -> Iterator[tuple[
     elif isinstance(value, list):
         for idx, item in enumerate(value):
             yield from _iter_unsupported_placeholders(item, f"{location}[{idx}]")
-
 
 
 def _preflight_plugins(raw_plugins: dict[str, Any]) -> list[MigrationIssue]:
@@ -1198,7 +1235,6 @@ def _preflight_plugins(raw_plugins: dict[str, Any]) -> list[MigrationIssue]:
                             )
                         )
 
-
     return issues
 
 
@@ -1290,6 +1326,7 @@ def _check_action_plugins_exist(
                     )
                 )
     return issues
+
 
 # -----------------------------------------------------------------------------
 # Input path validation
@@ -1425,11 +1462,18 @@ def _promote(staging: Path, out_dir: Path) -> None:
 # -----------------------------------------------------------------------------
 
 
+_MIGRATION_SUMMARY_MAX_ISSUES = 1_000
+_MIGRATION_SUMMARY_VERSION = 1
+
+
 def _build_report(
     ok: bool,
     issues: list[MigrationIssue],
     out_dir: Path | None,
+    *,
+    failure_code: str,
 ) -> dict[str, Any]:
+    issue_count = min(len(issues), _MIGRATION_SUMMARY_MAX_ISSUES)
     return {
         "ok": ok,
         "errors": [issue.to_json() for issue in issues],
@@ -1442,28 +1486,124 @@ def _build_report(
             if ok and out_dir is not None
             else None
         ),
+        "metrics_summary": {
+            "version": _MIGRATION_SUMMARY_VERSION,
+            "outcome": "success" if ok else "failure",
+            "failure_code": failure_code,
+            "issue_count": issue_count,
+            "issues_truncated": len(issues) > issue_count,
+            "completed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        },
     }
+
+
+def _write_report_atomically(report_path: Path, report: dict[str, Any]) -> None:
+    """Publish one complete report or preserve the previously published file."""
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=report_path.parent,
+            prefix=f".{report_path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            json.dump(report, temporary, sort_keys=True, separators=(",", ":"))
+            temporary.write("\n")
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.replace(temporary_path, report_path)
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+
+
+def _print_terminal(
+    *,
+    ok: bool,
+    failure_code: str,
+    issue_count: int,
+    issues_truncated: bool,
+) -> None:
+    payload = {
+        "event": "migration_terminal",
+        "outcome": "success" if ok else "failure",
+        "failure_code": failure_code,
+        "issue_count": min(issue_count, _MIGRATION_SUMMARY_MAX_ISSUES),
+        "issues_truncated": issues_truncated
+        or issue_count > _MIGRATION_SUMMARY_MAX_ISSUES,
+    }
+    print(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")),
+        file=sys.stdout if ok else sys.stderr,
+    )
+
+
+def _finish(
+    *,
+    report_path: Path | None,
+    ok: bool,
+    issues: list[MigrationIssue],
+    out_dir: Path | None,
+    failure_code: str,
+    exit_code: int,
+) -> int:
+    report = _build_report(ok, issues, out_dir, failure_code=failure_code)
+    if report_path is not None:
+        try:
+            _write_report_atomically(report_path, report)
+        except OSError:
+            _print_terminal(
+                ok=False,
+                failure_code="report_emission",
+                issue_count=0,
+                issues_truncated=False,
+            )
+            return 1
+    _print_terminal(
+        ok=ok,
+        failure_code=failure_code,
+        issue_count=len(issues),
+        issues_truncated=len(issues) > _MIGRATION_SUMMARY_MAX_ISSUES,
+    )
+    return exit_code
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
-    report_path = _extract_report_path(argv)
+    pre_parsed_report_path = _extract_report_path(argv)
     try:
         args = parser.parse_args(argv)
-    except DuplicateFlagError as exc:
-        issue = MigrationIssue(
-            domain="inputs",
-            location=f"flag={exc.option_string}",
-            code="duplicate_flag",
-            message=f"flag {exc.option_string!r} may only be specified once",
-            requirement="CFG-06",
+    except ArgumentParseError:
+        return _finish(
+            report_path=pre_parsed_report_path,
+            ok=False,
+            issues=[],
+            out_dir=None,
+            failure_code="argument",
+            exit_code=2,
         )
-        report = _build_report(False, [issue], None)
-        if report_path is not None:
-            report_path.write_text(json.dumps(report, indent=2))
-        print("Migration failed:", file=sys.stderr)
-        print(f"  [{issue.code}] {issue.message}", file=sys.stderr)
-        return 1
+    except DuplicateFlagError as exc:
+        return _finish(
+            report_path=pre_parsed_report_path,
+            ok=False,
+            issues=[
+                MigrationIssue(
+                    domain="inputs",
+                    location=f"flag={exc.option_string}",
+                    code="duplicate_flag",
+                    message=f"flag {exc.option_string!r} may only be specified once",
+                    requirement="CFG-06",
+                )
+            ],
+            out_dir=None,
+            failure_code="argument",
+            exit_code=1,
+        )
+
+    report_path = Path(args.report_path) if args.report_path is not None else None
 
     rules_path = Path(args.rules)
     topology_path = Path(args.topology)
@@ -1474,15 +1614,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     issues.extend(_validate_input_path(rules_path, "--rules"))
     issues.extend(_validate_input_path(topology_path, "--topology"))
     issues.extend(_validate_input_path(plugins_path, "--plugins"))
-
     if issues:
-        report = _build_report(False, issues, None)
-        if report_path is not None:
-            report_path.write_text(json.dumps(report, indent=2))
-        print("Migration failed:", file=sys.stderr)
-        for issue in issues:
-            print(f"  [{issue.code}] {issue.message}", file=sys.stderr)
-        return 1
+        return _finish(
+            report_path=report_path,
+            ok=False,
+            issues=issues,
+            out_dir=None,
+            failure_code="input_validation",
+            exit_code=1,
+        )
 
     raw_documents: dict[str, Any] = {}
     for domain, path in (
@@ -1492,25 +1632,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     ):
         try:
             raw_documents[domain] = _load_yaml(path)
-        except yaml.YAMLError as exc:
+        except OSError, yaml.YAMLError:
             issues.append(
                 MigrationIssue(
                     domain=domain,
                     location=str(path),
                     code="invalid_yaml",
-                    message=f"could not parse YAML: {exc}",
+                    message="could not read or parse YAML",
                     requirement="CFG-06",
                 )
             )
-
     if issues:
-        report = _build_report(False, issues, None)
-        if report_path is not None:
-            report_path.write_text(json.dumps(report, indent=2))
-        print("Migration failed:", file=sys.stderr)
-        for issue in issues:
-            print(f"  [{issue.code}] {issue.location}: {issue.message}", file=sys.stderr)
-        return 1
+        return _finish(
+            report_path=report_path,
+            ok=False,
+            issues=issues,
+            out_dir=None,
+            failure_code="source_validation",
+            exit_code=1,
+        )
 
     raw_rules = raw_documents["rules"]
     raw_topology = raw_documents["topology"]
@@ -1552,20 +1692,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     issues.extend(
         _check_action_plugins_exist(rules_list, _extract_output_names(raw_plugins))
     )
-
     if issues:
-        report = _build_report(False, issues, None)
-        if report_path is not None:
-            report_path.write_text(json.dumps(report, indent=2))
-        print("Migration failed:", file=sys.stderr)
-        for issue in issues:
-            print(f"  [{issue.code}] {issue.location}: {issue.message}", file=sys.stderr)
-        return 1
+        return _finish(
+            report_path=report_path,
+            ok=False,
+            issues=issues,
+            out_dir=None,
+            failure_code="cataloged_incompatibility",
+            exit_code=1,
+        )
 
     transformed_rules = _transform_rules(rules_list)
     transformed_topology = _transform_topology(topology_rules)
     transformed_plugins = _transform_plugins(raw_plugins)
-
     staging = tempfile.mkdtemp(
         prefix="migrate_staging_",
         dir=_nearest_existing_directory(out_dir.parent),
@@ -1575,34 +1714,55 @@ def main(argv: Sequence[str] | None = None) -> int:
         _write_yaml(staging_path / "rules.yaml", transformed_rules)
         _write_yaml(staging_path / "topology.yaml", transformed_topology)
         _write_yaml(staging_path / "plugins.yaml", transformed_plugins)
-
         try:
             _validate_staged(staging_path)
-        except Exception as exc:
-            issues.append(
-                MigrationIssue(
-                    domain="validation",
-                    location="staging",
-                    code="validation_failure",
-                    message=f"generated config failed validation: {exc}",
-                    requirement="CFG-07",
-                )
+        except Exception:
+            return _finish(
+                report_path=report_path,
+                ok=False,
+                issues=[
+                    MigrationIssue(
+                        domain="validation",
+                        location="staging",
+                        code="validation_failure",
+                        message="generated config failed validation",
+                        requirement="CFG-07",
+                    )
+                ],
+                out_dir=None,
+                failure_code="staged_validation",
+                exit_code=1,
             )
-            report = _build_report(False, issues, None)
-            if report_path is not None:
-                report_path.write_text(json.dumps(report, indent=2))
-            print(f"Migration failed: generated config failed validation: {exc}", file=sys.stderr)
-            return 1
-
-        _promote(staging_path, out_dir)
+        try:
+            _promote(staging_path, out_dir)
+        except Exception:
+            return _finish(
+                report_path=report_path,
+                ok=False,
+                issues=[
+                    MigrationIssue(
+                        domain="promotion",
+                        location="output",
+                        code="promotion_failure",
+                        message="generated config could not be promoted",
+                        requirement="CFG-07",
+                    )
+                ],
+                out_dir=None,
+                failure_code="promotion_failure",
+                exit_code=1,
+            )
     finally:
         shutil.rmtree(staging, ignore_errors=True)
 
-    report = _build_report(True, [], out_dir)
-    if report_path is not None:
-        report_path.write_text(json.dumps(report, indent=2))
-    print(f"Migration complete: {out_dir}")
-    return 0
+    return _finish(
+        report_path=report_path,
+        ok=True,
+        issues=[],
+        out_dir=out_dir,
+        failure_code="none",
+        exit_code=0,
+    )
 
 
 if __name__ == "__main__":

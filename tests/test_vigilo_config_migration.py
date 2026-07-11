@@ -85,7 +85,93 @@ def test_cli_generates_files(tmp_path: Path) -> None:
         "topology": str(out_dir / "topology.yaml"),
         "plugins": str(out_dir / "plugins.yaml"),
     }
+    summary = report["metrics_summary"]
+    assert set(summary) == {
+        "version",
+        "outcome",
+        "failure_code",
+        "issue_count",
+        "issues_truncated",
+        "completed_at",
+    }
+    assert summary["version"] == 1
+    assert summary["outcome"] == "success"
+    assert summary["failure_code"] == "none"
+    assert summary["issue_count"] == 0
+    assert summary["issues_truncated"] is False
+    assert summary["completed_at"].endswith("+00:00")
 
+
+def test_cli_emits_report_for_equals_form(tmp_path: Path) -> None:
+    out_dir = tmp_path / "out"
+    report_path = tmp_path / "report.json"
+
+    result = _run_cli(
+        rules=str(_fixture_path("rules_valid.yaml")),
+        topology=str(_fixture_path("topology_valid.yaml")),
+        plugins=str(_fixture_path("plugins_valid.yaml")),
+        out_dir=str(out_dir),
+        extra_args=[f"--report-path={report_path}"],
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(report_path.read_text())["ok"] is True
+
+
+@pytest.mark.parametrize(
+    "report_arguments",
+    [
+        ["--report-path", "--rules"],
+        ["--report-path=--rules"],
+    ],
+)
+def test_ambiguous_report_path_argument_never_writes_option_named_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    report_arguments: list[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    result = scripts.migrate_vigilo_config.main(
+        [
+            *report_arguments,
+            "--rules",
+            str(_fixture_path("rules_valid.yaml")),
+            "--topology",
+            str(_fixture_path("topology_valid.yaml")),
+            "--plugins",
+            str(_fixture_path("plugins_valid.yaml")),
+            "--out-dir",
+            str(tmp_path / "out"),
+        ]
+    )
+
+    assert result == 2
+    assert not (tmp_path / "--rules").exists()
+
+
+def test_missing_report_path_at_end_does_not_emit_a_report(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    result = scripts.migrate_vigilo_config.main(
+        [
+            "--rules",
+            str(_fixture_path("rules_valid.yaml")),
+            "--topology",
+            str(_fixture_path("topology_valid.yaml")),
+            "--plugins",
+            str(_fixture_path("plugins_valid.yaml")),
+            "--out-dir",
+            str(tmp_path / "out"),
+            "--report-path",
+        ]
+    )
+
+    assert result == 2
+    assert not list(tmp_path.iterdir())
 
 @pytest.mark.parametrize(
     ("source", "contents", "expected_code"),
@@ -163,6 +249,7 @@ rules:
         "requirement": "CFG-06",
     } in report["errors"]
 
+
 @pytest.mark.parametrize(
     ("yaml_key", "reported_key"),
     [
@@ -215,6 +302,7 @@ rules:
         "requirement": "CFG-06",
     } in report["errors"]
 
+
 @pytest.mark.parametrize("priority", [True, False])
 def test_cli_rejects_boolean_rule_priorities_before_output(
     priority: bool, tmp_path: Path
@@ -248,11 +336,16 @@ def test_cli_rejects_boolean_rule_priorities_before_output(
         "requirement": "CFG-06",
     } in report["errors"]
 
+
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     [
         ("host", None, "match.host must be a string when present"),
-        ("service", {"invalid": "matcher"}, "match.service must be a string or null when present"),
+        (
+            "service",
+            {"invalid": "matcher"},
+            "match.service must be a string or null when present",
+        ),
     ],
 )
 def test_cli_rejects_present_non_string_rule_matchers_before_output(
@@ -289,6 +382,7 @@ def test_cli_rejects_present_non_string_rule_matchers_before_output(
     } in report["errors"]
     with pytest.raises(ValueError, match=re.escape(message)):
         _transform_rules(raw["rules"])
+
 
 @pytest.mark.parametrize(
     ("section", "value"),
@@ -330,6 +424,7 @@ def test_cli_rejects_non_list_topology_sections_before_output(
     } in report["errors"]
     with pytest.raises(ValueError, match=re.escape(message)):
         _transform_topology(raw["topology_rules"])
+
 
 def test_cli_rejects_non_string_hostname_regex_before_compile(tmp_path: Path) -> None:
     raw = yaml.safe_load(_fixture_path("topology_valid.yaml").read_text())
@@ -578,6 +673,7 @@ def test_cli_rejects_non_string_topology_target_tags_before_output(
         "requirement": "CFG-06",
     } in report["errors"]
 
+
 def test_cli_reports_non_string_group_by_entries_before_rewrite(tmp_path: Path) -> None:
     raw = yaml.safe_load(_fixture_path("rules_valid.yaml").read_text())
     raw["rules"][0]["window"]["group_by"] = ["host", 42]
@@ -611,6 +707,7 @@ def test_cli_reports_non_string_group_by_entries_before_rewrite(tmp_path: Path) 
     assert issues[0].location == "window.group_by[1]"
     with pytest.raises(ValueError, match=re.escape(message)):
         _transform_rules(raw["rules"])
+
 
 @pytest.mark.parametrize("source", ["rules", "topology", "plugins"])
 def test_cli_reports_malformed_yaml_before_output(source: str, tmp_path: Path) -> None:
@@ -665,7 +762,9 @@ def test_validation_failure_does_not_create_nested_output_parent(
     def fail_validation(_staging: Path) -> None:
         raise ValueError("forced validation failure")
 
-    monkeypatch.setattr(scripts.migrate_vigilo_config, "_validate_staged", fail_validation)
+    monkeypatch.setattr(
+        scripts.migrate_vigilo_config, "_validate_staged", fail_validation
+    )
 
     result = scripts.migrate_vigilo_config.main(
         [
@@ -715,7 +814,10 @@ def test_migrate_rules() -> None:
     assert rules[0]["actions"] == [{"name": "create_incident", "plugin": "email-ops"}]
 
     # Summary placeholders are rewritten.
-    assert rules[0]["output_summary"] == "Major outage detected in Datacenter {topology.datacenter}"
+    assert (
+        rules[0]["output_summary"]
+        == "Major outage detected in Datacenter {topology.datacenter}"
+    )
 
 
 def test_transform_rules_rejects_non_mapping_match_tags() -> None:
@@ -839,6 +941,7 @@ def test_cli_rejects_non_mapping_plugin_outputs(tmp_path: Path) -> None:
         and error["location"] == "plugins.outputs"
         for error in report["errors"]
     )
+
 
 def test_cli_rejects_non_mapping_email_output_config(tmp_path: Path) -> None:
     raw = yaml.safe_load(_fixture_path("plugins_valid.yaml").read_text())
@@ -978,8 +1081,16 @@ UNSUPPORTED_FIELD_CASES: list[tuple[str, str, str]] = [
     ("rules_with_bad_tag_key.yaml", "invalid_topology_tag_key", "CFG-06"),
     ("rules_with_bad_group_by.yaml", "unsupported_group_by", "CFG-06"),
     ("rules_with_rule_name_group_by.yaml", "unsupported_group_by", "CFG-06"),
-    ("rules_with_bad_summary_placeholder.yaml", "unsupported_summary_placeholder", "CFG-06"),
-    ("topology_capture_group_missing_target.yaml", "missing_topology_target_tag", "CFG-06"),
+    (
+        "rules_with_bad_summary_placeholder.yaml",
+        "unsupported_summary_placeholder",
+        "CFG-06",
+    ),
+    (
+        "topology_capture_group_missing_target.yaml",
+        "missing_topology_target_tag",
+        "CFG-06",
+    ),
     ("topology_hostname_missing_tags.yaml", "unsupported_hostname_topology", "CFG-06"),
     ("topology_subnet_missing_cidr.yaml", "missing_subnet_field", "CFG-06"),
     ("topology_subnet_missing_value.yaml", "missing_subnet_field", "CFG-06"),
@@ -1052,14 +1163,15 @@ def test_unsupported_fields_fail(
     else:
         raise AssertionError(f"unknown fixture domain: {domain}")
     _run_migration_expect_issue(
-        **kwargs, expected_code=code, expected_requirement=requirement, tmp_path=tmp_path
+        **kwargs,
+        expected_code=code,
+        expected_requirement=requirement,
+        tmp_path=tmp_path,
     )
 
 
 def test_unsupported_field_catalog_table_complete() -> None:
-    expected_codes = {
-        code for _fixture, code, _requirement in UNSUPPORTED_FIELD_CASES
-    }
+    expected_codes = {code for _fixture, code, _requirement in UNSUPPORTED_FIELD_CASES}
     missing = expected_codes - UNSUPPORTED_FIELD_CATALOG_CODES
     assert not missing, f"catalog codes missing from script: {missing}"
 
@@ -1093,7 +1205,9 @@ def test_plugin_option_placeholders_fail_before_output(tmp_path: Path) -> None:
     assert report["generated"] is None
     assert not (out_dir / "plugins.yaml").exists()
     errors = [e for e in report["errors"] if e["code"] == "unsupported_plugin_option"]
-    assert len(errors) >= 4, f"expected at least four unsupported_plugin_option errors, got {errors}"
+    assert len(errors) >= 4, (
+        f"expected at least four unsupported_plugin_option errors, got {errors}"
+    )
     assert all(e["requirement"] == "CFG-06" for e in errors)
     locations = {e["location"] for e in errors}
     assert any("config.smtp_host" in loc for loc in locations)
@@ -1229,11 +1343,22 @@ def test_report_shape(tmp_path: Path) -> None:
         expected_requirement="CFG-06",
         tmp_path=tmp_path,
     )
-    assert set(report.keys()) == {"ok", "errors", "generated"}
+    assert set(report.keys()) == {"ok", "errors", "generated", "metrics_summary"}
     for error in report["errors"]:
-        assert set(error.keys()) >= {"domain", "location", "code", "message", "requirement"}
+        assert set(error.keys()) >= {
+            "domain",
+            "location",
+            "code",
+            "message",
+            "requirement",
+        }
         assert error["code"]
         assert error["requirement"]
+    assert report["metrics_summary"]["version"] == 1
+    assert report["metrics_summary"]["outcome"] == "failure"
+    assert report["metrics_summary"]["failure_code"] == "cataloged_incompatibility"
+    assert report["metrics_summary"]["issue_count"] == len(report["errors"])
+    assert report["metrics_summary"]["issues_truncated"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -1286,6 +1411,7 @@ def test_validation_failure_leaves_existing_out_dir_untouched(tmp_path: Path) ->
     assert existing.read_text() == "preserve me"
     assert not (out_dir / "rules.yaml").exists()
 
+
 def test_promote_rolls_back_new_files_on_mid_promotion_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1307,9 +1433,7 @@ def test_promote_rolls_back_new_files_on_mid_promotion_failure(
             raise OSError("simulated mid-promotion failure")
         real_replace(src, dst)
 
-    monkeypatch.setattr(
-        scripts.migrate_vigilo_config.os, "replace", fake_replace
-    )
+    monkeypatch.setattr(scripts.migrate_vigilo_config.os, "replace", fake_replace)
 
     with pytest.raises(OSError):
         _promote(staging, out_dir)
@@ -1317,6 +1441,7 @@ def test_promote_rolls_back_new_files_on_mid_promotion_failure(
     assert not (out_dir / "rules.yaml").exists()
     assert not (out_dir / "topology.yaml").exists()
     assert not (out_dir / "plugins.yaml").exists()
+
 
 def test_promote_does_not_create_out_dir_on_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1332,9 +1457,7 @@ def test_promote_does_not_create_out_dir_on_failure(
     def fake_replace(src: str, dst: str) -> None:
         raise OSError("simulated first-promotion failure")
 
-    monkeypatch.setattr(
-        scripts.migrate_vigilo_config.os, "replace", fake_replace
-    )
+    monkeypatch.setattr(scripts.migrate_vigilo_config.os, "replace", fake_replace)
 
     with pytest.raises(OSError):
         _promote(staging, out_dir)
@@ -1359,11 +1482,112 @@ def test_promote_removes_new_out_dir_on_mkdtemp_failure(
     def fake_mkdtemp(*args: Any, **kwargs: Any) -> str:
         raise OSError("simulated mkdtemp failure")
 
-    monkeypatch.setattr(
-        scripts.migrate_vigilo_config.tempfile, "mkdtemp", fake_mkdtemp
-    )
+    monkeypatch.setattr(scripts.migrate_vigilo_config.tempfile, "mkdtemp", fake_mkdtemp)
 
     with pytest.raises(OSError):
         _promote(staging, out_dir)
 
     assert not out_dir.exists()
+
+
+def test_terminal_output_is_a_single_finite_event_without_paths_or_issue_text(
+    tmp_path: Path,
+) -> None:
+    hostile_out_dir = tmp_path / "password=super-secret"
+    result = _run_cli(
+        rules=str(_fixture_path("rules_valid.yaml")),
+        topology=str(_fixture_path("topology_valid.yaml")),
+        plugins=str(_fixture_path("plugins_valid.yaml")),
+        out_dir=str(hostile_out_dir),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+    terminal = json.loads(result.stdout)
+    assert terminal == {
+        "event": "migration_terminal",
+        "failure_code": "none",
+        "issue_count": 0,
+        "issues_truncated": False,
+        "outcome": "success",
+    }
+    assert "password=super-secret" not in result.stdout
+
+
+def test_report_emission_failure_preserves_prior_file_and_returns_nonzero(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    report_path = tmp_path / "report.json"
+    report_path.write_text('{"prior":"complete"}')
+
+    def fail_replace(path: Path, report: dict[str, Any]) -> None:
+        raise OSError("hostile exception text")
+
+    monkeypatch.setattr(
+        scripts.migrate_vigilo_config, "_write_report_atomically", fail_replace
+    )
+    result = scripts.migrate_vigilo_config.main(
+        [
+            "--rules",
+            str(_fixture_path("rules_valid.yaml")),
+            "--topology",
+            str(_fixture_path("topology_valid.yaml")),
+            "--plugins",
+            str(_fixture_path("plugins_valid.yaml")),
+            "--out-dir",
+            str(tmp_path / "out"),
+            "--report-path",
+            str(report_path),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert result == 1
+    assert report_path.read_text() == '{"prior":"complete"}'
+    assert captured.out == ""
+    assert json.loads(captured.err) == {
+        "event": "migration_terminal",
+        "failure_code": "report_emission",
+        "issue_count": 0,
+        "issues_truncated": False,
+        "outcome": "failure",
+    }
+    assert "hostile exception text" not in captured.err
+
+
+def test_atomic_report_write_preserves_prior_complete_object_on_interruption(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    report_path = tmp_path / "report.json"
+    prior = '{"prior":"complete"}'
+    report_path.write_text(prior)
+
+    def interrupt(source: Path, destination: Path) -> None:
+        raise OSError("interrupted replacement")
+
+    monkeypatch.setattr(scripts.migrate_vigilo_config.os, "replace", interrupt)
+    with pytest.raises(OSError, match="interrupted replacement"):
+        scripts.migrate_vigilo_config._write_report_atomically(
+            report_path,
+            {"ok": True, "errors": [], "generated": None, "metrics_summary": {}},
+        )
+
+    assert report_path.read_text() == prior
+    assert not list(tmp_path.glob(".report.json.*.tmp"))
+
+
+def test_argument_exit_uses_only_the_finite_terminal_event() -> None:
+    result = _run_cli()
+
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert json.loads(result.stderr) == {
+        "event": "migration_terminal",
+        "failure_code": "argument",
+        "issue_count": 0,
+        "issues_truncated": False,
+        "outcome": "failure",
+    }
