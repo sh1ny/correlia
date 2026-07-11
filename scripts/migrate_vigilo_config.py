@@ -1510,6 +1510,7 @@ def _write_report_atomically(report_path: Path, report: dict[str, Any]) -> None:
             delete=False,
         ) as temporary:
             temporary_path = Path(temporary.name)
+            os.fchmod(temporary.fileno(), 0o644)
             json.dump(report, temporary, sort_keys=True, separators=(",", ":"))
             temporary.write("\n")
             temporary.flush()

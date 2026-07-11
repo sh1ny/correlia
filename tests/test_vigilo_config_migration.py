@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import stat
 import re
 import subprocess
 import sys
@@ -100,6 +101,13 @@ def test_cli_generates_files(tmp_path: Path) -> None:
     assert summary["issue_count"] == 0
     assert summary["issues_truncated"] is False
     assert summary["completed_at"].endswith("+00:00")
+
+def test_atomically_published_report_has_safe_readable_mode(tmp_path: Path) -> None:
+    report_path = tmp_path / "report.json"
+
+    scripts.migrate_vigilo_config._write_report_atomically(report_path, {"ok": True})
+
+    assert stat.S_IMODE(report_path.stat().st_mode) == 0o644
 
 
 def test_cli_emits_report_for_equals_form(tmp_path: Path) -> None:
