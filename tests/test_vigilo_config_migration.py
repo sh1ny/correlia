@@ -159,6 +159,35 @@ def test_large_report_bounds_error_details_and_preserves_capped_summary(
     assert len(next_error_json) + 1 > MIGRATION_REPORT_MAX_BYTES
 
 
+def test_byte_truncated_sub_cap_report_is_valid_for_metrics(
+    tmp_path: Path,
+) -> None:
+    issues = [
+        scripts.migrate_vigilo_config.MigrationIssue(
+            domain="rules",
+            location=f"rules[{index}]",
+            code="invalid_rule_matcher",
+            message=f"invalid matcher {index}: {'x' * 1_024}",
+            requirement="CFG-06",
+        )
+        for index in range(100)
+    ]
+
+    report = scripts.migrate_vigilo_config._build_report(
+        ok=False,
+        issues=issues,
+        out_dir=None,
+        failure_code="cataloged_incompatibility",
+    )
+    report_path = tmp_path / "report.json"
+    scripts.migrate_vigilo_config._write_report_atomically(report_path, report)
+
+    assert report["metrics_summary"]["issue_count"] == len(issues)
+    assert report["metrics_summary"]["issues_truncated"] is True
+    assert 0 < len(report["errors"]) < len(issues)
+    assert len(report_path.read_bytes()) <= MIGRATION_REPORT_MAX_BYTES
+    assert _read_migration_report_snapshot(report_path)[0] == "valid"
+
 def test_cli_emits_report_for_equals_form(tmp_path: Path) -> None:
     out_dir = tmp_path / "out"
     report_path = tmp_path / "report.json"

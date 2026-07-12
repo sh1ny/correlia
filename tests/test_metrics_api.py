@@ -1122,29 +1122,28 @@ async def test_migration_report_projection_validates_versions_domains_and_file_k
         metrics.render_metrics().decode()
     )
 
-async def test_migration_report_projection_accepts_bounded_truncated_errors(
+async def test_migration_report_projection_accepts_byte_truncated_errors_and_rejects_inconsistent_summaries(
     tmp_path: Path,
 ) -> None:
     import app.processing.metrics as metrics
 
     report_path = tmp_path / "migration-report.json"
+    issue = {
+        "domain": "validation",
+        "location": "rules[0]",
+        "code": "validation_failure",
+        "message": "invalid rule",
+        "requirement": "CFG-06",
+    }
     report = {
         "ok": False,
-        "errors": [
-            {
-                "domain": "validation",
-                "location": "rules[0]",
-                "code": "validation_failure",
-                "message": "invalid rule",
-                "requirement": "CFG-06",
-            }
-        ],
+        "errors": [issue],
         "generated": None,
         "metrics_summary": {
             "version": 1,
             "outcome": "failure",
             "failure_code": "cataloged_incompatibility",
-            "issue_count": metrics.MIGRATION_REPORT_MAX_ISSUE_COUNT,
+            "issue_count": 2,
             "issues_truncated": True,
             "completed_at": "2026-07-10T12:00:00+00:00",
         },
@@ -1156,23 +1155,28 @@ async def test_migration_report_projection_accepts_bounded_truncated_errors(
         metrics.render_metrics().decode()
     )
 
-    report["metrics_summary"]["issue_count"] -= 1
+    report["errors"].extend(
+        [
+            {**issue, "location": "rules[1]"},
+            {**issue, "location": "rules[2]"},
+        ]
+    )
     report_path.write_text(json.dumps(report))
     metrics.refresh_migration_report_projection()
     assert 'correlia_vigilo_migration_report_status{status="invalid_summary"} 1.0' in (
         metrics.render_metrics().decode()
     )
 
-    report["metrics_summary"]["issue_count"] = metrics.MIGRATION_REPORT_MAX_ISSUE_COUNT
+    report["errors"] = [issue]
+    report["metrics_summary"]["issue_count"] = 1
+    report_path.write_text(json.dumps(report))
+    metrics.refresh_migration_report_projection()
+    assert 'correlia_vigilo_migration_report_status{status="invalid_summary"} 1.0' in (
+        metrics.render_metrics().decode()
+    )
+
+    report["metrics_summary"]["issue_count"] = 2
     report["metrics_summary"]["issues_truncated"] = False
-    report_path.write_text(json.dumps(report))
-    metrics.refresh_migration_report_projection()
-    assert 'correlia_vigilo_migration_report_status{status="invalid_summary"} 1.0' in (
-        metrics.render_metrics().decode()
-    )
-
-    report["metrics_summary"]["issues_truncated"] = True
-    report["errors"][0]["domain"] = "unknown-domain"
     report_path.write_text(json.dumps(report))
     metrics.refresh_migration_report_projection()
     assert 'correlia_vigilo_migration_report_status{status="invalid_summary"} 1.0' in (

@@ -23,6 +23,7 @@ RUN groupadd --system correlia \
 COPY --from=builder --chown=correlia:correlia /app/.venv /app/.venv
 COPY --chown=correlia:correlia app ./app
 COPY --chown=correlia:correlia migrations ./migrations
+COPY --chown=correlia:correlia config ./config
 COPY --chown=correlia:correlia alembic.ini ./alembic.ini
 COPY --chown=correlia:correlia --chmod=755 scripts/container-entrypoint.sh ./scripts/container-entrypoint.sh
 

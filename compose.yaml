@@ -47,7 +47,7 @@ services:
       CORRELIA_EXPOSE_METRICS: ${CORRELIA_EXPOSE_METRICS:-true}
       CORRELIA_AUDIT_RAW_PAYLOAD_HMAC_KEY: ${CORRELIA_AUDIT_RAW_PAYLOAD_HMAC_KEY:?CORRELIA_AUDIT_RAW_PAYLOAD_HMAC_KEY is required}
     healthcheck:
-      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/v1/health', timeout=2).read()"]
+      test: ["CMD-SHELL", 'python -c "import os; from urllib.request import Request, urlopen; urlopen(Request(\"http://127.0.0.1:8000/v1/readyz\", headers={\"Authorization\": \"Bearer \" + os.environ[\"CORRELIA_OPERATOR_API_TOKEN\"]}), timeout=2).read()"']
       interval: 5s
       timeout: 3s
       retries: 12

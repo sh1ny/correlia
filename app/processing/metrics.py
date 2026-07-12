@@ -443,6 +443,7 @@ def _validate_migration_report(
     outcome = summary["outcome"]
     failure_code = summary["failure_code"]
     issue_count = summary["issue_count"]
+    emitted_issue_count = len(report["errors"])
     if (
         outcome not in MIGRATION_OUTCOMES
         or failure_code not in MIGRATION_FAILURE_CODES
@@ -454,12 +455,15 @@ def _validate_migration_report(
         or (outcome == "success") != report["ok"]
         or (outcome == "success" and failure_code != "none")
         or (outcome == "failure" and failure_code == "none")
+        or emitted_issue_count > issue_count
         or (
             summary["issues_truncated"]
-            and issue_count != MIGRATION_REPORT_MAX_ISSUE_COUNT
+            and issue_count < MIGRATION_REPORT_MAX_ISSUE_COUNT
+            and emitted_issue_count == issue_count
         )
         or (
-            not summary["issues_truncated"] and issue_count != len(report["errors"])
+            not summary["issues_truncated"]
+            and issue_count != emitted_issue_count
         )
     ):
         return "invalid_summary", None

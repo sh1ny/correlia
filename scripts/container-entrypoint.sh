@@ -7,7 +7,7 @@ if [ -z "${DATABASE_URL:-}" ]; then
 fi
 
 set +e
-alembic upgrade head >/dev/null 2>&1
+alembic upgrade head
 migration_status=$?
 set -e
 

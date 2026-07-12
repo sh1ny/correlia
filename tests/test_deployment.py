@@ -680,7 +680,7 @@ def test_entrypoint_migrates_with_inherited_database_url_before_one_factory_serv
     assert "--reload" not in events
 
 
-def test_entrypoint_propagates_migration_failure_without_server_or_secret_diagnostics(
+def test_entrypoint_propagates_migration_failure_with_diagnostics_before_server(
     tmp_path: Path,
 ) -> None:
     database_url = "postgresql+asyncpg://test-user:credential-sentinel@db:5432/correlia"
@@ -699,27 +699,28 @@ def test_entrypoint_propagates_migration_failure_without_server_or_secret_diagno
     assert "server" not in events
     assert "downgrade" not in events
     assert "Database migration failed" in diagnostics
+    assert injected_sentinel in result.stdout
+    assert injected_sentinel in result.stderr
     assert database_url not in diagnostics
-    assert injected_sentinel not in diagnostics
 
 
-def test_entrypoint_blocks_invalid_database_configuration_before_server(
+def test_entrypoint_propagates_failed_migration_diagnostics_before_server(
     tmp_path: Path,
 ) -> None:
-    invalid_database_url = "invalid-database-credential-sentinel"
+    migration_diagnostic = "migration-error-sentinel"
 
     result, events, _ = _run_controlled_entrypoint(
         tmp_path,
-        database_url=invalid_database_url,
+        database_url="postgresql+asyncpg://test-user:test-password@db:5432/correlia",
         alembic_exit=2,
-        alembic_output=invalid_database_url,
+        alembic_output=migration_diagnostic,
     )
 
-    diagnostics = f"{result.stdout}\n{result.stderr}"
     assert result.returncode == 2
     assert events == ["migration", "upgrade", "head"]
     assert "server" not in events
-    assert invalid_database_url not in diagnostics
+    assert migration_diagnostic in result.stdout
+    assert migration_diagnostic in result.stderr
 
 
 def test_entrypoint_rejects_missing_database_url_before_migration_or_server(
@@ -741,6 +742,10 @@ def test_dockerfile_defines_a_locked_production_only_narrow_non_root_runtime() -
 
     assert ("RUN", "uv sync --locked --no-dev --no-install-project") in instructions
     assert ("COPY", "pyproject.toml uv.lock ./") in instructions
+    assert ("COPY", "--chown=correlia:correlia config ./config") in instructions
+    assert instructions.index(
+        ("COPY", "--chown=correlia:correlia config ./config")
+    ) < instructions.index(("USER", "correlia"))
     assert all(arguments != ". ." for arguments in copy_arguments)
     assert all(instruction != "ADD" for instruction, _ in instructions)
     assert ("USER", "correlia") in instructions
@@ -806,9 +811,13 @@ def test_compose_topology_keeps_dependencies_private_and_uses_health_ordering() 
         assert healthcheck["retries"] == 12
 
     app_healthcheck = compose["services"]["correlia"]["healthcheck"]["test"]
-    assert "/v1/health" in " ".join(app_healthcheck)
-    assert "TOKEN" not in " ".join(app_healthcheck)
-    assert "DATABASE_URL" not in " ".join(app_healthcheck)
+    app_healthcheck_command = " ".join(app_healthcheck)
+    assert "/v1/readyz" in app_healthcheck_command
+    assert "/v1/health" not in app_healthcheck_command
+    assert "CORRELIA_OPERATOR_API_TOKEN" in app_healthcheck_command
+    assert "Authorization" in app_healthcheck_command
+    assert "Bearer " in app_healthcheck_command
+    assert "DATABASE_URL" not in app_healthcheck_command
 
     assert compose["networks"] == {
         "database": {"internal": True},
