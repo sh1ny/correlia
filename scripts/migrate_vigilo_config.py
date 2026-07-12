@@ -36,6 +36,7 @@ from app.config.topology import load_topology_config  # noqa: E402
 from app.domain.events import TagValue  # noqa: E402
 from pydantic import TypeAdapter, ValidationError  # noqa: E402
 from app.plugins.loader import load_plugin_registry  # noqa: E402
+from app.processing.metrics import MIGRATION_REPORT_MAX_BYTES  # noqa: E402
 
 
 # -----------------------------------------------------------------------------
@@ -1474,9 +1475,9 @@ def _build_report(
     failure_code: str,
 ) -> dict[str, Any]:
     issue_count = min(len(issues), _MIGRATION_SUMMARY_MAX_ISSUES)
-    return {
+    report: dict[str, Any] = {
         "ok": ok,
-        "errors": [issue.to_json() for issue in issues],
+        "errors": [],
         "generated": (
             {
                 "rules": str(out_dir / "rules.yaml"),
@@ -1495,6 +1496,24 @@ def _build_report(
             "completed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         },
     }
+    serialized_size = len(_serialize_report(report).encode("utf-8")) + 1
+    errors: list[dict[str, str]] = report["errors"]
+    for issue in issues:
+        error = issue.to_json()
+        separator_size = 1 if errors else 0
+        error_size = len(
+            json.dumps(error, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        )
+        if serialized_size + separator_size + error_size > MIGRATION_REPORT_MAX_BYTES:
+            break
+        errors.append(error)
+        serialized_size += separator_size + error_size
+    report["metrics_summary"]["issues_truncated"] = len(errors) < len(issues)
+    return report
+
+
+def _serialize_report(report: dict[str, Any]) -> str:
+    return json.dumps(report, sort_keys=True, separators=(",", ":"))
 
 
 def _write_report_atomically(report_path: Path, report: dict[str, Any]) -> None:
@@ -1511,7 +1530,7 @@ def _write_report_atomically(report_path: Path, report: dict[str, Any]) -> None:
         ) as temporary:
             temporary_path = Path(temporary.name)
             os.fchmod(temporary.fileno(), 0o644)
-            json.dump(report, temporary, sort_keys=True, separators=(",", ":"))
+            temporary.write(_serialize_report(report))
             temporary.write("\n")
             temporary.flush()
             os.fsync(temporary.fileno())

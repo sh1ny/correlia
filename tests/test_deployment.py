@@ -929,8 +929,15 @@ def test_environment_and_config_samples_construct_strict_runtime_configuration(
     assert len(rules.rules) == 1
     rule = rules.rules[0].definition
     assert rule.window.trigger_threshold == 1
+    assert rule.match.tags == {"topology.datacenter": "dc1"}
     assert set(rule.window.group_by) == {"host", "topology.datacenter"}
-    assert "topology.datacenter" in topology.hostname_rules[0].tag_capture_groups
+    hostname_rule = topology.hostname_rules[0]
+    datacenter_match = hostname_rule.pattern.fullmatch("dc1-app-web")
+    assert datacenter_match is not None
+    assert (
+        datacenter_match.group(hostname_rule.tag_capture_groups["topology.datacenter"])
+        == rule.match.tags["topology.datacenter"]
+    )
 
     entry = plugin_config.outputs[0]
     assert entry.options["host"] == "mailpit"

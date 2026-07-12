@@ -8,6 +8,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from app.processing.metrics import (
+    MIGRATION_REPORT_MAX_BYTES,
+    _read_migration_report_snapshot,
+)
 import pytest
 import yaml
 
@@ -108,6 +112,51 @@ def test_atomically_published_report_has_safe_readable_mode(tmp_path: Path) -> N
     scripts.migrate_vigilo_config._write_report_atomically(report_path, {"ok": True})
 
     assert stat.S_IMODE(report_path.stat().st_mode) == 0o644
+
+
+def test_large_report_bounds_error_details_and_preserves_capped_summary(
+    tmp_path: Path,
+) -> None:
+    issues = [
+        scripts.migrate_vigilo_config.MigrationIssue(
+            domain="rules",
+            location=f"rules[{index}]",
+            code="invalid_rule_matcher",
+            message=f"invalid matcher {index}: {'x' * 256}",
+            requirement="CFG-06",
+        )
+        for index in range(1_001)
+    ]
+
+    report = scripts.migrate_vigilo_config._build_report(
+        ok=False,
+        issues=issues,
+        out_dir=None,
+        failure_code="cataloged_incompatibility",
+    )
+    report_path = tmp_path / "report.json"
+    scripts.migrate_vigilo_config._write_report_atomically(report_path, report)
+
+    retained_errors = report["errors"]
+    summary = report["metrics_summary"]
+    assert len(report_path.read_bytes()) <= MIGRATION_REPORT_MAX_BYTES
+    assert retained_errors == [
+        issue.to_json() for issue in issues[: len(retained_errors)]
+    ]
+    assert 0 < len(retained_errors) < len(issues)
+    assert summary["issue_count"] == 1_000
+    assert summary["issues_truncated"] is True
+    status, _ = _read_migration_report_snapshot(report_path)
+    assert status == "valid"
+
+    next_error_report = {
+        **report,
+        "errors": [*retained_errors, issues[len(retained_errors)].to_json()],
+    }
+    next_error_json = json.dumps(
+        next_error_report, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    assert len(next_error_json) + 1 > MIGRATION_REPORT_MAX_BYTES
 
 
 def test_cli_emits_report_for_equals_form(tmp_path: Path) -> None:
