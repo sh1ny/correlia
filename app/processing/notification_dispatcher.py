@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -14,8 +14,8 @@ from app.domain.notifications import NotificationCategory, NotificationResult
 from app.persistence.incidents import record_notification_result
 from app.persistence.models import Incident
 from app.plugins.interfaces import NotificationEnvelope
-from app.processing.metrics import record_notification_attempt, record_notification_failure
-from app.processing.logging import safe_log_extra
+from app.processing.logging import operational_log_extra
+from app.processing.metrics import record_notification_delivery
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,9 @@ class NotificationTaskPayload(BaseModel):
 
 
 class NotificationDispatcher:
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession], plugin_registry: Any) -> None:
+    def __init__(
+        self, session_factory: async_sessionmaker[AsyncSession], plugin_registry: Any
+    ) -> None:
         self._session_factory = session_factory
         self._plugin_registry = plugin_registry
 
@@ -44,11 +46,11 @@ class NotificationDispatcher:
         try:
             task = NotificationTaskPayload.model_validate(dict(payload))
         except ValidationError:
-            logger.warning(
-                "notification task payload rejected",
-                extra=safe_log_extra(event="notification_dispatch", category="dispatch_failed"),
+            result = _result(
+                False, "dispatch_failed", "invalid notification task payload"
             )
-            return _result(False, "dispatch_failed", "invalid notification task payload")
+            self._record_delivery(result)
+            return result
 
         registry_hash = getattr(self._plugin_registry, "config_hash", None)
         if (
@@ -57,86 +59,64 @@ class NotificationDispatcher:
             and task.config_hash != registry_hash
         ):
             result = _result(False, "dispatch_failed", "stale plugin configuration")
-            logger.warning(
-                "notification task used stale plugin config",
-                extra=safe_log_extra(
-                    event="notification_dispatch",
-                    plugin_name=task.plugin_name,
-                    category=result.category,
-                ),
+            self._record_delivery(result)
+            await self._record_if_incident_exists(
+                task.incident_id, task.plugin_name, result
             )
-            record_notification_attempt(task.plugin_name, result.category)
-            record_notification_failure(task.plugin_name, result.category)
-            await self._record_if_incident_exists(task.incident_id, task.plugin_name, result)
             return result
 
         try:
             plugin = self._plugin_registry.get_plugin(task.plugin_name)
         except KeyError:
-            result = _result(False, "missing_plugin", "configured output plugin is missing")
-            logger.warning(
-                "notification plugin missing",
-                extra=safe_log_extra(
-                    event="notification_dispatch",
-                    plugin_name=task.plugin_name,
-                    category=result.category,
-                ),
+            result = _result(
+                False, "missing_plugin", "configured output plugin is missing"
             )
-            record_notification_attempt(task.plugin_name, result.category)
-            record_notification_failure(task.plugin_name, result.category)
-            await self._record_if_incident_exists(task.incident_id, task.plugin_name, result)
+            self._record_delivery(result)
+            await self._record_if_incident_exists(
+                task.incident_id, task.plugin_name, result
+            )
             return result
 
         async with self._session_factory() as session:
             incident = await _load_incident(session, task.incident_id)
             if incident is None:
                 result = _result(False, "missing_incident", "incident is missing")
-                logger.warning(
-                    "notification incident missing",
-                    extra=safe_log_extra(
-                        event="notification_dispatch",
-                        incident_id=str(task.incident_id),
-                        plugin_name=task.plugin_name,
-                        category=result.category,
-                    ),
-                )
-                record_notification_attempt(task.plugin_name, result.category)
-                record_notification_failure(task.plugin_name, result.category)
+                self._record_delivery(result)
                 return result
             envelope = _envelope_from_incident(incident)
 
         try:
             await plugin.send_notification(envelope)
-        except Exception as exc:  # pragma: no cover - exercised by behavior tests
-            logger.warning(
-                "notification plugin raised",
-                extra=safe_log_extra(
-                    event="notification_dispatch",
-                    incident_id=str(task.incident_id),
-                    plugin_name=task.plugin_name,
-                    category="plugin_exception",
-                    exception_type=type(exc).__name__,
-                ),
-            )
+        except Exception:
             result = _result(False, "plugin_exception", "notification plugin failed")
-            record_notification_attempt(task.plugin_name, result.category)
-            record_notification_failure(task.plugin_name, result.category)
-            await self._record_if_incident_exists(task.incident_id, task.plugin_name, result)
+            self._record_delivery(result)
+            await self._record_if_incident_exists(
+                task.incident_id, task.plugin_name, result
+            )
             return result
 
         result = _result(True, "dispatched", "notification dispatched")
-        logger.info(
-            "notification dispatched",
-            extra=safe_log_extra(
-                event="notification_dispatch",
-                incident_id=str(task.incident_id),
-                plugin_name=task.plugin_name,
+        self._record_delivery(result)
+        await self._record_if_incident_exists(
+            task.incident_id, task.plugin_name, result
+        )
+        return result
+
+    @staticmethod
+    def _record_delivery(result: NotificationResult) -> None:
+        outcome: Literal["success", "failure"] = (
+            "success" if result.success else "failure"
+        )
+        record_notification_delivery(outcome, result.category)
+        logger.log(
+            logging.INFO if result.success else logging.WARNING,
+            "notification delivery completed",
+            extra=operational_log_extra(
+                event="notification_delivery",
+                outcome=outcome,
                 category=result.category,
             ),
         )
-        record_notification_attempt(task.plugin_name, result.category)
-        await self._record_if_incident_exists(task.incident_id, task.plugin_name, result)
-        return result
 
     async def _record_if_incident_exists(
         self, incident_id: UUID, plugin_name: str, result: NotificationResult
@@ -146,7 +126,9 @@ class NotificationDispatcher:
             await session.commit()
 
 
-def _result(success: bool, category: NotificationCategory, message: str) -> NotificationResult:
+def _result(
+    success: bool, category: NotificationCategory, message: str
+) -> NotificationResult:
     return NotificationResult(success=success, category=category, message=message[:256])
 
 

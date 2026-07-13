@@ -69,16 +69,15 @@ class AsyncIOTaskRunner:
         try:
             exc = task.exception()
         except asyncio.CancelledError:
-            logger.info("async task cancelled", extra=safe_log_extra(event="task_cancelled", task_name=task.get_name()))
+            logger.info(
+                "async task cancelled",
+                extra=safe_log_extra(event="task_cancelled", task_name=task.get_name()),
+            )
             return
         if exc is None:
             return
-        record_task_failure(task.get_name())
+        record_task_failure()
         logger.error(
             "async task handler failed",
-            extra=safe_log_extra(
-                event="task_failed",
-                task_name=task.get_name(),
-                exception_type=type(exc).__name__,
-            ),
+            extra=safe_log_extra(event="task_failed"),
         )

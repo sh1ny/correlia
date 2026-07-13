@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from app.domain.audit import AuditDecisionSummary
-from app.domain.events import EventType, NormalizedEvent
+from app.domain.events import EventType
 from app.domain.incidents import LifecycleOutcome
 from app.domain.notifications import NotificationResult
 from app.domain.rules import (
@@ -30,13 +30,13 @@ from app.processing.rule_engine import RuleEngine
 from app.processing.incident_manager import IncidentAggregationResult, IncidentManager
 from app.processing.lifecycle import LifecycleManager, LifecycleResult
 from app.processing.metrics import (
+    record_audit_write,
     record_event_accepted,
     record_event_rejected,
-    record_notification_attempt,
-    record_notification_failure,
+    record_notification_submission,
     record_rule_matched,
 )
-from app.processing.logging import safe_log_extra
+from app.processing.logging import operational_log_extra, safe_log_extra
 from app.processing.task_runner import TaskRunner
 
 
@@ -44,6 +44,43 @@ logger = logging.getLogger(__name__)
 
 # Cap on incident_ids stored in the audit decision summary (D-18).
 _AUDIT_INCIDENT_IDS_CAP = 20
+
+
+def _record_audit_outcome(outcome: Literal["success", "failure"]) -> None:
+    record_audit_write(outcome)
+    logger.info(
+        "ingress audit write completed",
+        extra=operational_log_extra(event="audit_write", outcome=outcome),
+    )
+
+
+async def _insert_incident_event_with_audit_metric(
+    *args: Any, **kwargs: Any
+) -> None:
+    try:
+        await insert_incident_event(*args, **kwargs)
+    except Exception:
+        _record_audit_outcome("failure")
+        raise
+
+
+async def _commit_audit_transaction(session: Any) -> None:
+    try:
+        await session.commit()
+    except Exception:
+        _record_audit_outcome("failure")
+        raise
+    _record_audit_outcome("success")
+
+
+def _record_notification_submission(
+    outcome: Literal["accepted", "missing_runner", "missing_plugin", "submit_failed"],
+) -> None:
+    record_notification_submission(outcome)
+    logger.info(
+        "notification task submission completed",
+        extra=operational_log_extra(event="notification_submission", outcome=outcome),
+    )
 
 
 class Icinga2DecisionProcessor:
@@ -73,14 +110,18 @@ class Icinga2DecisionProcessor:
     async def process_payload(
         self, payload: Icinga2WebhookPayload
     ) -> IngressDecisionEnvelope:
-        logger.info("ingestion received", extra=safe_log_extra(event="ingestion_received"))
+        logger.info(
+            "ingestion received", extra=safe_log_extra(event="ingestion_received")
+        )
         plugin_result = await self._plugin.process_payload(payload)
 
         if isinstance(plugin_result, Icinga2Rejection):
-            record_event_rejected(plugin_result.reason)
+            record_event_rejected()
             logger.info(
                 "ingestion rejected",
-                extra=safe_log_extra(event="ingestion_rejected", reason=plugin_result.reason),
+                extra=safe_log_extra(
+                    event="ingestion_rejected", reason=plugin_result.reason
+                ),
             )
             return IngressDecisionEnvelope(
                 state_accepted=False,
@@ -91,7 +132,7 @@ class Icinga2DecisionProcessor:
             )
 
         event = plugin_result
-        record_event_accepted(event.event_type.value)
+        record_event_accepted(event.event_type)
         logger.info(
             "normalization succeeded",
             extra=safe_log_extra(
@@ -149,7 +190,7 @@ class Icinga2DecisionProcessor:
                 decision = engine_decision
                 matched_rules = list(decision.matched_rules)
                 for rule_name in matched_rules:
-                    record_rule_matched(rule_name)
+                    record_rule_matched()
                     logger.info(
                         "rule matched",
                         extra=safe_log_extra(
@@ -160,7 +201,9 @@ class Icinga2DecisionProcessor:
                     )
                 group_key = decision.group_key
                 if event.event_type is EventType.PROBLEM:
-                    threshold_decision = decision.threshold_decision.model_dump(mode="json")
+                    threshold_decision = decision.threshold_decision.model_dump(
+                        mode="json"
+                    )
             else:
                 noop_reason = engine_decision.reason
         else:
@@ -182,10 +225,7 @@ class Icinga2DecisionProcessor:
             incident_result: IncidentAggregationResult | None = None
             lifecycle_result: LifecycleResult | None = None
 
-            if (
-                event.event_type is EventType.PROBLEM
-                and decision is not None
-            ):
+            if event.event_type is EventType.PROBLEM and decision is not None:
                 manager = IncidentManager(
                     session,
                     task_runner=self._task_runner,
@@ -209,7 +249,6 @@ class Icinga2DecisionProcessor:
                 )
 
             summary = _build_audit_summary(
-                event=event,
                 decision=decision,
                 rule_decision_dict=rule_decision,
                 matched_rules=matched_rules,
@@ -222,7 +261,9 @@ class Icinga2DecisionProcessor:
             raw_payload_dict = (
                 payload.model_dump(mode="json")
                 if hasattr(payload, "model_dump")
-                else dict(payload) if payload else {}
+                else dict(payload)
+                if payload
+                else {}
             )
             redacted = redact_payload(
                 raw_payload_dict,
@@ -230,7 +271,7 @@ class Icinga2DecisionProcessor:
                 hmac_key=self._audit_raw_payload_hmac_key,
             )
 
-            await insert_incident_event(
+            await _insert_incident_event_with_audit_metric(
                 session,
                 event_timestamp=event.timestamp,
                 source_id=event.source_id,
@@ -259,7 +300,7 @@ class Icinga2DecisionProcessor:
                 raw_payload_hmac=redacted.payload_hmac,
             )
 
-            await session.commit()
+            await _commit_audit_transaction(session)
 
         # Post-commit notification submission (D-03). Audit rows record
         # notification_intent only; plugin delivery results are NOT
@@ -319,14 +360,16 @@ class Icinga2DecisionProcessor:
                 else None
             ),
             threshold_crossed=(
-                incident_result.threshold_crossed if incident_result is not None else False
+                incident_result.threshold_crossed
+                if incident_result is not None
+                else False
             ),
             notification_triggered=any(r.success for r in notification_results),
-            notification_failed=any(
-                r.success is False for r in notification_results
-            ),
+            notification_failed=any(r.success is False for r in notification_results),
             no_dispatch_reason=(
-                incident_result.no_dispatch_reason if incident_result is not None else None
+                incident_result.no_dispatch_reason
+                if incident_result is not None
+                else None
             ),
             notification_results=notification_results,
             notification_count=sum(1 for r in notification_results if r.success),
@@ -348,8 +391,7 @@ class Icinga2DecisionProcessor:
                     category="dispatch_failed",
                     message="notification task runner is unavailable",
                 )
-                record_notification_attempt(plugin_name, result.category)
-                record_notification_failure(plugin_name, result.category)
+                _record_notification_submission("missing_runner")
                 await self._persist_terminal_notification_result(
                     incident_id, plugin_name, result
                 )
@@ -363,8 +405,7 @@ class Icinga2DecisionProcessor:
                     category="missing_plugin",
                     message="configured output plugin is missing",
                 )
-                record_notification_attempt(plugin_name, result.category)
-                record_notification_failure(plugin_name, result.category)
+                _record_notification_submission("missing_plugin")
                 await self._persist_terminal_notification_result(
                     incident_id, plugin_name, result
                 )
@@ -385,13 +426,13 @@ class Icinga2DecisionProcessor:
                     category="dispatch_failed",
                     message="notification task submission failed",
                 )
-                record_notification_attempt(plugin_name, result.category)
-                record_notification_failure(plugin_name, result.category)
+                _record_notification_submission("submit_failed")
                 await self._persist_terminal_notification_result(
                     incident_id, plugin_name, result
                 )
                 results.append(result)
                 continue
+            _record_notification_submission("accepted")
             results.append(
                 NotificationResult(
                     success=True,
@@ -412,9 +453,7 @@ class Icinga2DecisionProcessor:
 
 
 def _build_audit_summary(
-
     *,
-    event: NormalizedEvent,
     decision: RuleDecision | None,
     rule_decision_dict: dict[str, object] | None,
     matched_rules: list[str],
@@ -425,19 +464,16 @@ def _build_audit_summary(
 ) -> AuditDecisionSummary:
     if lifecycle_result is not None:
         return _build_recovery_audit_summary(
-            event=event,
             lifecycle_result=lifecycle_result,
         )
     if incident_result is not None:
         return _build_problem_audit_summary(
-            event=event,
             incident_result=incident_result,
             rule_name=_safe_rule_name(rule_decision_dict),
             group_key=group_key,
             threshold_count=_safe_threshold_count(rule_decision_dict),
         )
     return _build_noop_audit_summary(
-        event=event,
         noop_reason=noop_reason,
         matched_rules=matched_rules,
     )
@@ -445,7 +481,6 @@ def _build_audit_summary(
 
 def _build_problem_audit_summary(
     *,
-    event: NormalizedEvent,
     incident_result: IncidentAggregationResult,
     rule_name: str | None,
     group_key: str | None,
@@ -476,7 +511,6 @@ def _build_problem_audit_summary(
 
 def _build_recovery_audit_summary(
     *,
-    event: NormalizedEvent,
     lifecycle_result: LifecycleResult,
 ) -> AuditDecisionSummary:
     affected = len(lifecycle_result.incident_ids)
@@ -504,7 +538,6 @@ def _build_recovery_audit_summary(
 
 def _build_noop_audit_summary(
     *,
-    event: NormalizedEvent,
     noop_reason: str | None,
     matched_rules: list[str],
 ) -> AuditDecisionSummary:

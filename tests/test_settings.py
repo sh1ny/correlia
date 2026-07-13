@@ -38,9 +38,15 @@ def test_settings_model_config_contract() -> None:
     [
         ({}, "missing"),
         ({"DATABASE_URL": "not-a-postgres-url"}, "url_parsing"),
-        ({"DATABASE_URL": VALID_DATABASE_URL, "environment": "staging"}, "literal_error"),
+        (
+            {"DATABASE_URL": VALID_DATABASE_URL, "environment": "staging"},
+            "literal_error",
+        ),
         ({"DATABASE_URL": VALID_DATABASE_URL, "log_level": "TRACE"}, "literal_error"),
-        ({"DATABASE_URL": VALID_DATABASE_URL, "unexpected": "value"}, "extra_forbidden"),
+        (
+            {"DATABASE_URL": VALID_DATABASE_URL, "unexpected": "value"},
+            "extra_forbidden",
+        ),
     ],
 )
 def test_invalid_settings_raise_explicit_validation_errors(
@@ -117,7 +123,9 @@ def test_makefile_targets_are_uv_wrappers() -> None:
 
 def test_auth_enabled_requires_both_tokens() -> None:
     with pytest.raises(ValidationError) as exc_info:
-        Settings(DATABASE_URL=VALID_DATABASE_URL, audit_raw_payload_hmac_key="audit-secret")
+        Settings(
+            DATABASE_URL=VALID_DATABASE_URL, audit_raw_payload_hmac_key="audit-secret"
+        )
     errors = exc_info.value.errors()
     assert any(err["type"] == "value_error" for err in errors)
     message = " ".join(str(err.get("msg", "")) for err in errors)
@@ -145,10 +153,9 @@ def test_auth_enabled_requires_distinct_operator_and_ingress_tokens() -> None:
             ingress_api_token="shared-secret",
             audit_raw_payload_hmac_key="audit-secret",
         )
-    message = " ".join(
-        str(err.get("msg", "")) for err in exc_info.value.errors()
-    )
+    message = " ".join(str(err.get("msg", "")) for err in exc_info.value.errors())
     assert "distinct operator_api_token and ingress_api_token" in message
+
 
 def test_tokens_stored_as_secret_str() -> None:
     from pydantic import SecretStr
@@ -224,6 +231,7 @@ def test_settings_env_keys_cover_security_fields() -> None:
         "CORRELIA_INGRESS_API_TOKEN",
         "CORRELIA_EXPOSE_READYZ",
         "CORRELIA_EXPOSE_METRICS",
+        "CORRELIA_MIGRATION_REPORT_PATH",
         "CORRELIA_MAX_BODY_BYTES",
         "CORRELIA_RATE_LIMIT_ENABLED",
         "CORRELIA_RATE_LIMIT_REQUESTS_OPERATOR",
@@ -332,3 +340,13 @@ def test_audit_env_keys_covered_by_conftest_cleanup() -> None:
 
     assert "CORRELIA_AUDIT_RAW_PAYLOAD_MAX_BYTES" in _SETTINGS_ENV_KEYS
     assert "CORRELIA_AUDIT_RAW_PAYLOAD_HMAC_KEY" in _SETTINGS_ENV_KEYS
+
+
+def test_migration_report_projection_is_disabled_when_path_is_unset() -> None:
+    settings = Settings(
+        DATABASE_URL=VALID_DATABASE_URL,
+        operator_api_token="operator",
+        ingress_api_token="ingress",
+        audit_raw_payload_hmac_key="audit-secret",
+    )
+    assert settings.migration_report_path is None

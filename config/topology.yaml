@@ -1,0 +1,14 @@
+hostname_rules:
+  - id: sample-datacenter-hostname
+    name: Sample datacenter hostname
+    hostname_pattern: "^([a-z0-9]+)-app-[a-z0-9-]+$"
+    tags: {}
+    tag_capture_groups:
+      topology.datacenter: 1
+
+subnet_rules:
+  - id: documentation-subnet
+    name: Documentation subnet
+    subnet: 192.0.2.0/24
+    tags:
+      topology.datacenter: documentation

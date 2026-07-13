@@ -1,0 +1,16 @@
+rules:
+  - name: sample-critical-alert
+    priority: 1
+    match:
+      severities: [CRITICAL]
+      host_pattern: ".+"
+      tags:
+        topology.datacenter: dc1
+    window:
+      duration_seconds: 300
+      group_by: [host, topology.datacenter]
+      trigger_threshold: 1
+    output_summary: "Critical alert on {host} in {topology.datacenter}"
+    actions:
+      - name: create_incident
+        plugin: email-ops
