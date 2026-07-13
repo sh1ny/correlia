@@ -1,3 +1,5 @@
+import logging
+
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -26,13 +28,20 @@ from app.config.rules import CompiledRuleConfig, load_rules_config
 from app.config.settings import Settings, get_settings
 from app.config.topology import CompiledTopologyConfig, load_topology_config
 from app.persistence.database import create_engine, create_sessionmaker
-from app.plugins.loader import PluginRegistry, load_plugin_registry
+from app.plugins.loader import PluginRegistry, PluginStartupError, load_plugin_registry
 from app.processing.ingress import Icinga2DecisionProcessor, build_icinga2_processor
 from app.processing.notification_dispatcher import NotificationDispatcher
 from app.processing.lifecycle import expire_stale_batch
 from app.processing.lifecycle_worker import LifecycleWorker
-from app.processing.logging import configure_json_logging
+from app.processing.logging import configure_json_logging, operational_log_extra
+from app.processing.metrics import (
+    configure_migration_report_projection,
+    record_plugin_load,
+)
 from app.processing.task_runner import AsyncIOTaskRunner, TaskRunner
+
+
+logger = logging.getLogger(__name__)
 
 
 def _safe_validation_errors(exc: RequestValidationError) -> list[dict[str, Any]]:
@@ -67,6 +76,7 @@ def _body_size_limits_from_settings(settings: Settings) -> dict[str, int | None]
         "health": settings.max_body_bytes_health,
     }
 
+
 def _rate_limit_configs_from_settings(
     settings: Settings,
 ) -> dict[str, RateLimitConfig]:
@@ -97,6 +107,8 @@ def _rate_limit_configs_from_settings(
             window_seconds=settings.rate_limit_window_seconds_health,
         ),
     }
+
+
 def _valid_tokens_for_rate_limit(settings: Settings) -> dict[str, str | None]:
     operator: str | None = None
     if settings.operator_api_token is not None:
@@ -113,26 +125,42 @@ def _valid_tokens_for_rate_limit(settings: Settings) -> dict[str, str | None]:
     }
 
 
-
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if not hasattr(app.state, "settings"):
         app.state.settings = get_settings()
     configure_json_logging(app.state.settings.log_level)
+    configure_migration_report_projection(app.state.settings.migration_report_path)
+
+    if not hasattr(app.state, "plugin_registry"):
+        plugins_path = getattr(app.state.settings, "plugins_path", None)
+        try:
+            plugin_registry = (
+                load_plugin_registry(plugins_path)
+                if plugins_path is not None
+                else PluginRegistry((), "")
+            )
+        except PluginStartupError as error:
+            logger.error(
+                "plugin registry startup failed",
+                extra=operational_log_extra(
+                    event="plugin_load",
+                    outcome="failure",
+                    category=error.category,
+                    failure_code=error.failure_code,
+                    entry_position=error.entry_position,
+                ),
+            )
+            raise
+        app.state.plugin_registry = plugin_registry
+        for category in plugin_registry.categories:
+            record_plugin_load(category)
 
     engine = getattr(app.state, "engine", None)
     if not hasattr(app.state, "sessionmaker"):
         engine = create_engine(app.state.settings)
         app.state.engine = engine
         app.state.sessionmaker = create_sessionmaker(engine)
-
-    if not hasattr(app.state, "plugin_registry"):
-        plugins_path = getattr(app.state.settings, "plugins_path", None)
-        app.state.plugin_registry = (
-            load_plugin_registry(plugins_path)
-            if plugins_path is not None
-            else PluginRegistry((), "")
-        )
 
     if not hasattr(app.state, "rules_config"):
         rules_path = getattr(app.state.settings, "rules_path", None)
@@ -175,9 +203,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             audit_raw_payload_max_bytes=(
                 app.state.settings.audit_raw_payload_max_bytes
             ),
-            audit_raw_payload_hmac_key=(
-                app.state.settings.audit_raw_payload_hmac_key
-            ),
+            audit_raw_payload_hmac_key=(app.state.settings.audit_raw_payload_hmac_key),
         )
 
     if not hasattr(app.state, "lifecycle_worker"):
@@ -222,14 +248,18 @@ def create_app(
     lifecycle_worker: LifecycleWorker | None = None,
 ) -> FastAPI:
     app = FastAPI(lifespan=lifespan)
-    app.add_exception_handler(RequestValidationError, request_validation_exception_handler)
+    app.add_exception_handler(
+        RequestValidationError, request_validation_exception_handler
+    )
 
     if settings is not None:
         app.state.settings = settings
         configure_json_logging(settings.log_level)
 
-    effective_settings = settings if settings is not None else getattr(
-        app.state, "settings", get_settings()
+    effective_settings = (
+        settings
+        if settings is not None
+        else getattr(app.state, "settings", get_settings())
     )
     rate_limiter = InProcessRateLimiter()
     app.state.rate_limiter = rate_limiter
@@ -259,10 +289,12 @@ def create_app(
         app.state.lifecycle_worker = lifecycle_worker
 
     health_router = build_health_router(
-        protect_readyz=not effective_settings.expose_readyz and effective_settings.api_auth_enabled
+        protect_readyz=not effective_settings.expose_readyz
+        and effective_settings.api_auth_enabled
     )
     metrics_router = build_metrics_router(
-        protect_metrics=not effective_settings.expose_metrics and effective_settings.api_auth_enabled
+        protect_metrics=not effective_settings.expose_metrics
+        and effective_settings.api_auth_enabled
     )
 
     app.include_router(health_router)

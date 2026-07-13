@@ -28,6 +28,9 @@ class Settings(BaseSettings):
 
     expose_readyz: bool = True
     expose_metrics: bool = True
+    # Optional read-only snapshot published by migrate_vigilo_config.py.
+    # Unset disables projection and causes no report-file access.
+    migration_report_path: Path | None = None
 
     max_body_bytes: int = Field(default=1_048_576, ge=1_024)
     max_body_bytes_operator: int | None = Field(default=None, ge=1_024)
@@ -98,8 +101,7 @@ class Settings(BaseSettings):
             token = getattr(self, token_attr)
             if token is not None and token.get_secret_value() == raw:
                 raise ValueError(
-                    "audit_raw_payload_hmac_key must differ from "
-                    f"{token_attr}"
+                    f"audit_raw_payload_hmac_key must differ from {token_attr}"
                 )
         return self
 

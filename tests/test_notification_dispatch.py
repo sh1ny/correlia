@@ -20,7 +20,15 @@ pytestmark = pytest.mark.anyio
 
 def _run_alembic_upgrade(database_url: str) -> None:
     result = subprocess.run(
-        [sys.executable, "-m", "alembic", "-x", f"database_url={database_url}", "upgrade", "head"],
+        [
+            sys.executable,
+            "-m",
+            "alembic",
+            "-x",
+            f"database_url={database_url}",
+            "upgrade",
+            "head",
+        ],
         capture_output=True,
         text=True,
     )
@@ -47,7 +55,9 @@ async def session_factory(postgres_url: str):
 
     cleanup = create_async_engine(postgres_url)
     async with AsyncSession(cleanup, expire_on_commit=False) as session:
-        await session.execute(sa.text("TRUNCATE TABLE incidents RESTART IDENTITY CASCADE"))
+        await session.execute(
+            sa.text("TRUNCATE TABLE incidents RESTART IDENTITY CASCADE")
+        )
         await session.commit()
     await cleanup.dispose()
 
@@ -88,7 +98,6 @@ class Registry:
 
     def list_plugins(self) -> tuple[dict[str, object], ...]:
         return ()
-
 
 
 def _notification_envelope(**overrides: object) -> NotificationEnvelope:
@@ -150,7 +159,9 @@ def test_notification_envelope_rejects_collection_boundary_violations(
         ("incident", {"id": "raw-incident"}),
     ),
 )
-def test_notification_envelope_rejects_raw_data_extras(field: str, value: object) -> None:
+def test_notification_envelope_rejects_raw_data_extras(
+    field: str, value: object
+) -> None:
     with pytest.raises(ValidationError):
         _notification_envelope(**{field: value})
 
@@ -172,7 +183,9 @@ def test_notification_envelope_rejects_non_enum_severity() -> None:
         ("affected_services", ("mysql",)),
     ),
 )
-def test_notification_envelope_is_frozen_after_construction(field: str, replacement: object) -> None:
+def test_notification_envelope_is_frozen_after_construction(
+    field: str, replacement: object
+) -> None:
     envelope = _notification_envelope()
     original = envelope.model_dump()
 
@@ -181,6 +194,7 @@ def test_notification_envelope_is_frozen_after_construction(field: str, replacem
 
     assert exc_info.value.errors()[0]["type"] == "frozen_instance"
     assert envelope.model_dump() == original
+
 
 async def _insert_incident(session_factory: async_sessionmaker[AsyncSession]) -> UUID:
     from app.domain.events import Severity
@@ -198,7 +212,9 @@ async def _insert_incident(session_factory: async_sessionmaker[AsyncSession]) ->
                 summary="database incident",
                 affected_hosts=("db-1",),
                 affected_services=("postgres",),
-                decision_context=DecisionContext(rule_name="database-critical", group_key="service=postgres"),
+                decision_context=DecisionContext(
+                    rule_name="database-critical", group_key="service=postgres"
+                ),
                 fingerprint="fp-dispatch",
                 threshold_count=1,
                 window_seconds=300,
@@ -216,21 +232,27 @@ async def test_dispatcher_sends_notification_and_records_safe_success(
 
     incident_id = await _insert_incident(session_factory)
     plugin = CapturingPlugin()
-    attempts: list[tuple[str, str]] = []
+    deliveries: list[tuple[str, str]] = []
     monkeypatch.setattr(
-        "app.processing.notification_dispatcher.record_notification_attempt",
-        lambda plugin_name, category: attempts.append((plugin_name, category)),
+        "app.processing.notification_dispatcher.record_notification_delivery",
+        lambda outcome, category: deliveries.append((outcome, category)),
     )
-    dispatcher = NotificationDispatcher(session_factory, Registry({"email-oncall": plugin}))
+    dispatcher = NotificationDispatcher(
+        session_factory, Registry({"email-oncall": plugin})
+    )
 
     result = await dispatcher.process(
-        {"incident_id": str(incident_id), "plugin_name": "email-oncall", "config_hash": "sha256:plugins"}
+        {
+            "incident_id": str(incident_id),
+            "plugin_name": "email-oncall",
+            "config_hash": "sha256:plugins",
+        }
     )
 
     assert result.success is True
     assert result.category == "dispatched"
     assert len(plugin.envelopes) == 1
-    assert attempts == [("email-oncall", "dispatched")]
+    assert deliveries == [("success", "dispatched")]
     envelope = plugin.envelopes[0]
     assert isinstance(envelope, NotificationEnvelope)
     assert envelope.affected_hosts == ("db-1",)
@@ -241,7 +263,9 @@ async def test_dispatcher_sends_notification_and_records_safe_success(
     async with session_factory() as session:
         row = (
             await session.execute(
-                sa.text("SELECT decision_context, notified_at FROM incidents WHERE id = :id"),
+                sa.text(
+                    "SELECT decision_context, notified_at FROM incidents WHERE id = :id"
+                ),
                 {"id": incident_id},
             )
         ).one()
@@ -260,7 +284,6 @@ async def test_dispatcher_sends_notification_and_records_safe_success(
     ]
 
 
-
 async def test_dispatcher_rejects_stale_plugin_config_without_sending(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -268,10 +291,16 @@ async def test_dispatcher_rejects_stale_plugin_config_without_sending(
 
     incident_id = await _insert_incident(session_factory)
     plugin = CapturingPlugin()
-    dispatcher = NotificationDispatcher(session_factory, Registry({"email-oncall": plugin}))
+    dispatcher = NotificationDispatcher(
+        session_factory, Registry({"email-oncall": plugin})
+    )
 
     result = await dispatcher.process(
-        {"incident_id": str(incident_id), "plugin_name": "email-oncall", "config_hash": "sha256:stale"}
+        {
+            "incident_id": str(incident_id),
+            "plugin_name": "email-oncall",
+            "config_hash": "sha256:stale",
+        }
     )
 
     assert result.success is False
@@ -281,7 +310,10 @@ async def test_dispatcher_rejects_stale_plugin_config_without_sending(
 
     async with session_factory() as session:
         context = (
-            await session.execute(sa.text("SELECT decision_context FROM incidents WHERE id = :id"), {"id": incident_id})
+            await session.execute(
+                sa.text("SELECT decision_context FROM incidents WHERE id = :id"),
+                {"id": incident_id},
+            )
         ).scalar_one()
     assert context["notification_delivery_results"] == [
         {
@@ -295,24 +327,47 @@ async def test_dispatcher_rejects_stale_plugin_config_without_sending(
         }
     ]
 
-async def test_dispatcher_maps_missing_plugin_missing_incident_plugin_exception_and_bad_payload(
+
+async def test_dispatcher_maps_terminal_failures_once_without_identity_metrics(
     session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from app.processing.notification_dispatcher import NotificationDispatcher
 
     incident_id = await _insert_incident(session_factory)
-    dispatcher = NotificationDispatcher(session_factory, Registry({"failing": FailingPlugin()}))
+    deliveries: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "app.processing.notification_dispatcher.record_notification_delivery",
+        lambda outcome, category: deliveries.append((outcome, category)),
+    )
+    dispatcher = NotificationDispatcher(
+        session_factory, Registry({"failing": FailingPlugin()})
+    )
 
     missing_plugin = await dispatcher.process(
-        {"incident_id": str(incident_id), "plugin_name": "missing", "config_hash": "sha256:plugins"}
+        {
+            "incident_id": str(incident_id),
+            "plugin_name": "missing",
+            "config_hash": "sha256:plugins",
+        }
     )
     missing_incident = await dispatcher.process(
-        {"incident_id": str(uuid4()), "plugin_name": "failing", "config_hash": "sha256:plugins"}
+        {
+            "incident_id": str(uuid4()),
+            "plugin_name": "failing",
+            "config_hash": "sha256:plugins",
+        }
     )
     plugin_exception = await dispatcher.process(
-        {"incident_id": str(incident_id), "plugin_name": "failing", "config_hash": "sha256:plugins"}
+        {
+            "incident_id": str(incident_id),
+            "plugin_name": "failing",
+            "config_hash": "sha256:plugins",
+        }
     )
-    dispatch_failed = await dispatcher.process({"incident_id": "not-a-uuid", "plugin_name": "failing"})
+    dispatch_failed = await dispatcher.process(
+        {"incident_id": "not-a-uuid", "plugin_name": "failing"}
+    )
 
     assert missing_plugin.category == "missing_plugin"
     assert missing_incident.category == "missing_incident"
@@ -325,10 +380,19 @@ async def test_dispatcher_maps_missing_plugin_missing_incident_plugin_exception_
         assert "secret" not in serialized
         assert "smtp transcript" not in serialized
         assert "traceback" not in serialized
+    assert deliveries == [
+        ("failure", "missing_plugin"),
+        ("failure", "missing_incident"),
+        ("failure", "plugin_exception"),
+        ("failure", "dispatch_failed"),
+    ]
 
     async with session_factory() as session:
         context = (
-            await session.execute(sa.text("SELECT decision_context FROM incidents WHERE id = :id"), {"id": incident_id})
+            await session.execute(
+                sa.text("SELECT decision_context FROM incidents WHERE id = :id"),
+                {"id": incident_id},
+            )
         ).scalar_one()
     serialized_context = repr(context).lower()
     assert "plugin_exception" in serialized_context
@@ -405,9 +469,7 @@ async def test_ingress_persists_post_commit_terminal_runner_failure(
     async with session_factory() as session:
         context = (
             await session.execute(
-                sa.text(
-                    "SELECT decision_context FROM incidents WHERE id = :id"
-                ),
+                sa.text("SELECT decision_context FROM incidents WHERE id = :id"),
                 {"id": incident_id},
             )
         ).scalar_one()

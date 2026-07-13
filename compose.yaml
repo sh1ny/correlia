@@ -1,0 +1,73 @@
+services:
+  postgres:
+    image: postgres:16.9-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-correlia}
+      POSTGRES_USER: ${POSTGRES_USER:-correlia}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks:
+      - database
+
+  mailpit:
+    image: axllent/mailpit:v1.26.1
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks:
+      - smtp
+    ports:
+      - 127.0.0.1:8025:8025
+
+  correlia:
+    build: .
+    image: correlia:local
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mailpit:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      CORRELIA_ENVIRONMENT: ${CORRELIA_ENVIRONMENT:-local}
+      CORRELIA_LOG_LEVEL: ${CORRELIA_LOG_LEVEL:-INFO}
+      CORRELIA_RULES_PATH: ${CORRELIA_RULES_PATH:-/app/config/rules.yaml}
+      CORRELIA_TOPOLOGY_PATH: ${CORRELIA_TOPOLOGY_PATH:-/app/config/topology.yaml}
+      CORRELIA_PLUGINS_PATH: ${CORRELIA_PLUGINS_PATH:-/app/config/plugins.yaml}
+      CORRELIA_API_AUTH_ENABLED: ${CORRELIA_API_AUTH_ENABLED:-true}
+      CORRELIA_OPERATOR_API_TOKEN: ${CORRELIA_OPERATOR_API_TOKEN:?CORRELIA_OPERATOR_API_TOKEN is required}
+      CORRELIA_INGRESS_API_TOKEN: ${CORRELIA_INGRESS_API_TOKEN:?CORRELIA_INGRESS_API_TOKEN is required}
+      CORRELIA_EXPOSE_READYZ: ${CORRELIA_EXPOSE_READYZ:-false}
+      CORRELIA_EXPOSE_METRICS: ${CORRELIA_EXPOSE_METRICS:-true}
+      CORRELIA_AUDIT_RAW_PAYLOAD_HMAC_KEY: ${CORRELIA_AUDIT_RAW_PAYLOAD_HMAC_KEY:?CORRELIA_AUDIT_RAW_PAYLOAD_HMAC_KEY is required}
+    healthcheck:
+      test: ["CMD-SHELL", 'python -c "import os; from urllib.request import Request, urlopen; urlopen(Request(\"http://127.0.0.1:8000/v1/readyz\", headers={\"Authorization\": \"Bearer \" + os.environ[\"CORRELIA_OPERATOR_API_TOKEN\"]}), timeout=2).read()"']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./config:/app/config:ro
+    networks:
+      - database
+      - smtp
+    ports:
+      - 127.0.0.1:8000:8000
+    deploy:
+      replicas: 1
+
+networks:
+  database:
+    internal: true
+  smtp:
+    internal: true

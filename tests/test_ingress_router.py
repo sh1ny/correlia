@@ -68,26 +68,35 @@ async def _count_audit_rows(session_factory: async_sessionmaker[AsyncSession]) -
     return int(result.scalar_one())
 
 
-
 VALID_DATABASE_URL = "postgresql+asyncpg://user:pass@localhost:5432/correlia"
+
 
 def _event_time() -> datetime:
     return datetime(2026, 6, 8, 12, 0, tzinfo=timezone.utc)
 
 
-
-
 pytestmark = pytest.mark.anyio
+
+
 @pytest.fixture(autouse=True)
-def _disable_auth_for_ingress_tests(monkeypatch: pytest.MonkeyPatch, clean_settings_env: None) -> None:
+def _disable_auth_for_ingress_tests(
+    monkeypatch: pytest.MonkeyPatch, clean_settings_env: None
+) -> None:
     monkeypatch.setenv("CORRELIA_API_AUTH_ENABLED", "false")
     monkeypatch.setenv("CORRELIA_AUDIT_RAW_PAYLOAD_HMAC_KEY", "test-audit-hmac")
 
 
-
 def _run_alembic_upgrade(database_url: str) -> None:
     result = subprocess.run(
-        [sys.executable, "-m", "alembic", "-x", f"database_url={database_url}", "upgrade", "head"],
+        [
+            sys.executable,
+            "-m",
+            "alembic",
+            "-x",
+            f"database_url={database_url}",
+            "upgrade",
+            "head",
+        ],
         env={**os.environ, "CORRELIA_API_AUTH_ENABLED": "false"},
         capture_output=True,
         text=True,
@@ -118,10 +127,13 @@ async def session_factory(postgres_url: str):
         # incident_events holds correlation IDs as JSONB, not FKs, so
         # CASCADE does not reach it; truncate it explicitly.
         await session.execute(
-            sa.text("TRUNCATE TABLE incident_events, incidents RESTART IDENTITY CASCADE")
+            sa.text(
+                "TRUNCATE TABLE incident_events, incidents RESTART IDENTITY CASCADE"
+            )
         )
         await session.commit()
     await cleanup.dispose()
+
 
 async def get_client(app) -> AsyncIterator[AsyncClient]:
     async with app.router.lifespan_context(app):
@@ -129,12 +141,14 @@ async def get_client(app) -> AsyncIterator[AsyncClient]:
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             yield client
 
+
 class NoopLifecycleWorker:
     async def start(self) -> None:
         return None
 
     async def stop(self) -> None:
         return None
+
 
 class GateOutputPlugin:
     def __init__(self, *, raises_after_release: bool = False) -> None:
@@ -192,7 +206,6 @@ class RaisingSubmitRunner:
         return None
 
 
-
 def valid_icinga2_service_payload() -> dict[str, object]:
     return {
         "source_id": "icinga2:service:web-01:http",
@@ -219,7 +232,6 @@ def valid_icinga2_host_payload() -> dict[str, object]:
         "ip_address": "192.0.2.10",
         "tags": {"team.name": "platform"},
     }
-
 
 
 def _write_rules(
@@ -317,15 +329,10 @@ def _payload(
 async def test_submit_notifications_without_task_runner_reports_failed_result_per_action(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    attempts: list[tuple[str, str]] = []
-    failures: list[tuple[str, str]] = []
+    submissions: list[str] = []
     monkeypatch.setattr(
-        "app.processing.ingress.record_notification_attempt",
-        lambda plugin_name, category: attempts.append((plugin_name, category)),
-    )
-    monkeypatch.setattr(
-        "app.processing.ingress.record_notification_failure",
-        lambda plugin_name, category: failures.append((plugin_name, category)),
+        "app.processing.ingress.record_notification_submission",
+        submissions.append,
     )
     decision = RuleDecision(
         rule_name="critical-rule",
@@ -357,17 +364,42 @@ async def test_submit_notifications_without_task_runner_reports_failed_result_pe
         (False, "dispatch_failed"),
         (False, "dispatch_failed"),
     ]
-    assert attempts == [
-        ("alpha", "dispatch_failed"),
-        ("zeta", "dispatch_failed"),
-    ]
-    assert failures == attempts
+    assert submissions == ["missing_runner", "missing_runner"]
     assert await processor._submit_notifications("incident-1", None) == ()
-    assert attempts == [
-        ("alpha", "dispatch_failed"),
-        ("zeta", "dispatch_failed"),
+    assert submissions == ["missing_runner", "missing_runner"]
+
+
+async def test_rejected_notification_submission_is_not_accepted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class RejectingRunner:
+        async def submit(self, task_name: str, payload: Mapping[str, Any]) -> None:
+            raise RuntimeError("submission rejected")
+
+    class KnownRegistry:
+        names = ("email-oncall",)
+
+    class Decision:
+        actions = ("email-oncall",)
+
+    submissions: list[str] = []
+    monkeypatch.setattr(
+        "app.processing.ingress.record_notification_submission", submissions.append
+    )
+    processor = Icinga2DecisionProcessor(
+        plugin=Icinga2InputPlugin(),
+        task_runner=RejectingRunner(),  # type: ignore[arg-type]
+        plugin_registry=KnownRegistry(),
+        audit_raw_payload_max_bytes=1024,
+        audit_raw_payload_hmac_key="test-audit-hmac",
+    )
+
+    results = await processor._submit_notifications("incident-1", Decision())  # type: ignore[arg-type]
+
+    assert [(result.success, result.category) for result in results] == [
+        (False, "dispatch_failed")
     ]
-    assert failures == attempts
+    assert submissions == ["submit_failed"]
 
 
 async def test_icinga2_problem_webhook_aggregates_and_submits_notifications_once(
@@ -382,13 +414,9 @@ async def test_icinga2_problem_webhook_aggregates_and_submits_notifications_once
     _write_topology(topology_path)
     plugin_registry = _write_plugins(plugins_path)
     task_runner = AsyncIOTaskRunner()
-    attempts: list[tuple[str, str]] = []
-
-    def capture_attempt(plugin_name: str, category: str) -> None:
-        attempts.append((plugin_name, category))
-
+    submissions: list[str] = []
     monkeypatch.setattr(
-        "app.processing.ingress.record_notification_attempt", capture_attempt
+        "app.processing.ingress.record_notification_submission", submissions.append
     )
     submitted: list[dict[str, object]] = []
 
@@ -480,14 +508,16 @@ async def test_icinga2_problem_webhook_aggregates_and_submits_notifications_once
     assert already_body["notification_count"] == 0
     assert already_body["no_dispatch_reason"] == "already_notified"
     assert len(submitted) == 1
-    assert attempts == []
+    assert submissions == ["accepted"]
     # AUD-02: every accepted event must write exactly one audit row.
     assert (await _count_audit_rows(session_factory)) == 4
+
 
 async def test_ingress_returns_after_submission_before_slow_plugin_exception_is_terminal(
     tmp_path: Path,
     session_factory: async_sessionmaker[AsyncSession],
     caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     rules_path = tmp_path / "rules.yaml"
     topology_path = tmp_path / "topology.yaml"
@@ -496,6 +526,15 @@ async def test_ingress_returns_after_submission_before_slow_plugin_exception_is_
     plugin = GateOutputPlugin(raises_after_release=True)
     plugin_registry = SynchronizedOutputRegistry({"email-oncall": plugin})
     task_runner = AsyncIOTaskRunner()
+    submissions: list[str] = []
+    deliveries: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "app.processing.ingress.record_notification_submission", submissions.append
+    )
+    monkeypatch.setattr(
+        "app.processing.notification_dispatcher.record_notification_delivery",
+        lambda outcome, category: deliveries.append((outcome, category)),
+    )
     processor = build_icinga2_processor(
         topology_path=topology_path,
         rules_path=rules_path,
@@ -526,6 +565,8 @@ async def test_ingress_returns_after_submission_before_slow_plugin_exception_is_
                 "message": "notification task submitted",
             }
         ]
+        assert submissions == ["accepted"]
+        assert deliveries == []
 
         await plugin.started.wait()
         before_release = await client.get(f"/v1/incidents/{body['incident_id']}")
@@ -537,13 +578,17 @@ async def test_ingress_returns_after_submission_before_slow_plugin_exception_is_
         )
         assert await _count_audit_rows(session_factory) == 1
 
+        assert deliveries == []
         plugin.release.set()
         await task_runner.drain()
+        assert deliveries == [("failure", "plugin_exception")]
         after_release = await client.get(f"/v1/incidents/{body['incident_id']}")
 
     assert after_release.status_code == 200
     assert after_release.json()["notified_at"] is None
-    assert after_release.json()["decision_context"]["notification_delivery_results"] == [
+    assert after_release.json()["decision_context"][
+        "notification_delivery_results"
+    ] == [
         {
             "schema_version": 1,
             "plugin_name": "email-oncall",
@@ -560,6 +605,7 @@ async def test_ingress_returns_after_submission_before_slow_plugin_exception_is_
         for record in caplog.records
         if record.getMessage() == "async task handler failed"
     ]
+
 
 async def test_ingress_returns_before_slow_plugin_success_becomes_terminal(
     tmp_path: Path,
@@ -609,7 +655,9 @@ async def test_ingress_returns_before_slow_plugin_success_becomes_terminal(
         after_release = await client.get(f"/v1/incidents/{body['incident_id']}")
 
     assert after_release.json()["notified_at"] is not None
-    assert after_release.json()["decision_context"]["notification_delivery_results"] == [
+    assert after_release.json()["decision_context"][
+        "notification_delivery_results"
+    ] == [
         {
             "schema_version": 1,
             "plugin_name": "email-oncall",
@@ -705,8 +753,7 @@ async def test_ingress_retains_twenty_terminal_results_through_aggregation_and_r
     assert aggregated.status_code == 200
     aggregated_context = aggregated.json()["decision_context"]
     assert {
-        key: aggregated_context["notes"][key]
-        for key in notes_before_aggregation
+        key: aggregated_context["notes"][key] for key in notes_before_aggregation
     } == notes_before_aggregation
     assert [
         record["plugin_name"]
@@ -746,6 +793,7 @@ async def test_ingress_retains_twenty_terminal_results_through_aggregation_and_r
         reopened_context["notification_delivery_results"]
         == aggregated_context["notification_delivery_results"]
     )
+
 
 async def test_ingress_persists_terminal_submission_failures_without_tasks(
     tmp_path: Path,
@@ -846,6 +894,7 @@ async def test_ingress_persists_terminal_submission_failures_without_tasks(
     )
     assert raising_runner.submissions and raising_runner.submissions[0][0] == "notify"
 
+
 async def test_ingress_without_rule_engine_persists_configuration_reason(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -866,9 +915,10 @@ async def test_ingress_without_rule_engine_persists_configuration_reason(
         audit_response = await client.get("/v1/incident-events")
 
     assert audit_response.status_code == 200
-    assert audit_response.json()["items"][0]["decision_summary"][
-        "no_dispatch_reason"
-    ] == "no rule engine configured"
+    assert (
+        audit_response.json()["items"][0]["decision_summary"]["no_dispatch_reason"]
+        == "no rule engine configured"
+    )
 
 
 async def test_ingress_maps_long_missing_group_by_reason_to_bounded_audit_code(
@@ -932,6 +982,7 @@ async def test_ingress_maps_long_missing_group_by_reason_to_bounded_audit_code(
     assert summary["decision_reason"] == "missing_required_group_by_field"
     assert summary["no_dispatch_reason"] == "missing_required_group_by_field"
 
+
 async def test_ingress_logs_safe_json_events(
     tmp_path: Path,
     session_factory: async_sessionmaker[AsyncSession],
@@ -987,11 +1038,16 @@ async def test_ingress_logs_safe_json_events(
         "notification_decision",
     ):
         assert expected in events
-    assert events["incident_upserted"].__dict__["incident_id"] == response.json()["incident_id"]
+    assert (
+        events["incident_upserted"].__dict__["incident_id"]
+        == response.json()["incident_id"]
+    )
     assert events["incident_upserted"].__dict__["rule_name"] == "service-critical"
     assert events["incident_upserted"].__dict__["group_key"] == "service=http"
     assert events["notification_decision"].__dict__["notification_count"] == 1
-    serialized = "\n".join(record.getMessage() + repr(record.__dict__) for record in caplog.records)
+    serialized = "\n".join(
+        record.getMessage() + repr(record.__dict__) for record in caplog.records
+    )
     for fragment in ("token-secret", "raw_payload", "password", "smtp transcript"):
         assert fragment not in serialized
 
@@ -1027,7 +1083,9 @@ async def test_recovery_event_does_not_enter_problem_aggregation(
     assert body["incident_id"] is None
     assert body["incident_effects"] == {"inserted": 0, "updated": 0}
     async with session_factory() as session:
-        count = (await session.execute(sa.text("SELECT COUNT(*) FROM incidents"))).scalar_one()
+        count = (
+            await session.execute(sa.text("SELECT COUNT(*) FROM incidents"))
+        ).scalar_one()
     assert count == 0
 
 
@@ -1154,6 +1212,7 @@ def test_recovery_branch_does_not_call_apply_problem_or_raw_state_names() -> Non
     # Raw Icinga2 fields must not appear in ingress.
     assert "state_type" not in source
     assert "check_output" not in source
+
 
 # ING-01: POST /webhooks/icinga2 exists and returns 200
 
@@ -1360,6 +1419,8 @@ async def test_response_contains_none_group_key(
         )
     body = response.json()
     assert body["group_key"] is None
+
+
 async def test_response_contains_zero_incident_effects(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -1586,6 +1647,7 @@ def test_processing_ingress_dependency_boundaries_for_audit() -> None:
                 "observational and excluded from decision code"
             )
 
+
 # ---------------------------------------------------------------------------
 # Topology enrichment integration via HTTP entrypoint
 # ---------------------------------------------------------------------------
@@ -1753,6 +1815,7 @@ async def test_response_conflict_diagnostic_only_includes_matched_rule(
     assert diag["tags_overridden"] == [["topology.role", "old", "web"]]
     assert diag["conflicts"] == [["topology.role", "old", "web"]]
 
+
 # ---------------------------------------------------------------------------
 # Rule engine integration via HTTP entrypoint
 # ---------------------------------------------------------------------------
@@ -1807,6 +1870,7 @@ async def test_response_with_no_rule_match_returns_empty_matched_rules(
     assert body["threshold_decision"] is None
     assert body["rule_decision"]["reason"] == "no matching rule"
 
+
 async def test_recovery_event_returns_no_rule_match(
     tmp_path: Path,
     session_factory: async_sessionmaker[AsyncSession],
@@ -1854,6 +1918,7 @@ async def test_recovery_event_returns_no_rule_match(
     assert body["matched_rules"] == []
     assert body["group_key"] is None
     assert body["threshold_decision"] is None
+
 
 async def test_response_with_rule_match_contains_group_key_and_threshold(
     tmp_path: Path,
@@ -1920,12 +1985,14 @@ async def test_response_with_rule_match_contains_group_key_and_threshold(
     assert body["closure_count"] == 0
     assert body["notification_count"] == 0
 
+
 # ---------------------------------------------------------------------------
 # Task 3: ingress processor must not import raw Icinga2 fields
 # ---------------------------------------------------------------------------
 def test_processing_ingress_has_no_icinga2_raw_state_refs() -> None:
     import inspect
     import app.processing.ingress as ingress_module
+
     source = inspect.getsource(ingress_module)
     assert "state_type" not in source
     assert "check_output" not in source
@@ -1956,13 +2023,17 @@ async def test_no_rule_engine_accepted_event_writes_noop_audit_row(
     assert (await _count_audit_rows(session_factory)) == 1
     async with session_factory() as session:
         row = (
-            await session.execute(
-                sa.text(
-                    "SELECT incident_effect, incident_ids, decision_summary "
-                    "FROM incident_events"
+            (
+                await session.execute(
+                    sa.text(
+                        "SELECT incident_effect, incident_ids, decision_summary "
+                        "FROM incident_events"
+                    )
                 )
             )
-        ).mappings().one()
+            .mappings()
+            .one()
+        )
     assert row["incident_effect"] == "none"
     assert row["incident_ids"] == []
     summary = row["decision_summary"]

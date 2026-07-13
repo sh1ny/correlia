@@ -47,7 +47,9 @@ _migrated_url: str | None = None
 def postgres_url() -> str:
     global _migrated_url
     with PostgresContainer("postgres:18-alpine") as postgres:
-        url = postgres.get_connection_url().replace("postgresql+psycopg2", "postgresql+asyncpg")
+        url = postgres.get_connection_url().replace(
+            "postgresql+psycopg2", "postgresql+asyncpg"
+        )
         if _migrated_url != url:
             _run_alembic_upgrade(url)
             _migrated_url = url
@@ -100,7 +102,9 @@ def _app(session_factory: async_sessionmaker[AsyncSession]):
 
 
 def _event_time(offset_minutes: int) -> datetime:
-    return datetime(2026, 6, 9, 12, 0, tzinfo=timezone.utc) + timedelta(minutes=offset_minutes)
+    return datetime(2026, 6, 9, 12, 0, tzinfo=timezone.utc) + timedelta(
+        minutes=offset_minutes
+    )
 
 
 async def _seed_incident(
@@ -134,7 +138,10 @@ async def _seed_incident(
                 rule_name=rule_name,
                 group_key=group_key,
                 matched_rule_names=(rule_name,),
-                notes={"notification.plugin": "email-oncall", "lifecycle.reason": "created"},
+                notes={
+                    "notification.plugin": "email-oncall",
+                    "lifecycle.reason": "created",
+                },
                 action_names=("create_incident",),
                 notification_delivery_results=(
                     NotificationDeliveryRecord(
@@ -304,7 +311,9 @@ async def test_ack_is_idempotent_and_keeps_incident_open(
     assert second.json()["acknowledgement"]["acknowledged_by"] == "operator-a"
     async with session_factory() as session:
         count = await session.scalar(
-            select(func.count()).select_from(Incident).where(
+            select(func.count())
+            .select_from(Incident)
+            .where(
                 Incident.rule_name == "ack-rule",
                 Incident.group_key == "host:ack-1",
                 Incident.status == IncidentStatus.OPEN.value,
@@ -415,8 +424,16 @@ async def test_operator_mutations_emit_safe_json_logs(
     }
     assert {event["status"] for event in events} == {"OPEN", "CLOSED"}
     assert {event["reason"] for event in events} == {"acknowledged", "manual_close"}
-    serialized = "\n".join(record.getMessage() + repr(record.__dict__) for record in caplog.records)
-    for fragment in ("token-secret", "raw_payload", "password", "plugin_options", "Traceback"):
+    serialized = "\n".join(
+        record.getMessage() + repr(record.__dict__) for record in caplog.records
+    )
+    for fragment in (
+        "token-secret",
+        "raw_payload",
+        "password",
+        "plugin_options",
+        "Traceback",
+    ):
         assert fragment not in serialized
 
 
@@ -425,7 +442,9 @@ async def test_incident_api_rejects_invalid_inputs_without_source_exception_text
 ) -> None:
     app = _app(session_factory)
     async for client in get_client(app):
-        bad_cursor = await client.get("/v1/incidents", params={"cursor": "not-a-cursor"})
+        bad_cursor = await client.get(
+            "/v1/incidents", params={"cursor": "not-a-cursor"}
+        )
         bad_uuid = await client.get("/v1/incidents/not-a-uuid")
         bad_body = await client.post(
             "/v1/incidents/00000000-0000-0000-0000-000000000000/ack",
@@ -464,8 +483,6 @@ async def test_incident_api_rejects_invalid_inputs_without_source_exception_text
         "password leaked",
     ):
         assert fragment not in serialized
-
-
 
 
 async def test_list_incidents_offset_metadata_and_cursor_coexistence(
@@ -567,9 +584,7 @@ async def test_list_incidents_acknowledged_filter_is_derived_and_open_includes_a
         ack = await client.post(
             f"/v1/incidents/{acknowledged.id}/ack", json={"operator": "operator-a"}
         )
-        acked = await client.get(
-            "/v1/incidents", params={"status": "ACKNOWLEDGED"}
-        )
+        acked = await client.get("/v1/incidents", params={"status": "ACKNOWLEDGED"})
         open_all = await client.get("/v1/incidents", params={"status": "OPEN"})
 
     assert ack.status_code == 200
@@ -694,12 +709,8 @@ async def test_patch_close_and_delete_close_with_vigilo_defaults_are_idempotent(
         repeat_close = await client.patch(
             f"/v1/incidents/{patch_incident.id}", json={"status": "CLOSED"}
         )
-        first_delete = await client.delete(
-            f"/v1/incidents/{delete_incident.id}"
-        )
-        repeat_delete = await client.delete(
-            f"/v1/incidents/{delete_incident.id}"
-        )
+        first_delete = await client.delete(f"/v1/incidents/{delete_incident.id}")
+        repeat_delete = await client.delete(f"/v1/incidents/{delete_incident.id}")
 
     assert first_close.status_code == 200
     assert repeat_close.status_code == 200
@@ -739,31 +750,31 @@ async def test_patch_rejects_summary_mutation_and_missing_status_with_compact_42
         missing_status_cases = [
             await client.patch(f"/v1/incidents/{incident.id}", json={}),
             await client.patch(
-                f"/v1/incidents/{incident.id}", content=b"[1,2,3]", headers={"content-type": "application/json"}
+                f"/v1/incidents/{incident.id}",
+                content=b"[1,2,3]",
+                headers={"content-type": "application/json"},
             ),
             await client.patch(
-                f"/v1/incidents/{incident.id}", content=b"", headers={"content-type": "application/json"}
+                f"/v1/incidents/{incident.id}",
+                content=b"",
+                headers={"content-type": "application/json"},
             ),
             await client.patch(
-                f"/v1/incidents/{incident.id}", content=b"{", headers={"content-type": "application/json"}
+                f"/v1/incidents/{incident.id}",
+                content=b"{",
+                headers={"content-type": "application/json"},
             ),
-            await client.patch(
-                f"/v1/incidents/{incident.id}", json={"status": "OPEN"}
-            ),
+            await client.patch(f"/v1/incidents/{incident.id}", json={"status": "OPEN"}),
             await client.patch(
                 f"/v1/incidents/{incident.id}", json={"status": "RESOLVED"}
             ),
             await client.patch(
                 f"/v1/incidents/{incident.id}", json={"status": "UNKNOWN"}
             ),
-            await client.patch(
-                f"/v1/incidents/{incident.id}", json={"status": 123}
-            ),
+            await client.patch(f"/v1/incidents/{incident.id}", json={"status": 123}),
         ]
         summary_mutation_cases = [
-            await client.patch(
-                f"/v1/incidents/{incident.id}", json={"summary": "x"}
-            ),
+            await client.patch(f"/v1/incidents/{incident.id}", json={"summary": "x"}),
             await client.patch(
                 f"/v1/incidents/{incident.id}",
                 json={"status": "ACKNOWLEDGED", "summary": "x"},
@@ -873,6 +884,16 @@ async def test_compatibility_mutations_emit_safe_json_logs(
             event_time=_event_time(2),
         )
 
+    from app.processing import metrics as metrics_module
+
+    before = {
+        operation: metrics_module._compatibility_mutations.labels(  # noqa: SLF001 - counter delta assertion
+            operation=operation,
+            outcome="success",
+        )._value.get()  # noqa: SLF001 - prometheus-client counter seam
+        for operation in ("patch_acknowledge", "patch_close", "delete_close")
+    }
+
     app = _app(session_factory)
     caplog.set_level(logging.INFO)
     async for client in get_client(app):
@@ -887,20 +908,23 @@ async def test_compatibility_mutations_emit_safe_json_logs(
     events = [
         record.__dict__
         for record in caplog.records
-        if record.__dict__.get("event") == "operator_mutation"
+        if record.__dict__.get("event") == "compatibility_mutation"
     ]
-    assert [event["effect"] for event in events] == [
-        "acknowledged",
-        "closed",
-        "closed",
+    assert [(event["operation"], event["outcome"]) for event in events] == [
+        ("patch_acknowledge", "success"),
+        ("patch_close", "success"),
+        ("delete_close", "success"),
     ]
-    assert {event["incident_id"] for event in events} == {
-        str(ack_incident.id),
-        str(close_incident.id),
-        str(delete_incident.id),
-    }
-    assert {event["operator"] for event in events} == {"vigilo-compat"}
-    assert {event["reason"] for event in events} == {"acknowledged", "manual_close"}
+    assert all(
+        set(event).isdisjoint({"incident_id", "operator", "reason", "route"})
+        for event in events
+    )
+    for operation, previous_value in before.items():
+        current_value = metrics_module._compatibility_mutations.labels(  # noqa: SLF001
+            operation=operation,
+            outcome="success",
+        )._value.get()  # noqa: SLF001
+        assert current_value == previous_value + 1
     serialized = "\n".join(
         record.getMessage() + repr(record.__dict__) for record in caplog.records
     )

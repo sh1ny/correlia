@@ -1,0 +1,12 @@
+outputs:
+  - name: email-ops
+    plugin_type: email
+    class_path: app.plugins.outputs.email.SmtpOutputPlugin
+    options:
+      host: mailpit
+      port: 1025
+      from_address: correlia@example.test
+      to_addresses:
+        - ops@example.test
+      subject_prefix: "[Correlia]"
+      start_tls: false

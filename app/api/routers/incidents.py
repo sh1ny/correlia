@@ -5,7 +5,16 @@ from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Security, status
+from fastapi import (
+    APIRouter,
+    Body,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    Security,
+    status,
+)
 
 from app.api.security import require_operator_token
 from pydantic import ValidationError
@@ -30,15 +39,36 @@ from app.persistence.incidents import (
     get_incident_by_id,
     list_incidents,
 )
-from app.processing.logging import safe_log_extra
+from app.processing.logging import operational_log_extra, safe_log_extra
 from app.persistence.models import Incident
+from app.processing.metrics import (
+    CompatibilityOperation,
+    CompatibilityOutcome,
+    record_compatibility_mutation,
+)
 
-router = APIRouter(prefix="/v1/incidents", dependencies=[Security(require_operator_token)])
+router = APIRouter(
+    prefix="/v1/incidents", dependencies=[Security(require_operator_token)]
+)
 logger = logging.getLogger(__name__)
 
 VIGILO_COMPAT_OPERATOR = "vigilo-compat"
 VIGILO_COMPAT_REASON = "vigilo-compat"
 
+
+def _record_compatibility_outcome(
+    operation: CompatibilityOperation,
+    outcome: CompatibilityOutcome,
+) -> None:
+    record_compatibility_mutation(operation, outcome)
+    logger.info(
+        "compatibility mutation completed",
+        extra=operational_log_extra(
+            event="compatibility_mutation",
+            operation=operation,
+            outcome=outcome,
+        ),
+    )
 
 
 def _safe_decision_context(incident: Incident) -> DecisionContext:
@@ -144,7 +174,9 @@ async def get_incident(
     async with sessionmaker() as session:
         incident = await get_incident_by_id(session, incident_id)
     if incident is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="incident not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="incident not found"
+        )
     return _incident_response(incident)
 
 
@@ -159,7 +191,9 @@ async def acknowledge_incident(
     async with sessionmaker() as session:
         result = await ack_open_incident(session, incident_id, operator=body.operator)
         if result is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="incident not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="incident not found"
+            )
         await session.commit()
         logger.info(
             "incident acknowledged",
@@ -191,7 +225,9 @@ async def close_incident_endpoint(
             reason=body.reason,
         )
         if result is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="incident not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="incident not found"
+            )
         await session.commit()
         logger.info(
             "incident manually closed",
@@ -218,16 +254,19 @@ async def patch_incident(
     try:
         body = await request.json()
     except Exception:
+        _record_compatibility_outcome("patch", "invalid_status")
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="status is required",
         )
     if not isinstance(body, dict):
+        _record_compatibility_outcome("patch", "invalid_status")
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="status is required",
         )
     if any(key != "status" for key in body):
+        _record_compatibility_outcome("patch", "invalid_status")
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="summary mutation is not supported",
@@ -239,21 +278,15 @@ async def patch_incident(
                 session, incident_id, operator=VIGILO_COMPAT_OPERATOR
             )
             if result is None:
+                _record_compatibility_outcome("patch_acknowledge", "not_found")
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="incident not found",
                 )
             await session.commit()
-            logger.info(
-                "incident acknowledged",
-                extra=safe_log_extra(
-                    event="operator_mutation",
-                    incident_id=str(result.incident.id),
-                    status=result.incident.status,
-                    effect=result.effect,
-                    reason="acknowledged",
-                    operator=VIGILO_COMPAT_OPERATOR,
-                ),
+            _record_compatibility_outcome(
+                "patch_acknowledge",
+                "success" if result.effect != "noop" else "invalid_transition",
             )
         return _incident_response(result.incident)
     if status_value == "CLOSED":
@@ -265,23 +298,18 @@ async def patch_incident(
                 reason=VIGILO_COMPAT_REASON,
             )
             if result is None:
+                _record_compatibility_outcome("patch_close", "not_found")
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="incident not found",
                 )
             await session.commit()
-            logger.info(
-                "incident manually closed",
-                extra=safe_log_extra(
-                    event="operator_mutation",
-                    incident_id=str(result.incident.id),
-                    status=result.incident.status,
-                    effect=result.effect,
-                    reason="manual_close",
-                    operator=VIGILO_COMPAT_OPERATOR,
-                ),
+            _record_compatibility_outcome(
+                "patch_close",
+                "success" if result.effect != "noop" else "invalid_transition",
             )
         return _incident_response(result.incident)
+    _record_compatibility_outcome("patch", "invalid_status")
     raise HTTPException(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         detail="status is required",
@@ -303,20 +331,14 @@ async def delete_incident(
             reason=VIGILO_COMPAT_REASON,
         )
         if result is None:
+            _record_compatibility_outcome("delete_close", "not_found")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="incident not found",
             )
         await session.commit()
-        logger.info(
-            "incident manually closed",
-            extra=safe_log_extra(
-                event="operator_mutation",
-                incident_id=str(result.incident.id),
-                status=result.incident.status,
-                effect=result.effect,
-                reason="manual_close",
-                operator=VIGILO_COMPAT_OPERATOR,
-            ),
+        _record_compatibility_outcome(
+            "delete_close",
+            "success" if result.effect != "noop" else "invalid_transition",
         )
     return _incident_response(result.incident)

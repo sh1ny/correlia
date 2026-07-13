@@ -10,7 +10,9 @@ import pytest
 from app.processing.task_runner import AsyncIOTaskRunner, TaskSubmissionError
 
 
-async def test_registered_task_names_dispatch_to_matching_handlers_with_copied_payloads() -> None:
+async def test_registered_task_names_dispatch_to_matching_handlers_with_copied_payloads() -> (
+    None
+):
     runner = AsyncIOTaskRunner()
     calls: list[tuple[str, Mapping[str, Any]]] = []
 
@@ -45,7 +47,9 @@ async def test_unknown_task_submission_raises_and_creates_no_asyncio_task() -> N
     assert runner.pending_count == 0
 
 
-async def test_handler_exception_is_retrieved_and_logged(caplog: pytest.LogCaptureFixture) -> None:
+async def test_handler_exception_is_retrieved_and_logged(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     runner = AsyncIOTaskRunner()
 
     async def boom(payload: Mapping[str, Any]) -> None:
@@ -58,7 +62,8 @@ async def test_handler_exception_is_retrieved_and_logged(caplog: pytest.LogCaptu
 
     assert runner.pending_count == 0
     assert "async task handler failed" in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "RuntimeError" not in caplog.text
+    assert "inc-1" not in caplog.text
 
 
 def test_asyncio_create_task_is_confined_to_approved_background_modules() -> None:
