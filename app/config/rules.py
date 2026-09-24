@@ -101,6 +101,7 @@ _TAG_KEY_RE = re.compile(r"^[a-z][a-z0-9_.-]*$")
 _SUMMARY_VAR_RE = re.compile(r"\{([a-zA-Z0-9_.-]+)\}")
 _INVALID_VAR_RE = re.compile(r"\{[^}]*\}")
 
+
 def _validate_summary_variables(summary: str) -> None:
     for match in _INVALID_VAR_RE.finditer(summary):
         var = match.group(0)

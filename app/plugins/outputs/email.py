@@ -18,7 +18,9 @@ class SmtpOutputOptions(BaseModel):
     host: BoundedString = "localhost"
     port: int = Field(default=1025, ge=1, le=65535)
     from_address: BoundedString = "correlia@localhost"
-    to_addresses: list[BoundedString] = Field(default_factory=lambda: ["ops@localhost"], min_length=1, max_length=100)
+    to_addresses: list[BoundedString] = Field(
+        default_factory=lambda: ["ops@localhost"], min_length=1, max_length=100
+    )
     subject_prefix: str = Field(default="[Correlia]", max_length=64)
     username: str | None = Field(default=None, max_length=256)
     password: str | None = Field(default=None, max_length=256)
@@ -66,7 +68,9 @@ class SmtpOutputPlugin:
         validate_certs: bool = True,
         timeout: float = 60.0,
     ) -> None:
-        recipients = [to_addresses] if isinstance(to_addresses, str) else list(to_addresses)
+        recipients = (
+            [to_addresses] if isinstance(to_addresses, str) else list(to_addresses)
+        )
         self._options = SmtpOutputOptions.model_validate(
             {
                 "host": host,
@@ -106,13 +110,21 @@ class SmtpOutputPlugin:
         )
 
     def _subject(self, envelope: NotificationEnvelope) -> str:
-        prefix = f"{self._options.subject_prefix} " if self._options.subject_prefix else ""
+        prefix = (
+            f"{self._options.subject_prefix} " if self._options.subject_prefix else ""
+        )
         return f"{prefix}[{envelope.severity.value}] {envelope.rule_name}: {envelope.summary}"
 
     @staticmethod
     def _body(envelope: NotificationEnvelope) -> str:
-        hosts = ", ".join(envelope.affected_hosts) if envelope.affected_hosts else "none"
-        services = ", ".join(envelope.affected_services) if envelope.affected_services else "none"
+        hosts = (
+            ", ".join(envelope.affected_hosts) if envelope.affected_hosts else "none"
+        )
+        services = (
+            ", ".join(envelope.affected_services)
+            if envelope.affected_services
+            else "none"
+        )
         return "\n".join(
             (
                 f"Incident ID: {envelope.incident_id}",

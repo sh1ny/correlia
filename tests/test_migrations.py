@@ -14,16 +14,19 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from testcontainers.postgres import PostgresContainer
 
 
-
 pytestmark = pytest.mark.anyio
 
 
 async def _run_alembic_upgrade(database_url: str) -> None:
     result = subprocess.run(
         [
-            sys.executable, "-m", "alembic",
-            "-x", f"database_url={database_url}",
-            "upgrade", "head",
+            sys.executable,
+            "-m",
+            "alembic",
+            "-x",
+            f"database_url={database_url}",
+            "upgrade",
+            "head",
         ],
         capture_output=True,
         text=True,
@@ -31,6 +34,7 @@ async def _run_alembic_upgrade(database_url: str) -> None:
     )
     if result.returncode != 0:
         raise RuntimeError(f"Alembic upgrade failed: {result.stderr}")
+
 
 async def _run_alembic_upgrade_from_database_url_env(database_url: str) -> None:
     env = os.environ.copy()
@@ -49,7 +53,6 @@ async def _run_alembic_upgrade_from_database_url_env(database_url: str) -> None:
         raise RuntimeError(f"Alembic upgrade failed: {result.stderr}")
 
 
-
 @pytest.fixture(scope="module")
 def postgres_url() -> str:
     with PostgresContainer("postgres:18-alpine") as postgres:
@@ -58,6 +61,7 @@ def postgres_url() -> str:
         url = url.replace("postgresql+psycopg2://", "postgresql+asyncpg://")
         url = url.replace("postgresql://", "postgresql+asyncpg://")
         yield url
+
 
 async def test_migration_creates_incidents_table(postgres_url: str) -> None:
     await _run_alembic_upgrade(postgres_url)
@@ -71,10 +75,12 @@ async def test_migration_creates_incidents_table(postgres_url: str) -> None:
     assert "incidents" in tables
     await engine.dispose()
 
+
 async def test_migration_uses_database_url_env_without_api_tokens(
     postgres_url: str,
 ) -> None:
     await _run_alembic_upgrade_from_database_url_env(postgres_url)
+
 
 async def test_incidents_columns_and_types(postgres_url: str) -> None:
     await _run_alembic_upgrade(postgres_url)
@@ -87,11 +93,27 @@ async def test_incidents_columns_and_types(postgres_url: str) -> None:
         columns = {c["name"]: c for c in columns_info}
 
     expected = {
-        "id", "rule_name", "group_key", "status", "severity",
-        "summary", "event_count", "affected_hosts", "affected_services",
-        "decision_context", "window_state", "threshold_crossed", "notified_at",
-        "start_time", "last_update_time", "acknowledged_at", "acknowledged_by",
-        "resolved_at", "closed_at", "created_at", "updated_at",
+        "id",
+        "rule_name",
+        "group_key",
+        "status",
+        "severity",
+        "summary",
+        "event_count",
+        "affected_hosts",
+        "affected_services",
+        "decision_context",
+        "window_state",
+        "threshold_crossed",
+        "notified_at",
+        "start_time",
+        "last_update_time",
+        "acknowledged_at",
+        "acknowledged_by",
+        "resolved_at",
+        "closed_at",
+        "created_at",
+        "updated_at",
     }
     assert expected.issubset(set(columns.keys()))
 
@@ -102,7 +124,6 @@ async def test_incidents_columns_and_types(postgres_url: str) -> None:
     assert str(columns["threshold_crossed"]["type"]).lower() == "boolean"
     assert "timestamp" in str(columns["notified_at"]["type"]).lower()
 
-
     assert columns["rule_name"]["nullable"] is False
     assert columns["group_key"]["nullable"] is False
     assert columns["status"]["nullable"] is False
@@ -110,6 +131,7 @@ async def test_incidents_columns_and_types(postgres_url: str) -> None:
     assert columns["event_count"]["nullable"] is False
 
     await engine.dispose()
+
 
 async def test_check_constraints(postgres_url: str) -> None:
     await _run_alembic_upgrade(postgres_url)
@@ -146,7 +168,9 @@ async def test_partial_unique_index(postgres_url: str) -> None:
     index_names = {i["name"] for i in indexes}
     assert "incidents_one_open_per_rule_group" in index_names
 
-    partial = next(i for i in indexes if i["name"] == "incidents_one_open_per_rule_group")
+    partial = next(
+        i for i in indexes if i["name"] == "incidents_one_open_per_rule_group"
+    )
     assert partial["unique"] is True
     assert partial["column_names"] == ["rule_name", "group_key"]
     assert "OPEN" in partial.get("dialect_options", {}).get("postgresql_where", "")
@@ -264,6 +288,7 @@ async def test_resolved_does_not_block_new_open(postgres_url: str) -> None:
 
 # Phase 7 incident_events audit table migration tests
 
+
 async def test_migration_creates_incident_events_table(postgres_url: str) -> None:
     await _run_alembic_upgrade(postgres_url)
 
@@ -288,11 +313,25 @@ async def test_incident_events_columns_and_types(postgres_url: str) -> None:
         columns = {c["name"]: c for c in columns_info}
 
     expected = {
-        "id", "accepted_at", "event_timestamp", "source_id", "fingerprint",
-        "event_type", "severity", "host", "service", "incident_ids",
-        "incident_effect", "decision_summary", "normalized_event", "raw_payload",
-        "raw_payload_original_byte_length", "raw_payload_stored_byte_length",
-        "raw_payload_truncated", "redaction_version", "redacted_path_count",
+        "id",
+        "accepted_at",
+        "event_timestamp",
+        "source_id",
+        "fingerprint",
+        "event_type",
+        "severity",
+        "host",
+        "service",
+        "incident_ids",
+        "incident_effect",
+        "decision_summary",
+        "normalized_event",
+        "raw_payload",
+        "raw_payload_original_byte_length",
+        "raw_payload_stored_byte_length",
+        "raw_payload_truncated",
+        "redaction_version",
+        "redacted_path_count",
         "raw_payload_hmac",
     }
     assert expected.issubset(set(columns.keys()))
@@ -330,7 +369,9 @@ async def test_incident_events_check_constraints(postgres_url: str) -> None:
     engine = create_async_engine(postgres_url)
     async with engine.connect() as conn:
         constraints = await conn.run_sync(
-            lambda sync_conn: sa.inspect(sync_conn).get_check_constraints("incident_events")
+            lambda sync_conn: sa.inspect(sync_conn).get_check_constraints(
+                "incident_events"
+            )
         )
 
     names = {c["name"] for c in constraints}
@@ -346,11 +387,15 @@ async def test_incident_events_check_constraints(postgres_url: str) -> None:
     assert "ck_incident_events_redaction_version_positive" in names
     assert "ck_incident_events_redacted_path_count_non_negative" in names
 
-    event_type_def = next(c for c in constraints if c["name"] == "ck_incident_events_event_type")
+    event_type_def = next(
+        c for c in constraints if c["name"] == "ck_incident_events_event_type"
+    )
     assert "PROBLEM" in event_type_def["sqltext"]
     assert "RECOVERY" in event_type_def["sqltext"]
 
-    effect_def = next(c for c in constraints if c["name"] == "ck_incident_events_incident_effect")
+    effect_def = next(
+        c for c in constraints if c["name"] == "ck_incident_events_incident_effect"
+    )
     assert "none" in effect_def["sqltext"]
     assert "inserted" in effect_def["sqltext"]
     assert "affected_set_shrunk" in effect_def["sqltext"]
@@ -376,7 +421,10 @@ async def test_incident_events_indexes(postgres_url: str) -> None:
 
     by_name = {i["name"]: i for i in indexes}
     assert "ix_incident_events_accepted_at_id" in by_name
-    assert by_name["ix_incident_events_accepted_at_id"]["column_names"] == ["accepted_at", "id"]
+    assert by_name["ix_incident_events_accepted_at_id"]["column_names"] == [
+        "accepted_at",
+        "id",
+    ]
 
     assert "ix_incident_events_incident_ids_gin" in by_name
     gin = by_name["ix_incident_events_incident_ids_gin"]
@@ -420,7 +468,9 @@ async def test_audit_id_is_server_generated(postgres_url: str) -> None:
 
     async with engine.connect() as conn:
         result = await conn.execute(
-            sa.text("SELECT id, raw_payload_hmac FROM incident_events WHERE source_id = 'src-1'")
+            sa.text(
+                "SELECT id, raw_payload_hmac FROM incident_events WHERE source_id = 'src-1'"
+            )
         )
         row = result.one()
 

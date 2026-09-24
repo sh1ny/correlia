@@ -746,6 +746,7 @@ async def test_migration_report_projection_is_bounded_and_retains_last_good(
     assert 'correlia_vigilo_migration_report_outcome{outcome="success"} 1.0' in body
     assert "/private/" not in body
 
+
 async def test_migration_report_projection_refreshes_at_metrics_render_boundary(
     tmp_path: Path,
 ) -> None:
@@ -844,7 +845,9 @@ async def test_migration_report_renders_are_consistent_during_atomic_replacement
             assert release_first_render.wait(timeout=1)
         return snapshot
 
-    monkeypatch.setattr(metrics, "_read_migration_report_snapshot", pause_first_snapshot)
+    monkeypatch.setattr(
+        metrics, "_read_migration_report_snapshot", pause_first_snapshot
+    )
     with ThreadPoolExecutor(max_workers=2) as executor:
         first_render = executor.submit(metrics.render_metrics)
         assert first_snapshot_read.wait(timeout=1)
@@ -929,7 +932,9 @@ async def test_migration_report_projection_rejects_fifo_without_blocking(
     timer.start()
     try:
         with ThreadPoolExecutor(max_workers=1) as executor:
-            snapshot = executor.submit(metrics._read_migration_report_snapshot, report_path)
+            snapshot = executor.submit(
+                metrics._read_migration_report_snapshot, report_path
+            )
             status, summary = snapshot.result(timeout=0.1)
     finally:
         timer.cancel()
@@ -1000,6 +1005,7 @@ async def test_migration_report_projection_clears_summary_gauges(
     )
     metrics.configure_migration_report_projection(report_path)
     metrics.render_metrics()
+
     def assert_summary_gauges_are_zero(body: str) -> None:
         for outcome in metrics.MIGRATION_OUTCOMES:
             assert (
@@ -1121,6 +1127,7 @@ async def test_migration_report_projection_validates_versions_domains_and_file_k
     assert 'correlia_vigilo_migration_report_status{status="unsafe_file"} 1.0' in (
         metrics.render_metrics().decode()
     )
+
 
 async def test_migration_report_projection_accepts_byte_truncated_errors_and_rejects_inconsistent_summaries(
     tmp_path: Path,

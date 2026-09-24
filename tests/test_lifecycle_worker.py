@@ -55,7 +55,9 @@ async def test_lifecycle_worker_records_safe_failure_and_continues() -> None:
         calls += 1
         if calls == 1:
             first_failure.set()
-            raise RuntimeError("DATABASE_URL postgresql://user:password@host/token-secret")
+            raise RuntimeError(
+                "DATABASE_URL postgresql://user:password@host/token-secret"
+            )
         second_success.set()
         return 3
 
@@ -125,7 +127,11 @@ async def test_lifespan_starts_and_stops_lifecycle_worker() -> None:
 
     worker = RecordingLifecycleWorker()
     app = create_app(
-        settings=Settings(DATABASE_URL=VALID_DATABASE_URL, api_auth_enabled=False, audit_raw_payload_hmac_key="test-audit-hmac"),
+        settings=Settings(
+            DATABASE_URL=VALID_DATABASE_URL,
+            api_auth_enabled=False,
+            audit_raw_payload_hmac_key="test-audit-hmac",
+        ),
         sessionmaker=sessionmaker,  # type: ignore[arg-type]
         icinga2_processor=object(),  # type: ignore[arg-type]
         task_runner=AsyncIOTaskRunner(),
@@ -149,7 +155,7 @@ def test_lifecycle_worker_does_not_reuse_task_runner_or_external_schedulers() ->
         for path in root.joinpath("app").rglob("*.py")
     }
     joined = "\n".join(sources.values())
-    assert "TaskRunner.register(\"expire" not in joined
+    assert 'TaskRunner.register("expire' not in joined
     assert "TaskRunner.register('expire" not in joined
     for forbidden in ("celery", "redis", "apscheduler"):
         assert forbidden not in sources["app/processing/lifecycle_worker.py"].lower()

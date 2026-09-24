@@ -4,6 +4,7 @@ from app.api.security import require_operator_token
 
 from app.processing.metrics import CONTENT_TYPE_LATEST, render_metrics
 
+
 def build_router(protect_metrics: bool = False) -> APIRouter:
     router = APIRouter(prefix="/v1")
     if protect_metrics:

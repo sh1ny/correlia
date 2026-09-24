@@ -32,7 +32,10 @@ def test_incident_status_values_are_lifecycle_only() -> None:
 def test_acknowledgement_is_metadata_on_open_incident() -> None:
     status = IncidentStatus.OPEN
     acknowledgement = Acknowledgement.model_validate(
-        {"acknowledged_at": datetime(2026, 6, 8, 12, 0, tzinfo=UTC), "acknowledged_by": "operator"}
+        {
+            "acknowledged_at": datetime(2026, 6, 8, 12, 0, tzinfo=UTC),
+            "acknowledged_by": "operator",
+        }
     )
 
     assert status is IncidentStatus.OPEN
@@ -42,7 +45,10 @@ def test_acknowledgement_is_metadata_on_open_incident() -> None:
 def test_acknowledgement_rejects_naive_timestamp() -> None:
     with pytest.raises(ValidationError) as exc_info:
         Acknowledgement.model_validate(
-            {"acknowledged_at": datetime(2026, 6, 8, 12, 0), "acknowledged_by": "operator"}
+            {
+                "acknowledged_at": datetime(2026, 6, 8, 12, 0),
+                "acknowledged_by": "operator",
+            }
         )
 
     assert "timezone-aware" in str(exc_info.value)
@@ -55,7 +61,9 @@ def test_acknowledgement_rejects_naive_timestamp() -> None:
         (IncidentStatus.OPEN, IncidentStatus.CLOSED),
     ],
 )
-def test_allowed_incident_transitions(current: IncidentStatus, target: IncidentStatus) -> None:
+def test_allowed_incident_transitions(
+    current: IncidentStatus, target: IncidentStatus
+) -> None:
     assert validate_incident_transition(current, target) is target
 
 
@@ -68,7 +76,9 @@ def test_allowed_incident_transitions(current: IncidentStatus, target: IncidentS
         (IncidentStatus.CLOSED, IncidentStatus.RESOLVED),
     ],
 )
-def test_terminal_incident_transitions_are_forbidden(current: IncidentStatus, target: IncidentStatus) -> None:
+def test_terminal_incident_transitions_are_forbidden(
+    current: IncidentStatus, target: IncidentStatus
+) -> None:
     assert is_terminal_status(current)
 
     with pytest.raises(ValueError, match="cannot transition"):
@@ -115,7 +125,9 @@ def test_decision_context_accepts_compact_allowed_facts() -> None:
         "unknown_extra",
     ],
 )
-def test_decision_context_rejects_forbidden_or_unknown_top_level_keys(forbidden_key: str) -> None:
+def test_decision_context_rejects_forbidden_or_unknown_top_level_keys(
+    forbidden_key: str,
+) -> None:
     data = {
         "schema_version": 1,
         "fingerprint": "fp",
@@ -144,16 +156,22 @@ def test_decision_context_rejects_forbidden_or_unknown_top_level_keys(forbidden_
         {"Team Name": "platform"},
     ],
 )
-def test_decision_context_notes_are_bounded_and_secret_safe(notes: dict[str, str]) -> None:
+def test_decision_context_notes_are_bounded_and_secret_safe(
+    notes: dict[str, str],
+) -> None:
     with pytest.raises(ValidationError):
         DecisionContext.model_validate({"schema_version": 1, "notes": notes})
+
 
 @pytest.mark.parametrize(
     ("model", "payload"),
     [
         (IncidentAckRequest, {"operator": "token-secret"}),
         (IncidentCloseRequest, {"operator": "operator", "reason": "password rotated"}),
-        (IncidentCloseRequest, {"operator": "secret-admin", "reason": "handled manually"}),
+        (
+            IncidentCloseRequest,
+            {"operator": "secret-admin", "reason": "handled manually"},
+        ),
     ],
 )
 def test_operator_action_requests_reject_secret_like_text(
@@ -172,7 +190,10 @@ def test_operator_action_requests_reject_secret_like_text(
 def test_decision_context_rejects_too_many_tuple_entries() -> None:
     with pytest.raises(ValidationError):
         DecisionContext.model_validate(
-            {"schema_version": 1, "matched_rule_names": tuple(f"rule-{index}" for index in range(21))}
+            {
+                "schema_version": 1,
+                "matched_rule_names": tuple(f"rule-{index}" for index in range(21)),
+            }
         )
 
 

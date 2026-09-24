@@ -12,11 +12,13 @@ from app.plugins.loader import PluginRegistry
 
 pytestmark = pytest.mark.anyio
 
+
 @pytest.fixture(autouse=True)
-def _disable_auth_for_plugins_tests(monkeypatch: pytest.MonkeyPatch, clean_settings_env: None) -> None:
+def _disable_auth_for_plugins_tests(
+    monkeypatch: pytest.MonkeyPatch, clean_settings_env: None
+) -> None:
     monkeypatch.setenv("CORRELIA_API_AUTH_ENABLED", "false")
     monkeypatch.setenv("CORRELIA_AUDIT_RAW_PAYLOAD_HMAC_KEY", "test-audit-hmac")
-
 
 
 async def get_client(app) -> AsyncIterator[AsyncClient]:
@@ -59,7 +61,9 @@ async def test_v1_plugins_route_lists_safe_output_status_only(tmp_path: Path) ->
 
     registry = _registry(tmp_path)
     app = create_app(
-        settings=Settings(DATABASE_URL="postgresql+asyncpg://user:pass@localhost:5432/correlia"),
+        settings=Settings(
+            DATABASE_URL="postgresql+asyncpg://user:pass@localhost:5432/correlia"
+        ),
         sessionmaker=lambda: object(),
         plugin_registry=registry,
     )
@@ -91,7 +95,9 @@ def test_v1_plugins_route_is_exposed_without_legacy_alias() -> None:
     from app.main import create_app
 
     app = create_app(
-        settings=Settings(DATABASE_URL="postgresql+asyncpg://user:pass@localhost:5432/correlia"),
+        settings=Settings(
+            DATABASE_URL="postgresql+asyncpg://user:pass@localhost:5432/correlia"
+        ),
         sessionmaker=lambda: object(),
     )
     route_paths = {route.path for route in app.routes}

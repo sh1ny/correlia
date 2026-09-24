@@ -311,7 +311,9 @@ def test_mailpit_messages_treats_non_success_and_malformed_json_as_retryable(
     def fake_probe(*_args: object, **_kwargs: object) -> tuple[int, bytes]:
         return next(responses)
 
-    monkeypatch.setitem(_mailpit_messages.__globals__, "_container_http_response", fake_probe)
+    monkeypatch.setitem(
+        _mailpit_messages.__globals__, "_container_http_response", fake_probe
+    )
 
     assert _mailpit_messages("mailpit", "http://mailpit/api/v1/messages") is None
     assert _mailpit_messages("mailpit", "http://mailpit/api/v1/messages") is None
@@ -1018,11 +1020,14 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
     )
     assert status == 200
     initial_metrics = metrics_body.decode()
-    assert _metric_value(
-        initial_metrics,
-        "correlia_vigilo_migration_report_status",
-        {"status": "valid"},
-    ) == 1.0
+    assert (
+        _metric_value(
+            initial_metrics,
+            "correlia_vigilo_migration_report_status",
+            {"status": "valid"},
+        )
+        == 1.0
+    )
     metric_baselines = {
         "audit_writes": _metric_value(
             initial_metrics,
@@ -1234,10 +1239,9 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
         if messages is None:
             return None
         for message in messages:
-            if (
-                message.get("Subject") != expected_subject
-                or message.get("To") != [{"Name": "", "Address": "ops@example.test"}]
-            ):
+            if message.get("Subject") != expected_subject or message.get("To") != [
+                {"Name": "", "Address": "ops@example.test"}
+            ]:
                 continue
             message_id = message.get("ID")
             if not isinstance(message_id, str):
@@ -1249,7 +1253,7 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
                 continue
             try:
                 message_text = str(json.loads(message_body)["Text"])
-            except (KeyError, TypeError, json.JSONDecodeError):
+            except KeyError, TypeError, json.JSONDecodeError:
                 continue
             if (
                 f"Incident ID: {incident_id}" in message_text
@@ -1316,13 +1320,18 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
             return candidate
         return None
 
-    runtime_metrics = _wait_until("concrete operational metric deltas", runtime_metric_deltas)
+    runtime_metrics = _wait_until(
+        "concrete operational metric deltas", runtime_metric_deltas
+    )
     assert isinstance(runtime_metrics, str)
-    assert _metric_value(
-        runtime_metrics,
-        "correlia_vigilo_migration_report_status",
-        {"status": "valid"},
-    ) == 1.0
+    assert (
+        _metric_value(
+            runtime_metrics,
+            "correlia_vigilo_migration_report_status",
+            {"status": "valid"},
+        )
+        == 1.0
+    )
     for forbidden in (
         postgres_password,
         operator_token,

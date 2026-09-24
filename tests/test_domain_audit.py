@@ -25,7 +25,9 @@ def _valid_decision_summary_kwargs() -> dict[str, object]:
     }
 
 
-def test_audit_decision_summary_accepts_required_fields_and_defaults_schema_version() -> None:
+def test_audit_decision_summary_accepts_required_fields_and_defaults_schema_version() -> (
+    None
+):
     summary = AuditDecisionSummary.model_validate(_valid_decision_summary_kwargs())
     assert summary.schema_version == 1
     assert summary.decision_kind == "problem"

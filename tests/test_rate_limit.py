@@ -94,6 +94,7 @@ async def test_rate_limit_allows_requests_under_limit() -> None:
     assert response1.status_code == 200
     assert response2.status_code == 200
 
+
 def test_logged_identity_hash_keeps_token_hash_values() -> None:
     assert logged_identity_hash("token_hash", "abc123") == "token_hash:abc123"
 
@@ -434,6 +435,7 @@ async def test_rate_limit_sweep_worker_survives_sweep_exception(
     assert calls >= 2
     assert worker._task is None
 
+
 def test_rate_limiter_middleware_rejects_invalid_token_type() -> None:
     from starlette.types import Scope
 
@@ -441,7 +443,9 @@ def test_rate_limiter_middleware_rejects_invalid_token_type() -> None:
         pass
 
     limiter = InProcessRateLimiter()
-    configs = {"operator": RateLimitConfig(enabled=True, requests=10, window_seconds=60)}
+    configs = {
+        "operator": RateLimitConfig(enabled=True, requests=10, window_seconds=60)
+    }
     with pytest.raises(ValueError):
         RateLimiterMiddleware(
             app,  # type: ignore[arg-type]

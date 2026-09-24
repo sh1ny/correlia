@@ -41,9 +41,7 @@ class InProcessRateLimiter:
     ) -> tuple[bool, int | None]:
         now = time.monotonic()
         async with self._lock:
-            count, window_start, _ = self._counters.get(
-                key, (0, now, window_seconds)
-            )
+            count, window_start, _ = self._counters.get(key, (0, now, window_seconds))
             if now - window_start >= window_seconds:
                 count = 0
                 window_start = now
@@ -129,7 +127,9 @@ class RateLimitSweepWorker:
                     ),
                 )
             try:
-                await asyncio.wait_for(stop_event.wait(), timeout=self._interval_seconds)
+                await asyncio.wait_for(
+                    stop_event.wait(), timeout=self._interval_seconds
+                )
             except asyncio.TimeoutError:
                 continue
 
@@ -171,11 +171,11 @@ def identity_for_request(
         return _IP_PREFIX, str(client[0])
     return _IP_PREFIX, "unknown"
 
+
 def logged_identity_hash(identity_type: str, identity_value: str) -> str:
     if identity_type == _IP_PREFIX:
         identity_value = hashlib.sha256(identity_value.encode()).hexdigest()
     return f"{identity_type}:{identity_value}"
-
 
 
 class RateLimiterMiddleware(BaseHTTPMiddleware):

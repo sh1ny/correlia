@@ -85,6 +85,8 @@ def _validate_option_value(option_name: str, value: object) -> None:
             raise ValueError(f"plugin option '{option_name}' is too large")
         for item in value:
             if not isinstance(item, _ALLOWED_OPTION_TYPES):
-                raise ValueError(f"plugin option '{option_name}' contains an unsupported value")
+                raise ValueError(
+                    f"plugin option '{option_name}' contains an unsupported value"
+                )
         return
     raise ValueError(f"plugin option '{option_name}' contains an unsupported value")

@@ -70,7 +70,9 @@ async def db_session(postgres_url: str):
     await cleanup.dispose()
 
 
-def _input(rule_name: str, window_seconds: int, *, host: str = "db-1") -> IncidentUpsertInput:
+def _input(
+    rule_name: str, window_seconds: int, *, host: str = "db-1"
+) -> IncidentUpsertInput:
     return IncidentUpsertInput(
         rule_name=rule_name,
         group_key=host,
@@ -105,11 +107,17 @@ async def _set_db_relative_last_update(
     await db_session.commit()
 
 
-async def test_expiration_uses_database_time_and_rule_window(db_session: AsyncSession) -> None:
+async def test_expiration_uses_database_time_and_rule_window(
+    db_session: AsyncSession,
+) -> None:
     from app.persistence.incidents import expire_stale_incidents
 
-    short_window = await upsert_open_incident(db_session, _input("short-window", 10, host="db-1"))
-    long_window = await upsert_open_incident(db_session, _input("long-window", 30, host="db-2"))
+    short_window = await upsert_open_incident(
+        db_session, _input("short-window", 10, host="db-1")
+    )
+    long_window = await upsert_open_incident(
+        db_session, _input("long-window", 30, host="db-2")
+    )
     await db_session.commit()
     await _set_db_relative_last_update(
         db_session,
@@ -127,8 +135,10 @@ async def test_expiration_uses_database_time_and_rule_window(db_session: AsyncSe
 
     assert [incident.id for incident in expired] == [short_window.id]
     rows = (
-        await db_session.execute(select(Incident).order_by(Incident.rule_name))
-    ).scalars().all()
+        (await db_session.execute(select(Incident).order_by(Incident.rule_name)))
+        .scalars()
+        .all()
+    )
     assert [(row.rule_name, row.status) for row in rows] == [
         ("long-window", IncidentStatus.OPEN.value),
         ("short-window", IncidentStatus.CLOSED.value),
@@ -141,26 +151,47 @@ async def test_expiration_uses_database_time_and_rule_window(db_session: AsyncSe
     assert audit_count == 0
 
 
-
 async def test_expiration_closes_only_stale_open_rows(db_session: AsyncSession) -> None:
     from app.persistence.incidents import close_open_incident, expire_stale_incidents
 
-    stale_open = await upsert_open_incident(db_session, _input("stale-open", 5, host="db-1"))
-    fresh_open = await upsert_open_incident(db_session, _input("fresh-open", 60, host="db-2"))
-    closed = await upsert_open_incident(db_session, _input("already-closed", 5, host="db-3"))
-    resolved = await upsert_open_incident(db_session, _input("already-resolved", 5, host="db-4"))
+    stale_open = await upsert_open_incident(
+        db_session, _input("stale-open", 5, host="db-1")
+    )
+    fresh_open = await upsert_open_incident(
+        db_session, _input("fresh-open", 60, host="db-2")
+    )
+    closed = await upsert_open_incident(
+        db_session, _input("already-closed", 5, host="db-3")
+    )
+    resolved = await upsert_open_incident(
+        db_session, _input("already-resolved", 5, host="db-4")
+    )
     await db_session.commit()
 
-    await close_open_incident(db_session, closed.id, operator="operator", reason="manual")
+    await close_open_incident(
+        db_session, closed.id, operator="operator", reason="manual"
+    )
     await db_session.execute(
         update(Incident)
         .where(Incident.id == resolved.id)
-        .values(status=IncidentStatus.RESOLVED.value, resolved_at=func.now(), updated_at=func.now())
+        .values(
+            status=IncidentStatus.RESOLVED.value,
+            resolved_at=func.now(),
+            updated_at=func.now(),
+        )
     )
-    await _set_db_relative_last_update(db_session, stale_open.id, "now() - interval '10 seconds'")
-    await _set_db_relative_last_update(db_session, fresh_open.id, "now() - interval '10 seconds'")
-    await _set_db_relative_last_update(db_session, closed.id, "now() - interval '10 seconds'")
-    await _set_db_relative_last_update(db_session, resolved.id, "now() - interval '10 seconds'")
+    await _set_db_relative_last_update(
+        db_session, stale_open.id, "now() - interval '10 seconds'"
+    )
+    await _set_db_relative_last_update(
+        db_session, fresh_open.id, "now() - interval '10 seconds'"
+    )
+    await _set_db_relative_last_update(
+        db_session, closed.id, "now() - interval '10 seconds'"
+    )
+    await _set_db_relative_last_update(
+        db_session, resolved.id, "now() - interval '10 seconds'"
+    )
 
     expired = await expire_stale_incidents(db_session, limit=10)
     await db_session.commit()
@@ -183,7 +214,9 @@ async def test_expiration_context_is_non_secret(db_session: AsyncSession) -> Non
 
     stale = await upsert_open_incident(db_session, _input("safe-rule", 5, host="db-1"))
     await db_session.commit()
-    await _set_db_relative_last_update(db_session, stale.id, "now() - interval '10 seconds'")
+    await _set_db_relative_last_update(
+        db_session, stale.id, "now() - interval '10 seconds'"
+    )
 
     expired = await expire_stale_incidents(db_session, limit=10)
     await db_session.commit()
@@ -210,7 +243,11 @@ def test_expiration_source_uses_database_time_not_app_clock() -> None:
     import app.persistence.incidents as incidents_module
 
     source = inspect.getsource(incidents_module.expire_stale_incidents)
-    assert "func.now()" in source or "CURRENT_TIMESTAMP" in source or "statement_timestamp" in source
+    assert (
+        "func.now()" in source
+        or "CURRENT_TIMESTAMP" in source
+        or "statement_timestamp" in source
+    )
     assert "datetime.now" not in source
     assert "last_update_time" in source
     assert "window_seconds" in source

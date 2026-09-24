@@ -89,21 +89,21 @@ def _service_pair_parts(pair: str) -> tuple[str, str] | None:
     return host, service
 
 
-def _service_pair_keys(hosts: tuple[str, ...], services: tuple[str, ...]) -> tuple[str, ...]:
+def _service_pair_keys(
+    hosts: tuple[str, ...], services: tuple[str, ...]
+) -> tuple[str, ...]:
     if not services:
         return ()
     return tuple(
         sorted(
-            {
-                _service_pair_key(host, service)
-                for host in hosts
-                for service in services
-            }
+            {_service_pair_key(host, service) for host in hosts for service in services}
         )[:MAX_ACTIVE_SERVICE_PAIRS]
     )
 
 
-def _jsonb_sorted_union(existing_column: Any, excluded_name: str, max_items: int) -> Any:
+def _jsonb_sorted_union(
+    existing_column: Any, excluded_name: str, max_items: int
+) -> Any:
     existing_elems = select(
         func.jsonb_array_elements_text(existing_column).label("elem")
     ).subquery("e1")
@@ -112,13 +112,13 @@ def _jsonb_sorted_union(existing_column: Any, excluded_name: str, max_items: int
         func.jsonb_array_elements_text(text(f"excluded.{excluded_name}")).label("elem")
     ).subquery("e2")
 
-    combined = select(existing_elems.c.elem).union(
-        select(excluded_elems.c.elem)
-    ).subquery("u")
+    combined = (
+        select(existing_elems.c.elem).union(select(excluded_elems.c.elem)).subquery("u")
+    )
 
-    ordered_limited = select(combined.c.elem).order_by(
-        combined.c.elem
-    ).limit(max_items).subquery("o")
+    ordered_limited = (
+        select(combined.c.elem).order_by(combined.c.elem).limit(max_items).subquery("o")
+    )
 
     agg = select(func.jsonb_agg(ordered_limited.c.elem)).select_from(ordered_limited)
 
@@ -228,7 +228,6 @@ class LifecycleWriteResult:
     affected_object_removed: bool
 
 
-
 @dataclass(frozen=True, slots=True)
 class IncidentCursor:
     last_update_time: datetime
@@ -241,6 +240,7 @@ class IncidentListPage:
     next_cursor: str | None
     total: int
     offset: int
+
 
 def _parse_timestamp(value: Any) -> datetime:
     if isinstance(value, datetime):
@@ -257,7 +257,9 @@ def _window_state_dump(state: IncidentWindowState) -> dict[str, Any]:
 def _window_state_from_json(data: dict[str, Any]) -> IncidentWindowState:
     timestamps = {
         str(fingerprint): _parse_timestamp(timestamp)
-        for fingerprint, timestamp in data.get("counted_fingerprint_timestamps", {}).items()
+        for fingerprint, timestamp in data.get(
+            "counted_fingerprint_timestamps", {}
+        ).items()
     }
     active_service_pairs = tuple(
         str(pair) for pair in data.get("active_service_pairs", ())
@@ -328,9 +330,9 @@ def _next_window_state(
         retained[fingerprint] = input.event_time
 
     if len(retained) > input.max_window_fingerprints:
-        newest = sorted(retained.items(), key=lambda item: (item[1], item[0]), reverse=True)[
-            : input.max_window_fingerprints
-        ]
+        newest = sorted(
+            retained.items(), key=lambda item: (item[1], item[0]), reverse=True
+        )[: input.max_window_fingerprints]
         retained = dict(newest)
 
     retained = dict(sorted(retained.items()))
@@ -436,13 +438,14 @@ async def record_notification_result(
         plugin_name,
         result,
     )
-    update_values: dict[str, Any] = {"decision_context": context, "updated_at": func.now()}
+    update_values: dict[str, Any] = {
+        "decision_context": context,
+        "updated_at": func.now(),
+    }
     if result.success:
         update_values["notified_at"] = func.now()
     await session.execute(
-        update(Incident)
-        .where(Incident.id == incident_id)
-        .values(**update_values)
+        update(Incident).where(Incident.id == incident_id).values(**update_values)
     )
     incident.decision_context = context
     return True
@@ -501,9 +504,10 @@ async def list_incidents(
         return stmt
 
     base_stmt = apply_filters(select(Incident))
-    total = await session.scalar(
-        select(func.count()).select_from(base_stmt.subquery())
-    ) or 0
+    total = (
+        await session.scalar(select(func.count()).select_from(base_stmt.subquery()))
+        or 0
+    )
 
     page_stmt = apply_filters(select(Incident))
     if filters.cursor is not None:
@@ -531,9 +535,11 @@ async def list_incidents(
             )
         offset_value = 0
     elif filters.offset is not None:
-        page_stmt = page_stmt.order_by(
-            Incident.last_update_time.desc(), Incident.id.desc()
-        ).offset(filters.offset).limit(filters.limit)
+        page_stmt = (
+            page_stmt.order_by(Incident.last_update_time.desc(), Incident.id.desc())
+            .offset(filters.offset)
+            .limit(filters.limit)
+        )
         result = await session.execute(page_stmt)
         incidents = tuple(result.scalars().all())
         next_cursor = None
@@ -561,7 +567,9 @@ async def list_incidents(
     )
 
 
-async def get_incident_by_id(session: AsyncSession, incident_id: UUID) -> Incident | None:
+async def get_incident_by_id(
+    session: AsyncSession, incident_id: UUID
+) -> Incident | None:
     result = await session.execute(select(Incident).where(Incident.id == incident_id))
     return result.scalar_one_or_none()
 
@@ -594,7 +602,8 @@ def build_open_incident_upsert(input: IncidentUpsertInput) -> Any:
 
     new_severity = case(
         (
-            _severity_rank_expr(excluded_severity) > _severity_rank_expr(existing_severity),
+            _severity_rank_expr(excluded_severity)
+            > _severity_rank_expr(existing_severity),
             excluded_severity,
         ),
         else_=existing_severity,
@@ -628,7 +637,10 @@ def build_open_incident_upsert(input: IncidentUpsertInput) -> Any:
             ),
             Incident.window_state: stmt.excluded.window_state,
             Incident.threshold_crossed: case(
-                (Incident.threshold_crossed.is_(False), stmt.excluded.threshold_crossed),
+                (
+                    Incident.threshold_crossed.is_(False),
+                    stmt.excluded.threshold_crossed,
+                ),
                 else_=Incident.threshold_crossed,
             ),
             Incident.updated_at: func.now(),
@@ -661,7 +673,9 @@ async def record_problem_incident(
             threshold_crossed=threshold_crossed,
             first_threshold_transition=threshold_crossed,
             counted_count=window_state.counted_count,
-            counted_fingerprints=tuple(window_state.counted_fingerprint_timestamps.keys()),
+            counted_fingerprints=tuple(
+                window_state.counted_fingerprint_timestamps.keys()
+            ),
         )
 
     existing_result = await session.execute(
@@ -676,7 +690,10 @@ async def record_problem_incident(
     existing = existing_result.scalar_one()
 
     window_state, replay, inside_window, counted = _next_window_state(existing, input)
-    threshold_crossed = existing.threshold_crossed or window_state.counted_count >= input.threshold_count
+    threshold_crossed = (
+        existing.threshold_crossed
+        or window_state.counted_count >= input.threshold_count
+    )
     first_threshold_transition = not existing.threshold_crossed and threshold_crossed
 
     updated_result = await session.execute(
@@ -847,11 +864,14 @@ def _lifecycle_context(
         for key, value in existing_notes.items()
         if not key.startswith("lifecycle.")
     }
-    candidate["notes"] = dict(list(kept_notes.items())[-remaining:] + list(lifecycle_notes.items()))
+    candidate["notes"] = dict(
+        list(kept_notes.items())[-remaining:] + list(lifecycle_notes.items())
+    )
     candidate["fingerprint"] = fingerprint or candidate.get("fingerprint")
     candidate["source_id"] = source_id or candidate.get("source_id")
     candidate["event_count"] = incident.event_count
     return DecisionContext.model_validate(candidate).model_dump(mode="json")
+
 
 def _window_state_with_active_pairs(
     incident: Incident,
@@ -878,8 +898,6 @@ def _affected_sets_from_service_pairs(
         hosts.add(host)
         services.add(service)
     return sorted(hosts), sorted(services)
-
-
 
 
 async def _shrink_affected_sets(
@@ -1115,7 +1133,9 @@ async def ack_open_incident(
     )
     incident = selected.scalar_one_or_none()
     if incident is None:
-        current = await session.execute(select(Incident).where(Incident.id == incident_id))
+        current = await session.execute(
+            select(Incident).where(Incident.id == incident_id)
+        )
         row = current.scalar_one_or_none()
         if row is None:
             return None
@@ -1174,7 +1194,9 @@ async def close_open_incident(
     )
     incident = selected.scalar_one_or_none()
     if incident is None:
-        current = await session.execute(select(Incident).where(Incident.id == incident_id))
+        current = await session.execute(
+            select(Incident).where(Incident.id == incident_id)
+        )
         row = current.scalar_one_or_none()
         if row is None:
             return None
@@ -1258,7 +1280,9 @@ async def expire_stale_incidents(
             previous_host_count=previous_host_count,
             previous_service_count=previous_service_count,
         )
-        target = validate_incident_transition(IncidentStatus.OPEN, IncidentStatus.CLOSED)
+        target = validate_incident_transition(
+            IncidentStatus.OPEN, IncidentStatus.CLOSED
+        )
         update_result = await session.execute(
             update(Incident)
             .where(Incident.id == incident.id)

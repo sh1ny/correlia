@@ -100,7 +100,6 @@ class IncidentEffectSummary(BaseModel):
     updated: int = Field(default=0, ge=0)
 
 
-
 class IngressDecisionEnvelope(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
 
@@ -123,7 +122,9 @@ class IngressDecisionEnvelope(BaseModel):
     )
     closure_count: int = Field(default=0, ge=0)
     lifecycle_outcome: LifecycleOutcome | None = None
-    recovery_resolution: Literal["noop", "affected_set_shrunk", "resolved"] | None = None
+    recovery_resolution: Literal["noop", "affected_set_shrunk", "resolved"] | None = (
+        None
+    )
     affected_object_removed: bool = False
     incident_id: UUID | None = None
     threshold_crossed: bool = False

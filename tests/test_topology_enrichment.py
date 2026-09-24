@@ -119,12 +119,15 @@ def test_load_topology_config_rejects_invalid_regex(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="Invalid regex"):
         load_topology_config(path)
 
+
 # ---------------------------------------------------------------------------
 # CFG-04: hostname tag capture groups (D-07, D-09, D-11)
 # ---------------------------------------------------------------------------
 
 
-def test_load_topology_config_accepts_hostname_tag_capture_groups(tmp_path: Path) -> None:
+def test_load_topology_config_accepts_hostname_tag_capture_groups(
+    tmp_path: Path,
+) -> None:
     path = tmp_path / "topology.yaml"
     path.write_text(
         yaml.safe_dump(
@@ -150,6 +153,7 @@ def test_load_topology_config_accepts_hostname_tag_capture_groups(tmp_path: Path
     match = rule.pattern.match("prm1-prd-web01")
     assert match is not None
     assert match.group(1) == "prm1"
+
 
 def test_load_topology_config_rejects_capture_group_key_outside_tag_key_contract(
     tmp_path: Path,
@@ -286,7 +290,6 @@ def test_load_topology_config_accepts_valid_subnet_rules(tmp_path: Path) -> None
     assert rule.tags == {"topology.site": "dc1"}
 
 
-
 def test_load_topology_config_allows_mixed_ipv4_ipv6_subnets(tmp_path: Path) -> None:
     path = tmp_path / "topology.yaml"
     path.write_text(
@@ -314,6 +317,7 @@ def test_load_topology_config_allows_mixed_ipv4_ipv6_subnets(tmp_path: Path) -> 
     config = load_topology_config(path)
 
     assert len(config.subnet_rules) == 2
+
 
 def test_load_topology_config_rejects_invalid_cidr(tmp_path: Path) -> None:
     path = tmp_path / "topology.yaml"
@@ -524,6 +528,7 @@ async def test_subnet_matching_skips_different_ip_families(tmp_path: Path) -> No
     assert result.event.tags["topology.site"] == "v4"
     assert result.diagnostics[0].rule_id == "ipv4"
 
+
 async def test_no_match_returns_original_event(tmp_path: Path) -> None:
     path = tmp_path / "topology.yaml"
     path.write_text(
@@ -567,7 +572,9 @@ async def test_topology_wins_on_conflicting_source_tags(tmp_path: Path) -> None:
     )
     config = load_topology_config(path)
     enricher = StaticTopologyEnricher(config)
-    event = _event(host="web-01", tags={"team.name": "platform", "topology.role": "old-value"})
+    event = _event(
+        host="web-01", tags={"team.name": "platform", "topology.role": "old-value"}
+    )
     result = await enricher.enrich(event)
 
     assert result.event.tags["topology.role"] == "web"
@@ -597,7 +604,9 @@ async def test_no_conflict_when_source_tag_same_value(tmp_path: Path) -> None:
     )
     config = load_topology_config(path)
     enricher = StaticTopologyEnricher(config)
-    event = _event(host="web-01", tags={"team.name": "platform", "topology.role": "web"})
+    event = _event(
+        host="web-01", tags={"team.name": "platform", "topology.role": "web"}
+    )
     result = await enricher.enrich(event)
 
     assert result.event.tags["topology.role"] == "web"
@@ -606,6 +615,7 @@ async def test_no_conflict_when_source_tag_same_value(tmp_path: Path) -> None:
     assert diag.tags_added == {}
     assert diag.tags_overridden == []
     assert diag.conflicts == []
+
 
 # ---------------------------------------------------------------------------
 # CFG-04: derived hostname tag enrichment (D-08, D-09)
@@ -724,6 +734,7 @@ async def test_hostname_capture_group_skips_empty_capture(
     assert diag.tags_added == {}
     assert diag.tags_overridden == []
     assert diag.conflicts == []
+
 
 async def test_hostname_capture_group_rejects_overlong_capture(
     tmp_path: Path,
@@ -849,6 +860,7 @@ async def test_diagnostics_only_include_matched_rule(tmp_path: Path) -> None:
 
     assert len(result.diagnostics) == 1
     assert result.diagnostics[0].rule_id == "web-servers"
+
 
 def test_enrich_method_has_no_persistence_or_rule_engine_refs() -> None:
     source = inspect.getsource(StaticTopologyEnricher.enrich)

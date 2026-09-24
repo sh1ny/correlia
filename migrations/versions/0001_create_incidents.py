@@ -1,10 +1,11 @@
 """create incidents
 
 Revision ID: 0001_create_incidents
-Revises: 
+Revises:
 Create Date: 2026-06-08 00:00:00.000000
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op

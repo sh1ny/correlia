@@ -33,7 +33,10 @@ from app.persistence.audit import insert_incident_event, redact_payload
 from app.persistence.incidents import IncidentUpsertInput, upsert_open_incident
 from app.persistence.models import Incident, IncidentEvent
 from app.plugins.loader import PluginRegistry
-from app.processing.ingress import Icinga2DecisionProcessor, build_icinga2_processor as _real_build_icinga2_processor
+from app.processing.ingress import (
+    Icinga2DecisionProcessor,
+    build_icinga2_processor as _real_build_icinga2_processor,
+)
 from app.processing.task_runner import AsyncIOTaskRunner
 
 pytestmark = pytest.mark.anyio
@@ -67,7 +70,9 @@ _migrated_url: str | None = None
 def postgres_url() -> str:
     global _migrated_url
     with PostgresContainer("postgres:18-alpine") as postgres:
-        url = postgres.get_connection_url().replace("postgresql+psycopg2", "postgresql+asyncpg")
+        url = postgres.get_connection_url().replace(
+            "postgresql+psycopg2", "postgresql+asyncpg"
+        )
         if _migrated_url != url:
             _run_alembic_upgrade(url)
             _migrated_url = url
@@ -129,7 +134,9 @@ def _app(
 
 
 def _event_time(offset_minutes: int) -> datetime:
-    return datetime(2026, 6, 18, 12, 0, tzinfo=timezone.utc) + timedelta(minutes=offset_minutes)
+    return datetime(2026, 6, 18, 12, 0, tzinfo=timezone.utc) + timedelta(
+        minutes=offset_minutes
+    )
 
 
 def _minimal_normalized_event(**overrides: Any) -> dict[str, Any]:
@@ -237,6 +244,7 @@ async def test_seed_audit_event_preserves_explicit_empty_raw_payload(
 
     assert event.raw_payload == {}
 
+
 # ---------------------------------------------------------------------------
 # Ingress helpers (mirror test_ingress_router.py patterns)
 # ---------------------------------------------------------------------------
@@ -261,7 +269,9 @@ def _write_rules(path: Path, threshold: int = 1) -> None:
                             "trigger_threshold": threshold,
                         },
                         "output_summary": "Critical {service} in {topology.site}",
-                        "actions": [{"name": "create_incident", "plugin": "email-oncall"}],
+                        "actions": [
+                            {"name": "create_incident", "plugin": "email-oncall"}
+                        ],
                     }
                 ]
             }
@@ -497,17 +507,13 @@ async def test_list_incident_events_filters_by_incident_and_noop_fields(
         assert ids == {"fp-incident"}
 
         # has_incident=true
-        resp = await client.get(
-            "/v1/incident-events", params={"has_incident": "true"}
-        )
+        resp = await client.get("/v1/incident-events", params={"has_incident": "true"})
         assert resp.status_code == 200
         ids = {i["fingerprint"] for i in resp.json()["items"]}
         assert ids == {"fp-incident", "fp-below"}
 
         # has_incident=false → only incident_effect=none
-        resp = await client.get(
-            "/v1/incident-events", params={"has_incident": "false"}
-        )
+        resp = await client.get("/v1/incident-events", params={"has_incident": "false"})
         assert resp.status_code == 200
         items = resp.json()["items"]
         assert len(items) == 1
@@ -532,14 +538,10 @@ async def test_list_incident_events_filters_by_incident_and_noop_fields(
         assert items[0]["fingerprint"] == "fp-below"
 
 
-
-
 async def test_list_incident_events_filters_full_recovery_ids_with_bounded_response(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    incident_ids = [
-        str(uuid4()) for _ in range(AUDIT_INCIDENT_IDS_MAX + 1)
-    ]
+    incident_ids = [str(uuid4()) for _ in range(AUDIT_INCIDENT_IDS_MAX + 1)]
     async with session_factory() as session:
         await _seed_audit_event(
             session,
@@ -574,6 +576,7 @@ async def test_list_incident_events_filters_full_recovery_ids_with_bounded_respo
         == incident_ids[:AUDIT_INCIDENT_IDS_MAX]
     )
     assert item["decision_summary"]["incident_ids_truncated"] is True
+
 
 # ---------------------------------------------------------------------------
 # Filter tests — scalar and time ranges
@@ -617,9 +620,7 @@ async def test_list_incident_events_filters_by_scalar_and_time_ranges(
         assert resp.json()["items"][0]["fingerprint"] == "fp-alpha"
 
         # source_id
-        resp = await client.get(
-            "/v1/incident-events", params={"source_id": "src-beta"}
-        )
+        resp = await client.get("/v1/incident-events", params={"source_id": "src-beta"})
         assert resp.status_code == 200
         assert len(resp.json()["items"]) == 1
         assert resp.json()["items"][0]["source_id"] == "src-beta"
@@ -633,9 +634,7 @@ async def test_list_incident_events_filters_by_scalar_and_time_ranges(
         assert resp.json()["items"][0]["event_type"] == "RECOVERY"
 
         # severity
-        resp = await client.get(
-            "/v1/incident-events", params={"severity": "CRITICAL"}
-        )
+        resp = await client.get("/v1/incident-events", params={"severity": "CRITICAL"})
         assert resp.status_code == 200
         assert len(resp.json()["items"]) == 1
         assert resp.json()["items"][0]["severity"] == "CRITICAL"
@@ -647,9 +646,7 @@ async def test_list_incident_events_filters_by_scalar_and_time_ranges(
         assert resp.json()["items"][0]["host"] == "db01"
 
         # service
-        resp = await client.get(
-            "/v1/incident-events", params={"service": "http"}
-        )
+        resp = await client.get("/v1/incident-events", params={"service": "http"})
         assert resp.status_code == 200
         assert len(resp.json()["items"]) == 1
         assert resp.json()["items"][0]["service"] == "http"
@@ -786,6 +783,7 @@ async def test_list_incident_events_does_not_relabel_unrelated_value_errors(
             SessionMaker(),  # type: ignore[arg-type]
         )
 
+
 # ---------------------------------------------------------------------------
 # Ingress correlation (end-to-end via ingress endpoint)
 # ---------------------------------------------------------------------------
@@ -862,9 +860,7 @@ async def test_ingress_incident_and_noop_events_are_queryable(
         assert resp_noop.status_code == 200
 
         # Query audit events
-        resp_audit = await client.get(
-            "/v1/incident-events", headers=operator_headers
-        )
+        resp_audit = await client.get("/v1/incident-events", headers=operator_headers)
         assert resp_audit.status_code == 200
         items = resp_audit.json()["items"]
         assert len(items) >= 2
@@ -973,4 +969,3 @@ async def test_ingress_recovery_persists_full_ids_with_bounded_summary(
             == audit_event.incident_ids[:AUDIT_INCIDENT_IDS_MAX]
         )
         assert audit_event.decision_summary["incident_ids_truncated"] is True
-

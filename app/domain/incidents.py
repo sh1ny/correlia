@@ -80,9 +80,7 @@ class DecisionContext(BaseModel):
 
     @field_validator("notification_delivery_results", mode="before")
     @classmethod
-    def normalize_notification_delivery_results(
-        cls, value: object
-    ) -> object:
+    def normalize_notification_delivery_results(cls, value: object) -> object:
         if isinstance(value, list):
             return tuple(value)
         return value
@@ -96,8 +94,6 @@ class DecisionContext(BaseModel):
             raise ValueError("notification delivery records must have unique plugins")
         return value
 
-
-
     @field_validator("notes", mode="after")
     @classmethod
     def reject_secret_note_content(cls, value: dict[str, str]) -> dict[str, str]:
@@ -106,7 +102,9 @@ class DecisionContext(BaseModel):
             text = note_value.lower()
             for fragment in _FORBIDDEN_NOTE_FRAGMENTS:
                 if fragment in key or fragment in text:
-                    raise ValueError("decision context notes must not contain raw payloads or secrets")
+                    raise ValueError(
+                        "decision context notes must not contain raw payloads or secrets"
+                    )
         return value
 
 
@@ -144,6 +142,7 @@ class LifecycleOutcome(BaseModel):
             self.notes["lifecycle.reason"] = self.reason
         return self
 
+
 class IncidentWindowState(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
 
@@ -171,7 +170,9 @@ class IncidentWindowState(BaseModel):
     ) -> dict[str, datetime]:
         for timestamp in value.values():
             if timestamp.tzinfo is None or timestamp.utcoffset() is None:
-                raise ValueError("counted fingerprint timestamps must be timezone-aware")
+                raise ValueError(
+                    "counted fingerprint timestamps must be timezone-aware"
+                )
         return value
 
 
@@ -258,7 +259,14 @@ def is_terminal_status(status: IncidentStatus) -> bool:
     return status in {IncidentStatus.RESOLVED, IncidentStatus.CLOSED}
 
 
-def validate_incident_transition(current: IncidentStatus, target: IncidentStatus) -> IncidentStatus:
-    if current is IncidentStatus.OPEN and target in {IncidentStatus.RESOLVED, IncidentStatus.CLOSED}:
+def validate_incident_transition(
+    current: IncidentStatus, target: IncidentStatus
+) -> IncidentStatus:
+    if current is IncidentStatus.OPEN and target in {
+        IncidentStatus.RESOLVED,
+        IncidentStatus.CLOSED,
+    }:
         return target
-    raise ValueError(f"cannot transition incident from {current.value} to {target.value}")
+    raise ValueError(
+        f"cannot transition incident from {current.value} to {target.value}"
+    )

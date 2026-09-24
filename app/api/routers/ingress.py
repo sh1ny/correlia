@@ -17,6 +17,7 @@ from app.processing.logging import safe_log_extra
 router = APIRouter(prefix="/v1", dependencies=[Security(require_ingress_token)])
 logger = logging.getLogger(__name__)
 
+
 @router.post("/icinga2/events")
 async def ingest_icinga2(
     processor: Annotated[Icinga2DecisionProcessor, Depends(get_icinga2_processor)],

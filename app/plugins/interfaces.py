@@ -30,15 +30,20 @@ class NotificationEnvelope(BaseModel):
     group_key: BoundedString
     severity: Severity
     summary: BoundedString
-    affected_hosts: tuple[BoundedString, ...] = Field(default_factory=tuple, max_length=100)
-    affected_services: tuple[BoundedString, ...] = Field(default_factory=tuple, max_length=100)
-
+    affected_hosts: tuple[BoundedString, ...] = Field(
+        default_factory=tuple, max_length=100
+    )
+    affected_services: tuple[BoundedString, ...] = Field(
+        default_factory=tuple, max_length=100
+    )
 
 
 class OutputPlugin(Protocol):
     async def send_notification(self, envelope: NotificationEnvelope) -> None: ...
 
     def plugin_status(self) -> PluginStatus: ...
+
+
 class InputPlugin(Protocol):
     async def process_payload(
         self, payload: object

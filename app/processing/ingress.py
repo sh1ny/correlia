@@ -54,9 +54,7 @@ def _record_audit_outcome(outcome: Literal["success", "failure"]) -> None:
     )
 
 
-async def _insert_incident_event_with_audit_metric(
-    *args: Any, **kwargs: Any
-) -> None:
+async def _insert_incident_event_with_audit_metric(*args: Any, **kwargs: Any) -> None:
     try:
         await insert_incident_event(*args, **kwargs)
     except Exception:

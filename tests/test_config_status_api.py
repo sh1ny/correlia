@@ -14,8 +14,11 @@ from app.plugins.loader import PluginRegistry
 
 pytestmark = pytest.mark.anyio
 
+
 @pytest.fixture(autouse=True)
-def _disable_auth_for_config_status_tests(monkeypatch: pytest.MonkeyPatch, clean_settings_env: None) -> None:
+def _disable_auth_for_config_status_tests(
+    monkeypatch: pytest.MonkeyPatch, clean_settings_env: None
+) -> None:
     monkeypatch.setenv("CORRELIA_API_AUTH_ENABLED", "false")
     monkeypatch.setenv("CORRELIA_AUDIT_RAW_PAYLOAD_HMAC_KEY", "test-audit-hmac")
 
@@ -119,7 +122,9 @@ def _write_topology(path: Path) -> None:
     )
 
 
-async def test_rules_summary_exposes_allowlisted_fields_and_hash(tmp_path: Path) -> None:
+async def test_rules_summary_exposes_allowlisted_fields_and_hash(
+    tmp_path: Path,
+) -> None:
     plugins_path = tmp_path / "plugins.yaml"
     rules_path = tmp_path / "rules.yaml"
     topology_path = tmp_path / "topology.yaml"
@@ -167,7 +172,9 @@ async def test_rules_summary_exposes_allowlisted_fields_and_hash(tmp_path: Path)
         assert forbidden not in serialized
 
 
-async def test_topology_summary_exposes_match_types_tag_keys_and_hash(tmp_path: Path) -> None:
+async def test_topology_summary_exposes_match_types_tag_keys_and_hash(
+    tmp_path: Path,
+) -> None:
     plugins_path = tmp_path / "plugins.yaml"
     rules_path = tmp_path / "rules.yaml"
     topology_path = tmp_path / "topology.yaml"
@@ -214,10 +221,11 @@ async def test_topology_summary_exposes_match_types_tag_keys_and_hash(tmp_path: 
         "plugin_config",
         "^web-",
         "192.0.2.0/24",
-        "dc1\"",
+        'dc1"',
         "ops@example.test",
     ):
         assert forbidden not in serialized
+
 
 async def test_topology_summary_includes_capture_group_tag_keys(tmp_path: Path) -> None:
     plugins_path = tmp_path / "plugins.yaml"

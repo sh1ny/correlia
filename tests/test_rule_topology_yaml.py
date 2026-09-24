@@ -284,7 +284,9 @@ def test_rule_config_model_rejects_empty_name() -> None:
                             "trigger_threshold": 1,
                         },
                         "output_summary": "x",
-                        "actions": [{"name": "create_incident", "plugin": "default_output"}],
+                        "actions": [
+                            {"name": "create_incident", "plugin": "default_output"}
+                        ],
                     }
                 ]
             }
@@ -309,6 +311,7 @@ def test_rule_window_config_rejects_zero_threshold() -> None:
 def test_rule_action_config_rejects_empty_name() -> None:
     with pytest.raises(ValueError):
         RuleActionConfig.model_validate({"name": "", "plugin": "default_output"})
+
 
 # ---------------------------------------------------------------------------
 # Task 3: known_plugins acceptance and rejection

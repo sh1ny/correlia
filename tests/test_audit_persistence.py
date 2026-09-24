@@ -36,9 +36,13 @@ _TEST_HMAC_KEY = "test-audit-hmac-key"
 def _run_alembic_upgrade(database_url: str) -> None:
     result = subprocess.run(
         [
-            sys.executable, "-m", "alembic",
-            "-x", f"database_url={database_url}",
-            "upgrade", "head",
+            sys.executable,
+            "-m",
+            "alembic",
+            "-x",
+            f"database_url={database_url}",
+            "upgrade",
+            "head",
         ],
         capture_output=True,
         text=True,
@@ -218,9 +222,7 @@ async def test_list_incident_events_uses_safe_projection(
     }
     await _seed_event(db_session, payload=payload)
 
-    page = await list_incident_events(
-        db_session, AuditEventListFilters(limit=10)
-    )
+    page = await list_incident_events(db_session, AuditEventListFilters(limit=10))
 
     assert len(page.events) == 1
     row = page.events[0]
@@ -248,9 +250,7 @@ async def test_audit_cursor_round_trips_and_paginates(
             accepted_at=now - timedelta(minutes=i),
         )
 
-    first_page = await list_incident_events(
-        db_session, AuditEventListFilters(limit=2)
-    )
+    first_page = await list_incident_events(db_session, AuditEventListFilters(limit=2))
     assert isinstance(first_page, IncidentEventListPage)
     assert len(first_page.events) == 2
     assert first_page.next_cursor is not None
@@ -270,12 +270,24 @@ async def test_incident_id_filter_uses_jsonb_containment(
     incident_b = "22222222-2222-2222-2222-222222222222"
     await _seed_event(
         db_session,
-        payload={"host": "a", "service": "svc", "severity": "CRITICAL", "event_type": "PROBLEM", "message": "a"},
+        payload={
+            "host": "a",
+            "service": "svc",
+            "severity": "CRITICAL",
+            "event_type": "PROBLEM",
+            "message": "a",
+        },
         decision_summary=_decision_summary(incident_ids=(incident_a,)),
     )
     await _seed_event(
         db_session,
-        payload={"host": "b", "service": "svc", "severity": "CRITICAL", "event_type": "PROBLEM", "message": "b"},
+        payload={
+            "host": "b",
+            "service": "svc",
+            "severity": "CRITICAL",
+            "event_type": "PROBLEM",
+            "message": "b",
+        },
         decision_summary=_decision_summary(incident_ids=(incident_b,)),
     )
 
@@ -292,7 +304,13 @@ async def test_has_incident_false_maps_only_to_incident_effect_none(
 ) -> None:
     await _seed_event(
         db_session,
-        payload={"host": "noop", "service": "svc", "severity": "CRITICAL", "event_type": "PROBLEM", "message": "noop"},
+        payload={
+            "host": "noop",
+            "service": "svc",
+            "severity": "CRITICAL",
+            "event_type": "PROBLEM",
+            "message": "noop",
+        },
         decision_summary=_decision_summary(
             incident_effect="none",
             no_dispatch_reason="below_threshold",
@@ -300,7 +318,13 @@ async def test_has_incident_false_maps_only_to_incident_effect_none(
     )
     await _seed_event(
         db_session,
-        payload={"host": "problem", "service": "svc", "severity": "CRITICAL", "event_type": "PROBLEM", "message": "problem"},
+        payload={
+            "host": "problem",
+            "service": "svc",
+            "severity": "CRITICAL",
+            "event_type": "PROBLEM",
+            "message": "problem",
+        },
         decision_summary=_decision_summary(incident_effect="inserted"),
     )
 
@@ -322,7 +346,13 @@ async def test_no_dispatch_reason_filter_reads_decision_summary(
 ) -> None:
     await _seed_event(
         db_session,
-        payload={"host": "below", "service": "svc", "severity": "CRITICAL", "event_type": "PROBLEM", "message": "below"},
+        payload={
+            "host": "below",
+            "service": "svc",
+            "severity": "CRITICAL",
+            "event_type": "PROBLEM",
+            "message": "below",
+        },
         decision_summary=_decision_summary(
             incident_effect="inserted",
             no_dispatch_reason="below_threshold",
@@ -330,7 +360,13 @@ async def test_no_dispatch_reason_filter_reads_decision_summary(
     )
     await _seed_event(
         db_session,
-        payload={"host": "replay", "service": "svc", "severity": "CRITICAL", "event_type": "PROBLEM", "message": "replay"},
+        payload={
+            "host": "replay",
+            "service": "svc",
+            "severity": "CRITICAL",
+            "event_type": "PROBLEM",
+            "message": "replay",
+        },
         decision_summary=_decision_summary(
             incident_effect="inserted",
             no_dispatch_reason="replay",
