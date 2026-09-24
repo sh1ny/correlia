@@ -23,20 +23,23 @@ Correlia is an API-first infrastructure-alert aggregator: Icinga2 webhooks becom
 
 ## Development Commands
 
-Run from the repository root. Prefer locked commands so verification does not silently change dependency resolution:
+Run from the repository root. `mise.toml` owns the shared task interface and pins Python 3.14.7 and uv 0.11.7; `uv.lock` owns Python dependencies:
 
 ```sh
-uv sync --locked --group dev
-uv run --locked pytest
-uv run --locked ruff check .
-uv run --locked mypy app
-uv run --locked uvicorn app.main:create_app --factory --reload
-uv run --locked alembic upgrade head
-docker compose build
-docker compose up --build
+mise trust
+mise install
+mise run setup
+mise run ci                 # Linux with Docker/Compose; full suite and smoke once
+mise run check:portable     # Windows-compatible development subset only
+mise run test:deployment    # Focused smoke; do not add it after ci
+mise run format:check
+mise run lint
+mise run typecheck
+mise run audit
+mise run run
 ```
 
-`Makefile` provides `test`, `lint`, `typecheck`, and `run`, but currently omits `--locked`; the direct commands also avoid requiring Make on Windows. An optional formatting check is `uv run --locked ruff format --check .`; no Make formatting target exists.
+See `CONFIGURATION.md#contributor-verification` for prerequisites, advisory policy, scoped cleanup and the administrator-owned `Linux verification` protection requirement. Verification never updates the lock; intentional dependency changes require a reviewed lock update.
 
 For Compose, copy `.env.example` to `.env` and replace credential placeholders with distinct secrets. For host-side Uvicorn/Alembic, export the settings explicitly: `Settings` does not automatically load `.env`. The sample database hostname `postgres` is Compose-internal, and Compose does not publish a PostgreSQL host port.
 
@@ -52,7 +55,7 @@ For Compose, copy `.env.example` to `.env` and replace credential placeholders w
 
 ## Important Files
 
-- `pyproject.toml`, `uv.lock`, `Makefile`: dependencies, tool settings and current command aliases.
+- `pyproject.toml`, `uv.lock`, `mise.toml`: dependencies, tool settings and shared verification tasks.
 - `app/config/settings.py`, `.env.example`, `config/{rules,topology,plugins}.yaml`: environment and YAML contracts. Settings generally use `CORRELIA_`; the database alias is `DATABASE_URL`.
 - `app/processing/ingress.py`, `app/persistence/incidents.py`, `app/persistence/audit.py`: transaction and state-ownership boundaries.
 - `Dockerfile`, `compose.yaml`, `scripts/container-entrypoint.sh`: non-root container execution, migration-before-serve and one Uvicorn worker.
@@ -61,9 +64,9 @@ For Compose, copy `.env.example` to `.env` and replace credential placeholders w
 
 ## Runtime/Tooling Preferences
 
-Use Python 3.14+, uv and the single `uv.lock`; no Node/Bun toolchain or second Python dependency lockfile is needed. The container uses Python 3.14 and uv 0.11.7. Core dependencies are FastAPI, Pydantic v2, SQLAlchemy 2.x, asyncpg, Alembic and PyYAML.
+Use the pinned Python 3.14.7, uv 0.11.7 and single `uv.lock`; no Node/Bun toolchain or second Python dependency lockfile is needed. The container uses the same Python and uv versions. Core dependencies are FastAPI, Pydantic v2, SQLAlchemy 2.x, asyncpg, Alembic and PyYAML.
 
-PostgreSQL is required; never substitute SQLite for persistence correctness tests. Database versions currently differ: Compose uses 16.9, incident/migration tests use 18, and audit persistence tests use 16. Preserve that distinction in verification reports.
+PostgreSQL is required; never substitute SQLite for persistence correctness tests. `compose.yaml` owns the supported PostgreSQL 16 image; all correctness fixtures consume that image through `postgres_image` while retaining their module-local lifetimes.
 
 Do not commit local secrets: `.env` variants are not currently excluded by `.gitignore`, even though the Docker context excludes them. Authenticated operation requires distinct operator/ingress tokens and a separate audit HMAC key.
 
@@ -72,5 +75,5 @@ Do not commit local secrets: `.env` variants are not currently excluded by `.git
 - Pytest uses `asyncio_mode = "auto"`; API tests use HTTPX `ASGITransport`. Follow the touched module's async convention rather than adding another event-loop owner. `tests/conftest.py` isolates selected environment variables.
 - Focused examples: `uv run --locked pytest tests/test_icinga2_input.py` and `uv run --locked pytest tests/test_smtp_output.py`. SMTP tests use a local capture server.
 - Database and migration modules use Testcontainers with real PostgreSQL and require Docker. Exercise changed uniqueness, replay, transaction and concurrency behavior against PostgreSQL, not mocks.
-- Use Linux with Docker/Compose for full verification. Some tests require shell execution, FIFOs, symlinks or POSIX permissions; there is no established Windows-only suite. The Compose smoke test can skip without Docker, while database fixture setup can fail. Report skipped/unexecuted paths explicitly.
+- Use `mise run ci` on Linux with Docker/Compose for full verification. Required modes reject missing prerequisites, narrowed selection, skips, xfails and incomplete results. `mise run check:portable` excludes PostgreSQL, deployment and POSIX cases before fixture setup; it is not deployment or release evidence. Report skipped/unexecuted paths explicitly.
 - Prefer consumer-visible regression checks over source-string assertions. No numeric coverage threshold is configured; test counts and historical plan results are not proof for the current revision.

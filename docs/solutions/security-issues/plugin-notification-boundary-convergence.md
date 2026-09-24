@@ -125,7 +125,7 @@ This design intentionally does not add retries, an outbox, a durable queue, deli
 - Treat delivery results as one latest record per plugin: cap at 20, reject duplicate action references, replace repeated plugin outcomes, and redact unapproved messages.
 - Audit every path that writes `decision_context`; it must retain `notification_delivery_results` and normalize JSONB lists before validation.
 - Keep output-plugin I/O after the ingress commit. Use synchronization gates, not latency thresholds, to prove accepted ingress returns before slow delivery completes.
-- Run the focused notification contract tests plus `make lint`, `make typecheck`, and `make test`. PR #4 reported all three gates passing, with 636 tests.
+- Run the focused notification contract tests and `mise run ci` on Linux with Docker/Compose. `mise run check:portable` is a development subset, not PostgreSQL or delivery proof. PR #4's historical report of 636 passing tests does not verify the current revision.
 
 ## Related Work
 
