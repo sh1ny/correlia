@@ -64,9 +64,9 @@ class AuditDecisionSummary(BaseModel):
     threshold_crossed: bool | None = None
     replay: bool | None = None
     first_threshold_transition: bool | None = None
-    recovery_resolution: Literal[
-        "noop", "affected_set_shrunk", "resolved"
-    ] | None = None
+    recovery_resolution: Literal["noop", "affected_set_shrunk", "resolved"] | None = (
+        None
+    )
     affected_object_removed: bool | None = None
 
 
@@ -86,9 +86,9 @@ class AuditEventListFilters(BaseModel):
     fingerprint: BoundedString | None = None
     source_id: BoundedString | None = None
     event_type: EventType | None = None
-    incident_effect: Literal[
-        "none", "inserted", "updated", "resolved", "affected_set_shrunk"
-    ] | None = None
+    incident_effect: (
+        Literal["none", "inserted", "updated", "resolved", "affected_set_shrunk"] | None
+    ) = None
     no_dispatch_reason: BoundedNoDispatchReason | None = None
     severity: Severity | None = None
     host: BoundedString | None = None

@@ -17,20 +17,29 @@ from app.domain.incidents import DecisionContext, IncidentStatus
 
 def _run_alembic_upgrade(database_url: str) -> None:
     result = subprocess.run(
-        [sys.executable, "-m", "alembic", "-x", f"database_url={database_url}", "upgrade", "head"],
+        [
+            sys.executable,
+            "-m",
+            "alembic",
+            "-x",
+            f"database_url={database_url}",
+            "upgrade",
+            "head",
+        ],
         capture_output=True,
         text=True,
     )
     if result.returncode != 0:
         raise RuntimeError(f"Alembic upgrade failed: {result.stderr}")
 
+
 _migrated_url: str | None = None
 
 
 @pytest.fixture(scope="module")
-def postgres_url() -> str:
+def postgres_url(postgres_image: str) -> str:
     global _migrated_url
-    with PostgresContainer("postgres:18-alpine") as postgres:
+    with PostgresContainer(postgres_image) as postgres:
         url = postgres.get_connection_url()
         url = url.replace("postgresql+psycopg2://", "postgresql+asyncpg://")
         url = url.replace("postgresql://", "postgresql+asyncpg://")
@@ -78,7 +87,9 @@ async def test_first_upsert_creates_open_incident(db_session: AsyncSession) -> N
     assert incident.affected_services == []
 
 
-async def test_second_upsert_updates_same_open_incident(db_session: AsyncSession) -> None:
+async def test_second_upsert_updates_same_open_incident(
+    db_session: AsyncSession,
+) -> None:
     from app.persistence.incidents import IncidentUpsertInput, upsert_open_incident
 
     first = IncidentUpsertInput(
@@ -303,8 +314,9 @@ async def test_record_problem_incident_reports_first_threshold_transition_once(
     assert third.incident.threshold_crossed is True
 
 
-
-async def test_different_rule_or_group_creates_separate_rows(db_session: AsyncSession) -> None:
+async def test_different_rule_or_group_creates_separate_rows(
+    db_session: AsyncSession,
+) -> None:
     from app.persistence.incidents import IncidentUpsertInput, upsert_open_incident
 
     inc_a = await upsert_open_incident(
@@ -549,7 +561,11 @@ async def test_affected_hosts_merge_on_update(db_session: AsyncSession) -> None:
 
 
 async def test_affected_hosts_enforces_100_bound(db_session: AsyncSession) -> None:
-    from app.persistence.incidents import MAX_AFFECTED_HOSTS, IncidentUpsertInput, upsert_open_incident
+    from app.persistence.incidents import (
+        MAX_AFFECTED_HOSTS,
+        IncidentUpsertInput,
+        upsert_open_incident,
+    )
 
     hosts = tuple(f"host-{i:03d}" for i in range(MAX_AFFECTED_HOSTS + 5))
     incident = await upsert_open_incident(
@@ -569,7 +585,11 @@ async def test_affected_hosts_enforces_100_bound(db_session: AsyncSession) -> No
 
 
 async def test_affected_services_enforces_100_bound(db_session: AsyncSession) -> None:
-    from app.persistence.incidents import MAX_AFFECTED_SERVICES, IncidentUpsertInput, upsert_open_incident
+    from app.persistence.incidents import (
+        MAX_AFFECTED_SERVICES,
+        IncidentUpsertInput,
+        upsert_open_incident,
+    )
 
     services = tuple(f"svc-{i:03d}" for i in range(MAX_AFFECTED_SERVICES + 5))
     incident = await upsert_open_incident(
@@ -616,7 +636,6 @@ async def test_decision_context_persisted(db_session: AsyncSession) -> None:
 
     assert incident.decision_context["fingerprint"] == "fp-1"
     assert incident.decision_context["source_id"] == "icinga2"
-
 
 
 async def test_delivery_records_replace_per_plugin_preserve_notes_and_reject_overflow(
@@ -833,6 +852,7 @@ async def test_atomic_upsert_preserves_existing_delivery_records(
     ).scalar_one()
     assert context["notification_delivery_results"][0]["plugin_name"] == "email-oncall"
 
+
 async def test_closed_row_does_not_block_new_open(db_session: AsyncSession) -> None:
     from app.persistence.incidents import IncidentUpsertInput, upsert_open_incident
 
@@ -862,6 +882,7 @@ async def test_closed_row_does_not_block_new_open(db_session: AsyncSession) -> N
     await db_session.commit()
 
     assert incident.status == IncidentStatus.OPEN.value
+
 
 async def test_no_select_inside_upsert() -> None:
     import inspect
@@ -1030,7 +1051,9 @@ def test_decision_context_rejects_plugin_config() -> None:
         )
 
 
-async def test_sql_injection_rule_name_persisted_literally(db_session: AsyncSession) -> None:
+async def test_sql_injection_rule_name_persisted_literally(
+    db_session: AsyncSession,
+) -> None:
     from app.persistence.incidents import IncidentUpsertInput, upsert_open_incident
 
     injection_name = "rule'; drop table incidents; --"

@@ -5,6 +5,7 @@ Revises: 0002_add_threshold_state
 Create Date: 2026-06-18 00:00:00.000000
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -132,7 +133,9 @@ def upgrade() -> None:
         ["incident_ids"],
         postgresql_using="gin",
     )
-    op.create_index("ix_incident_events_fingerprint", "incident_events", ["fingerprint"])
+    op.create_index(
+        "ix_incident_events_fingerprint", "incident_events", ["fingerprint"]
+    )
     op.create_index("ix_incident_events_source_id", "incident_events", ["source_id"])
     op.create_index("ix_incident_events_event_type", "incident_events", ["event_type"])
     op.create_index("ix_incident_events_severity", "incident_events", ["severity"])

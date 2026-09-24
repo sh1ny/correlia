@@ -31,6 +31,11 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 pythonpath = ["."]
+markers = [
+    "postgres: requires a real PostgreSQL container",
+    "deployment: exercises the real Compose deployment",
+    "posix: requires POSIX filesystem or process semantics",
+]
 
 [tool.ruff]
 target-version = "py314"

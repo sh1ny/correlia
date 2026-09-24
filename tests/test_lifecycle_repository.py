@@ -19,7 +19,15 @@ from app.persistence.incidents import IncidentUpsertInput, upsert_open_incident
 
 def _run_alembic_upgrade(database_url: str) -> None:
     result = subprocess.run(
-        [sys.executable, "-m", "alembic", "-x", f"database_url={database_url}", "upgrade", "head"],
+        [
+            sys.executable,
+            "-m",
+            "alembic",
+            "-x",
+            f"database_url={database_url}",
+            "upgrade",
+            "head",
+        ],
         capture_output=True,
         text=True,
     )
@@ -28,8 +36,8 @@ def _run_alembic_upgrade(database_url: str) -> None:
 
 
 @pytest.fixture(scope="module")
-def postgres_url() -> str:
-    with PostgresContainer("postgres:18-alpine") as postgres:
+def postgres_url(postgres_image: str) -> str:
+    with PostgresContainer(postgres_image) as postgres:
         url = postgres.get_connection_url()
         url = url.replace("postgresql+psycopg2://", "postgresql+asyncpg://")
         url = url.replace("postgresql://", "postgresql+asyncpg://")
@@ -84,7 +92,9 @@ def _notes(context: dict[str, object]) -> dict[str, str]:
     return dict(context.get("notes") or {})
 
 
-async def test_host_recovery_resolves_open_host_incident(db_session: AsyncSession) -> None:
+async def test_host_recovery_resolves_open_host_incident(
+    db_session: AsyncSession,
+) -> None:
     from app.persistence.incidents import resolve_host_recovery
 
     incident = await _seed_incident(db_session)
@@ -117,7 +127,14 @@ async def test_host_recovery_resolves_open_host_incident(db_session: AsyncSessio
     assert notes["lifecycle.host"] == "web-01"
     assert "lifecycle.service" not in notes
     serialized = str(result.incident.decision_context).lower()
-    for forbidden in ("raw_payload", "payload", "secret", "token", "password", "plugin_config"):
+    for forbidden in (
+        "raw_payload",
+        "payload",
+        "secret",
+        "token",
+        "password",
+        "plugin_config",
+    ):
         assert forbidden not in serialized
 
 
@@ -319,7 +336,9 @@ async def test_service_recovery_removes_only_exact_active_service_pair(
     assert results[0].incident.affected_services == ["disk"]
 
 
-async def test_ack_open_incident_is_idempotent_metadata(db_session: AsyncSession) -> None:
+async def test_ack_open_incident_is_idempotent_metadata(
+    db_session: AsyncSession,
+) -> None:
     from app.persistence.incidents import ack_open_incident
 
     incident = await _seed_incident(db_session)
@@ -340,7 +359,9 @@ async def test_ack_open_incident_is_idempotent_metadata(db_session: AsyncSession
     assert second.incident.acknowledged_by == "operator"
     count = (
         await db_session.execute(
-            sa.text("SELECT COUNT(*) FROM incidents WHERE rule_name = :rule AND group_key = :group"),
+            sa.text(
+                "SELECT COUNT(*) FROM incidents WHERE rule_name = :rule AND group_key = :group"
+            ),
             {"rule": incident.rule_name, "group": incident.group_key},
         )
     ).scalar_one()
@@ -354,9 +375,13 @@ async def test_manual_close_is_idempotent_and_frees_open_slot(
 
     incident = await _seed_incident(db_session)
 
-    first = await close_open_incident(db_session, incident.id, operator="operator", reason="maintenance")
+    first = await close_open_incident(
+        db_session, incident.id, operator="operator", reason="maintenance"
+    )
     await db_session.commit()
-    second = await close_open_incident(db_session, incident.id, operator="operator", reason="maintenance")
+    second = await close_open_incident(
+        db_session, incident.id, operator="operator", reason="maintenance"
+    )
     await db_session.commit()
     replacement = await upsert_open_incident(
         db_session,
@@ -438,7 +463,6 @@ def test_lifecycle_manager_source_defers_commit_to_caller() -> None:
 
     source = inspect.getsource(lifecycle_module.LifecycleManager.resolve_for_event)
     assert "await self._session.commit()" not in source
-
 
 
 def test_lifecycle_repository_source_is_postgresql_only_and_non_insert_path() -> None:

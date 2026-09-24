@@ -63,7 +63,9 @@ def require_ingress_token(
         raise Unauthorized()
 
 
-def bearer_identity_hash(credentials: HTTPAuthorizationCredentials | None) -> str | None:
+def bearer_identity_hash(
+    credentials: HTTPAuthorizationCredentials | None,
+) -> str | None:
     if credentials is None:
         return None
     return hashlib.sha256(credentials.credentials.encode()).hexdigest()

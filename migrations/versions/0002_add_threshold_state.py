@@ -5,6 +5,7 @@ Revises: 0001_create_incidents
 Create Date: 2026-06-09 00:00:00.000000
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op

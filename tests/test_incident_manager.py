@@ -21,7 +21,15 @@ pytestmark = pytest.mark.anyio
 
 def _run_alembic_upgrade(database_url: str) -> None:
     result = subprocess.run(
-        [sys.executable, "-m", "alembic", "-x", f"database_url={database_url}", "upgrade", "head"],
+        [
+            sys.executable,
+            "-m",
+            "alembic",
+            "-x",
+            f"database_url={database_url}",
+            "upgrade",
+            "head",
+        ],
         capture_output=True,
         text=True,
     )
@@ -30,8 +38,8 @@ def _run_alembic_upgrade(database_url: str) -> None:
 
 
 @pytest.fixture(scope="module")
-def postgres_url() -> str:
-    with PostgresContainer("postgres:18-alpine") as postgres:
+def postgres_url(postgres_image: str) -> str:
+    with PostgresContainer(postgres_image) as postgres:
         url = postgres.get_connection_url()
         url = url.replace("postgresql+psycopg2://", "postgresql+asyncpg://")
         url = url.replace("postgresql://", "postgresql+asyncpg://")
@@ -53,7 +61,9 @@ async def db_session(postgres_url: str):
     await cleanup.dispose()
 
 
-def _event(fingerprint: str, timestamp: datetime, host: str = "db-1") -> NormalizedEvent:
+def _event(
+    fingerprint: str, timestamp: datetime, host: str = "db-1"
+) -> NormalizedEvent:
     return NormalizedEvent(
         fingerprint=fingerprint,
         source_id="icinga2",
@@ -91,6 +101,7 @@ def _decision(
         summary="database incident",
         actions=["email-oncall", "audit-log"],
     )
+
 
 class RecordingRunner:
     def __init__(self, *, fail: bool = False) -> None:
@@ -163,7 +174,6 @@ async def test_apply_problem_defers_commit_to_caller(
     )
 
 
-
 async def test_apply_problem_returns_inserted_below_threshold_result(
     db_session: AsyncSession,
 ) -> None:
@@ -202,7 +212,9 @@ async def test_apply_problem_reports_updated_threshold_crossed_then_already_noti
         plugin_registry=PluginNames("email-oncall", "audit-log"),
     )
     first_time = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
-    await manager.apply_problem(_event("fp-1", first_time), _decision(first_time, threshold=2))
+    await manager.apply_problem(
+        _event("fp-1", first_time), _decision(first_time, threshold=2)
+    )
 
     second_time = datetime(2026, 1, 1, 12, 1, tzinfo=timezone.utc)
     crossed = await manager.apply_problem(
@@ -242,7 +254,9 @@ async def test_apply_problem_reports_replay_without_retriggering(
         plugin_registry=PluginNames("email-oncall", "audit-log"),
     )
     first_time = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
-    await manager.apply_problem(_event("fp-1", first_time), _decision(first_time, threshold=2))
+    await manager.apply_problem(
+        _event("fp-1", first_time), _decision(first_time, threshold=2)
+    )
 
     replay_time = datetime(2026, 1, 1, 12, 1, tzinfo=timezone.utc)
     replay = await manager.apply_problem(
@@ -324,7 +338,6 @@ async def test_apply_problem_persists_only_safe_decision_context(
         assert forbidden not in serialized
 
 
-
 async def test_apply_problem_preserves_existing_delivery_records(
     db_session: AsyncSession,
 ) -> None:
@@ -374,6 +387,7 @@ async def test_apply_problem_preserves_existing_delivery_records(
             },
         }
     ]
+
 
 def test_incident_manager_source_does_not_store_unsafe_context() -> None:
     import app.processing.incident_manager as incident_manager

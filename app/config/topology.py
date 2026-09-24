@@ -30,9 +30,7 @@ class HostnameTopologyRule(BaseModel):
 
     @field_validator("tag_capture_groups")
     @classmethod
-    def _capture_groups_must_be_valid(
-        cls, value: dict[str, int]
-    ) -> dict[str, int]:
+    def _capture_groups_must_be_valid(cls, value: dict[str, int]) -> dict[str, int]:
         for key, group in value.items():
             if not key.startswith("topology."):
                 raise ValueError(
@@ -43,6 +41,7 @@ class HostnameTopologyRule(BaseModel):
                     f"capture group index for '{key}' must be >= 1, got {group}"
                 )
         return value
+
 
 class SubnetTopologyRule(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")

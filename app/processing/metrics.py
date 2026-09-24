@@ -461,10 +461,7 @@ def _validate_migration_report(
             and issue_count < MIGRATION_REPORT_MAX_ISSUE_COUNT
             and emitted_issue_count == issue_count
         )
-        or (
-            not summary["issues_truncated"]
-            and issue_count != emitted_issue_count
-        )
+        or (not summary["issues_truncated"] and issue_count != emitted_issue_count)
     ):
         return "invalid_summary", None
     try:

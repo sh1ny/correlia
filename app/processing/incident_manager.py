@@ -79,7 +79,9 @@ class IncidentManager:
         decision: RuleDecision,
     ) -> IncidentAggregationResult:
         if event.event_type is not EventType.PROBLEM:
-            raise ValueError("IncidentManager.apply_problem only accepts PROBLEM events")
+            raise ValueError(
+                "IncidentManager.apply_problem only accepts PROBLEM events"
+            )
 
         window_seconds = max(
             1,
@@ -206,14 +208,22 @@ class IncidentManager:
             rule_name=decision.rule_name,
             group_key=decision.group_key,
             matched_rule_names=tuple(decision.matched_rules),
-            event_count=write_result.incident.event_count if write_result is not None else None,
+            event_count=write_result.incident.event_count
+            if write_result is not None
+            else None,
             config_hash=self._config_hash,
             notes=notes,
             threshold_count=decision.threshold_decision.threshold,
-            counted_count=write_result.counted_count if write_result is not None else None,
-            threshold_crossed=write_result.threshold_crossed if write_result is not None else None,
+            counted_count=write_result.counted_count
+            if write_result is not None
+            else None,
+            threshold_crossed=write_result.threshold_crossed
+            if write_result is not None
+            else None,
             first_threshold_transition=(
-                write_result.first_threshold_transition if write_result is not None else None
+                write_result.first_threshold_transition
+                if write_result is not None
+                else None
             ),
             replay=write_result.replay if write_result is not None else None,
             action_names=tuple(decision.actions),

@@ -4,7 +4,11 @@ from dataclasses import dataclass, field
 from ipaddress import ip_address
 import re
 
-from app.config.topology import CompiledHostnameRule, CompiledSubnetRule, CompiledTopologyConfig
+from app.config.topology import (
+    CompiledHostnameRule,
+    CompiledSubnetRule,
+    CompiledTopologyConfig,
+)
 from app.domain.events import NormalizedEvent
 
 
@@ -84,9 +88,7 @@ class StaticTopologyEnricher:
                 # Keep the 256-character cap in sync with TagValue in
                 # app/domain/events.py.
                 if len(captured) > 256:
-                    raise ValueError(
-                        f"derived tag '{key}' exceeds 256 characters"
-                    )
+                    raise ValueError(f"derived tag '{key}' exceeds 256 characters")
                 value = captured
                 if key in new_tags:
                     old_value = new_tags[key]

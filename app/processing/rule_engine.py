@@ -25,8 +25,12 @@ class RuleEngine:
                     return NoOpDecision(
                         reason=f"missing required group-by field: {missing}"
                     )
-                threshold_decision = self._evaluate_threshold(compiled, group_key, event)
-                summary = self._render_summary(compiled.definition.output_summary, event)
+                threshold_decision = self._evaluate_threshold(
+                    compiled, group_key, event
+                )
+                summary = self._render_summary(
+                    compiled.definition.output_summary, event
+                )
                 return RuleDecision(
                     rule_name=compiled.definition.name,
                     priority=compiled.definition.priority,

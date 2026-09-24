@@ -1,4 +1,4 @@
-FROM python:3.14-slim AS builder
+FROM python:3.14.7-slim AS builder
 
 COPY --from=ghcr.io/astral-sh/uv:0.11.7 /uv /uvx /bin/
 
@@ -10,7 +10,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --locked --no-dev --no-install-project
 
 
-FROM python:3.14-slim
+FROM python:3.14.7-slim
 
 WORKDIR /app
 ENV PATH="/app/.venv/bin:${PATH}" \

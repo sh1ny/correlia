@@ -87,7 +87,9 @@ class LifecycleWorker:
         while not stop_event.is_set():
             await self._run_sweep()
             try:
-                await asyncio.wait_for(stop_event.wait(), timeout=self._interval_seconds)
+                await asyncio.wait_for(
+                    stop_event.wait(), timeout=self._interval_seconds
+                )
             except asyncio.TimeoutError:
                 continue
 

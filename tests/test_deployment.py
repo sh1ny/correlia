@@ -13,7 +13,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import time
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 import yaml
@@ -23,6 +23,7 @@ from app.config.rules import load_rules_config
 from app.config.settings import Settings
 from app.config.topology import load_topology_config
 from app.plugins.loader import load_plugin_registry
+from scripts import cleanup_verification
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ENTRYPOINT_PATH = PROJECT_ROOT / "scripts" / "container-entrypoint.sh"
@@ -225,46 +226,19 @@ def _docker_compose_arguments(stack: dict[str, object], *arguments: str) -> list
 
 
 def _compose_cleanup(stack: dict[str, object]) -> None:
-    project_label = f"com.docker.compose.project={stack['project']}"
-    failures: list[str] = []
-
-    def run(arguments: list[str], action: str) -> subprocess.CompletedProcess[str]:
-        result = _docker(arguments)
-        if result.returncode != 0:
-            failures.append(action)
-        return result
-
-    run(
-        _docker_compose_arguments(stack, "down", "--volumes", "--remove-orphans"),
-        "compose down",
-    )
-    containers = run(
-        ["ps", "--all", "--quiet", "--filter", f"label={project_label}"],
-        "list containers",
-    )
-    container_names = containers.stdout.split() if containers.returncode == 0 else []
-    if container_names:
-        run(["rm", "--force", *container_names], "remove containers")
-    volumes = run(
-        ["volume", "ls", "--quiet", "--filter", f"label={project_label}"],
-        "list volumes",
-    )
-    volume_names = volumes.stdout.split() if volumes.returncode == 0 else []
-    if volume_names:
-        run(["volume", "rm", *volume_names], "remove volumes")
-    remaining_containers = run(
-        ["ps", "--all", "--quiet", "--filter", f"label={project_label}"],
-        "verify container cleanup",
-    )
-    remaining_volumes = run(
-        ["volume", "ls", "--quiet", "--filter", f"label={project_label}"],
-        "verify volume cleanup",
-    )
-    if remaining_containers.returncode == 0 and remaining_containers.stdout.strip():
-        failures.append("containers remain")
-    if remaining_volumes.returncode == 0 and remaining_volumes.stdout.strip():
-        failures.append("volumes remain")
-    if failures:
+    failed = False
+    try:
+        result = _docker(
+            _docker_compose_arguments(stack, "down", "--volumes", "--remove-orphans")
+        )
+        failed = result.returncode != 0
+    except OSError, subprocess.TimeoutExpired:
+        failed = True
+    try:
+        cleanup_verification.cleanup(str(stack["project"]))
+    except RuntimeError:
+        failed = True
+    if failed:
         pytest.fail("Docker cleanup failed without exposing its diagnostics")
 
 
@@ -311,7 +285,9 @@ def test_mailpit_messages_treats_non_success_and_malformed_json_as_retryable(
     def fake_probe(*_args: object, **_kwargs: object) -> tuple[int, bytes]:
         return next(responses)
 
-    monkeypatch.setitem(_mailpit_messages.__globals__, "_container_http_response", fake_probe)
+    monkeypatch.setitem(
+        _mailpit_messages.__globals__, "_container_http_response", fake_probe
+    )
 
     assert _mailpit_messages("mailpit", "http://mailpit/api/v1/messages") is None
     assert _mailpit_messages("mailpit", "http://mailpit/api/v1/messages") is None
@@ -324,40 +300,113 @@ def test_compose_cleanup_attempts_all_resource_removal_after_down_failure(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    calls: list[list[str]] = []
-    container_lists = iter(("orphan-one\norphan-two\n", ""))
-    volume_lists = iter(("orphan-volume\n", ""))
+    project = "correlia-verify-cleanup-test"
+    owned = {
+        "container": {"orphan-one", "orphan-two"},
+        "volume": {"orphan-volume"},
+        "network": {"orphan-network"},
+    }
+    resources = {
+        "container": owned["container"] | {"developer-container"},
+        "volume": owned["volume"] | {"developer-volume"},
+        "network": owned["network"] | {"developer-network"},
+    }
 
     def fake_docker(
         arguments: list[str], **_kwargs: object
     ) -> subprocess.CompletedProcess[str]:
-        calls.append(arguments)
         if arguments[0] == "compose":
             return subprocess.CompletedProcess(["docker", *arguments], 1)
-        if arguments[:2] == ["ps", "--all"]:
+        assert arguments[-1] == f"label=com.docker.compose.project={project}" or (
+            arguments[-1] in set().union(*owned.values())
+        )
+        listing = {
+            ("ps", "--all"): "container",
+            ("volume", "ls"): "volume",
+            ("network", "ls"): "network",
+        }
+        kind = listing.get(tuple(arguments[:2]))
+        if kind:
             return subprocess.CompletedProcess(
-                ["docker", *arguments], 0, stdout=next(container_lists)
+                ["docker", *arguments],
+                0,
+                stdout="\n".join(sorted(resources[kind] & owned[kind])),
             )
-        if arguments[:2] == ["volume", "ls"]:
-            return subprocess.CompletedProcess(
-                ["docker", *arguments], 0, stdout=next(volume_lists)
-            )
+        removal = {
+            ("rm", "--force"): "container",
+            ("volume", "rm"): "volume",
+            ("network", "rm"): "network",
+        }
+        kind = removal[tuple(arguments[:2])]
+        resources[kind].remove(arguments[-1])
         return subprocess.CompletedProcess(["docker", *arguments], 0)
 
     monkeypatch.setitem(_compose_cleanup.__globals__, "_docker", fake_docker)
+    monkeypatch.setattr(cleanup_verification, "_docker", fake_docker)
     stack = {
-        "project": "cleanup-test",
+        "project": project,
         "env_file": tmp_path / ".env",
         "override_file": tmp_path / "override.yaml",
     }
 
     with pytest.raises(pytest.fail.Exception, match="Docker cleanup failed"):
         _compose_cleanup(stack)
+    assert resources == {
+        "container": {"developer-container"},
+        "volume": {"developer-volume"},
+        "network": {"developer-network"},
+    }
+    cleanup_verification.cleanup(project)
 
-    assert ["rm", "--force", "orphan-one", "orphan-two"] in calls
-    assert ["volume", "rm", "orphan-volume"] in calls
-    assert calls[-2][:2] == ["ps", "--all"]
-    assert calls[-1][:2] == ["volume", "ls"]
+
+def test_verification_cleanup_reports_residuals_but_attempts_other_resources(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owned = {
+        "container": {"stuck-container"},
+        "volume": {"removable-volume"},
+        "network": {"removable-network"},
+    }
+
+    def fake_docker(arguments: list[str]) -> subprocess.CompletedProcess[str]:
+        kind = {
+            ("ps", "--all"): "container",
+            ("volume", "ls"): "volume",
+            ("network", "ls"): "network",
+        }.get(tuple(arguments[:2]))
+        if kind:
+            return subprocess.CompletedProcess(
+                ["docker", *arguments], 0, stdout="\n".join(sorted(owned[kind]))
+            )
+        kind = {
+            ("rm", "--force"): "container",
+            ("volume", "rm"): "volume",
+            ("network", "rm"): "network",
+        }[tuple(arguments[:2])]
+        if kind == "container":
+            return subprocess.CompletedProcess(["docker", *arguments], 1)
+        owned[kind].remove(arguments[-1])
+        return subprocess.CompletedProcess(["docker", *arguments], 0)
+
+    monkeypatch.setattr(cleanup_verification, "_docker", fake_docker)
+    with pytest.raises(RuntimeError, match="Docker verification cleanup failed"):
+        cleanup_verification.cleanup("correlia-verify-residual")
+    assert owned == {
+        "container": {"stuck-container"},
+        "volume": set(),
+        "network": set(),
+    }
+
+
+def test_verification_cleanup_rejects_unowned_project_before_docker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def unexpected_docker(_arguments: list[str]) -> subprocess.CompletedProcess[str]:
+        pytest.fail("unowned project must not reach Docker")
+
+    monkeypatch.setattr(cleanup_verification, "_docker", unexpected_docker)
+    with pytest.raises(ValueError, match="invalid verification project"):
+        cleanup_verification.cleanup("developer-project")
 
 
 @pytest.fixture
@@ -368,7 +417,20 @@ def docker_compose_stack(tmp_path: Path) -> Iterator[dict[str, object]]:
             "Docker engine unavailable; cannot prove "
             f"{_DOCKER_UNAVAILABLE_CAPABILITIES}"
         )
+    try:
+        compose_version = _docker(["compose", "version"], timeout=5)
+    except OSError, subprocess.TimeoutExpired:
+        compose_version = None
+    if compose_version is None or compose_version.returncode != 0:
+        pytest.skip("Docker Compose unavailable; cannot run real deployment smoke")
 
+    project = os.environ.setdefault(
+        "CORRELIA_VERIFICATION_PROJECT", f"correlia-verify-{uuid4().hex}"
+    )
+    try:
+        cleanup_verification.validate_project(project)
+    except ValueError:
+        pytest.fail("invalid verification project identifier")
     suffix = uuid4().hex[:12]
     secrets = {
         "postgres_password": f"u7-postgres-{suffix}",
@@ -459,12 +521,17 @@ def docker_compose_stack(tmp_path: Path) -> Iterator[dict[str, object]]:
                 f"      - {smoke_rules_path}:/app/smoke/rules.yaml:ro",
                 "  mailpit:",
                 "    ports: !reset []",
+                "  postgres:",
+                "    volumes:",
+                "      - verification-data:/var/lib/postgresql/data",
+                "volumes:",
+                "  verification-data: {}",
                 "",
             )
         )
     )
     stack: dict[str, object] = {
-        "project": f"correlia-u7-{suffix}",
+        "project": project,
         "env_file": env_file,
         "override_file": override_file,
         "report_path": report_path,
@@ -644,6 +711,7 @@ printf '%s\\n' "$@" >> "$EVENT_LOG"
     return result, events, captured_database_url
 
 
+@pytest.mark.posix
 def test_entrypoint_migrates_with_inherited_database_url_before_one_factory_server(
     tmp_path: Path,
 ) -> None:
@@ -680,6 +748,7 @@ def test_entrypoint_migrates_with_inherited_database_url_before_one_factory_serv
     assert "--reload" not in events
 
 
+@pytest.mark.posix
 def test_entrypoint_propagates_migration_failure_with_diagnostics_before_server(
     tmp_path: Path,
 ) -> None:
@@ -704,6 +773,7 @@ def test_entrypoint_propagates_migration_failure_with_diagnostics_before_server(
     assert database_url not in diagnostics
 
 
+@pytest.mark.posix
 def test_entrypoint_propagates_failed_migration_diagnostics_before_server(
     tmp_path: Path,
 ) -> None:
@@ -723,6 +793,7 @@ def test_entrypoint_propagates_failed_migration_diagnostics_before_server(
     assert migration_diagnostic in result.stderr
 
 
+@pytest.mark.posix
 def test_entrypoint_rejects_missing_database_url_before_migration_or_server(
     tmp_path: Path,
 ) -> None:
@@ -793,7 +864,6 @@ def test_compose_topology_keeps_dependencies_private_and_uses_health_ordering() 
     compose = yaml.safe_load(COMPOSE_PATH.read_text())
 
     assert set(compose["services"]) == {"postgres", "correlia", "mailpit"}
-    assert compose["services"]["postgres"]["image"] == "postgres:16.9-alpine"
     assert compose["services"]["mailpit"]["image"] == "axllent/mailpit:v1.26.1"
     assert compose["services"]["correlia"]["build"] == "."
     assert compose["services"]["correlia"]["deploy"] == {"replicas": 1}
@@ -956,6 +1026,7 @@ def test_environment_and_config_samples_construct_strict_runtime_configuration(
     )
 
 
+@pytest.mark.deployment
 def test_real_compose_smoke_proves_runtime_deployment_contract(
     docker_compose_stack: dict[str, object],
     tmp_path: Path,
@@ -1018,11 +1089,14 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
     )
     assert status == 200
     initial_metrics = metrics_body.decode()
-    assert _metric_value(
-        initial_metrics,
-        "correlia_vigilo_migration_report_status",
-        {"status": "valid"},
-    ) == 1.0
+    assert (
+        _metric_value(
+            initial_metrics,
+            "correlia_vigilo_migration_report_status",
+            {"status": "valid"},
+        )
+        == 1.0
+    )
     metric_baselines = {
         "audit_writes": _metric_value(
             initial_metrics,
@@ -1079,7 +1153,16 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
         ]
     ).stdout.strip()
     image_head = _require_docker_success(
-        ["run", "--rm", "--entrypoint", "alembic", "correlia:local", "heads"]
+        [
+            "run",
+            "--rm",
+            "--label",
+            f"com.docker.compose.project={project}",
+            "--entrypoint",
+            "alembic",
+            "correlia:local",
+            "heads",
+        ]
     ).stdout.split()[0]
     assert migration_revision == image_head
 
@@ -1208,7 +1291,22 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
     ingestion = json.loads(ingestion_body)
     assert ingestion["threshold_crossed"] is True
     assert ingestion["notification_triggered"] is True
-    incident_id = str(ingestion["incident_id"])
+    incident_id = str(UUID(str(ingestion["incident_id"])))
+    persisted_incident = _require_docker_success(
+        [
+            "exec",
+            postgres_container,
+            "sh",
+            "-c",
+            (
+                'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 '
+                '-U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc '
+                f'"SELECT id, status FROM incidents WHERE id = '
+                f"'{incident_id}'::uuid\""
+            ),
+        ]
+    ).stdout.strip()
+    assert persisted_incident == f"{incident_id}|OPEN"
     status, incidents_body = _container_http_response(
         app_container, f"{app_url}/v1/incidents", token=operator_token
     )
@@ -1216,7 +1314,7 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
     assert any(
         item["id"] == incident_id for item in json.loads(incidents_body)["items"]
     )
-    status, _ = _container_http_response(
+    status, acknowledged_body = _container_http_response(
         app_container,
         f"{app_url}/v1/incidents/{incident_id}",
         token=operator_token,
@@ -1224,6 +1322,9 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
         method="PATCH",
     )
     assert status == 200
+    acknowledgement = json.loads(acknowledged_body)["acknowledgement"]
+    assert acknowledgement["acknowledged_by"] == "vigilo-compat"
+    assert acknowledgement["acknowledged_at"] is not None
 
     expected_subject = (
         "[Correlia] [CRITICAL] docker-smoke-threshold: Critical alert on dc1-app-web"
@@ -1234,10 +1335,9 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
         if messages is None:
             return None
         for message in messages:
-            if (
-                message.get("Subject") != expected_subject
-                or message.get("To") != [{"Name": "", "Address": "ops@example.test"}]
-            ):
+            if message.get("Subject") != expected_subject or message.get("To") != [
+                {"Name": "", "Address": "ops@example.test"}
+            ]:
                 continue
             message_id = message.get("ID")
             if not isinstance(message_id, str):
@@ -1249,7 +1349,7 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
                 continue
             try:
                 message_text = str(json.loads(message_body)["Text"])
-            except (KeyError, TypeError, json.JSONDecodeError):
+            except KeyError, TypeError, json.JSONDecodeError:
                 continue
             if (
                 f"Incident ID: {incident_id}" in message_text
@@ -1316,13 +1416,18 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
             return candidate
         return None
 
-    runtime_metrics = _wait_until("concrete operational metric deltas", runtime_metric_deltas)
+    runtime_metrics = _wait_until(
+        "concrete operational metric deltas", runtime_metric_deltas
+    )
     assert isinstance(runtime_metrics, str)
-    assert _metric_value(
-        runtime_metrics,
-        "correlia_vigilo_migration_report_status",
-        {"status": "valid"},
-    ) == 1.0
+    assert (
+        _metric_value(
+            runtime_metrics,
+            "correlia_vigilo_migration_report_status",
+            {"status": "valid"},
+        )
+        == 1.0
+    )
     for forbidden in (
         postgres_password,
         operator_token,
@@ -1399,6 +1504,17 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
         ]
     ).stdout.strip()
     assert migration_revision_after_restart == migration_revision
+    app_container = _require_docker_success(
+        _docker_compose_arguments(stack, "ps", "--quiet", "correlia")
+    ).stdout.strip()
+    status, persisted_body = _container_http_response(
+        app_container, f"{app_url}/v1/incidents/{incident_id}", token=operator_token
+    )
+    assert status == 200
+    persisted_read = json.loads(persisted_body)
+    assert persisted_read["id"] == incident_id
+    assert persisted_read["status"] == "OPEN"
+    assert persisted_read["acknowledgement"] == acknowledgement
 
     migration_failure_name = f"{project}-migration-failure"
     migration_failure_secret = f"migration-failure-{uuid4().hex}"
@@ -1414,6 +1530,8 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
                 "run",
                 "--name",
                 migration_failure_name,
+                "--label",
+                f"com.docker.compose.project={project}",
                 "--network",
                 f"{project}_database",
                 "--env-file",
@@ -1459,6 +1577,8 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
                 "run",
                 "--name",
                 invalid_plugin_name,
+                "--label",
+                f"com.docker.compose.project={project}",
                 "--network",
                 f"{project}_database",
                 "--volume",

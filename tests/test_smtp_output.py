@@ -11,7 +11,9 @@ from app.plugins.outputs.email import SmtpOutputPlugin
 
 
 class SmtpCaptureServer:
-    def __init__(self, server: asyncio.AbstractServer, messages: asyncio.Queue[bytes]) -> None:
+    def __init__(
+        self, server: asyncio.AbstractServer, messages: asyncio.Queue[bytes]
+    ) -> None:
         self._server = server
         self._messages = messages
 
@@ -31,7 +33,9 @@ class SmtpCaptureServer:
     async def start(cls) -> "SmtpCaptureServer":
         messages: asyncio.Queue[bytes] = asyncio.Queue()
 
-        async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        async def handle(
+            reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+        ) -> None:
             writer.write(b"220 mailpit.local ESMTP\r\n")
             await writer.drain()
             while line := await reader.readline():
@@ -67,7 +71,9 @@ class SmtpCaptureServer:
         return cls(server, messages)
 
 
-async def test_smtp_output_sends_mailpit_compatible_message_with_incident_fields() -> None:
+async def test_smtp_output_sends_mailpit_compatible_message_with_incident_fields() -> (
+    None
+):
     server = await SmtpCaptureServer.start()
     try:
         plugin = SmtpOutputPlugin(
@@ -98,7 +104,10 @@ async def test_smtp_output_sends_mailpit_compatible_message_with_incident_fields
 
     assert message["From"] == "correlia@example.test"
     assert message["To"] == "ops@example.test"
-    assert "[CRITICAL] database-critical: database cluster unavailable" in message["Subject"]
+    assert (
+        "[CRITICAL] database-critical: database cluster unavailable"
+        in message["Subject"]
+    )
     assert "Incident ID: 550e8400-e29b-41d4-a716-446655440000" in body
     assert "Rule: database-critical" in body
     assert "Group key: service=db" in body
@@ -109,13 +118,14 @@ async def test_smtp_output_sends_mailpit_compatible_message_with_incident_fields
 
 
 def test_smtp_output_status_is_safe_and_secret_free() -> None:
-    plugin = SmtpOutputPlugin(username="operator", password="super-secret", start_tls=True)
+    plugin = SmtpOutputPlugin(
+        username="operator", password="super-secret", start_tls=True
+    )
 
     status = plugin.plugin_status().model_dump(mode="json")
 
     assert status == {"plugin_type": "email", "ready": True, "status": "ready"}
     assert "super-secret" not in repr(status)
-
 
 
 @pytest.mark.parametrize(
@@ -124,7 +134,12 @@ def test_smtp_output_status_is_safe_and_secret_free() -> None:
         ({"password": "super-secret"}, "username and password"),
         ({"username": "operator", "password": "super-secret"}, "requires explicit TLS"),
         (
-            {"username": "operator", "password": "super-secret", "start_tls": True, "validate_certs": False},
+            {
+                "username": "operator",
+                "password": "super-secret",
+                "start_tls": True,
+                "validate_certs": False,
+            },
             "certificate validation",
         ),
     ],

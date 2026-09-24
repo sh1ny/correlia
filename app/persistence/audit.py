@@ -90,6 +90,8 @@ class AuditEventCursor:
 
 class InvalidAuditCursorError(ValueError):
     """Raised when an audit pagination cursor cannot be decoded safely."""
+
+
 @dataclass(frozen=True, slots=True)
 class AuditEventListRow:
     """Default safe list projection for an audit event (D-08/D-15).
@@ -146,9 +148,9 @@ def canonical_json_bytes(value: Any) -> bytes:
     reproducible.
     """
 
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
-        "utf-8"
-    )
+    return json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
 
 
 def _coerce_hmac_key(hmac_key: str | Any) -> str:
@@ -545,7 +547,10 @@ async def insert_incident_event(
 
     if raw_payload is None:
         raise ValueError("raw_payload must be a JSON object, not None")
-    if raw_payload_original_byte_length is None or raw_payload_stored_byte_length is None:
+    if (
+        raw_payload_original_byte_length is None
+        or raw_payload_stored_byte_length is None
+    ):
         raise ValueError("raw_payload byte lengths must not be None")
     if redaction_version is None or redacted_path_count is None:
         raise ValueError("redaction_version and redacted_path_count must not be None")
@@ -612,7 +617,9 @@ def _apply_audit_filters(stmt: Any, filters: AuditEventListFilters) -> Any:
     if filters.accepted_until is not None:
         stmt = stmt.where(IncidentEvent.accepted_at < filters.accepted_until)
     if filters.event_timestamp_since is not None:
-        stmt = stmt.where(IncidentEvent.event_timestamp >= filters.event_timestamp_since)
+        stmt = stmt.where(
+            IncidentEvent.event_timestamp >= filters.event_timestamp_since
+        )
     if filters.event_timestamp_until is not None:
         stmt = stmt.where(IncidentEvent.event_timestamp < filters.event_timestamp_until)
     return stmt
@@ -657,14 +664,14 @@ def _row_to_audit_event_list_row(row: Sequence[Any]) -> AuditEventListRow:
         if incident_ids is not None
         else ()
     )
-    decision_summary_dict = dict(decision_summary) if decision_summary is not None else {}
+    decision_summary_dict = (
+        dict(decision_summary) if decision_summary is not None else {}
+    )
     # Normalize ``incident_ids`` inside the decision summary from a JSONB
     # list to a tuple so strict Pydantic validation
     # (``AuditDecisionSummary.incident_ids: BoundedStringTuple``) in the
     # API layer never rejects rows read from Postgres.
-    if (
-        isinstance(decision_summary_dict.get("incident_ids"), list)
-    ):
+    if isinstance(decision_summary_dict.get("incident_ids"), list):
         decision_summary_dict["incident_ids"] = tuple(
             decision_summary_dict["incident_ids"]
         )
@@ -712,9 +719,10 @@ async def list_incident_events(
     """
 
     base_stmt = _apply_audit_filters(select(*_AUDIT_LIST_COLUMNS), filters)
-    total = await session.scalar(
-        select(func.count()).select_from(base_stmt.subquery())
-    ) or 0
+    total = (
+        await session.scalar(select(func.count()).select_from(base_stmt.subquery()))
+        or 0
+    )
 
     page_stmt = _apply_audit_filters(select(*_AUDIT_LIST_COLUMNS), filters)
     if filters.cursor is not None:
@@ -742,9 +750,13 @@ async def list_incident_events(
             )
         offset_value = 0
     elif filters.offset is not None:
-        page_stmt = page_stmt.order_by(
-            IncidentEvent.accepted_at.desc(), IncidentEvent.id.desc()
-        ).offset(filters.offset).limit(filters.limit)
+        page_stmt = (
+            page_stmt.order_by(
+                IncidentEvent.accepted_at.desc(), IncidentEvent.id.desc()
+            )
+            .offset(filters.offset)
+            .limit(filters.limit)
+        )
         result = await session.execute(page_stmt)
         rows = tuple(result.all())
         page_rows = rows

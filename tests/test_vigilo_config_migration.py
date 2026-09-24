@@ -106,6 +106,8 @@ def test_cli_generates_files(tmp_path: Path) -> None:
     assert summary["issues_truncated"] is False
     assert summary["completed_at"].endswith("+00:00")
 
+
+@pytest.mark.posix
 def test_atomically_published_report_has_safe_readable_mode(tmp_path: Path) -> None:
     report_path = tmp_path / "report.json"
 
@@ -188,6 +190,7 @@ def test_byte_truncated_sub_cap_report_is_valid_for_metrics(
     assert len(report_path.read_bytes()) <= MIGRATION_REPORT_MAX_BYTES
     assert _read_migration_report_snapshot(report_path)[0] == "valid"
 
+
 def test_cli_emits_report_for_equals_form(tmp_path: Path) -> None:
     out_dir = tmp_path / "out"
     report_path = tmp_path / "report.json"
@@ -258,6 +261,7 @@ def test_missing_report_path_at_end_does_not_emit_a_report(
 
     assert result == 2
     assert not list(tmp_path.iterdir())
+
 
 @pytest.mark.parametrize(
     ("source", "contents", "expected_code"),

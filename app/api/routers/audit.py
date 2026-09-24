@@ -47,8 +47,11 @@ async def audit_event_list_filters(
     event_type: EventType | None = None,
     incident_effect: Literal[
         "none", "inserted", "updated", "resolved", "affected_set_shrunk"
-    ] | None = None,
-    no_dispatch_reason: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
+    ]
+    | None = None,
+    no_dispatch_reason: Annotated[
+        str | None, Query(min_length=1, max_length=128)
+    ] = None,
     severity: Severity | None = None,
     host: Annotated[str | None, Query(min_length=1, max_length=512)] = None,
     service: Annotated[str | None, Query(min_length=1, max_length=512)] = None,
@@ -124,7 +127,9 @@ def _audit_event_response(row: Any) -> AuditEventResponse:
 @router.get("", response_model=AuditEventListResponse)
 async def list_incident_events_endpoint(
     filters: Annotated[AuditEventListFilters, Depends(audit_event_list_filters)],
-    sessionmaker: Annotated[async_sessionmaker[AsyncSession], Depends(get_sessionmaker)],
+    sessionmaker: Annotated[
+        async_sessionmaker[AsyncSession], Depends(get_sessionmaker)
+    ],
 ) -> AuditEventListResponse:
     try:
         async with sessionmaker() as session:

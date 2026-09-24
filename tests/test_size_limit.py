@@ -175,6 +175,7 @@ async def test_default_cap_applies_when_class_override_is_none() -> None:
     assert response.status_code == 413
     assert processor.calls == []
 
+
 async def test_disconnect_during_body_read_returns_without_app() -> None:
     from app.middleware.size_limit import RequestSizeLimiterMiddleware
 

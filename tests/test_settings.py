@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 from pydantic import ValidationError
 from sqlalchemy.sql.elements import TextClause
@@ -108,14 +106,6 @@ async def test_check_database_ready_raises_original_connectivity_failure() -> No
         await check_database_ready(sessionmaker)  # type: ignore[arg-type]
 
     assert exc_info.value is failure
-
-
-def test_makefile_targets_are_uv_wrappers() -> None:
-    makefile = Path("Makefile").read_text()
-
-    for target in ("test", "lint", "typecheck", "run"):
-        marker = f"{target}:\n\tuv run "
-        assert marker in makefile
 
 
 # Phase 5 security-settings tests

@@ -64,7 +64,9 @@ async def test_rules_evaluated_in_ascending_priority_order(tmp_path: Path) -> No
                         "trigger_threshold": 1,
                     },
                     "output_summary": "Low: {host}",
-                    "actions": [{"name": "create_incident", "plugin": "default_output"}],
+                    "actions": [
+                        {"name": "create_incident", "plugin": "default_output"}
+                    ],
                 },
                 {
                     "name": "high-priority",
@@ -76,7 +78,9 @@ async def test_rules_evaluated_in_ascending_priority_order(tmp_path: Path) -> No
                         "trigger_threshold": 1,
                     },
                     "output_summary": "High: {host}",
-                    "actions": [{"name": "create_incident", "plugin": "default_output"}],
+                    "actions": [
+                        {"name": "create_incident", "plugin": "default_output"}
+                    ],
                 },
             ]
         },
@@ -103,7 +107,9 @@ async def test_first_match_wins_stops_evaluation(tmp_path: Path) -> None:
                         "trigger_threshold": 1,
                     },
                     "output_summary": "First: {host}",
-                    "actions": [{"name": "create_incident", "plugin": "default_output"}],
+                    "actions": [
+                        {"name": "create_incident", "plugin": "default_output"}
+                    ],
                 },
                 {
                     "name": "second",
@@ -115,7 +121,9 @@ async def test_first_match_wins_stops_evaluation(tmp_path: Path) -> None:
                         "trigger_threshold": 1,
                     },
                     "output_summary": "Second: {host}",
-                    "actions": [{"name": "create_incident", "plugin": "default_output"}],
+                    "actions": [
+                        {"name": "create_incident", "plugin": "default_output"}
+                    ],
                 },
             ]
         },
@@ -147,13 +155,19 @@ async def test_match_by_severity(tmp_path: Path) -> None:
                         "trigger_threshold": 1,
                     },
                     "output_summary": "x",
-                    "actions": [{"name": "create_incident", "plugin": "default_output"}],
+                    "actions": [
+                        {"name": "create_incident", "plugin": "default_output"}
+                    ],
                 }
             ]
         },
     )
-    assert isinstance(await engine.evaluate(_event(severity=Severity.CRITICAL)), RuleDecision)
-    assert isinstance(await engine.evaluate(_event(severity=Severity.WARNING)), NoOpDecision)
+    assert isinstance(
+        await engine.evaluate(_event(severity=Severity.CRITICAL)), RuleDecision
+    )
+    assert isinstance(
+        await engine.evaluate(_event(severity=Severity.WARNING)), NoOpDecision
+    )
 
 
 async def test_match_by_host_pattern(tmp_path: Path) -> None:
@@ -171,7 +185,9 @@ async def test_match_by_host_pattern(tmp_path: Path) -> None:
                         "trigger_threshold": 1,
                     },
                     "output_summary": "x",
-                    "actions": [{"name": "create_incident", "plugin": "default_output"}],
+                    "actions": [
+                        {"name": "create_incident", "plugin": "default_output"}
+                    ],
                 }
             ]
         },
@@ -199,7 +215,9 @@ async def test_match_by_service_pattern(tmp_path: Path) -> None:
                         "trigger_threshold": 1,
                     },
                     "output_summary": "x",
-                    "actions": [{"name": "create_incident", "plugin": "default_output"}],
+                    "actions": [
+                        {"name": "create_incident", "plugin": "default_output"}
+                    ],
                 }
             ]
         },
@@ -228,7 +246,9 @@ async def test_match_by_tag_equality(tmp_path: Path) -> None:
                         "trigger_threshold": 1,
                     },
                     "output_summary": "x",
-                    "actions": [{"name": "create_incident", "plugin": "default_output"}],
+                    "actions": [
+                        {"name": "create_incident", "plugin": "default_output"}
+                    ],
                 }
             ]
         },
@@ -260,7 +280,9 @@ async def test_match_with_empty_tags_criteria_matches_any_tags(tmp_path: Path) -
                         "trigger_threshold": 1,
                     },
                     "output_summary": "x",
-                    "actions": [{"name": "create_incident", "plugin": "default_output"}],
+                    "actions": [
+                        {"name": "create_incident", "plugin": "default_output"}
+                    ],
                 }
             ]
         },
@@ -287,7 +309,9 @@ async def test_match_requires_all_tag_criteria(tmp_path: Path) -> None:
                         "trigger_threshold": 1,
                     },
                     "output_summary": "x",
-                    "actions": [{"name": "create_incident", "plugin": "default_output"}],
+                    "actions": [
+                        {"name": "create_incident", "plugin": "default_output"}
+                    ],
                 }
             ]
         },
@@ -323,12 +347,16 @@ async def test_group_key_uses_ordered_field_segments(tmp_path: Path) -> None:
                         "trigger_threshold": 1,
                     },
                     "output_summary": "x",
-                    "actions": [{"name": "create_incident", "plugin": "default_output"}],
+                    "actions": [
+                        {"name": "create_incident", "plugin": "default_output"}
+                    ],
                 }
             ]
         },
     )
-    decision = await engine.evaluate(_event(service="http", tags={"topology.site": "dc1"}))
+    decision = await engine.evaluate(
+        _event(service="http", tags={"topology.site": "dc1"})
+    )
     assert isinstance(decision, RuleDecision)
     assert decision.group_key == "topology.site=dc1|service=http"
 
@@ -348,7 +376,9 @@ async def test_group_key_uses_host_when_configured(tmp_path: Path) -> None:
                         "trigger_threshold": 1,
                     },
                     "output_summary": "x",
-                    "actions": [{"name": "create_incident", "plugin": "default_output"}],
+                    "actions": [
+                        {"name": "create_incident", "plugin": "default_output"}
+                    ],
                 }
             ]
         },
@@ -373,7 +403,9 @@ async def test_missing_group_by_field_prevents_match(tmp_path: Path) -> None:
                         "trigger_threshold": 1,
                     },
                     "output_summary": "x",
-                    "actions": [{"name": "create_incident", "plugin": "default_output"}],
+                    "actions": [
+                        {"name": "create_incident", "plugin": "default_output"}
+                    ],
                 }
             ]
         },
@@ -398,7 +430,9 @@ async def test_group_key_with_none_service_omits_segment(tmp_path: Path) -> None
                         "trigger_threshold": 1,
                     },
                     "output_summary": "x",
-                    "actions": [{"name": "create_incident", "plugin": "default_output"}],
+                    "actions": [
+                        {"name": "create_incident", "plugin": "default_output"}
+                    ],
                 }
             ]
         },
@@ -429,7 +463,9 @@ async def test_threshold_not_crossed_with_fewer_events(tmp_path: Path) -> None:
                         "trigger_threshold": 3,
                     },
                     "output_summary": "x",
-                    "actions": [{"name": "create_incident", "plugin": "default_output"}],
+                    "actions": [
+                        {"name": "create_incident", "plugin": "default_output"}
+                    ],
                 }
             ]
         },
@@ -456,7 +492,9 @@ async def test_threshold_crossed_when_count_reaches_threshold(tmp_path: Path) ->
                         "trigger_threshold": 2,
                     },
                     "output_summary": "x",
-                    "actions": [{"name": "create_incident", "plugin": "default_output"}],
+                    "actions": [
+                        {"name": "create_incident", "plugin": "default_output"}
+                    ],
                 }
             ]
         },
@@ -484,7 +522,9 @@ async def test_same_fingerprint_does_not_double_count(tmp_path: Path) -> None:
                         "trigger_threshold": 2,
                     },
                     "output_summary": "x",
-                    "actions": [{"name": "create_incident", "plugin": "default_output"}],
+                    "actions": [
+                        {"name": "create_incident", "plugin": "default_output"}
+                    ],
                 }
             ]
         },
@@ -514,17 +554,22 @@ async def test_events_outside_window_are_not_counted(tmp_path: Path) -> None:
                         "trigger_threshold": 2,
                     },
                     "output_summary": "x",
-                    "actions": [{"name": "create_incident", "plugin": "default_output"}],
+                    "actions": [
+                        {"name": "create_incident", "plugin": "default_output"}
+                    ],
                 }
             ]
         },
     )
     base = datetime(2026, 6, 8, 12, 0, 0, tzinfo=UTC)
-    await engine.evaluate(_event(fingerprint="fp1", timestamp=base - timedelta(seconds=61)))
+    await engine.evaluate(
+        _event(fingerprint="fp1", timestamp=base - timedelta(seconds=61))
+    )
     decision = await engine.evaluate(_event(fingerprint="fp2", timestamp=base))
     assert isinstance(decision, RuleDecision)
     assert decision.threshold_decision.counted == 1
     assert decision.threshold_decision.crossed is False
+
 
 async def test_future_events_remain_counted_for_out_of_order_delivery(
     tmp_path: Path,
@@ -543,7 +588,9 @@ async def test_future_events_remain_counted_for_out_of_order_delivery(
                         "trigger_threshold": 2,
                     },
                     "output_summary": "x",
-                    "actions": [{"name": "create_incident", "plugin": "default_output"}],
+                    "actions": [
+                        {"name": "create_incident", "plugin": "default_output"}
+                    ],
                 }
             ]
         },
@@ -557,7 +604,6 @@ async def test_future_events_remain_counted_for_out_of_order_delivery(
     assert isinstance(decision, RuleDecision)
     assert decision.threshold_decision.counted == 2
     assert decision.threshold_decision.crossed is True
-
 
 
 async def test_threshold_window_bounds_are_correct(tmp_path: Path) -> None:
@@ -575,7 +621,9 @@ async def test_threshold_window_bounds_are_correct(tmp_path: Path) -> None:
                         "trigger_threshold": 1,
                     },
                     "output_summary": "x",
-                    "actions": [{"name": "create_incident", "plugin": "default_output"}],
+                    "actions": [
+                        {"name": "create_incident", "plugin": "default_output"}
+                    ],
                 }
             ]
         },
@@ -587,6 +635,7 @@ async def test_threshold_window_bounds_are_correct(tmp_path: Path) -> None:
     assert td.window_start == base - timedelta(seconds=300)
     assert td.window_end == base
     assert td.threshold == 1
+
 
 async def test_summary_uses_normalized_fields_before_same_named_tags(
     tmp_path: Path,
@@ -605,7 +654,9 @@ async def test_summary_uses_normalized_fields_before_same_named_tags(
                         "trigger_threshold": 1,
                     },
                     "output_summary": "Host {host} from {team.name}",
-                    "actions": [{"name": "create_incident", "plugin": "default_output"}],
+                    "actions": [
+                        {"name": "create_incident", "plugin": "default_output"}
+                    ],
                 }
             ]
         },
@@ -638,7 +689,9 @@ async def test_no_match_returns_no_op_decision(tmp_path: Path) -> None:
                         "trigger_threshold": 1,
                     },
                     "output_summary": "x",
-                    "actions": [{"name": "create_incident", "plugin": "default_output"}],
+                    "actions": [
+                        {"name": "create_incident", "plugin": "default_output"}
+                    ],
                 }
             ]
         },
@@ -669,12 +722,16 @@ async def test_recovery_event_returns_no_op(tmp_path: Path) -> None:
                         "trigger_threshold": 1,
                     },
                     "output_summary": "x",
-                    "actions": [{"name": "create_incident", "plugin": "default_output"}],
+                    "actions": [
+                        {"name": "create_incident", "plugin": "default_output"}
+                    ],
                 }
             ]
         },
     )
-    decision = await engine.evaluate(_event(event_type=EventType.RECOVERY, severity=Severity.OK))
+    decision = await engine.evaluate(
+        _event(event_type=EventType.RECOVERY, severity=Severity.OK)
+    )
     assert isinstance(decision, NoOpDecision)
     assert "recovery" in decision.reason.lower()
 
@@ -699,6 +756,7 @@ def test_rule_engine_has_no_icinga2_raw_state_refs() -> None:
     assert "state_type" not in source
     assert "check_output" not in source
 
+
 # ---------------------------------------------------------------------------
 # Task 3: group-key collision resistance
 # ---------------------------------------------------------------------------
@@ -719,7 +777,9 @@ async def test_group_keys_are_collision_resistant_for_swapped_values(
                         "trigger_threshold": 1,
                     },
                     "output_summary": "x",
-                    "actions": [{"name": "create_incident", "plugin": "default_output"}],
+                    "actions": [
+                        {"name": "create_incident", "plugin": "default_output"}
+                    ],
                 }
             ]
         },
@@ -731,11 +791,14 @@ async def test_group_keys_are_collision_resistant_for_swapped_values(
     assert decision_a.group_key != decision_b.group_key
     assert decision_a.group_key == "host=a|service=b"
     assert decision_b.group_key == "host=b|service=a"
+
+
 # ---------------------------------------------------------------------------
 # Task 3: config.rules module boundary
 # ---------------------------------------------------------------------------
 def test_config_rules_has_no_persistence_import() -> None:
     import app.config.rules as rules_config_module
+
     source = inspect.getsource(rules_config_module)
     assert "app.persistence" not in source
     assert "AsyncSession" not in source

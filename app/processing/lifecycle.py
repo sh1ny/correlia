@@ -67,7 +67,9 @@ class LifecycleManager:
 
     async def resolve_for_event(self, event: NormalizedEvent) -> LifecycleResult:
         if event.event_type is not EventType.RECOVERY:
-            raise ValueError("LifecycleManager.resolve_for_event only accepts RECOVERY events")
+            raise ValueError(
+                "LifecycleManager.resolve_for_event only accepts RECOVERY events"
+            )
 
         if event.service is not None:
             write_results = await resolve_service_recovery(
@@ -92,7 +94,9 @@ class LifecycleManager:
             "recovery lifecycle applied",
             extra=safe_log_extra(
                 event="recovery_lifecycle",
-                incident_id=str(write_results[0].incident.id) if write_results else None,
+                incident_id=str(write_results[0].incident.id)
+                if write_results
+                else None,
                 effect=_result_from_writes(write_results).effect,
                 count=len(write_results),
             ),
@@ -100,7 +104,9 @@ class LifecycleManager:
         return _result_from_writes(write_results)
 
     async def acknowledge(self, incident_id: UUID, *, operator: str) -> LifecycleResult:
-        write_result = await ack_open_incident(self._session, incident_id, operator=operator)
+        write_result = await ack_open_incident(
+            self._session, incident_id, operator=operator
+        )
         await self._session.commit()
         if write_result is None:
             return _empty_result()
@@ -180,11 +186,15 @@ def _empty_result() -> LifecycleResult:
     )
 
 
-def _result_from_writes(write_results: tuple[LifecycleWriteResult, ...]) -> LifecycleResult:
+def _result_from_writes(
+    write_results: tuple[LifecycleWriteResult, ...],
+) -> LifecycleResult:
     if not write_results:
         return _empty_result()
     resolved = [result for result in write_results if result.effect == "resolved"]
-    shrunk = [result for result in write_results if result.effect == "affected_set_shrunk"]
+    shrunk = [
+        result for result in write_results if result.effect == "affected_set_shrunk"
+    ]
     if resolved:
         effect: LifecycleResultEffect = "resolved"
         transitioned_to = resolved[0].transitioned_to
@@ -199,6 +209,10 @@ def _result_from_writes(write_results: tuple[LifecycleWriteResult, ...]) -> Life
         effect=effect,
         transitioned_to=transitioned_to,
         previous_host_count=sum(result.previous_host_count for result in write_results),
-        previous_service_count=sum(result.previous_service_count for result in write_results),
-        affected_object_removed=any(result.affected_object_removed for result in write_results),
+        previous_service_count=sum(
+            result.previous_service_count for result in write_results
+        ),
+        affected_object_removed=any(
+            result.affected_object_removed for result in write_results
+        ),
     )

@@ -3,7 +3,13 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from app.domain.events import EventType, NormalizedEvent, Severity, SEVERITY_RANK, max_severity
+from app.domain.events import (
+    EventType,
+    NormalizedEvent,
+    Severity,
+    SEVERITY_RANK,
+    max_severity,
+)
 
 
 def valid_event_data() -> dict[str, object]:
@@ -23,7 +29,12 @@ def valid_event_data() -> dict[str, object]:
 
 def test_event_type_and_severity_contracts_are_explicit() -> None:
     assert set(EventType) == {EventType.PROBLEM, EventType.RECOVERY}
-    assert set(Severity) == {Severity.OK, Severity.WARNING, Severity.UNKNOWN, Severity.CRITICAL}
+    assert set(Severity) == {
+        Severity.OK,
+        Severity.WARNING,
+        Severity.UNKNOWN,
+        Severity.CRITICAL,
+    }
     assert SEVERITY_RANK == {
         Severity.OK: 0,
         Severity.WARNING: 1,

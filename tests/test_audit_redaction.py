@@ -131,7 +131,9 @@ def test_redact_payload_none_payload_produces_empty_object() -> None:
     assert result.redacted_path_count == 0
 
 
-def test_redact_normalized_event_message_tags_redacts_sensitive_keys_and_values() -> None:
+def test_redact_normalized_event_message_tags_redacts_sensitive_keys_and_values() -> (
+    None
+):
     message = "service token expired"
     tags = {"env": "prod", "api_key": "sk-12345", "safe.tag": "visible"}
     safe_message, safe_tags = redact_normalized_event_message_tags(message, tags)
@@ -157,7 +159,9 @@ def test_redact_normalized_event_message_tags_omits_sensitive_tag_keys() -> None
     assert safe_tags["safe"] == "ok"
 
 
-def test_redact_normalized_event_message_tags_redacts_nested_contents_without_mutating_input() -> None:
+def test_redact_normalized_event_message_tags_redacts_nested_contents_without_mutating_input() -> (
+    None
+):
     tags = {
         "environment": "prod",
         "nested": {
@@ -197,6 +201,7 @@ def test_redact_normalized_event_message_tags_redacts_nested_contents_without_mu
     assert safe_tags["nested"] is not tags["nested"]
     assert safe_tags["items"] is not tags["items"]
 
+
 def test_redact_normalized_event_message_tags_truncates_long_message() -> None:
     # D-08: non-sensitive messages up to 4096 chars in NormalizedEvent must
     # be capped to the 512-char response-surface bound.
@@ -231,9 +236,7 @@ def test_decode_audit_cursor_rejects_invalid_or_naive_values() -> None:
     with pytest.raises(ValueError, match="invalid audit event cursor"):
         decode_audit_cursor(bad_missing)
     # Naive datetime.
-    bad_naive = _encode_raw(
-        {"accepted_at": "2026-01-01T00:00:00", "id": str(uuid4())}
-    )
+    bad_naive = _encode_raw({"accepted_at": "2026-01-01T00:00:00", "id": str(uuid4())})
     with pytest.raises(ValueError, match="invalid audit event cursor"):
         decode_audit_cursor(bad_naive)
     # Invalid UUID.
@@ -255,6 +258,7 @@ def test_decode_audit_cursor_rejects_invalid_byte_appended_to_valid_cursor() -> 
 
     with pytest.raises(ValueError, match="invalid audit event cursor"):
         decode_audit_cursor(f"{encode_audit_cursor(cursor)}!")
+
 
 def _encode_raw(payload: dict[str, str]) -> str:
     import base64
