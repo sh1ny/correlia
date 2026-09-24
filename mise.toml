@@ -1,0 +1,31 @@
+[tools]
+python = "3.14.7"
+uv = "0.11.7"
+
+[env]
+UV_PYTHON = { value = "{{ tools.python.path }}/{% if os() == 'windows' %}python.exe{% else %}bin/python3{% endif %}", tools = true }
+UV_PYTHON_DOWNLOADS = "never"
+
+[tasks.setup]
+description = "Synchronize the exact locked development environment"
+run = "uv sync --locked --group dev"
+
+[tasks."format:check"]
+description = "Check Python formatting without rewriting files"
+depends = ["setup"]
+run = "uv run --locked --no-sync ruff format --check ."
+
+[tasks.lint]
+description = "Check Python lint"
+depends = ["setup"]
+run = "uv run --locked --no-sync ruff check ."
+
+[tasks.typecheck]
+description = "Check strict application types"
+depends = ["setup"]
+run = "uv run --locked --no-sync mypy app"
+
+[tasks.run]
+description = "Start the local factory server using explicitly exported settings"
+depends = ["setup"]
+run = "uv run --locked --no-sync uvicorn app.main:create_app --factory --reload"
