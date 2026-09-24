@@ -1,0 +1,44 @@
+name: Verification
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Linux verification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CORRELIA_VERIFICATION_PROJECT: correlia-verify-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Check out proposed merge
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Install pinned toolchain
+        id: tools
+        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
+        with:
+          version: 2026.9.12
+          install: true
+          cache: false
+          env: false
+      - name: Identify tested revision
+        env:
+          TESTED_SHA: ${{ github.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          printf '## Linux verification\n\nTested merge: `%s`\n\nPR head: `%s`\n\nOnly listed outcomes executed; absent outcomes are not passes.\n\n' "$TESTED_SHA" "$PR_HEAD" >> "$GITHUB_STEP_SUMMARY"
+      - name: Run shared Linux gate
+        run: mise run ci
+      - name: Remove owned verification resources
+        if: ${{ always() && steps.tools.outcome == 'success' }}
+        run: mise run clean:verification

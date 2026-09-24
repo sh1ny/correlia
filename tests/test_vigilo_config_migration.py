@@ -107,6 +107,7 @@ def test_cli_generates_files(tmp_path: Path) -> None:
     assert summary["completed_at"].endswith("+00:00")
 
 
+@pytest.mark.posix
 def test_atomically_published_report_has_safe_readable_mode(tmp_path: Path) -> None:
     report_path = tmp_path / "report.json"
 

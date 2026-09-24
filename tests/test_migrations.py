@@ -54,8 +54,8 @@ async def _run_alembic_upgrade_from_database_url_env(database_url: str) -> None:
 
 
 @pytest.fixture(scope="module")
-def postgres_url() -> str:
-    with PostgresContainer("postgres:18-alpine") as postgres:
+def postgres_url(postgres_image: str) -> str:
+    with PostgresContainer(postgres_image) as postgres:
         url = postgres.get_connection_url()
         # Force asyncpg driver for SQLAlchemy async engine compatibility
         url = url.replace("postgresql+psycopg2://", "postgresql+asyncpg://")

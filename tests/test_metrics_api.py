@@ -904,6 +904,7 @@ async def test_migration_report_renders_are_consistent_during_atomic_replacement
     )
 
 
+@pytest.mark.posix
 async def test_migration_report_projection_rejects_fifo_without_blocking(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1038,15 +1039,20 @@ async def test_migration_report_projection_rejects_unsafe_and_future_snapshots(
         metrics.render_metrics().decode()
     )
 
-    if hasattr(__import__("os"), "symlink"):
-        target = tmp_path / "target.json"
-        target.write_text("{}")
-        report_path.unlink()
-        report_path.symlink_to(target)
-        metrics.refresh_migration_report_projection()
-        assert 'correlia_vigilo_migration_report_status{status="unsafe_file"} 1.0' in (
-            metrics.render_metrics().decode()
-        )
+
+@pytest.mark.posix
+async def test_migration_report_projection_rejects_symlink(tmp_path: Path) -> None:
+    import app.processing.metrics as metrics
+
+    target = tmp_path / "target.json"
+    target.write_text("{}")
+    report_path = tmp_path / "migration-report.json"
+    report_path.symlink_to(target)
+    metrics.configure_migration_report_projection(report_path)
+    metrics.refresh_migration_report_projection()
+    assert 'correlia_vigilo_migration_report_status{status="unsafe_file"} 1.0' in (
+        metrics.render_metrics().decode()
+    )
 
 
 async def test_migration_report_projection_validates_versions_domains_and_file_kind(
