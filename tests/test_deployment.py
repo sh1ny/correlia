@@ -1504,6 +1504,9 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
         ]
     ).stdout.strip()
     assert migration_revision_after_restart == migration_revision
+    app_container = _require_docker_success(
+        _docker_compose_arguments(stack, "ps", "--quiet", "correlia")
+    ).stdout.strip()
     status, persisted_body = _container_http_response(
         app_container, f"{app_url}/v1/incidents/{incident_id}", token=operator_token
     )
