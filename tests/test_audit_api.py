@@ -39,7 +39,6 @@ from app.processing.ingress import (
 )
 from app.processing.task_runner import AsyncIOTaskRunner
 
-pytestmark = pytest.mark.anyio
 
 VALID_DATABASE_URL = "postgresql+asyncpg://user:pass@localhost:5432/correlia"
 OPERATOR_TOKEN = "operator-secret"

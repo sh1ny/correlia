@@ -10,8 +10,6 @@ from httpx import ASGITransport, AsyncClient
 from app.config.plugins import load_plugin_registry_config
 from app.plugins.loader import PluginRegistry
 
-pytestmark = pytest.mark.anyio
-
 
 @pytest.fixture(autouse=True)
 def _disable_auth_for_plugins_tests(

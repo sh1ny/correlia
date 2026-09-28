@@ -38,8 +38,6 @@ FORBIDDEN_METRIC_LABELS = {
     "plugin_name",
 }
 
-pytestmark = pytest.mark.anyio
-
 
 @pytest.fixture(autouse=True)
 def _auth_env_for_metrics_tests(

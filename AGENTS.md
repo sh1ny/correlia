@@ -68,11 +68,11 @@ Use the pinned Python 3.14.7, uv 0.11.7 and single `uv.lock`; no Node/Bun toolch
 
 PostgreSQL is required; never substitute SQLite for persistence correctness tests. `compose.yaml` owns the supported PostgreSQL 16 image; all correctness fixtures consume that image through `postgres_image` while retaining their module-local lifetimes.
 
-Do not commit local secrets: `.env` variants are not currently excluded by `.gitignore`, even though the Docker context excludes them. Authenticated operation requires distinct operator/ingress tokens and a separate audit HMAC key.
+Do not commit local secrets: `.gitignore` excludes `.env` and `.env.*` at any depth except `.env.example`; the Docker context also excludes environment files. Ignore rules do not protect already-tracked files or historical content. Authenticated operation requires distinct operator/ingress tokens and a separate audit HMAC key.
 
 ## Testing & QA
 
-- Pytest uses `asyncio_mode = "auto"`; API tests use HTTPX `ASGITransport`. Follow the touched module's async convention rather than adding another event-loop owner. `tests/conftest.py` isolates selected environment variables.
+- Pytest uses pytest-asyncio with `asyncio_mode = "auto"` as the sole async test/fixture owner; do not add AnyIO test markers or backend fixtures. Mixing owners makes fixture event loops depend on plugin discovery order. API tests use HTTPX `ASGITransport`; `tests/conftest.py` isolates selected environment variables.
 - Focused examples: `uv run --locked pytest tests/test_icinga2_input.py` and `uv run --locked pytest tests/test_smtp_output.py`. SMTP tests use a local capture server.
 - Database and migration modules use Testcontainers with real PostgreSQL and require Docker. Exercise changed uniqueness, replay, transaction and concurrency behavior against PostgreSQL, not mocks.
 - Use `mise run ci` on Linux with Docker/Compose for full verification. Required modes reject missing prerequisites, narrowed selection, skips, xfails and incomplete results. `mise run check:portable` excludes PostgreSQL, deployment and POSIX cases before fixture setup; it is not deployment or release evidence. Report skipped/unexecuted paths explicitly.

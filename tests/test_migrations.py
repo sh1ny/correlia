@@ -14,9 +14,6 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from testcontainers.postgres import PostgresContainer
 
 
-pytestmark = pytest.mark.anyio
-
-
 async def _run_alembic_upgrade(database_url: str) -> None:
     result = subprocess.run(
         [
