@@ -68,7 +68,7 @@ Use the pinned Python 3.14.7, uv 0.11.7 and single `uv.lock`; no Node/Bun toolch
 
 PostgreSQL is required; never substitute SQLite for persistence correctness tests. `compose.yaml` owns the supported PostgreSQL 16 image; all correctness fixtures consume that image through `postgres_image` while retaining their module-local lifetimes.
 
-Do not commit local secrets: `.env` variants are not currently excluded by `.gitignore`, even though the Docker context excludes them. Authenticated operation requires distinct operator/ingress tokens and a separate audit HMAC key.
+Do not commit local secrets: `.gitignore` excludes `.env` and `.env.*` at any depth except `.env.example`; the Docker context also excludes environment files. Ignore rules do not protect already-tracked files or historical content. Authenticated operation requires distinct operator/ingress tokens and a separate audit HMAC key.
 
 ## Testing & QA
 

@@ -11,6 +11,22 @@ CORRELIA_PLUGINS_PATH=config/plugins.yaml
 `DATABASE_URL` is still required by the application settings.
 `CORRELIA_AUDIT_RAW_PAYLOAD_HMAC_KEY` is also required at startup. It protects the audit trail's ability to authenticate a pre-redaction raw audit payload against a candidate original. Supply it through your deployment's secret-management system; never commit it in configuration files.
 
+## Keeping credentials out of Git
+
+Git ignores `.env` and `.env.*` at the repository root and in nested directories, except `.env.example`. Keep samples credential-free and supply deployment values through local configuration or your secret-management system.
+
+Ignore rules prevent ordinary staging of untracked files; they do not remove already-tracked files or historical content, and `git add --force` can bypass them. Review staged changes before committing. Do not force-add local environment files or put secrets in tracked YAML, source, commit messages, PRs, issues, or verification logs.
+
+If a credential reaches GitHub, treat it as exposed: contact its owner privately and revoke or rotate it before considering history cleanup. Do not paste the value into a public report or assume deleting the file removes other copies.
+
+### Native secret scanning and push protection
+
+Repository-level GitHub secret scanning and push protection are enabled for `sh1ny/correlia`. The web-commit path was verified with GitHub's documented non-secret dummy token; the blocked attempt was cancelled without bypass or a new commit. The dated [secret-exposure audit](docs/security/secret-exposure-audit.md) records the historical scan scope and hosted proof separately.
+
+When GitHub blocks a commit, cancel it and remove the credential rather than choosing a bypass to get the change through. Repository administrators own reviewing secret-scanning alerts and bypass activity; credential owners handle private revocation or rotation. The qualification did not change bypass permissions.
+
+These controls detect supported patterns, not every credential. Unsupported formats, size and processing limits, and permitted bypasses remain risks; the browser proof does not establish every Git/API push path. See GitHub's [secret-scanning scope](https://docs.github.com/en/code-security/reference/secret-security/secret-scanning-scope) and [supported patterns](https://docs.github.com/en/code-security/reference/secret-security/supported-secret-scanning-patterns). Account-level push protection is not a substitute for repository settings. Docker exclusions affect the build context only, and `mise run audit` checks Python dependency advisories, not secrets.
+
 ## Contributor verification
 
 Install [mise](https://mise.jdx.dev/getting-started.html) externally, review the checkout, then run from the repository root:
