@@ -12,8 +12,6 @@ from app.config.settings import Settings
 from app.main import create_app
 from app.plugins.loader import PluginRegistry
 
-pytestmark = pytest.mark.anyio
-
 
 @pytest.fixture(autouse=True)
 def _disable_auth_for_config_status_tests(

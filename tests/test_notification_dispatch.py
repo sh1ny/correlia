@@ -15,8 +15,6 @@ from app.domain.events import Severity
 from app.plugins.interfaces import NotificationEnvelope, PluginStatus
 from pydantic import ValidationError
 
-pytestmark = pytest.mark.anyio
-
 
 def _run_alembic_upgrade(database_url: str) -> None:
     result = subprocess.run(

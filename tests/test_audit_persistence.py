@@ -27,9 +27,6 @@ from app.persistence.audit import (
 from app.persistence.models import IncidentEvent
 
 
-pytestmark = pytest.mark.anyio
-
-
 _TEST_HMAC_KEY = "test-audit-hmac-key"
 
 

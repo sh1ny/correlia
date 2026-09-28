@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 
-import pytest
 from httpx import ASGITransport, AsyncClient
 
 from fastapi.security import HTTPAuthorizationCredentials
@@ -11,7 +10,6 @@ from app.api.security import _token_matches
 from app.config.settings import Settings
 from app.main import create_app
 
-pytestmark = pytest.mark.anyio
 
 VALID_DATABASE_URL = "postgresql+asyncpg://user:pass@localhost:5432/correlia"
 OPERATOR_TOKEN = "operator-secret"

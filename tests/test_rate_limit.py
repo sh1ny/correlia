@@ -21,8 +21,6 @@ from app.middleware.rate_limit import (
 )
 
 
-pytestmark = pytest.mark.anyio
-
 VALID_DATABASE_URL = "postgresql+asyncpg://user:pass@localhost:5432/correlia"
 OPERATOR_TOKEN = "operator-secret"
 INGRESS_TOKEN = "ingress-secret"

@@ -74,6 +74,8 @@ This runs the same quality/audit checks and a portable pytest subset. It require
 
 Use `mise run test:deployment` for focused deployment work, not as another step after `ci`. Focused debugging may use `mise exec -- uv run --locked --no-sync pytest <test-path>` after setup; that invocation is not the required gate.
 
+Async tests and fixtures run under pytest-asyncio's configured `auto` mode. Do not add `pytest.mark.anyio` or AnyIO backend fixtures: allowing both plugins to own a test can put its database fixture and test on different event loops, making results depend on plugin discovery order. AnyIO remains an application dependency; it does not own this suite's test execution.
+
 ### Dependency advisory policy
 
 `audit` uses uv 0.11.7's `uv --preview-features audit audit --locked`, with its universal dependency scope, including runtime and development packages. User-level uv configuration and inherited exclusion controls do not narrow the shared scan. Findings and scanner/service errors fail verification. There are no initial exceptions, global ignores or “ignore until fixed” allowances.

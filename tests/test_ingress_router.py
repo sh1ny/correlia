@@ -75,9 +75,6 @@ def _event_time() -> datetime:
     return datetime(2026, 6, 8, 12, 0, tzinfo=timezone.utc)
 
 
-pytestmark = pytest.mark.anyio
-
-
 @pytest.fixture(autouse=True)
 def _disable_auth_for_ingress_tests(
     monkeypatch: pytest.MonkeyPatch, clean_settings_env: None

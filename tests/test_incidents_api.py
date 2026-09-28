@@ -19,7 +19,6 @@ from app.domain.incidents import DecisionContext, IncidentStatus
 from app.main import create_app
 from app.persistence.models import Incident, IncidentEvent
 
-pytestmark = pytest.mark.anyio
 
 VALID_DATABASE_URL = "postgresql+asyncpg://user:pass@localhost:5432/correlia"
 

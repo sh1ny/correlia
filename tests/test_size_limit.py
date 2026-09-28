@@ -12,8 +12,6 @@ from app.domain.rules import IngressDecisionEnvelope
 from app.main import create_app
 
 
-pytestmark = pytest.mark.anyio
-
 VALID_DATABASE_URL = "postgresql+asyncpg://user:pass@localhost:5432/correlia"
 
 

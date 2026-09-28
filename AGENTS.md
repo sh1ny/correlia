@@ -72,7 +72,7 @@ Do not commit local secrets: `.gitignore` excludes `.env` and `.env.*` at any de
 
 ## Testing & QA
 
-- Pytest uses `asyncio_mode = "auto"`; API tests use HTTPX `ASGITransport`. Follow the touched module's async convention rather than adding another event-loop owner. `tests/conftest.py` isolates selected environment variables.
+- Pytest uses pytest-asyncio with `asyncio_mode = "auto"` as the sole async test/fixture owner; do not add AnyIO test markers or backend fixtures. Mixing owners makes fixture event loops depend on plugin discovery order. API tests use HTTPX `ASGITransport`; `tests/conftest.py` isolates selected environment variables.
 - Focused examples: `uv run --locked pytest tests/test_icinga2_input.py` and `uv run --locked pytest tests/test_smtp_output.py`. SMTP tests use a local capture server.
 - Database and migration modules use Testcontainers with real PostgreSQL and require Docker. Exercise changed uniqueness, replay, transaction and concurrency behavior against PostgreSQL, not mocks.
 - Use `mise run ci` on Linux with Docker/Compose for full verification. Required modes reject missing prerequisites, narrowed selection, skips, xfails and incomplete results. `mise run check:portable` excludes PostgreSQL, deployment and POSIX cases before fixture setup; it is not deployment or release evidence. Report skipped/unexecuted paths explicitly.
