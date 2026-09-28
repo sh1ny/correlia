@@ -35,7 +35,9 @@ Both source and mirror were non-shallow. Ref reconciliation found no mismatch; f
 | Unique complete blobs | 2,946 |
 | Total | 5,205 |
 
-The complete-blob scanner input accounted for all **46,134,895 bytes** of the 2,946 blobs. Separate metadata input accounted for **265,673 bytes** from all 528 commit objects and the annotated tag. The tracked-tip export contained **289 regular files**, totalling **3,611,830 bytes**. Input counts and bytes were reconciled independently of the scanner's patch count.
+The complete-blob scanner input accounted for all **46,134,895 bytes** of the 2,946 blobs. Separate metadata input accounted for **265,673 bytes** from all 528 commit objects and the annotated tag. The corrected tracked-tip input contained **289 regular files**, totalling **3,546,891 bytes**. These files were extracted with binary `git cat-file --batch` reads; every payload's size and Git blob ID were verified before scanning. Input counts and bytes were reconciled against Git object sizes, independently of the scanner's patch count.
+
+PR review identified LF-to-CRLF conversion in the original Windows `git archive` export: it added 64,939 bytes. That tip pass is superseded by the byte-exact rerun below. Reconstructing the original export reproduced its 3,611,830-byte input; scans of both exports returned the same three rule/path/line observations and raw Git source contexts. No new candidate context or owner attestation was needed. The original complete-blob and metadata passes used binary extraction, not the archive path; independently reconstructing the frozen ref inventories reproduced both snapshot digests and their recorded object counts and byte totals.
 
 ## Executed passes
 
@@ -44,7 +46,7 @@ The complete-blob scanner input accounted for all **46,134,895 bytes** of the 2,
 | Git history | Patches across all frozen refs with full-history traversal | 20 | 1 |
 | Complete blobs | Every unique reachable blob | 25 | 1 |
 | Metadata | Commit objects and annotated-tag text, separately extracted | 0 | 0 |
-| Tracked tip | Export of the audited tip, separate from the working directory | 3 | 1 |
+| Tracked tip | Byte-exact binary extraction of the audited tip, separate from the working directory | 3 | 1 |
 
 All four reports were valid JSON, with no operational error diagnostics. Exit 1 was not accepted as proof of successful scanning by itself: qualification also demonstrated a scanner configuration error that returns 1 without a valid report. Findings and operational failures were assessed separately.
 
