@@ -430,16 +430,22 @@ async def test_sql_guard_omits_oversized_object_without_driver_materialization(
 
 
 @pytest.mark.parametrize(
-    ("target_bytes", "expected_tags"),
+    ("target_bytes", "expected_tags", "expected_reasons"),
     [
-        pytest.param(32_768, {"safe": "ok"}, id="exactly-32768-bytes"),
-        pytest.param(32_769, {}, id="32769-bytes"),
+        pytest.param(
+            32_768,
+            {"safe": "ok"},
+            {"invalid_legacy_shape"},
+            id="exactly-32768-bytes",
+        ),
+        pytest.param(32_769, {}, {"size_limit"}, id="32769-bytes"),
     ],
 )
 async def test_sql_tag_guard_uses_server_text_byte_boundary(
     db_session: AsyncSession,
     target_bytes: int,
     expected_tags: dict[str, str],
+    expected_reasons: set[str],
 ) -> None:
     event_id = await _seed_event(db_session)
     # JSONB renders its own text (including spacing/key order); measure that
@@ -449,6 +455,8 @@ async def test_sql_tag_guard_uses_server_text_byte_boundary(
         sa.text("SELECT CAST(CAST(:tags AS jsonb) AS text)"),
         {"tags": empty_large},
     )
+    # At the inclusive SQL cap this legacy value exceeds the 256-character
+    # event-tag limit; only the over-cap object is omitted for "size_limit".
     large_value = "x" * (target_bytes - len(base_text.encode("utf-8")))
     await _replace_legacy_tags(
         db_session, event_id, json.dumps({"safe": "ok", "zz_large": large_value})
@@ -469,7 +477,7 @@ async def test_sql_tag_guard_uses_server_text_byte_boundary(
     row = page.events[0]
     assert row.normalized_event_tags == expected_tags
     assert row.normalized_event_tags_omitted
-    assert row.normalized_event_tags_omission_reasons == {"size_limit"}
+    assert row.normalized_event_tags_omission_reasons == expected_reasons
 
 
 async def test_sql_tag_guard_counts_multibyte_server_text_octets(
