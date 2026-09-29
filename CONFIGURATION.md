@@ -237,7 +237,7 @@ rules:
       severities: ["CRITICAL", "WARNING"]
       host_pattern: ".*"
       tags:
-        topology.datacenter: ".+"
+        topology.datacenter: "prm1"
     window:
       duration_seconds: 1800
       group_by: ["topology.datacenter"]
@@ -261,6 +261,8 @@ rules:
       - name: "create_incident"
         plugin: "email-ops"
 ```
+
+`match.host_pattern` and optional `match.service_pattern` are regular expressions; `match.tags` values use literal string equality. The priority-1 datacenter rule therefore requires `topology.datacenter=prm1`: `".+"` is not a tag wildcard. Rules are checked in ascending priority order, and the first match wins. For a CRITICAL PROBLEM event on `prm1-prd-web01` tagged `topology.datacenter=prm1`, the DC-Level Outage Aggregator selects the group `topology.datacenter=prm1`. With `topology.datacenter=prm2` or no datacenter tag, the Host Alert Aggregator instead selects `host=prm1-prd-web01` for that eligible host and severity. Rule selection alone does not cross a threshold or confirm notification delivery.
 
 ### Rule windows and threshold capacity
 
