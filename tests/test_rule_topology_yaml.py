@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
+from pydantic import ValidationError
 
 from app.config.rules import (
     MatchCriteriaConfig,
@@ -12,6 +14,7 @@ from app.config.rules import (
     RuleWindowConfig,
     load_rules_config,
 )
+from app.domain.rules import RuleWindow
 
 
 # ---------------------------------------------------------------------------
@@ -133,6 +136,43 @@ def test_load_rules_config_rejects_string_threshold(tmp_path: Path) -> None:
     path.write_text(yaml.safe_dump(data))
     with pytest.raises(ValueError):
         load_rules_config(path)
+
+
+def test_load_rules_config_identifies_unreachable_threshold(tmp_path: Path) -> None:
+    data = _valid_rule_yaml()
+    data["rules"][1]["window"]["trigger_threshold"] = 100
+    path = tmp_path / "rules.yaml"
+    path.write_text(yaml.safe_dump(data))
+    assert load_rules_config(path).rules[1].definition.window.trigger_threshold == 100
+
+    data["rules"][1]["window"]["trigger_threshold"] = 101
+    path.write_text(yaml.safe_dump(data))
+    with pytest.raises(ValidationError) as error:
+        load_rules_config(path)
+
+    failures = [
+        item
+        for item in error.value.errors()
+        if item["loc"] == ("rules", 1, "window", "trigger_threshold")
+    ]
+    assert len(failures) == 1
+    assert failures[0]["ctx"]["le"] == 100
+
+
+@pytest.mark.parametrize("threshold", [1, 100])
+def test_domain_rule_window_accepts_reachable_threshold(threshold: int) -> None:
+    window = RuleWindow(
+        duration_seconds=60, group_by=["host"], trigger_threshold=threshold
+    )
+    assert window.trigger_threshold == threshold
+
+
+@pytest.mark.parametrize("threshold", [0, 101, True, "2", 1.5])
+def test_domain_rule_window_rejects_unreachable_or_non_integer_threshold(
+    threshold: Any,
+) -> None:
+    with pytest.raises(ValidationError):
+        RuleWindow(duration_seconds=60, group_by=["host"], trigger_threshold=threshold)
 
 
 def test_load_rules_config_rejects_zero_window_duration(tmp_path: Path) -> None:
@@ -306,6 +346,19 @@ def test_rule_window_config_rejects_zero_threshold() -> None:
         RuleWindowConfig.model_validate(
             {"duration_seconds": 60, "group_by": ["host"], "trigger_threshold": 0}
         )
+
+
+@pytest.mark.parametrize("threshold", [True, "2", 1.5])
+def test_rule_window_config_requires_integer_threshold(threshold: Any) -> None:
+    with pytest.raises(ValidationError) as error:
+        RuleWindowConfig.model_validate(
+            {
+                "duration_seconds": 60,
+                "group_by": ["host"],
+                "trigger_threshold": threshold,
+            }
+        )
+    assert error.value.errors()[0]["loc"] == ("trigger_threshold",)
 
 
 def test_rule_action_config_rejects_empty_name() -> None:

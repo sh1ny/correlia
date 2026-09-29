@@ -13,6 +13,7 @@ from app.domain.rules import (
     IngressDecisionEnvelope,
     NoOpDecision,
     RuleDecision,
+    RuleMatch,
 )
 from app.persistence.audit import (
     insert_incident_event,
@@ -176,22 +177,19 @@ class Icinga2DecisionProcessor:
 
         # model_copy in enrichment deliberately preserves the chosen values but
         # skips Pydantic. Check the effective map (also with no enricher) before
-        # RuleEngine can change threshold history or a transaction is opened.
+        # rule matching or a transaction is opened.
         validate_event_tags(event.tags)
 
         matched_rules: list[str] = []
-        rule_decision: dict[str, object] | None = None
-        group_key: str | None = None
-        threshold_decision: dict[str, object] | None = None
+        rule_decision: RuleDecision | NoOpDecision | None = None
         noop_reason: str | None = None
-        decision: RuleDecision | None = None
+        match: RuleMatch | None = None
 
         if self._rule_engine is not None:
             engine_decision = await self._rule_engine.evaluate(event)
-            rule_decision = engine_decision.model_dump(mode="json")
-            if isinstance(engine_decision, RuleDecision):
-                decision = engine_decision
-                matched_rules = list(decision.matched_rules)
+            if isinstance(engine_decision, RuleMatch):
+                match = engine_decision
+                matched_rules = list(match.matched_rules)
                 for rule_name in matched_rules:
                     record_rule_matched()
                     logger.info(
@@ -199,19 +197,15 @@ class Icinga2DecisionProcessor:
                         extra=safe_log_extra(
                             event="rule_matched",
                             rule_name=rule_name,
-                            group_key=decision.group_key,
+                            group_key=match.group_key,
                         ),
                     )
-                group_key = decision.group_key
-                if event.event_type is EventType.PROBLEM:
-                    threshold_decision = decision.threshold_decision.model_dump(
-                        mode="json"
-                    )
             else:
+                rule_decision = engine_decision
                 noop_reason = engine_decision.reason
         else:
             noop_reason = "no rule engine configured"
-            rule_decision = NoOpDecision(reason=noop_reason).model_dump(mode="json")
+            rule_decision = NoOpDecision(reason=noop_reason)
 
         # ------------------------------------------------------------------
         # Single ingress-owned transaction for the accepted event (D-01/D-02).
@@ -228,14 +222,14 @@ class Icinga2DecisionProcessor:
             incident_result: IncidentAggregationResult | None = None
             lifecycle_result: LifecycleResult | None = None
 
-            if event.event_type is EventType.PROBLEM and decision is not None:
+            if event.event_type is EventType.PROBLEM and match is not None:
                 manager = IncidentManager(
                     session,
                     task_runner=self._task_runner,
                     plugin_registry=self._plugin_registry,
                     config_hash=self._config_hash,
                 )
-                incident_result = await manager.apply_problem(event, decision)
+                incident_result = await manager.apply_problem(event, match)
             elif event.event_type is EventType.RECOVERY:
                 lifecycle_manager = LifecycleManager(session)
                 lifecycle_result = await lifecycle_manager.resolve_for_event(event)
@@ -251,11 +245,21 @@ class Icinga2DecisionProcessor:
                     ),
                 )
 
+            if incident_result is not None:
+                assert match is not None
+                rule_decision = RuleDecision(
+                    rule_name=match.rule_name,
+                    priority=match.priority,
+                    matched_rules=match.matched_rules,
+                    group_key=match.group_key,
+                    threshold_decision=incident_result.threshold_decision,
+                    summary=match.summary,
+                    actions=match.actions,
+                )
+
             summary = _build_audit_summary(
-                decision=decision,
-                rule_decision_dict=rule_decision,
+                match=match,
                 matched_rules=matched_rules,
-                group_key=group_key,
                 incident_result=incident_result,
                 lifecycle_result=lifecycle_result,
                 noop_reason=noop_reason,
@@ -314,7 +318,7 @@ class Icinga2DecisionProcessor:
             and incident_result.notification_intent == "dispatch_planned"
         ):
             notification_results = await self._submit_notifications(
-                incident_result.incident_id, decision
+                incident_result.incident_id, match
             )
         if incident_result is not None:
             logger.info(
@@ -341,9 +345,13 @@ class Icinga2DecisionProcessor:
             final_tags=dict(event.tags),
             enrichment_diagnostics=diagnostics,
             matched_rules=matched_rules,
-            rule_decision=rule_decision,
-            group_key=group_key,
-            threshold_decision=threshold_decision,
+            rule_decision=rule_decision.model_dump(mode="json")
+            if rule_decision is not None
+            else None,
+            group_key=match.group_key if match is not None else None,
+            threshold_decision=rule_decision.threshold_decision.model_dump(mode="json")
+            if isinstance(rule_decision, RuleDecision)
+            else None,
             incident_effects=_incident_effects(incident_result),
             closure_count=(
                 lifecycle_result.resolved_count if lifecycle_result is not None else 0
@@ -382,7 +390,7 @@ class Icinga2DecisionProcessor:
     async def _submit_notifications(
         self,
         incident_id: Any,
-        decision: RuleDecision | None,
+        decision: RuleMatch | None,
     ) -> tuple[NotificationResult, ...]:
         if decision is None:
             return ()
@@ -457,10 +465,8 @@ class Icinga2DecisionProcessor:
 
 def _build_audit_summary(
     *,
-    decision: RuleDecision | None,
-    rule_decision_dict: dict[str, object] | None,
+    match: RuleMatch | None,
     matched_rules: list[str],
-    group_key: str | None,
     incident_result: IncidentAggregationResult | None,
     lifecycle_result: LifecycleResult | None,
     noop_reason: str | None,
@@ -470,11 +476,10 @@ def _build_audit_summary(
             lifecycle_result=lifecycle_result,
         )
     if incident_result is not None:
+        assert match is not None
         return _build_problem_audit_summary(
             incident_result=incident_result,
-            rule_name=_safe_rule_name(rule_decision_dict),
-            group_key=group_key,
-            threshold_count=_safe_threshold_count(rule_decision_dict),
+            match=match,
         )
     return _build_noop_audit_summary(
         noop_reason=noop_reason,
@@ -485,25 +490,23 @@ def _build_audit_summary(
 def _build_problem_audit_summary(
     *,
     incident_result: IncidentAggregationResult,
-    rule_name: str | None,
-    group_key: str | None,
-    threshold_count: int | None = None,
+    match: RuleMatch,
 ) -> AuditDecisionSummary:
     affected_count = 1 if incident_result.incident_id is not None else 0
     incident_ids, truncated = _incident_ids_for_audit((incident_result.incident_id,))
     return AuditDecisionSummary(
         decision_kind="problem",
         incident_effect=_problem_incident_effect(incident_result),
-        rule_name=rule_name,
-        group_key=group_key,
+        rule_name=match.rule_name,
+        group_key=match.group_key,
         incident_ids=incident_ids,
         affected_incident_count=affected_count,
         incident_ids_truncated=truncated,
         decision_reason=None,
         no_dispatch_reason=incident_result.no_dispatch_reason,
         notification_intent=incident_result.notification_intent,
-        counted_count=incident_result.counted_count,
-        threshold_count=threshold_count,
+        counted_count=incident_result.threshold_decision.counted,
+        threshold_count=incident_result.threshold_decision.threshold,
         threshold_crossed=incident_result.threshold_crossed,
         replay=incident_result.replay,
         first_threshold_transition=incident_result.first_threshold_transition,
@@ -608,27 +611,6 @@ def _recovery_resolution_for_audit(
     if result.effect == "affected_set_shrunk":
         return "affected_set_shrunk"
     return "noop"
-
-
-def _safe_rule_name(decision: dict[str, object] | None) -> str | None:
-    if not isinstance(decision, dict):
-        return None
-    name = decision.get("rule_name")
-    if isinstance(name, str):
-        return name
-    return None
-
-
-def _safe_threshold_count(decision: dict[str, object] | None) -> int | None:
-    if not isinstance(decision, dict):
-        return None
-    td = decision.get("threshold_decision")
-    if not isinstance(td, dict):
-        return None
-    raw = td.get("threshold")
-    if isinstance(raw, int):
-        return raw
-    return None
 
 
 def _incident_effects(

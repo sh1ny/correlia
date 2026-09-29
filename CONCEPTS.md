@@ -26,6 +26,14 @@ The immediate confirmation that notification work was submitted to the in-proces
 
 An Incident owns its Notification Delivery Records. An Output Plugin receives a Notification Envelope; the dispatcher converts its completion or exception into the terminal Notification Result and current Notification Delivery Record. Task Acceptance precedes, but does not guarantee, that terminal result.
 
+## Threshold Aggregation
+
+### Threshold Window
+The event-time interval whose retained distinct event fingerprints supply an Incident's current threshold count.
+
+### First Threshold Transition
+The first persisted change from not crossed to crossed for an OPEN Incident. A later drop in the current-window count does not clear the Incident's crossing marker or create another first transition.
+
 ## Operational Visibility
 
 ### Operational Projection

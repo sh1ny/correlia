@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import inspect
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
@@ -13,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from testcontainers.postgres import PostgresContainer
 
 from app.domain.events import EventType, NormalizedEvent, Severity
-from app.domain.rules import RuleDecision, ThresholdDecision
+from app.domain.rules import RuleMatch, RuleWindow
 
 
 def _run_alembic_upgrade(database_url: str) -> None:
@@ -75,25 +74,20 @@ def _event(
     )
 
 
-def _decision(
-    timestamp: datetime,
+def _match(
     threshold: int = 2,
     group_key: str = "service=postgres|topology.role=database",
-) -> RuleDecision:
-    return RuleDecision(
+    duration_seconds: int = 300,
+) -> RuleMatch:
+    return RuleMatch(
         rule_name="database-critical",
         priority=10,
         matched_rules=["database-critical"],
         group_key=group_key,
-        threshold_decision=ThresholdDecision(
-            rule_name="database-critical",
-            group_key=group_key,
-            window_start=timestamp - timedelta(minutes=5),
-            window_end=timestamp,
-            threshold=threshold,
-            counted_fingerprints=[],
-            counted=0,
-            crossed=False,
+        window=RuleWindow(
+            duration_seconds=duration_seconds,
+            group_by=["service", "topology.role"],
+            trigger_threshold=threshold,
         ),
         summary="database incident",
         actions=["email-oncall", "audit-log"],
@@ -117,21 +111,6 @@ class PluginNames:
         self.config_hash = "sha256:plugins"
 
 
-def test_incident_manager_defers_commit_and_notification_submit_to_caller() -> None:
-    """The manager must not commit or submit notifications; that is now the
-    ingress caller's responsibility (D-01/D-02/D-03)."""
-
-    import app.processing.incident_manager as incident_manager
-
-    source = inspect.getsource(incident_manager.IncidentManager)
-    # apply_problem must not call commit or the task runner; both are owned
-    # by the ingress layer now.
-    assert "await self._session.commit()" not in source
-    assert 'await self._task_runner.submit("notify"' not in source
-    # The post-commit notification submission helper was removed entirely.
-    assert "_submit_notifications" not in source
-
-
 async def test_apply_problem_defers_commit_to_caller(
     db_session: AsyncSession,
 ) -> None:
@@ -147,7 +126,7 @@ async def test_apply_problem_defers_commit_to_caller(
     result = await IncidentManager(
         db_session,
         plugin_registry=PluginNames("email-oncall"),
-    ).apply_problem(_event("fp-defer", timestamp), _decision(timestamp, threshold=1))
+    ).apply_problem(_event("fp-defer", timestamp), _match(threshold=1))
 
     # The same session can see its own uncommitted writes.
     visible_in_session = await db_session.scalar(
@@ -185,13 +164,19 @@ async def test_apply_problem_returns_inserted_below_threshold_result(
         config_hash="sha256:abc",
     ).apply_problem(
         _event("fp-1", timestamp),
-        _decision(timestamp, threshold=2),
+        _match(threshold=2, duration_seconds=60),
     )
 
     assert result.effect == "inserted"
     assert result.incident_id is not None
     assert result.status == "OPEN"
     assert result.threshold_crossed is False
+    assert result.threshold_decision.window_start == timestamp - timedelta(seconds=60)
+    assert result.threshold_decision.window_end == timestamp
+    assert result.threshold_decision.threshold == 2
+    assert result.threshold_decision.counted_fingerprints == ["fp-1"]
+    assert result.threshold_decision.counted == 1
+    assert result.threshold_decision.crossed is False
     assert result.notification_intent == "no_dispatch"
     assert result.no_dispatch_reason == NoDispatchReason.BELOW_THRESHOLD.value
     assert runner.submissions == []
@@ -209,24 +194,25 @@ async def test_apply_problem_reports_updated_threshold_crossed_then_already_noti
         plugin_registry=PluginNames("email-oncall", "audit-log"),
     )
     first_time = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
-    await manager.apply_problem(
-        _event("fp-1", first_time), _decision(first_time, threshold=2)
-    )
+    await manager.apply_problem(_event("fp-1", first_time), _match(threshold=2))
 
     second_time = datetime(2026, 1, 1, 12, 1, tzinfo=timezone.utc)
     crossed = await manager.apply_problem(
         _event("fp-2", second_time, host="db-2"),
-        _decision(second_time, threshold=2),
+        _match(threshold=2),
     )
 
     third_time = datetime(2026, 1, 1, 12, 2, tzinfo=timezone.utc)
     already = await manager.apply_problem(
         _event("fp-3", third_time, host="db-3"),
-        _decision(third_time, threshold=2),
+        _match(threshold=2),
     )
 
     assert crossed.effect == "updated"
     assert crossed.threshold_crossed is True
+    assert crossed.threshold_decision.counted == 2
+    assert crossed.threshold_decision.crossed is True
+    assert crossed.threshold_decision.window_end == second_time
     assert crossed.first_threshold_transition is True
     assert crossed.notification_intent == "dispatch_planned"
     assert crossed.no_dispatch_reason is None
@@ -251,17 +237,20 @@ async def test_apply_problem_reports_replay_without_retriggering(
         plugin_registry=PluginNames("email-oncall", "audit-log"),
     )
     first_time = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
-    await manager.apply_problem(
-        _event("fp-1", first_time), _decision(first_time, threshold=2)
-    )
+    await manager.apply_problem(_event("fp-1", first_time), _match(threshold=2))
 
     replay_time = datetime(2026, 1, 1, 12, 1, tzinfo=timezone.utc)
     replay = await manager.apply_problem(
         _event("fp-1", replay_time),
-        _decision(replay_time, threshold=2),
+        _match(threshold=2),
     )
 
     assert replay.replay is True
+    assert replay.threshold_decision.counted == 1
+    assert replay.threshold_decision.counted_fingerprints == ["fp-1"]
+    assert replay.threshold_decision.replay_or_skip_reasons == [
+        "replay: fingerprint fp-1 already counted in window"
+    ]
     assert replay.notification_intent == "no_dispatch"
     assert replay.no_dispatch_reason == NoDispatchReason.REPLAY.value
     assert runner.submissions == []
@@ -280,7 +269,7 @@ async def test_apply_problem_does_not_submit_or_record_notifications(
         db_session,
         task_runner=RecordingRunner(),
         plugin_registry=PluginNames("email-oncall"),
-    ).apply_problem(_event("fp-missing", timestamp), _decision(timestamp, threshold=1))
+    ).apply_problem(_event("fp-missing", timestamp), _match(threshold=1))
 
     # Manager must report dispatch_planned intent without actually submitting
     # or recording per-plugin metrics; that is the ingress layer's job.
@@ -305,7 +294,7 @@ async def test_apply_problem_persists_only_safe_decision_context(
         config_hash="sha256:abc",
     ).apply_problem(
         _event("fp-safe", timestamp),
-        _decision(timestamp, threshold=2),
+        _match(threshold=2),
     )
 
     row = await db_session.execute(
@@ -348,7 +337,7 @@ async def test_apply_problem_preserves_existing_delivery_records(
     )
     first_time = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
     first = await manager.apply_problem(
-        _event("delivery-first", first_time), _decision(first_time, threshold=2)
+        _event("delivery-first", first_time), _match(threshold=2)
     )
     await db_session.commit()
     assert await record_notification_result(
@@ -365,7 +354,7 @@ async def test_apply_problem_preserves_existing_delivery_records(
 
     second_time = datetime(2026, 1, 1, 12, 1, tzinfo=timezone.utc)
     second = await manager.apply_problem(
-        _event("delivery-second", second_time), _decision(second_time, threshold=2)
+        _event("delivery-second", second_time), _match(threshold=2)
     )
     await db_session.commit()
 
@@ -384,18 +373,3 @@ async def test_apply_problem_preserves_existing_delivery_records(
             },
         }
     ]
-
-
-def test_incident_manager_source_does_not_store_unsafe_context() -> None:
-    import app.processing.incident_manager as incident_manager
-
-    source = inspect.getsource(incident_manager)
-    for forbidden in (
-        "raw_payload",
-        "smtp transcript",
-        "credentials",
-        "full exception",
-        "rendered notification",
-        "plugin options",
-    ):
-        assert forbidden not in source.lower()

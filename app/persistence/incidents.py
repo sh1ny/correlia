@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.events import Severity
 from app.domain.incidents import (
+    MAX_WINDOW_FINGERPRINTS,
     DecisionContext,
     IncidentListFilters,
     IncidentStatus,
@@ -27,7 +28,6 @@ from app.persistence.models import Incident
 
 MAX_AFFECTED_HOSTS = 100
 MAX_AFFECTED_SERVICES = 100
-MAX_WINDOW_FINGERPRINTS = 100
 MAX_ACTIVE_SERVICE_PAIRS = 100
 SERVICE_PAIR_SEPARATOR = "\x1f"
 
@@ -149,12 +149,17 @@ class IncidentUpsertInput:
             raise ValueError("summary must be non-empty")
         if self.event_time.tzinfo is None or self.event_time.utcoffset() is None:
             raise ValueError("event_time must be timezone-aware")
-        if self.threshold_count < 1:
-            raise ValueError("threshold_count must be positive")
+        if type(self.threshold_count) is not int or self.threshold_count < 1:
+            raise ValueError("threshold_count must be a positive integer")
         if self.window_seconds < 1:
             raise ValueError("window_seconds must be positive")
-        if not 1 <= self.max_window_fingerprints <= MAX_WINDOW_FINGERPRINTS:
+        if (
+            type(self.max_window_fingerprints) is not int
+            or not 1 <= self.max_window_fingerprints <= MAX_WINDOW_FINGERPRINTS
+        ):
             raise ValueError("max_window_fingerprints is out of bounds")
+        if self.threshold_count > self.max_window_fingerprints:
+            raise ValueError("threshold_count exceeds max_window_fingerprints")
 
         hosts = tuple(sorted(set(self.affected_hosts)))
         if not hosts:
@@ -202,6 +207,10 @@ class IncidentAggregationWriteResult:
     replay: bool
     inside_window: bool
     counted: bool
+    threshold_count: int
+    window_started_at: datetime
+    window_ended_at: datetime
+    window_crossed: bool
     threshold_crossed: bool
     first_threshold_transition: bool
     counted_count: int
@@ -664,12 +673,17 @@ async def record_problem_incident(
     if inserted is not None:
         threshold_crossed = bool(inserted.threshold_crossed)
         window_state = _window_state_from_json(inserted.window_state)
+        window_crossed = window_state.counted_count >= window_state.threshold_count
         return IncidentAggregationWriteResult(
             incident=inserted,
             effect="inserted",
             replay=False,
             inside_window=True,
             counted=True,
+            threshold_count=window_state.threshold_count,
+            window_started_at=window_state.window_started_at,
+            window_ended_at=window_state.window_ended_at,
+            window_crossed=window_crossed,
             threshold_crossed=threshold_crossed,
             first_threshold_transition=threshold_crossed,
             counted_count=window_state.counted_count,
@@ -690,10 +704,8 @@ async def record_problem_incident(
     existing = existing_result.scalar_one()
 
     window_state, replay, inside_window, counted = _next_window_state(existing, input)
-    threshold_crossed = (
-        existing.threshold_crossed
-        or window_state.counted_count >= input.threshold_count
-    )
+    window_crossed = window_state.counted_count >= window_state.threshold_count
+    threshold_crossed = existing.threshold_crossed or window_crossed
     first_threshold_transition = not existing.threshold_crossed and threshold_crossed
 
     updated_result = await session.execute(
@@ -730,6 +742,10 @@ async def record_problem_incident(
         replay=replay,
         inside_window=inside_window,
         counted=counted,
+        threshold_count=window_state.threshold_count,
+        window_started_at=window_state.window_started_at,
+        window_ended_at=window_state.window_ended_at,
+        window_crossed=window_crossed,
         threshold_crossed=threshold_crossed,
         first_threshold_transition=first_threshold_transition,
         counted_count=window_state.counted_count,

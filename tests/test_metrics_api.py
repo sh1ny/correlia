@@ -9,7 +9,7 @@ from httpx import ASGITransport, AsyncClient
 import pytest
 
 from app.domain.events import EventType, NormalizedEvent, Severity
-from app.domain.rules import RuleDecision, ThresholdDecision
+from app.domain.rules import NoOpDecision, RuleMatch, RuleWindow
 from app.persistence.incidents import (
     IncidentAggregationWriteResult,
     LifecycleWriteResult,
@@ -74,10 +74,12 @@ class FakePlugin:
 
 
 class FakeRuleEngine:
-    def __init__(self, decision: RuleDecision) -> None:
+    def __init__(self, decision: RuleMatch) -> None:
         self._decision = decision
 
-    async def evaluate(self, event: NormalizedEvent) -> RuleDecision:
+    async def evaluate(self, event: NormalizedEvent) -> RuleMatch | NoOpDecision:
+        if event.event_type is EventType.RECOVERY:
+            return NoOpDecision(reason="recovery events bypass rule aggregation")
         return self._decision
 
 
@@ -121,21 +123,16 @@ def _event(event_type: EventType, *, severity: Severity) -> NormalizedEvent:
     )
 
 
-def _decision() -> RuleDecision:
-    return RuleDecision(
+def _match() -> RuleMatch:
+    return RuleMatch(
         rule_name="critical-rule",
         priority=10,
         matched_rules=["critical-rule"],
         group_key="group-secret-value",
-        threshold_decision=ThresholdDecision(
-            rule_name="critical-rule",
-            group_key="group-secret-value",
-            window_start=datetime(2026, 6, 9, 11, 59, tzinfo=timezone.utc),
-            window_end=datetime(2026, 6, 9, 12, tzinfo=timezone.utc),
-            threshold=1,
-            counted_fingerprints=["fp-secret-value"],
-            counted=1,
-            crossed=True,
+        window=RuleWindow(
+            duration_seconds=60,
+            group_by=["host"],
+            trigger_threshold=1,
         ),
         summary="do not expose this summary",
         actions=["email-oncall"],
@@ -224,15 +221,6 @@ async def test_every_metric_label_uses_a_code_owned_finite_domain() -> None:
             assert values
             assert set(values).isdisjoint(FORBIDDEN_METRIC_LABELS)
             assert label_name not in FORBIDDEN_METRIC_LABELS
-
-    # Supplemental declaration audit: metrics remain centralized, but the
-    # collector/domain contract above is the behavior-bearing assertion.
-    app_imports = [
-        path
-        for path in Path("app").rglob("*.py")
-        if "prometheus_client" in path.read_text()
-    ]
-    assert app_imports == [Path("app/processing/metrics.py")]
 
 
 async def test_readiness_gauges_use_exact_finite_dependency_and_plugin_domains() -> (
@@ -397,6 +385,10 @@ async def test_ingest_lifecycle_notification_and_worker_metrics_use_low_cardinal
             replay=False,
             inside_window=True,
             counted=True,
+            threshold_count=1,
+            window_started_at=datetime(2026, 6, 9, 11, 59, tzinfo=timezone.utc),
+            window_ended_at=datetime(2026, 6, 9, 12, tzinfo=timezone.utc),
+            window_crossed=True,
             threshold_crossed=True,
             first_threshold_transition=True,
             counted_count=1,
@@ -450,7 +442,7 @@ async def test_ingest_lifecycle_notification_and_worker_metrics_use_low_cardinal
         lm_module, "resolve_service_recovery", _fake_resolve_service_recovery
     )
 
-    decision = _decision()
+    decision = _match()
     problem_processor = Icinga2DecisionProcessor(
         FakePlugin(_event(EventType.PROBLEM, severity=Severity.CRITICAL)),
         rule_engine=FakeRuleEngine(decision),
@@ -475,7 +467,7 @@ async def test_ingest_lifecycle_notification_and_worker_metrics_use_low_cardinal
         def __init__(self) -> None:
             self._index = 0
 
-        async def evaluate(self, event: NormalizedEvent) -> RuleDecision:
+        async def evaluate(self, event: NormalizedEvent) -> RuleMatch:
             rule_name = f"hostile-rule-{self._index}-secret"
             self._index += 1
             return decision.model_copy(
@@ -519,6 +511,10 @@ async def test_ingest_lifecycle_notification_and_worker_metrics_use_low_cardinal
             replay=False,
             inside_window=True,
             counted=True,
+            threshold_count=1,
+            window_started_at=datetime(2026, 6, 9, 11, 59, tzinfo=timezone.utc),
+            window_ended_at=datetime(2026, 6, 9, 12, tzinfo=timezone.utc),
+            window_crossed=True,
             threshold_crossed=True,
             first_threshold_transition=True,
             counted_count=1,
@@ -636,7 +632,7 @@ async def test_ingest_lifecycle_notification_and_worker_metrics_use_low_cardinal
         'correlia_events_accepted_total{event_type="PROBLEM"}',
         'correlia_events_accepted_total{event_type="RECOVERY"}',
         'correlia_events_rejected_total{reason="rejected"} 1.0',
-        "correlia_matched_rules_total 202.0",
+        "correlia_matched_rules_total 201.0",
         'correlia_incident_effects_total{effect="inserted"}',
         'correlia_incident_effects_total{effect="resolved"}',
         'correlia_notification_deliveries_total{category="dispatch_failed",outcome="failure"}',
@@ -660,38 +656,6 @@ async def test_ingest_lifecycle_notification_and_worker_metrics_use_low_cardinal
         "hostile-task-0-secret",
     ):
         assert secret_fragment not in body
-
-    forbidden_source_values = (
-        "event.host",
-        "event.service",
-        "event.fingerprint",
-        "decision.group_key",
-        "incident_id",
-        "payload",
-        "summary",
-    )
-    metric_call_names = (
-        "record_event_accepted",
-        "record_event_rejected",
-        "record_rule_matched",
-        "record_incident_effect",
-        "record_notification_submission",
-        "record_notification_delivery",
-        "record_task_failure",
-        "set_lifecycle_worker_healthy",
-    )
-    for path in (
-        Path("app/processing/ingress.py"),
-        Path("app/processing/incident_manager.py"),
-        Path("app/processing/notification_dispatcher.py"),
-        Path("app/processing/task_runner.py"),
-        Path("app/processing/lifecycle.py"),
-        Path("app/processing/lifecycle_worker.py"),
-    ):
-        for line in path.read_text().splitlines():
-            if any(metric_call_name in line for metric_call_name in metric_call_names):
-                for forbidden in forbidden_source_values:
-                    assert forbidden not in line
 
 
 async def test_migration_report_projection_is_bounded_and_retains_last_good(

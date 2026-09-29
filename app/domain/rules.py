@@ -7,8 +7,8 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.domain.events import Severity, TagKey, TagValue
+from app.domain.incidents import MAX_WINDOW_FINGERPRINTS, LifecycleOutcome
 from app.domain.notifications import NotificationResult as _NotificationResult
-from app.domain.incidents import LifecycleOutcome
 
 
 BoundedString = Annotated[str, Field(min_length=1, max_length=256)]
@@ -36,7 +36,7 @@ class RuleWindow(BaseModel):
 
     duration_seconds: int = Field(ge=1)
     group_by: list[BoundedString] = Field(min_length=1)
-    trigger_threshold: int = Field(ge=1)
+    trigger_threshold: int = Field(ge=1, le=MAX_WINDOW_FINGERPRINTS)
 
 
 class RuleDefinition(BaseModel):
@@ -70,6 +70,21 @@ class ThresholdDecision(BaseModel):
     counted: int = Field(default=0, ge=0)
     crossed: bool
     replay_or_skip_reasons: list[str] = Field(default_factory=list)
+
+
+class RuleMatch(BaseModel):
+    """Stateless match intent; aggregation supplies the final threshold outcome."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    schema_version: Literal[1] = 1
+    rule_name: BoundedString
+    priority: int
+    matched_rules: list[BoundedString] = Field(default_factory=list)
+    group_key: BoundedString
+    window: RuleWindow
+    summary: BoundedString
+    actions: list[BoundedString] = Field(default_factory=list)
 
 
 class RuleDecision(BaseModel):

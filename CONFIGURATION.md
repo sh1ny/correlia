@@ -24,7 +24,7 @@ CORRELIA_PLUGINS_PATH=config/plugins.yaml
 
 Byte accounting uses sorted keys, `ensure_ascii=False`, and compact separators. It includes braces, quotes, colons, commas, JSON escaping, and multibyte value bytes. The empty map is allowed and costs two bytes. Non-ASCII keys, NUL values, and unpaired surrogates are rejected; keys and values are never normalized, renamed, or clipped.
 
-Hostname topology matches still precede subnet fallback. Literal topology tags override source values; capture tags override literals. Collisions count once, with the winning value's encoded size. Static topology literals and capture destinations are validated when configuration loads. The final merged map is checked before rule evaluation, threshold-history updates, or the incident-plus-audit transaction.
+Hostname topology matches still precede subnet fallback. Literal topology tags override source values; capture tags override literals. Collisions count once, with the winning value's encoded size. Static topology literals and capture destinations are validated when configuration loads. The final merged map is checked before rule evaluation or the incident-plus-audit transaction.
 
 Tag-contract failures return HTTP **422**, including oversized tags on SOFT events. Both source and enrichment failures have this fixed, input-free error shape:
 
@@ -262,6 +262,18 @@ rules:
         plugin: "email-ops"
 ```
 
+### Rule windows and threshold capacity
+
+`window.trigger_threshold` must be an integer from **1 through 100**, inclusive. Invalid, non-integer, or larger values are rejected when rules load, not clamped. The sample `config/rules.yaml` deliberately uses threshold **1**; 100 is the supported maximum for the retained-fingerprint representation, **not** a PostgreSQL limit or a default threshold for every rule.
+
+A rule groups matching PROBLEM events by its `window.group_by` values and counts distinct retained fingerprints within `window.duration_seconds` of the latest persisted event-time window end (inclusive of both bounds). Retained replays do not increase the count; a late distinct event inside the window can count, but one outside it cannot. The incident stores at most 100 fingerprints for this window, so configure a threshold no greater than 100 and send that many distinct eligible events in the **same group and event-time window** to reach it. Deduplication is bounded by retained history: a fingerprint pruned or evicted from the map has no unlimited replay protection.
+
+For each accepted PROBLEM event, PostgreSQL aggregation supplies the request's count, bounds, and current `crossed` result in both API `threshold_decision` copies. The audit summary records that request's count, applied threshold, monotone crossing marker, and first-transition intent; it does not expose window bounds. Current-window `threshold_decision.crossed` can become false when older events age out. The incident and API `threshold_crossed` marker remains true after its **first** crossing; a first persisted transition is required for notification submission, but does not guarantee it. An accepted submission (`notification_count`) is not delivery confirmation. `AsyncIOTaskRunner` holds pending work in memory, so a restart may lose it; this is not a durable queue or exactly-once delivery.
+
+Lowering a rule's threshold on an existing OPEN incident applies the new window parameters through the normal merge without resetting its crossing marker. A replay still retained in the window can meet the lower threshold and mark the incident crossed for the first time, yet replay suppression prevents notification submission; later distinct events cannot produce another first transition. A crossed marker does not mean an alert was sent.
+
+Preflight candidate rules with the same loader used at startup, then deploy a consistent application/configuration version and restart the application. Rules do not hot-reload; a rejected threshold prevents startup rather than letting a service run with an unreachable value. Existing incident history is not backfilled or retroactively counted when rules change.
+
 Porting notes:
 
 - VDE `match.severity` becomes Correlia `match.severities`.
@@ -374,6 +386,7 @@ Behavior:
 - Any top-level plugin section other than `outputs` is rejected, including generic unknown section names.
 - Unsupported fields across all three input files are aggregated into one structured report (`ok: false`, `errors: [...]`, `generated: null`) before the CLI exits non-zero.
 - Generated files are staged in a temporary directory, validated through Correlia's loaders plus generated email plugin instantiation, and only then atomically promoted to `--out-dir`. A failed migration leaves `--out-dir` untouched.
+- The converter rejects an unsupported converted `window.trigger_threshold` without promoting files. If staged validation reaches the shared rule loader, recognized threshold errors appear in the report at `rules[index].window.trigger_threshold` with the supported 1–100 bound, without echoing raw values or configuration content. Other errors within that rule validation retain generic sanitized entries; plugin construction and other loader failures remain generic and fail fast rather than aggregating errors across stages.
 
 ## Current gaps before exact VDE parity
 

@@ -422,11 +422,10 @@ async def test_ingress_persists_post_commit_terminal_runner_failure(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     from app.domain.notifications import NotificationResult
-    from app.domain.rules import RuleDecision, ThresholdDecision
+    from app.domain.rules import RuleMatch, RuleWindow
     from app.processing.ingress import Icinga2DecisionProcessor
 
     incident_id = await _insert_incident(session_factory)
-    timestamp = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
     processor = Icinga2DecisionProcessor(
         object(),
         sessionmaker=session_factory,
@@ -437,20 +436,15 @@ async def test_ingress_persists_post_commit_terminal_runner_failure(
     )
     results = await processor._submit_notifications(
         incident_id,
-        RuleDecision(
+        RuleMatch(
             rule_name="database-critical",
             priority=1,
             matched_rules=["database-critical"],
             group_key="service=postgres",
-            threshold_decision=ThresholdDecision(
-                rule_name="database-critical",
-                group_key="service=postgres",
-                window_start=timestamp,
-                window_end=timestamp,
-                threshold=1,
-                counted_fingerprints=[],
-                counted=1,
-                crossed=True,
+            window=RuleWindow(
+                duration_seconds=60,
+                group_by=["service"],
+                trigger_threshold=1,
             ),
             summary="database incident",
             actions=["email-oncall"],

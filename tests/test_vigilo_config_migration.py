@@ -873,8 +873,10 @@ def test_validation_failure_does_not_create_nested_output_parent(
 
     assert result != 0
     assert not out_dir.parent.exists()
-    report = json.loads(report_path.read_text())
+    report_text = report_path.read_text()
+    report = json.loads(report_text)
     assert any(error["code"] == "validation_failure" for error in report["errors"])
+    assert "forced validation failure" not in report_text
 
 
 def test_migrate_rules() -> None:
@@ -1484,6 +1486,132 @@ def test_generated_files_load_and_instantiate(tmp_path: Path) -> None:
     topology_config = load_topology_config(out_dir / "topology.yaml")
     assert len(topology_config.hostname_rules) == 3
     assert len(topology_config.subnet_rules) == 3
+
+
+def test_converter_preserves_maximum_threshold_without_clamping(tmp_path: Path) -> None:
+    source = yaml.safe_load(_fixture_path("rules_valid.yaml").read_text())
+    source["rules"][0]["window"]["trigger_threshold"] = 100
+    source_path = tmp_path / "vigilo_rules.yaml"
+    source_path.write_text(yaml.safe_dump(source))
+    out_dir = tmp_path / "out"
+
+    result = _run_cli(
+        rules=str(source_path),
+        topology=str(_fixture_path("topology_valid.yaml")),
+        plugins=str(_fixture_path("plugins_valid.yaml")),
+        out_dir=str(out_dir),
+    )
+
+    assert result.returncode == 0, result.stderr
+    generated = yaml.safe_load((out_dir / "rules.yaml").read_text())
+    assert generated["rules"][0]["window"]["trigger_threshold"] == 100
+
+
+@pytest.mark.parametrize("other_duration", [60, 0])
+def test_converter_reports_unreachable_threshold_without_leaking_source(
+    tmp_path: Path,
+    other_duration: int,
+) -> None:
+    source = yaml.safe_load(_fixture_path("rules_valid.yaml").read_text())
+    source["rules"][0]["window"]["duration_seconds"] = other_duration
+    source["rules"][1]["window"]["trigger_threshold"] = 101
+    source["rules"][0]["output_summary"] = "password=secret-from-other-rule"
+    source_path = tmp_path / "vigilo_rules.yaml"
+    source_path.write_text(yaml.safe_dump(source))
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    previous_rules = "pre-existing rules, do not replace"
+    previous_topology = "pre-existing topology, do not replace"
+    previous_plugins = "pre-existing plugins, do not replace"
+    for name, contents in (
+        ("rules.yaml", previous_rules),
+        ("topology.yaml", previous_topology),
+        ("plugins.yaml", previous_plugins),
+    ):
+        (out_dir / name).write_text(contents)
+    report_path = tmp_path / "report.json"
+
+    result = _run_cli(
+        rules=str(source_path),
+        topology=str(_fixture_path("topology_valid.yaml")),
+        plugins=str(_fixture_path("plugins_valid.yaml")),
+        out_dir=str(out_dir),
+        report_path=str(report_path),
+    )
+
+    assert result.returncode != 0
+    assert (out_dir / "rules.yaml").read_text() == previous_rules
+    assert (out_dir / "topology.yaml").read_text() == previous_topology
+    assert (out_dir / "plugins.yaml").read_text() == previous_plugins
+    report_text = report_path.read_text()
+    report = json.loads(report_text)
+    issues = [
+        item
+        for item in report["errors"]
+        if item["location"] == "rules[1].window.trigger_threshold"
+    ]
+    assert len(issues) == 1
+    assert issues[0]["domain"] == "rules"
+    assert "100" in issues[0]["message"]
+    if other_duration == 0:
+        assert any(item["location"] == "staging" for item in report["errors"])
+    assert "secret-from-other-rule" not in report_text
+    assert previous_rules not in report_text
+    assert str(source_path) not in report_text
+    assert "101" not in report_text
+
+
+def test_converter_reports_threshold_without_raw_validation_context(
+    tmp_path: Path,
+) -> None:
+    source = yaml.safe_load(_fixture_path("rules_valid.yaml").read_text())
+    source["rules"][1]["window"]["trigger_threshold"] = "password=secret-input"
+    source_path = tmp_path / "vigilo_rules.yaml"
+    source_path.write_text(yaml.safe_dump(source))
+    out_dir = tmp_path / "out"
+    report_path = tmp_path / "report.json"
+
+    result = _run_cli(
+        rules=str(source_path),
+        topology=str(_fixture_path("topology_valid.yaml")),
+        plugins=str(_fixture_path("plugins_valid.yaml")),
+        out_dir=str(out_dir),
+        report_path=str(report_path),
+    )
+
+    assert result.returncode != 0
+    assert not out_dir.exists()
+    report_text = report_path.read_text()
+    issues = json.loads(report_text)["errors"]
+    assert len(issues) == 1
+    assert issues[0]["location"] == "rules[1].window.trigger_threshold"
+    assert "100" in issues[0]["message"]
+    assert "secret-input" not in report_text
+
+
+def test_converter_uses_code_owned_bound_even_if_validation_context_differs() -> None:
+    from pydantic import ValidationError
+
+    error = ValidationError.from_exception_data(
+        "RuleConfig",
+        [
+            {
+                "type": "less_than_equal",
+                "loc": ("rules", 1, "window", "trigger_threshold"),
+                "input": "password=secret-input",
+                "ctx": {"le": 999, "token": "secret-context"},
+            }
+        ],
+    )
+
+    issues = scripts.migrate_vigilo_config._staged_validation_issues(error)
+    assert len(issues) == 1
+    report = json.dumps(issues[0].to_json())
+    assert issues[0].location == "rules[1].window.trigger_threshold"
+    assert "100" in issues[0].message
+    assert "999" not in report
+    assert "secret-input" not in report
+    assert "secret-context" not in report
 
 
 def test_validation_failure_leaves_existing_out_dir_untouched(tmp_path: Path) -> None:

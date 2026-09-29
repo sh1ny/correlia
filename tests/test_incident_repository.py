@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from typing import Any
 
 import pytest
 import sqlalchemy as sa
@@ -180,12 +181,20 @@ async def test_record_problem_incident_counts_unique_fingerprints(
     assert first.effect == "inserted"
     assert first.incident.event_count == 1
     assert first.replay is False
+    assert first.threshold_count == 3
+    assert first.window_started_at == datetime(2026, 1, 1, 11, 55, tzinfo=timezone.utc)
+    assert first.window_ended_at == datetime(2026, 1, 1, 12, tzinfo=timezone.utc)
+    assert first.window_crossed is False
     assert second.effect == "updated"
     assert second.incident.id == first.incident.id
     assert second.incident.event_count == 2
     assert second.replay is False
+    assert second.threshold_count == 3
+    assert second.window_crossed is False
     assert replay.effect == "updated"
     assert replay.replay is True
+    assert replay.counted_count == 2
+    assert replay.window_crossed is False
     assert replay.incident.event_count == 2
     assert replay.incident.affected_hosts == ["db-1", "db-2", "db-3"]
 
@@ -205,11 +214,21 @@ async def test_record_problem_incident_counts_out_of_order_only_inside_window(
             summary="base",
             affected_hosts=("db-1",),
             fingerprint="fp-base",
-            threshold_count=5,
+            threshold_count=2,
             window_seconds=300,
         ),
     )
     await db_session.commit()
+
+    window_end = base.window_ended_at
+    window_start = base.window_started_at
+    assert (window_start, window_end) == (
+        datetime(2026, 1, 1, 12, 5, tzinfo=timezone.utc),
+        datetime(2026, 1, 1, 12, 10, tzinfo=timezone.utc),
+    )
+    assert base.threshold_count == 2
+    assert base.window_crossed is False
+    assert base.threshold_crossed is False
 
     inside = await record_problem_incident(
         db_session,
@@ -221,7 +240,23 @@ async def test_record_problem_incident_counts_out_of_order_only_inside_window(
             summary="inside",
             affected_hosts=("db-2",),
             fingerprint="fp-inside",
-            threshold_count=5,
+            threshold_count=2,
+            window_seconds=300,
+        ),
+    )
+    await db_session.commit()
+
+    replay = await record_problem_incident(
+        db_session,
+        IncidentUpsertInput(
+            rule_name="rule-window",
+            group_key="host:db-1",
+            severity=Severity.WARNING,
+            event_time=datetime(2026, 1, 1, 12, 8, tzinfo=timezone.utc),
+            summary="replay",
+            affected_hosts=("db-2",),
+            fingerprint="fp-inside",
+            threshold_count=2,
             window_seconds=300,
         ),
     )
@@ -237,19 +272,81 @@ async def test_record_problem_incident_counts_out_of_order_only_inside_window(
             summary="outside",
             affected_hosts=("db-3",),
             fingerprint="fp-outside",
-            threshold_count=5,
+            threshold_count=2,
+            window_seconds=300,
+        ),
+    )
+    await db_session.commit()
+
+    boundary = await record_problem_incident(
+        db_session,
+        IncidentUpsertInput(
+            rule_name="rule-window",
+            group_key="host:db-1",
+            severity=Severity.WARNING,
+            event_time=window_start,
+            summary="boundary",
+            affected_hosts=("db-4",),
+            fingerprint="fp-boundary",
+            threshold_count=2,
             window_seconds=300,
         ),
     )
     await db_session.commit()
 
     assert inside.inside_window is True
+    assert inside.counted_count == 2
+    assert inside.counted_fingerprints == ("fp-base", "fp-inside")
+    assert inside.window_crossed is True
+    assert inside.first_threshold_transition is True
     assert inside.incident.event_count == 2
     assert inside.incident.last_update_time == base.incident.last_update_time
     assert outside.inside_window is False
     assert outside.counted is False
     assert outside.incident.event_count == 2
     assert outside.incident.last_update_time == base.incident.last_update_time
+    assert replay.replay is True
+    assert replay.counted is False
+    assert replay.counted_count == 2
+    assert replay.counted_fingerprints == inside.counted_fingerprints
+    assert outside.counted_count == 2
+    assert outside.counted_fingerprints == inside.counted_fingerprints
+    assert boundary.inside_window is True
+    assert boundary.counted is True
+    assert boundary.counted_count == 3
+    assert boundary.counted_fingerprints == (
+        "fp-base",
+        "fp-boundary",
+        "fp-inside",
+    )
+    for outcome in (inside, replay, outside, boundary):
+        assert (outcome.window_started_at, outcome.window_ended_at) == (
+            window_start,
+            window_end,
+        )
+        assert outcome.threshold_count == 2
+        assert outcome.window_crossed is True
+        assert outcome.threshold_crossed is True
+    for outcome in (replay, outside, boundary):
+        assert outcome.first_threshold_transition is False
+
+    state = (
+        await db_session.execute(
+            sa.text("SELECT window_state FROM incidents WHERE id = :id"),
+            {"id": boundary.incident.id},
+        )
+    ).scalar_one()
+    assert state["counted_count"] == boundary.counted_count
+    assert state["threshold_count"] == boundary.threshold_count
+    assert datetime.fromisoformat(state["window_started_at"]) == window_start
+    assert datetime.fromisoformat(state["window_ended_at"]) == window_end
+    assert (
+        datetime.fromisoformat(state["counted_fingerprint_timestamps"]["fp-boundary"])
+        == window_start
+    )
+    assert set(state["counted_fingerprint_timestamps"]) == set(
+        boundary.counted_fingerprints
+    )
 
 
 async def test_record_problem_incident_reports_first_threshold_transition_once(
@@ -269,6 +366,7 @@ async def test_record_problem_incident_reports_first_threshold_transition_once(
             fingerprint="fp-1",
             threshold_count=2,
             window_seconds=300,
+            max_window_fingerprints=2,
         ),
     )
     await db_session.commit()
@@ -285,6 +383,7 @@ async def test_record_problem_incident_reports_first_threshold_transition_once(
             fingerprint="fp-2",
             threshold_count=2,
             window_seconds=300,
+            max_window_fingerprints=2,
         ),
     )
     await db_session.commit()
@@ -301,6 +400,7 @@ async def test_record_problem_incident_reports_first_threshold_transition_once(
             fingerprint="fp-3",
             threshold_count=2,
             window_seconds=300,
+            max_window_fingerprints=2,
         ),
     )
     await db_session.commit()
@@ -312,6 +412,257 @@ async def test_record_problem_incident_reports_first_threshold_transition_once(
     assert third.threshold_crossed is True
     assert third.first_threshold_transition is False
     assert third.incident.threshold_crossed is True
+    assert first.threshold_count == second.threshold_count == third.threshold_count == 2
+    assert first.counted_count == 1
+    assert first.window_crossed is False
+    assert second.counted_count == 2
+    assert second.window_crossed is True
+    assert third.counted_count == 2
+    assert third.window_crossed is True
+    assert third.counted_fingerprints == ("fp-2", "fp-3")
+    state = (
+        await db_session.execute(
+            sa.text("SELECT window_state FROM incidents WHERE id = :id"),
+            {"id": third.incident.id},
+        )
+    ).scalar_one()
+    assert state["max_size"] == 2
+    assert state["counted_count"] == third.counted_count
+    assert set(state["counted_fingerprint_timestamps"]) == set(
+        third.counted_fingerprints
+    )
+
+
+async def test_record_problem_incident_reaches_maximum_threshold(
+    db_session: AsyncSession,
+) -> None:
+    from app.persistence.incidents import IncidentUpsertInput, record_problem_incident
+
+    start = datetime(2026, 1, 1, 12, tzinfo=timezone.utc)
+    transitions = 0
+    before_crossing = None
+    at_crossing = None
+    for count in range(1, 101):
+        result = await record_problem_incident(
+            db_session,
+            IncidentUpsertInput(
+                rule_name="rule-max-threshold",
+                group_key="host:db-1",
+                severity=Severity.WARNING,
+                event_time=start + timedelta(seconds=count),
+                summary="distinct problem",
+                affected_hosts=("db-1",),
+                fingerprint=f"fp-{count:03}",
+                threshold_count=100,
+            ),
+        )
+        transitions += int(result.first_threshold_transition)
+        if count == 99:
+            before_crossing = result
+        if count == 100:
+            at_crossing = result
+    await db_session.commit()
+
+    assert before_crossing is not None
+    assert at_crossing is not None
+    assert transitions == 1
+    assert before_crossing.counted_count == 99
+    assert before_crossing.threshold_count == 100
+    assert before_crossing.window_crossed is False
+    assert before_crossing.threshold_crossed is False
+    assert before_crossing.first_threshold_transition is False
+    assert at_crossing.counted_count == 100
+    assert at_crossing.counted_fingerprints == tuple(
+        f"fp-{count:03}" for count in range(1, 101)
+    )
+    assert at_crossing.threshold_count == 100
+    assert at_crossing.window_crossed is True
+    assert at_crossing.threshold_crossed is True
+    assert at_crossing.first_threshold_transition is True
+    assert (at_crossing.window_started_at, at_crossing.window_ended_at) == (
+        start + timedelta(seconds=100 - 300),
+        start + timedelta(seconds=100),
+    )
+
+    state, threshold_crossed = (
+        await db_session.execute(
+            sa.text(
+                "SELECT window_state, threshold_crossed FROM incidents WHERE id = :id"
+            ),
+            {"id": at_crossing.incident.id},
+        )
+    ).one()
+    assert threshold_crossed is True
+    assert state["counted_count"] == at_crossing.counted_count
+    assert state["threshold_count"] == at_crossing.threshold_count
+    assert state["max_size"] == 100
+    assert tuple(sorted(state["counted_fingerprint_timestamps"])) == (
+        at_crossing.counted_fingerprints
+    )
+    assert datetime.fromisoformat(state["window_started_at"]) == (
+        at_crossing.window_started_at
+    )
+    assert datetime.fromisoformat(state["window_ended_at"]) == (
+        at_crossing.window_ended_at
+    )
+
+    # The result is an operation snapshot, not a view of mutable ORM JSONB.
+    at_crossing.incident.window_state["threshold_count"] = 1
+    at_crossing.incident.window_state["counted_count"] = 0
+    at_crossing.incident.window_state["window_started_at"] = "2000-01-01T00:00:00+00:00"
+    at_crossing.incident.window_state["window_ended_at"] = "2000-01-01T00:00:00+00:00"
+    at_crossing.incident.threshold_crossed = False
+    assert at_crossing.threshold_count == 100
+    assert at_crossing.counted_count == 100
+    assert at_crossing.window_crossed is True
+    assert at_crossing.threshold_crossed is True
+    assert at_crossing.window_started_at == start + timedelta(seconds=100 - 300)
+    assert at_crossing.window_ended_at == start + timedelta(seconds=100)
+    assert before_crossing.counted_count == 99
+    assert before_crossing.window_crossed is False
+
+
+async def test_record_problem_incident_pruning_separates_window_and_marker(
+    db_session: AsyncSession,
+) -> None:
+    from app.persistence.incidents import (
+        IncidentAggregationWriteResult,
+        IncidentUpsertInput,
+        record_problem_incident,
+    )
+
+    start = datetime(2026, 1, 1, 12, tzinfo=timezone.utc)
+
+    async def record(
+        fingerprint: str, event_time: datetime
+    ) -> IncidentAggregationWriteResult:
+        result = await record_problem_incident(
+            db_session,
+            IncidentUpsertInput(
+                rule_name="rule-pruning",
+                group_key="host:db-1",
+                severity=Severity.WARNING,
+                event_time=event_time,
+                summary="distinct problem",
+                affected_hosts=("db-1",),
+                fingerprint=fingerprint,
+                threshold_count=2,
+                window_seconds=60,
+            ),
+        )
+        await db_session.commit()
+        return result
+
+    first = await record("fp-1", start)
+    crossed = await record("fp-2", start + timedelta(seconds=30))
+    pruned = await record("fp-3", start + timedelta(seconds=120))
+    recrossed = await record("fp-4", start + timedelta(seconds=130))
+
+    assert first.window_crossed is False
+    assert crossed.window_crossed is True
+    assert crossed.threshold_crossed is True
+    assert crossed.first_threshold_transition is True
+    assert pruned.counted_count == 1
+    assert pruned.counted_fingerprints == ("fp-3",)
+    assert pruned.threshold_count == 2
+    assert pruned.window_started_at == start + timedelta(seconds=60)
+    assert pruned.window_ended_at == start + timedelta(seconds=120)
+    assert pruned.window_crossed is False
+    assert pruned.threshold_crossed is True
+    assert pruned.first_threshold_transition is False
+    assert recrossed.counted_count == 2
+    assert recrossed.window_crossed is True
+    assert recrossed.threshold_crossed is True
+    assert recrossed.first_threshold_transition is False
+
+    state, threshold_crossed = (
+        await db_session.execute(
+            sa.text(
+                "SELECT window_state, threshold_crossed FROM incidents WHERE id = :id"
+            ),
+            {"id": recrossed.incident.id},
+        )
+    ).one()
+    assert threshold_crossed is True
+    assert state["counted_count"] == recrossed.counted_count
+    assert tuple(sorted(state["counted_fingerprint_timestamps"])) == (
+        recrossed.counted_fingerprints
+    )
+    assert pruned.counted_count == 1
+    assert pruned.window_crossed is False
+
+
+async def test_record_problem_incident_saturation_evicts_out_of_order_tie(
+    db_session: AsyncSession,
+) -> None:
+    from app.persistence.incidents import (
+        IncidentAggregationWriteResult,
+        IncidentUpsertInput,
+        record_problem_incident,
+    )
+
+    start = datetime(2026, 1, 1, 12, tzinfo=timezone.utc)
+
+    async def record(
+        fingerprint: str, event_time: datetime
+    ) -> IncidentAggregationWriteResult:
+        return await record_problem_incident(
+            db_session,
+            IncidentUpsertInput(
+                rule_name="rule-saturation",
+                group_key="host:db-1",
+                severity=Severity.WARNING,
+                event_time=event_time,
+                summary="distinct problem",
+                affected_hosts=("db-1",),
+                fingerprint=fingerprint,
+                threshold_count=100,
+            ),
+        )
+
+    await record("fp-newest", start + timedelta(minutes=1))
+    for index in range(1, 100):
+        at_capacity = await record(f"fp-{index:03}", start)
+    rejected_by_tie = await record("fp-000", start)
+    await db_session.commit()
+
+    assert at_capacity.counted_count == 100
+    assert at_capacity.window_crossed is True
+    assert rejected_by_tie.counted is True
+    assert rejected_by_tie.inside_window is True
+    assert rejected_by_tie.replay is False
+    assert rejected_by_tie.counted_count == 100
+    assert rejected_by_tie.threshold_count == 100
+    assert rejected_by_tie.window_crossed is True
+    assert rejected_by_tie.threshold_crossed is True
+    assert rejected_by_tie.first_threshold_transition is False
+    assert rejected_by_tie.window_ended_at == start + timedelta(minutes=1)
+    assert rejected_by_tie.counted_fingerprints == tuple(
+        f"fp-{index:03}" for index in range(1, 100)
+    ) + ("fp-newest",)
+    assert "fp-000" not in rejected_by_tie.counted_fingerprints
+    assert rejected_by_tie.counted_fingerprints == at_capacity.counted_fingerprints
+
+    state = (
+        await db_session.execute(
+            sa.text("SELECT window_state FROM incidents WHERE id = :id"),
+            {"id": rejected_by_tie.incident.id},
+        )
+    ).scalar_one()
+    assert state["counted_count"] == rejected_by_tie.counted_count
+    assert state["threshold_count"] == rejected_by_tie.threshold_count
+    assert state["max_size"] == 100
+    assert tuple(sorted(state["counted_fingerprint_timestamps"])) == (
+        rejected_by_tie.counted_fingerprints
+    )
+    assert "fp-000" not in state["counted_fingerprint_timestamps"]
+    assert (
+        datetime.fromisoformat(state["counted_fingerprint_timestamps"]["fp-001"])
+        == start
+    )
+    assert datetime.fromisoformat(
+        state["counted_fingerprint_timestamps"]["fp-newest"]
+    ) == start + timedelta(minutes=1)
 
 
 async def test_different_rule_or_group_creates_separate_rows(
@@ -899,6 +1250,258 @@ async def test_no_select_inside_upsert() -> None:
 # ---------------------------------------------------------------------------
 # Validation tests (no DB required)
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("threshold,capacity", [(1, 1), (2, 2), (100, 100)])
+def test_upsert_input_accepts_reachable_threshold_and_capacity(
+    threshold: int, capacity: int
+) -> None:
+    from app.persistence.incidents import IncidentUpsertInput
+
+    input_data = IncidentUpsertInput(
+        rule_name="rule-a",
+        group_key="host:db-1",
+        severity=Severity.WARNING,
+        event_time=datetime(2026, 1, 1, 12, tzinfo=timezone.utc),
+        summary="s",
+        affected_hosts=("db-1",),
+        threshold_count=threshold,
+        max_window_fingerprints=capacity,
+    )
+    assert (input_data.threshold_count, input_data.max_window_fingerprints) == (
+        threshold,
+        capacity,
+    )
+
+
+@pytest.mark.parametrize(
+    "threshold,capacity",
+    [
+        (0, 1),
+        (3, 2),
+        (101, 100),
+        (1, 0),
+        (1, 101),
+        (True, 1),
+        (1.0, 1),
+        ("1", 1),
+        (1, True),
+        (1, 1.5),
+        (1, "2"),
+    ],
+)
+def test_upsert_input_rejects_unreachable_or_non_integer_window_parameters(
+    threshold: Any, capacity: Any
+) -> None:
+    from app.persistence.incidents import IncidentUpsertInput
+
+    with pytest.raises((TypeError, ValueError)):
+        IncidentUpsertInput(
+            rule_name="rule-a",
+            group_key="host:db-1",
+            severity=Severity.WARNING,
+            event_time=datetime(2026, 1, 1, 12, tzinfo=timezone.utc),
+            summary="s",
+            affected_hosts=("db-1",),
+            threshold_count=threshold,
+            max_window_fingerprints=capacity,
+        )
+
+
+def test_historical_unreachable_window_remains_readable_but_not_writable() -> None:
+    from app.persistence.incidents import IncidentUpsertInput, _window_state_from_json
+
+    historical_state = _window_state_from_json(
+        {
+            "window_started_at": "2026-01-01T11:55:00+00:00",
+            "window_ended_at": "2026-01-01T12:00:00+00:00",
+            "window_seconds": 300,
+            "threshold_count": 101,
+            "counted_fingerprint_timestamps": {"fp-1": "2026-01-01T12:00:00+00:00"},
+            "counted_count": 1,
+            "max_size": 100,
+        }
+    )
+    assert historical_state.threshold_count == 101
+    assert historical_state.max_size == 100
+    assert historical_state.counted_fingerprint_timestamps == {
+        "fp-1": datetime(2026, 1, 1, 12, tzinfo=timezone.utc)
+    }
+    with pytest.raises(ValueError):
+        IncidentUpsertInput(
+            rule_name="rule-a",
+            group_key="host:db-1",
+            severity=Severity.WARNING,
+            event_time=datetime(2026, 1, 1, 12, tzinfo=timezone.utc),
+            summary="s",
+            affected_hosts=("db-1",),
+            threshold_count=historical_state.threshold_count,
+            max_window_fingerprints=historical_state.max_size,
+        )
+
+
+async def test_historical_unreachable_window_merges_under_valid_threshold(
+    db_session: AsyncSession,
+) -> None:
+    from app.persistence.incidents import IncidentUpsertInput, record_problem_incident
+
+    first = await record_problem_incident(
+        db_session,
+        IncidentUpsertInput(
+            rule_name="historical-rule",
+            group_key="host:db-1",
+            severity=Severity.WARNING,
+            event_time=datetime(2026, 1, 1, 12, tzinfo=timezone.utc),
+            summary="first",
+            affected_hosts=("db-1",),
+            fingerprint="fp-first",
+            threshold_count=1,
+        ),
+    )
+    await db_session.commit()
+    assert first.first_threshold_transition is True
+    assert first.threshold_count == 1
+    assert first.counted_count == 1
+    assert first.window_crossed is True
+    assert first.window_started_at == datetime(2026, 1, 1, 11, 55, tzinfo=timezone.utc)
+    assert first.window_ended_at == datetime(2026, 1, 1, 12, tzinfo=timezone.utc)
+    first_state = (
+        await db_session.execute(
+            sa.text("SELECT window_state FROM incidents WHERE id = :id"),
+            {"id": first.incident.id},
+        )
+    ).scalar_one()
+    assert first_state["counted_count"] == first.counted_count
+    assert first_state["threshold_count"] == first.threshold_count
+    assert tuple(first_state["counted_fingerprint_timestamps"]) == (
+        first.counted_fingerprints
+    )
+    assert datetime.fromisoformat(first_state["window_started_at"]) == (
+        first.window_started_at
+    )
+    assert datetime.fromisoformat(first_state["window_ended_at"]) == (
+        first.window_ended_at
+    )
+
+    await db_session.execute(
+        sa.text(
+            "UPDATE incidents SET window_state = jsonb_set("
+            "window_state, '{threshold_count}', '101'::jsonb) WHERE id = :id"
+        ),
+        {"id": first.incident.id},
+    )
+    await db_session.commit()
+
+    second = await record_problem_incident(
+        db_session,
+        IncidentUpsertInput(
+            rule_name="historical-rule",
+            group_key="host:db-1",
+            severity=Severity.WARNING,
+            event_time=datetime(2026, 1, 1, 12, 1, tzinfo=timezone.utc),
+            summary="second",
+            affected_hosts=("db-1",),
+            fingerprint="fp-second",
+            threshold_count=2,
+        ),
+    )
+    await db_session.commit()
+    window_state, threshold_crossed = (
+        await db_session.execute(
+            sa.text(
+                "SELECT window_state, threshold_crossed FROM incidents WHERE id = :id"
+            ),
+            {"id": second.incident.id},
+        )
+    ).one()
+
+    assert second.effect == "updated"
+    assert second.counted_fingerprints == ("fp-first", "fp-second")
+    assert second.counted_count == 2
+    assert second.threshold_count == 2
+    assert second.window_started_at == datetime(2026, 1, 1, 11, 56, tzinfo=timezone.utc)
+    assert second.window_ended_at == datetime(2026, 1, 1, 12, 1, tzinfo=timezone.utc)
+    assert second.window_crossed is True
+    assert second.threshold_crossed is True
+    assert second.first_threshold_transition is False
+    assert threshold_crossed is True
+    assert window_state["threshold_count"] == second.threshold_count
+    assert window_state["counted_count"] == second.counted_count
+    assert window_state["max_size"] == 100
+    assert tuple(sorted(window_state["counted_fingerprint_timestamps"])) == (
+        second.counted_fingerprints
+    )
+
+
+async def test_empty_historical_window_state_starts_from_current_event(
+    db_session: AsyncSession,
+) -> None:
+    from app.persistence.incidents import IncidentUpsertInput, record_problem_incident
+
+    first = await record_problem_incident(
+        db_session,
+        IncidentUpsertInput(
+            rule_name="legacy-empty-window",
+            group_key="host:db-1",
+            severity=Severity.WARNING,
+            event_time=datetime(2026, 1, 1, 12, tzinfo=timezone.utc),
+            summary="first",
+            affected_hosts=("db-1",),
+            fingerprint="fp-first",
+            threshold_count=2,
+        ),
+    )
+    await db_session.commit()
+    await db_session.execute(
+        sa.text("UPDATE incidents SET window_state = '{}'::jsonb WHERE id = :id"),
+        {"id": first.incident.id},
+    )
+    await db_session.commit()
+
+    updated = await record_problem_incident(
+        db_session,
+        IncidentUpsertInput(
+            rule_name="legacy-empty-window",
+            group_key="host:db-1",
+            severity=Severity.WARNING,
+            event_time=datetime(2026, 1, 1, 12, 1, tzinfo=timezone.utc),
+            summary="second",
+            affected_hosts=("db-1",),
+            fingerprint="fp-second",
+            threshold_count=2,
+        ),
+    )
+    await db_session.commit()
+
+    state, threshold_crossed = (
+        await db_session.execute(
+            sa.text(
+                "SELECT window_state, threshold_crossed FROM incidents WHERE id = :id"
+            ),
+            {"id": updated.incident.id},
+        )
+    ).one()
+    assert updated.effect == "updated"
+    assert updated.counted_count == 1
+    assert updated.counted_fingerprints == ("fp-second",)
+    assert updated.threshold_count == 2
+    assert updated.window_started_at == datetime(
+        2026, 1, 1, 11, 56, tzinfo=timezone.utc
+    )
+    assert updated.window_ended_at == datetime(2026, 1, 1, 12, 1, tzinfo=timezone.utc)
+    assert updated.window_crossed is False
+    assert updated.threshold_crossed is False
+    assert updated.first_threshold_transition is False
+    assert threshold_crossed is False
+    assert state["counted_count"] == updated.counted_count
+    assert state["threshold_count"] == updated.threshold_count
+    assert datetime.fromisoformat(state["window_started_at"]) == (
+        updated.window_started_at
+    )
+    assert datetime.fromisoformat(state["window_ended_at"]) == (updated.window_ended_at)
+    assert tuple(state["counted_fingerprint_timestamps"]) == (
+        updated.counted_fingerprints
+    )
 
 
 def test_upsert_input_rejects_empty_rule_name() -> None:

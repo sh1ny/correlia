@@ -1,19 +1,15 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
-
 from app.config.rules import CompiledRule
 from app.domain.events import NormalizedEvent
-from app.domain.rules import NoOpDecision, RuleDecision, ThresholdDecision
+from app.domain.rules import NoOpDecision, RuleMatch
 
 
 class RuleEngine:
     def __init__(self, rules: list[CompiledRule]) -> None:
         self._rules = sorted(rules, key=lambda r: r.definition.priority)
-        # In-memory threshold state: (rule_name, group_key) -> {fingerprint: timestamp}
-        self._window_state: dict[tuple[str, str], dict[str, datetime]] = {}
 
-    async def evaluate(self, event: NormalizedEvent) -> RuleDecision | NoOpDecision:
+    async def evaluate(self, event: NormalizedEvent) -> RuleMatch | NoOpDecision:
         if event.event_type.value == "RECOVERY":
             return NoOpDecision(reason="recovery events bypass rule aggregation")
 
@@ -25,18 +21,15 @@ class RuleEngine:
                     return NoOpDecision(
                         reason=f"missing required group-by field: {missing}"
                     )
-                threshold_decision = self._evaluate_threshold(
-                    compiled, group_key, event
-                )
                 summary = self._render_summary(
                     compiled.definition.output_summary, event
                 )
-                return RuleDecision(
+                return RuleMatch(
                     rule_name=compiled.definition.name,
                     priority=compiled.definition.priority,
                     matched_rules=[compiled.definition.name],
                     group_key=group_key,
-                    threshold_decision=threshold_decision,
+                    window=compiled.definition.window,
                     summary=summary,
                     actions=[a.plugin for a in compiled.definition.actions],
                 )
@@ -98,47 +91,6 @@ class RuleEngine:
         if field == "ip_address":
             return event.ip_address
         return event.tags.get(field)
-
-    def _evaluate_threshold(
-        self, compiled: CompiledRule, group_key: str, event: NormalizedEvent
-    ) -> ThresholdDecision:
-        rule = compiled.definition
-        window_seconds = rule.window.duration_seconds
-        threshold = rule.window.trigger_threshold
-        key = (rule.name, group_key)
-
-        window_end = event.timestamp
-        window_start = window_end - timedelta(seconds=window_seconds)
-
-        state = self._window_state.setdefault(key, {})
-        # Prune old fingerprints outside the window
-        stale = [fp for fp, ts in state.items() if ts < window_start]
-        for fp in stale:
-            del state[fp]
-
-        replay_reasons: list[str] = []
-        if event.fingerprint in state:
-            replay_reasons.append(
-                f"replay: fingerprint {event.fingerprint} already counted in window"
-            )
-        else:
-            state[event.fingerprint] = event.timestamp
-
-        counted_fingerprints = sorted(state.keys())
-        counted = len(counted_fingerprints)
-        crossed = counted >= threshold
-
-        return ThresholdDecision(
-            rule_name=rule.name,
-            group_key=group_key,
-            window_start=window_start,
-            window_end=window_end,
-            threshold=threshold,
-            counted_fingerprints=counted_fingerprints,
-            counted=counted,
-            crossed=crossed,
-            replay_or_skip_reasons=replay_reasons,
-        )
 
     def _render_summary(self, template: str, event: NormalizedEvent) -> str:
         normalized_fields: dict[str, str | None] = {
