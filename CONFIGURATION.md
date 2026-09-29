@@ -11,6 +11,91 @@ CORRELIA_PLUGINS_PATH=config/plugins.yaml
 `DATABASE_URL` is still required by the application settings.
 `CORRELIA_AUDIT_RAW_PAYLOAD_HMAC_KEY` is also required at startup. It protects the audit trail's ability to authenticate a pre-redaction raw audit payload against a candidate original. Supply it through your deployment's secret-management system; never commit it in configuration files.
 
+## Accepted event tags
+
+`POST /v1/icinga2/events` applies the same fixed contract to source tags and to the effective normalized tags after topology enrichment:
+
+| Bound | Limit |
+|---|---|
+| Key | ASCII `^[a-z][a-z0-9_.-]*$`, 1–64 UTF-8 bytes |
+| Value | 1–256 Unicode characters |
+| Entries | 128 |
+| Whole tag object | 16,384 compact UTF-8 JSON bytes |
+
+Byte accounting uses sorted keys, `ensure_ascii=False`, and compact separators. It includes braces, quotes, colons, commas, JSON escaping, and multibyte value bytes. The empty map is allowed and costs two bytes. Non-ASCII keys, NUL values, and unpaired surrogates are rejected; keys and values are never normalized, renamed, or clipped.
+
+Hostname topology matches still precede subnet fallback. Literal topology tags override source values; capture tags override literals. Collisions count once, with the winning value's encoded size. Static topology literals and capture destinations are validated when configuration loads. The final merged map is checked before rule evaluation, threshold-history updates, or the incident-plus-audit transaction.
+
+Tag-contract failures return HTTP **422**, including oversized tags on SOFT events. Both source and enrichment failures have this fixed, input-free error shape:
+
+```json
+{"detail":[{"loc":["body","tags"],"msg":"invalid event tags","type":"value_error.event_tags"}]}
+```
+
+Request-body overflow remains HTTP **413**. Unrelated processing failures retain the generic HTTP 500 response. Before upgrading, check producer tags and topology configuration against these limits: maps accepted by older versions can now be rejected. Accepted final maps reach rules and the stored normalized snapshot unchanged.
+
+## Raw audit retention
+
+New audit rows use redaction version **2**. HMAC-SHA256 still authenticates the canonical, pre-redaction request-model dump—not raw HTTP bytes or the enriched event. Recursive sensitive-fragment redaction and the redacted-path count cover the complete source, including subtrees later omitted.
+
+If the redacted object does not fit, capping removes whole top-level fields in descending encoded-byte contribution order, breaking ties lexically by key. It does not trim individual string leaves or repeatedly rescan the remaining document. The stored result is valid JSON and fits the smaller of the configured cap and the original canonical byte length; redaction expansion can therefore trigger omission even for a small input. When no field fits, the result is `{}`.
+
+The configured default cap is 65,536 bytes; the production minimum is 1,024 bytes. The helper supports caps down to two bytes. Original/stored lengths use compact canonical UTF-8 JSON. `raw_payload_truncated` describes storage-time omission only. Existing version-1 rows, HMACs, lengths, and payloads are not rewritten.
+
+The raw cap does not cap the separate normalized snapshot or audit response page. These have separate tag contracts. Sensitive-fragment matching is not general credential detection; this change does not make normalized snapshots secret-free at rest.
+
+## Audit read projections
+
+The operator-authenticated `GET /v1/incident-events` endpoint returns at most 200 rows. It does not expose raw payloads or the full normalized documents. Each row's tag projection contains at most **32 entries** and **4,096 compact UTF-8 JSON bytes**, using the accepted event key/value constraints above.
+
+The repository checks complete message content for sensitive fragments before applying the 512-character response limit. It omits sensitive tag keys, rejects invalid legacy pairs, and redacts sensitive scalar values. It then retains whole pairs in lexical key order. A pair that would exceed the byte budget is skipped; later smaller pairs can still be retained. Ordinary keys and values are never shortened to fit.
+
+Every row includes independent read-time omission metadata:
+
+```json
+{
+  "normalized_event_tags": {"region": "west"},
+  "normalized_event_tags_omitted": true,
+  "normalized_event_tags_omission_reasons": ["size_limit"]
+}
+```
+
+Reasons form a bounded set:
+
+- `size_limit`: entries were omitted by the count/byte limits, or the whole historical map exceeded the SQL transfer guard.
+- `invalid_legacy_shape`: an old map/container, key, or value does not meet the current flat string-map contract.
+- `sensitive_key`: a sensitive-fragment key was omitted.
+
+A complete projection has `normalized_event_tags_omitted: false` and an empty reason set. Value-only redaction does **not** mean an entry was omitted: returned values are redacted projections, not an original-value export. No exact omitted count is promised for a whole-map omission. `raw_payload_truncated` continues to describe storage-time capping, not these read-time omissions.
+
+Before asyncpg decodes tags, PostgreSQL guards their shape and textual UTF-8 size. Only objects of at most **32,768 bytes** are inspected; non-string values are removed in SQL while string-valued siblings survive. This also protects reads of numeric legacy entries too large for Python's integer decoder. Other invalid containers and over-limit objects become empty projections with the corresponding reason. PostgreSQL may still detoast and scan a historical value to measure it; the guard bounds transfer, not database work.
+
+Projection never rewrites stored snapshots, HMACs, or raw metadata. Filters use full persisted values. Cursor ordering remains `(accepted_at, id)` descending; totals, diagnostic offsets, and row counts are unchanged, including rows with omitted tags.
+
+The complete uncompressed 200-row HTTP response is bounded to **20 MiB (20,971,520 bytes)** for application-produced non-tag fields, including historical rows with invalid or oversized tags. Qualification preserves Python's default **4,300-digit** integer conversion limit and the producer's 64-character SHA-256 hex HMAC. Increasing/disabling that runtime limit or corrupting unrelated historical columns is outside this qualified profile. The conservative allowance is 96 KiB per row plus 4 KiB for the envelope: 19,664,896 bytes. Actual serialized HTTP bodies—not Python object size, JSONB storage size, or compression—are checked by the PostgreSQL-backed maximum-page scenario.
+
+No migration or historical backfill is needed. Rolling back application code restores the old unbounded projection and capping behavior; it is not a neutral mitigation.
+
+## Qualifying audit bounds
+
+Run function qualification on the pinned runtime:
+
+```sh
+mise exec -- uv run --locked --no-sync python scripts/qualify_audit_bounds.py
+```
+
+The JSON report records CPU, OS, Python version, Git revision and dirty-state flag, caps, fixture parameters/digests, output metadata, and median/p95/maximum timings. Each family has three warm-up calls followed by 30 timed `redact_payload` calls; fixture construction and validation are outside the timed interval. Both the default 65,536-byte cap and the production minimum of 1,024 bytes are qualified.
+
+The corpus includes reconstructed 1,000/5,000/10,000-tag shapes of exactly 15,181/75,181/150,181 canonical bytes. Their original generator, contents, machine, and repetition counts are unavailable. The historical 0.0108/3.5014/46.4278-second observations are retained as reported evidence, not rerun or used for precise speedup claims. Those tag counts now fail ingress but remain direct redactor cases.
+
+Separate permitted families cover 128 entries, 64-byte keys, exactly 16,384 tag bytes, four-byte Unicode values, escape-heavy values, redaction expansion, a 4,096-character message, and a request approaching 1 MiB through the currently permitted `ip_address` field. These are separate maxima, not an impossible combined event. Qualification fails if any family's p95 exceeds **250 ms**, or the 5,000-to-10,000 median ratio exceeds **3×** using a **20 ms denominator floor**. Raising the ingress-body ceiling requires requalification at the new permitted maximum.
+
+`mise run ci` runs the function qualifier and the concurrent HTTP scenario within the existing Compose smoke, without starting a second deployment. The HTTP client runs separately from the single Uvicorn worker. It offers at most 10 ingress requests/second for 11 seconds, with at most two in flight, while an independent thread schedules health probes every 50 ms without awaiting earlier responses. Health latency includes delay from the scheduled deadline, so late dispatch cannot hide server stalls. A two-second idle baseline is recorded separately. At least 100 successful health probes must overlap the workload; loaded health p95 must be at most **250 ms**, and its maximum at most **1 second**. A 429 or any other unsuccessful probe fails qualification.
+
+The smoke keeps rate limiting enabled, overriding only its generated test configuration: health allows 1,000 requests/60 seconds and ingress 500 requests/60 seconds, above the finite workload plus baseline and existing smoke traffic. Production quotas are unchanged. The report includes effective quotas, offered rate, observed duration, successful ingress responses, persisted audit outcomes, and topology-boundary equality. Function timings, real HTTP responsiveness, and PostgreSQL-backed maximum-page bytes appear as separate sections in the hosted run summary. The HTTP budget is a smoke criterion, not a general capacity SLO.
+
+Native Windows `check:portable` and direct function timings are not PostgreSQL or deployment proof. Use the current revision's hosted **Linux verification** result for legacy JSONB guards, full-page HTTP bytes, committed ingress, concurrent health, SMTP, and lifecycle cleanup. Do not run `test:deployment` again after `ci`.
+
 ## Keeping credentials out of Git
 
 Git ignores `.env` and `.env.*` at the repository root and in nested directories, except `.env.example`. Keep samples credential-free and supply deployment values through local configuration or your secret-management system.

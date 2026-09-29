@@ -14,7 +14,13 @@ from app.config.topology import (
     CompiledTopologyConfig,
     load_topology_config,
 )
-from app.domain.events import EventType, NormalizedEvent, Severity
+from app.domain.events import (
+    EventTagValidationError,
+    EventType,
+    NormalizedEvent,
+    Severity,
+    validate_event_tags,
+)
 from app.processing.enrichment import (
     StaticTopologyEnricher,
 )
@@ -73,6 +79,106 @@ def test_load_topology_config_accepts_valid_hostname_rules(tmp_path: Path) -> No
     assert rule.pattern.match("web-01")
     assert not rule.pattern.match("db-01")
     assert rule.tags == {"topology.role": "web", "topology.site": "dc1"}
+
+
+@pytest.mark.parametrize("kind", ["hostname_rules", "subnet_rules"])
+@pytest.mark.parametrize(
+    "tags",
+    [
+        {"topology." + "a" * 56: "x"},
+        {"topology.é": "x"},
+        {"topology.a": "x" * 257},
+        {"topology.a": "x\x00y"},
+        {f"topology.k{i:03}": "x" for i in range(129)},
+        {f"topology.k{i:03}": "x" * 118 for i in range(128)},
+    ],
+)
+def test_load_topology_rejects_invalid_static_event_tag_maps(
+    tmp_path: Path, kind: str, tags: dict[str, str]
+) -> None:
+    path = tmp_path / "topology.yaml"
+    rule = {"id": "test", "name": "Test", "tags": tags}
+    if kind == "hostname_rules":
+        rule["hostname_pattern"] = "^web-.*"
+    else:
+        rule["subnet"] = "192.0.2.0/24"
+    path.write_text(yaml.safe_dump({kind: [rule]}))
+    with pytest.raises(ValidationError):
+        load_topology_config(path)
+
+
+@pytest.mark.parametrize("key", ["topology." + "a" * 56, "topology.é"])
+def test_load_topology_rejects_invalid_capture_destination_key(
+    tmp_path: Path, key: str
+) -> None:
+    path = tmp_path / "topology.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "hostname_rules": [
+                    {
+                        "id": "test",
+                        "name": "Test",
+                        "hostname_pattern": "^(.*)$",
+                        "tags": {},
+                        "tag_capture_groups": {key: 1},
+                    }
+                ],
+            }
+        )
+    )
+    with pytest.raises(ValidationError):
+        load_topology_config(path)
+
+
+def test_load_topology_accepts_literal_and_capture_keys_at_exact_length(
+    tmp_path: Path,
+) -> None:
+    key = "topology." + "a" * 55
+    path = tmp_path / "topology.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "hostname_rules": [
+                    {
+                        "id": "test",
+                        "name": "Test",
+                        "hostname_pattern": "^(.*)$",
+                        "tags": {key: "🛰" * 256},
+                        "tag_capture_groups": {key: 1},
+                    }
+                ],
+            }
+        )
+    )
+    config = load_topology_config(path)
+    assert config.hostname_rules[0].tags == {key: "🛰" * 256}
+    assert config.hostname_rules[0].tag_capture_groups == {key: 1}
+
+
+def test_load_topology_rejects_overcounted_capture_destinations(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "topology.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "hostname_rules": [
+                    {
+                        "id": "test",
+                        "name": "Test",
+                        "hostname_pattern": "^(.*)$",
+                        "tags": {},
+                        "tag_capture_groups": {
+                            f"topology.k{i:03}": 1 for i in range(129)
+                        },
+                    }
+                ],
+            }
+        )
+    )
+    with pytest.raises(ValidationError):
+        load_topology_config(path)
 
 
 def test_load_topology_config_rejects_extra_keys_in_hostname_rule(
@@ -759,8 +865,43 @@ async def test_hostname_capture_group_rejects_overlong_capture(
     config = load_topology_config(path)
     enricher = StaticTopologyEnricher(config)
     event = _event(host="x" * 257)
-    with pytest.raises(ValueError, match="exceeds 256 characters"):
-        await enricher.enrich(event)
+    result = await enricher.enrich(event)
+    with pytest.raises(EventTagValidationError, match="invalid event tags"):
+        validate_event_tags(result.event.tags)
+
+
+@pytest.mark.parametrize(
+    ("literal", "host", "source", "expected"),
+    [
+        ("x" * 256, "a", "x", "a"),  # Capture wins; shrinks the map.
+        ("x", "a" * 256, "x", "a" * 256),  # Capture wins; grows the map.
+    ],
+)
+async def test_capture_winning_value_is_preserved_without_input_mutation(
+    literal: str, host: str, source: str, expected: str, tmp_path: Path
+) -> None:
+    path = tmp_path / "topology.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "hostname_rules": [
+                    {
+                        "id": "capture",
+                        "name": "Capture",
+                        "hostname_pattern": "^(.*)$",
+                        "tags": {"topology.site": literal},
+                        "tag_capture_groups": {"topology.site": 1},
+                    }
+                ],
+            }
+        )
+    )
+    event = _event(host=host, tags={"topology.site": source})
+    result = await StaticTopologyEnricher(load_topology_config(path)).enrich(event)
+    validate_event_tags(result.event.tags)
+
+    assert result.event.tags == {"topology.site": expected}
+    assert event.tags == {"topology.site": source}
 
 
 # ---------------------------------------------------------------------------

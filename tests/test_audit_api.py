@@ -7,10 +7,12 @@ PostgreSQL with real Alembic migrations.
 
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
+import json
 import os
 import subprocess
+import sys
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -19,7 +21,7 @@ from uuid import uuid4
 import pytest
 import yaml
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from testcontainers.postgres import PostgresContainer
 
@@ -29,7 +31,11 @@ from app.config.settings import Settings
 from app.domain.audit import AUDIT_INCIDENT_IDS_MAX, AuditEventListFilters
 from app.domain.events import Severity
 from app.main import create_app
-from app.persistence.audit import insert_incident_event, redact_payload
+from app.persistence.audit import (
+    canonical_json_bytes,
+    insert_incident_event,
+    redact_payload,
+)
 from app.persistence.incidents import IncidentUpsertInput, upsert_open_incident
 from app.persistence.models import Incident, IncidentEvent
 from app.plugins.loader import PluginRegistry
@@ -234,6 +240,19 @@ async def _seed_audit_event(
     return event
 
 
+async def _replace_legacy_tags(
+    session: AsyncSession, event: IncidentEvent, tags_json: str
+) -> None:
+    await session.execute(
+        text(
+            "UPDATE incident_events SET normalized_event = "
+            "jsonb_set(normalized_event, '{tags}', CAST(:tags AS jsonb), true) "
+            "WHERE id = CAST(:event_id AS uuid)"
+        ),
+        {"tags": tags_json, "event_id": str(event.id)},
+    )
+
+
 async def test_seed_audit_event_preserves_explicit_empty_raw_payload(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -350,6 +369,12 @@ async def test_incident_events_requires_operator_token(
         assert resp_no_auth.status_code == 401
         assert resp_no_auth.json() == {"detail": "unauthorized"}
 
+        resp_ingress_token = await client.get(
+            "/v1/incident-events",
+            headers={"Authorization": f"Bearer {INGRESS_TOKEN}"},
+        )
+        assert resp_ingress_token.status_code == 401
+
         resp_ok = await client.get(
             "/v1/incident-events",
             headers={"Authorization": f"Bearer {OPERATOR_TOKEN}"},
@@ -426,7 +451,7 @@ async def test_list_incident_events_uses_bounded_projection(
         assert item["raw_payload_truncated"] is not None
         assert item["redaction_version"] is not None
         assert item["redacted_path_count"] is not None
-        assert item["raw_payload_hmac"] is not None
+        assert len(item["raw_payload_hmac"]) == 64
 
         # Message must be redacted (contained a sensitive fragment)
         assert secret_value not in item["normalized_event_message"]
@@ -441,6 +466,255 @@ async def test_list_incident_events_uses_bounded_projection(
         # Sensitive key is omitted entirely (D-08/D-15)
         assert "secret_token" not in tags
         assert secret_value not in str(tags)
+        assert item["normalized_event_tags_omitted"] is True
+        assert item["normalized_event_tags_omission_reasons"] == ["sensitive_key"]
+        assert item["raw_payload_truncated"] is False
+
+
+async def test_value_only_tag_redaction_is_not_an_omission(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        await _seed_audit_event(
+            session,
+            normalized_event=_minimal_normalized_event(
+                tags={"safe": "contains token", "region": "west"}
+            ),
+        )
+        await session.commit()
+
+    app = _app(session_factory)
+    async for client in get_client(app):
+        response = await client.get("/v1/incident-events")
+        assert response.status_code == 200
+        item = response.json()["items"][0]
+        assert item["normalized_event_tags"] == {
+            "region": "west",
+            "safe": "[redacted]",
+        }
+        assert item["normalized_event_tags_omitted"] is False
+        assert item["normalized_event_tags_omission_reasons"] == []
+
+
+async def test_legacy_http_projection_handles_historical_shapes_and_full_message(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    count_tags = {f"k{i:03}": "v" for i in range(129)}
+    cases: list[tuple[str | None, dict[str, str], set[str]]] = [
+        ('{"safe":"ok","bad key":"old"}', {"safe": "ok"}, {"invalid_legacy_shape"}),
+        (
+            json.dumps({"safe": "ok", "a" * 65: "v"}),
+            {"safe": "ok"},
+            {"invalid_legacy_shape"},
+        ),
+        (
+            json.dumps({"safe": "ok", "large": "x" * 257}),
+            {"safe": "ok"},
+            {"invalid_legacy_shape"},
+        ),
+        (
+            json.dumps(count_tags),
+            {f"k{i:03}": "v" for i in range(32)},
+            {"size_limit"},
+        ),
+        (
+            '{"safe":"ok","nested":{"password":"private"}}',
+            {"safe": "ok"},
+            {"invalid_legacy_shape"},
+        ),
+        ('{"safe":"ok","nested":null}', {"safe": "ok"}, {"invalid_legacy_shape"}),
+        (
+            '{"safe":"ok","numeric":' + "9" * 5_000 + "}",
+            {"safe": "ok"},
+            {"invalid_legacy_shape"},
+        ),
+        ("null", {}, {"invalid_legacy_shape"}),
+        ("[]", {}, {"invalid_legacy_shape"}),
+        ('"string"', {}, {"invalid_legacy_shape"}),
+        (None, {}, {"invalid_legacy_shape"}),
+        (
+            json.dumps({"safe": "not returned", "big": "x" * 33_000}),
+            {},
+            {"size_limit"},
+        ),
+    ]
+    async with session_factory() as session:
+        for index, (tags_json, _, _) in enumerate(cases):
+            event = await _seed_audit_event(
+                session,
+                accepted_offset=index + 1,
+                fingerprint=f"legacy-{index}",
+                normalized_event=_minimal_normalized_event(
+                    message="x" * 512 + " credential",
+                ),
+            )
+            if tags_json is None:
+                await session.execute(
+                    text(
+                        "UPDATE incident_events "
+                        "SET normalized_event = normalized_event - 'tags' "
+                        "WHERE id = CAST(:event_id AS uuid)"
+                    ),
+                    {"event_id": str(event.id)},
+                )
+            else:
+                await _replace_legacy_tags(session, event, tags_json)
+        await session.commit()
+
+    app = _app(session_factory, api_auth_enabled=True)
+    async for client in get_client(app):
+        response = await client.get(
+            "/v1/incident-events",
+            headers={"Authorization": f"Bearer {OPERATOR_TOKEN}"},
+            params={"limit": len(cases)},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["total"] == len(cases)
+        assert len(body["items"]) == len(cases)
+        for item in body["items"]:
+            index = int(item["fingerprint"].removeprefix("legacy-"))
+            _, expected_tags, reasons = cases[index]
+            assert item["normalized_event_tags"] == expected_tags
+            assert item["normalized_event_tags_omitted"] is True
+            assert set(item["normalized_event_tags_omission_reasons"]) == reasons
+            assert item["normalized_event_message"] == "[redacted]"
+            assert "raw_payload" not in item
+            assert "normalized_event" not in item
+
+
+async def test_legacy_mixed_cursor_and_offset_preserve_filtered_total(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    tags = [
+        '{"ok":"one"}',
+        json.dumps({"ok": "stored", "blob": "x" * 33_000}),
+        '{"ok":"three","numeric":' + "9" * 5_000 + "}",
+        '{"ok":"four","nested":[1,2]}',
+        '{"ok":"five"}',
+    ]
+    async with session_factory() as session:
+        for index, tags_json in enumerate(tags):
+            event = await _seed_audit_event(
+                session,
+                accepted_offset=index + 1,
+                fingerprint=f"mixed-{index}",
+                source_id="src-mixed",
+                no_dispatch_reason="below_threshold",
+            )
+            await _replace_legacy_tags(session, event, tags_json)
+        await _seed_audit_event(session, accepted_offset=6, source_id="src-other")
+        await session.commit()
+
+    params: dict[str, object] = {
+        "source_id": "src-mixed",
+        "no_dispatch_reason": "below_threshold",
+        "limit": 2,
+    }
+    app = _app(session_factory)
+    async for client in get_client(app):
+        seen: list[str] = []
+        cursor: str | None = None
+        while True:
+            response = await client.get(
+                "/v1/incident-events",
+                params={**params, **({"cursor": cursor} if cursor else {})},
+            )
+            assert response.status_code == 200
+            body = response.json()
+            assert body["total"] == 5
+            seen.extend(item["fingerprint"] for item in body["items"])
+            cursor = body["next_cursor"]
+            if cursor is None:
+                break
+        assert seen == [f"mixed-{i}" for i in reversed(range(5))]
+        offset_page = await client.get(
+            "/v1/incident-events", params={**params, "offset": 2}
+        )
+        assert offset_page.status_code == 200
+        offset_body = offset_page.json()
+        assert offset_body["total"] == 5
+        assert offset_body["offset"] == 2
+        assert offset_body["next_cursor"] is None
+        assert [item["fingerprint"] for item in offset_body["items"]] == [
+            "mixed-2",
+            "mixed-1",
+        ]
+        assert offset_body["items"][0]["normalized_event_tags"] == {"ok": "three"}
+
+
+async def test_200_row_actual_http_body_and_integer_profile(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    assert sys.get_int_max_str_digits() == 4_300
+    huge_int = int("9" * 4_300)
+    escaped = "\x01" * 256
+    incident_ids = [escaped] * AUDIT_INCIDENT_IDS_MAX
+    tags = {f"k{i:02}": "\x01" * 20 for i in range(32)}
+    tags["k31"] = "\x01" * 14 + "xxx"
+    assert len(canonical_json_bytes(tags)) == 4_096
+    summary = {
+        "rule_name": escaped,
+        "group_key": escaped,
+        "decision_reason": escaped,
+        "affected_incident_count": huge_int,
+        "counted_count": huge_int,
+        "threshold_count": huge_int,
+    }
+    async with session_factory() as session:
+        for index in range(200):
+            event = await _seed_audit_event(
+                session,
+                accepted_offset=index + 1,
+                fingerprint=escaped,
+                source_id=escaped,
+                host=escaped,
+                service=escaped,
+                no_dispatch_reason="\x01" * 128,
+                incident_ids=incident_ids,
+                decision_summary_incident_ids=incident_ids,
+                normalized_event=_minimal_normalized_event(
+                    message="\x01" * 512, tags=tags
+                ),
+                raw_payload={"host": "budget"},
+            )
+            event.decision_summary = {**event.decision_summary, **summary}
+        await session.commit()
+
+    app = _app(session_factory)
+    async for client in get_client(app):
+        response = await client.get("/v1/incident-events", params={"limit": 200})
+        assert response.status_code == 200
+        assert len(response.content) <= 20_971_520
+        body = response.json()
+        assert body["total"] == 200
+        assert body["limit"] == 200
+        assert body["offset"] == 0
+        assert body["next_cursor"] is None
+        assert len(body["items"]) == 200
+        first = body["items"][0]
+        assert len(first["incident_ids"]) == 20
+        assert len(first["decision_summary"]["incident_ids"]) == 20
+        assert len(str(first["decision_summary"]["threshold_count"])) == 4_300
+        assert len(first["raw_payload_hmac"]) == 64
+        assert first["raw_payload_original_byte_length"] > 0
+        assert first["raw_payload_stored_byte_length"] > 0
+        assert first["redaction_version"] == 2
+        assert first["normalized_event_tags_omitted"] is False
+        assert len(first["normalized_event_tags"]) == 32
+        assert "\\u0001" in response.text
+        if summary_path := os.environ.get("GITHUB_STEP_SUMMARY"):
+            with Path(summary_path).open("a", encoding="utf-8") as report:
+                report.write(
+                    "\n### Issue #8: maximum audit page\n\n"
+                    f"- Rows: 200; uncompressed HTTP bytes: {len(response.content)}"
+                    " (budget: 20,971,520).\n"
+                    "- Tag bytes per row: 4,096; entries: 32.\n"
+                    f"- Integer conversion limit: {sys.get_int_max_str_digits()}; "
+                    "three 4,300-digit summary integers per row.\n"
+                    "- PostgreSQL-backed response; both 20-element incident arrays "
+                    "and maximum escaped string fields retained.\n"
+                )
 
 
 # ---------------------------------------------------------------------------

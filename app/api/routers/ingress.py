@@ -9,6 +9,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Security, status
 from app.api.security import require_ingress_token
 
 from app.api.deps import get_icinga2_processor
+from app.domain.events import EVENT_TAG_ERROR_MESSAGE, EventTagValidationError
 from app.domain.rules import IngressDecisionEnvelope
 from app.plugins.inputs.icinga2 import Icinga2WebhookPayload
 from app.processing.ingress import Icinga2DecisionProcessor
@@ -25,6 +26,17 @@ async def ingest_icinga2(
 ) -> IngressDecisionEnvelope:
     try:
         return await processor.process_payload(payload)
+    except EventTagValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=[
+                {
+                    "loc": ["body", "tags"],
+                    "msg": EVENT_TAG_ERROR_MESSAGE,
+                    "type": "value_error.event_tags",
+                }
+            ],
+        ) from exc
     except Exception as exc:
         logger.error(
             "icinga2 ingest failed",

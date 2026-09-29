@@ -27,6 +27,7 @@ from app.api.routers.plugins import router as plugins_router
 from app.config.rules import CompiledRuleConfig, load_rules_config
 from app.config.settings import Settings, get_settings
 from app.config.topology import CompiledTopologyConfig, load_topology_config
+from app.domain.events import EVENT_TAG_ERROR_MESSAGE
 from app.persistence.database import create_engine, create_sessionmaker
 from app.plugins.loader import PluginRegistry, PluginStartupError, load_plugin_registry
 from app.processing.ingress import Icinga2DecisionProcessor, build_icinga2_processor
@@ -44,26 +45,46 @@ from app.processing.task_runner import AsyncIOTaskRunner, TaskRunner
 logger = logging.getLogger(__name__)
 
 
-def _safe_validation_errors(exc: RequestValidationError) -> list[dict[str, Any]]:
-    return [
-        {
-            "loc": error.get("loc", ()),
-            "msg": error.get("msg", "invalid request"),
-            "type": error.get("type", "value_error"),
-        }
-        for error in exc.errors()
-    ]
+def _safe_validation_errors(
+    request: Request, exc: RequestValidationError
+) -> list[dict[str, Any]]:
+    errors: list[dict[str, Any]] = []
+    has_tag_error = False
+    for error in exc.errors():
+        loc = error.get("loc", ())
+        if request.url.path == "/v1/icinga2/events" and tuple(loc[:2]) == (
+            "body",
+            "tags",
+        ):
+            if not has_tag_error:
+                errors.append(
+                    {
+                        "loc": ("body", "tags"),
+                        "msg": EVENT_TAG_ERROR_MESSAGE,
+                        "type": "value_error.event_tags",
+                    }
+                )
+                has_tag_error = True
+        else:
+            errors.append(
+                {
+                    "loc": loc,
+                    "msg": error.get("msg", "invalid request"),
+                    "type": error.get("type", "value_error"),
+                }
+            )
+    return errors
 
 
 async def request_validation_exception_handler(
-    _request: Request,
+    request: Request,
     exc: Exception,
 ) -> JSONResponse:
     if not isinstance(exc, RequestValidationError):
         raise exc
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-        content={"detail": _safe_validation_errors(exc)},
+        content={"detail": _safe_validation_errors(request, exc)},
     )
 
 

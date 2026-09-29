@@ -6,7 +6,13 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.domain.events import EventType, NormalizedEvent, Severity, TagKey, TagValue
+from app.domain.events import (
+    EventTags,
+    EventType,
+    NormalizedEvent,
+    Severity,
+    validate_event_tags,
+)
 
 
 _ICINGA_HOST_STATES = {
@@ -34,7 +40,13 @@ class Icinga2WebhookPayload(BaseModel):
     timestamp: datetime
     check_output: Annotated[str, Field(min_length=1)]
     ip_address: Annotated[str, Field(min_length=1)] | None = None
-    tags: dict[TagKey, TagValue] = Field(default_factory=dict)
+    tags: EventTags = Field(default_factory=dict)
+
+    @field_validator("tags")
+    @classmethod
+    def require_valid_event_tags(cls, value: EventTags) -> EventTags:
+        validate_event_tags(value)
+        return value
 
     @field_validator("timestamp", mode="before")
     @classmethod

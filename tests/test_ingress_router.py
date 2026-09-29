@@ -1,9 +1,11 @@
 from collections.abc import AsyncIterator, Mapping
+from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 import asyncio
 import inspect
+import json
 import logging
 import subprocess
 import os
@@ -19,7 +21,7 @@ from testcontainers.postgres import PostgresContainer
 
 from app.config.plugins import load_plugin_registry_config
 from app.config.settings import Settings
-from app.domain.events import Severity
+from app.domain.events import EVENT_TAG_MAX_BYTES, Severity
 from app.domain.rules import RuleDecision, ThresholdDecision
 from app.main import create_app
 from app.persistence.incidents import IncidentUpsertInput, upsert_open_incident
@@ -1474,6 +1476,7 @@ async def test_extra_field_rejected_with_422() -> None:
     async for client in get_client(app):
         response = await client.post("/v1/icinga2/events", json=payload)
     assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["body", "extra"]
 
 
 async def test_oversized_source_id_rejected_before_audit_write(
@@ -1648,6 +1651,313 @@ def test_processing_ingress_dependency_boundaries_for_audit() -> None:
 # ---------------------------------------------------------------------------
 # Topology enrichment integration via HTTP entrypoint
 # ---------------------------------------------------------------------------
+
+
+def _tags_near_byte_limit(count: int = 128) -> dict[str, str]:
+    return {f"k{i:03}": "x" * 118 for i in range(count)}
+
+
+@pytest.mark.parametrize(
+    ("kind", "state_type"),
+    [
+        ("source_count", "HARD"),
+        ("source_count", "SOFT"),
+        ("source_bytes", "HARD"),
+        ("literal_count", "HARD"),
+        ("literal_bytes", "HARD"),
+        ("capture_count", "HARD"),
+        ("capture_bytes", "HARD"),
+        ("capture_nul", "HARD"),
+        ("collision_growth", "HARD"),
+    ],
+)
+async def test_tag_overflow_has_sanitized_422_and_no_state_changes(
+    kind: str,
+    state_type: str,
+    tmp_path: Path,
+    session_factory: async_sessionmaker[AsyncSession],
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    topology_path = tmp_path / "topology.yaml"
+    rules_path = tmp_path / "rules.yaml"
+    _write_rules(rules_path, threshold=3)
+    rule_data = yaml.safe_load(rules_path.read_text())
+    rule_data["rules"][0]["output_summary"] = "Rule matched"
+    rules_path.write_text(yaml.safe_dump(rule_data))
+
+    captured = kind.startswith("capture")
+    literal_value = (
+        "x" * 256
+        if kind == "collision_growth"
+        else "x" * 118
+        if kind == "literal_bytes"
+        else "dc1"
+    )
+    topology_path.write_text(
+        yaml.safe_dump(
+            {
+                "hostname_rules": [
+                    {
+                        "id": "source-and-topology",
+                        "name": "Source and Topology",
+                        "hostname_pattern": "^(.*)$",
+                        "tags": {} if captured else {"topology.site": literal_value},
+                        "tag_capture_groups": {"topology.site": 1} if captured else {},
+                    }
+                ],
+            }
+        )
+    )
+    submitted: list[str] = []
+    monkeypatch.setattr(
+        "app.processing.ingress.record_notification_submission", submitted.append
+    )
+    task_runner = AsyncIOTaskRunner()
+    processor = build_icinga2_processor(
+        topology_path=topology_path,
+        rules_path=rules_path,
+        sessionmaker=session_factory,
+        task_runner=task_runner,
+    )
+    app = create_app(
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        sessionmaker=session_factory,
+        icinga2_processor=processor,
+        task_runner=task_runner,
+        lifecycle_worker=NoopLifecycleWorker(),
+    )
+    seed = valid_icinga2_service_payload()
+    seed["host"] = "seed"
+    seed["source_id"] = "icinga2:service:seed:http"
+    seed["tags"] = {"team.name": "platform"}
+    payload = valid_icinga2_service_payload()
+    payload["source_id"] = "icinga2:service:rejected:http"
+    payload["host"] = "web-rejected"
+    payload["state_type"] = state_type
+    if kind == "source_count":
+        payload["tags"] = {f"k{i:03}": "secret" for i in range(129)}
+    elif kind == "source_bytes":
+        tags = _tags_near_byte_limit()
+        tags["k127"] = "x" * 118
+        payload["tags"] = tags  # 16,385 bytes, source count exactly 128
+    elif kind in ("literal_count", "capture_count"):
+        payload["tags"] = {f"k{i:03}": "x" for i in range(128)}
+    elif kind in ("literal_bytes", "capture_bytes"):
+        payload["tags"] = _tags_near_byte_limit(127)
+        if kind == "capture_bytes":
+            payload["host"] = "web-" + "x" * 115
+    elif kind == "collision_growth":
+        payload["tags"] = {**_tags_near_byte_limit(127), "topology.site": "x"}
+    else:
+        payload["host"] = "web-\x00rejected"
+        payload["tags"] = {"team.name": "platform"}
+
+    if kind in ("literal_bytes", "capture_bytes", "collision_growth"):
+        source_bytes = len(
+            json.dumps(
+                payload["tags"],
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            ).encode("utf-8")
+        )
+        assert source_bytes <= EVENT_TAG_MAX_BYTES
+
+    caplog.set_level(logging.INFO, logger="app.processing.ingress")
+    async for client in get_client(app):
+        accepted = await client.post("/v1/icinga2/events", json=seed)
+        assert accepted.status_code == 200
+        assert accepted.json()["threshold_decision"]["counted"] == 1
+        before_window = deepcopy(processor._rule_engine._window_state)
+        async with session_factory() as session:
+            before_audits = (
+                await session.execute(sa.text("SELECT COUNT(*) FROM incident_events"))
+            ).scalar_one()
+            before_incidents = (
+                await session.execute(sa.text("SELECT COUNT(*) FROM incidents"))
+            ).scalar_one()
+        response = await client.post("/v1/icinga2/events", json=payload)
+        await task_runner.drain()
+
+    assert response.status_code == 422
+    assert response.json() == {
+        "detail": [
+            {
+                "loc": ["body", "tags"],
+                "msg": "invalid event tags",
+                "type": "value_error.event_tags",
+            }
+        ]
+    }
+    assert processor._rule_engine._window_state == before_window
+    assert submitted == []
+    async with session_factory() as session:
+        assert (
+            await session.execute(sa.text("SELECT COUNT(*) FROM incident_events"))
+        ).scalar_one() == before_audits
+        assert (
+            await session.execute(sa.text("SELECT COUNT(*) FROM incidents"))
+        ).scalar_one() == before_incidents
+    safe_logs = "\n".join(
+        record.getMessage() + repr(record.__dict__)
+        for record in caplog.records
+        if record.name.startswith(("app.processing.ingress", "app.api.routers.ingress"))
+    )
+    assert "web-\x00rejected" not in safe_logs
+    assert "secret" not in safe_logs
+
+
+@pytest.mark.parametrize(
+    "tags",
+    [
+        {},
+        {**_tags_near_byte_limit(), "k127": "x" * 117},
+    ],
+)
+async def test_ingress_accepts_empty_and_exact_byte_limit_source_maps(
+    tags: dict[str, str],
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    processor = build_icinga2_processor(sessionmaker=session_factory)
+    app = create_app(
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        sessionmaker=session_factory,
+        icinga2_processor=processor,
+        lifecycle_worker=NoopLifecycleWorker(),
+    )
+    payload = valid_icinga2_service_payload()
+    payload["tags"] = tags
+    assert (
+        len(
+            json.dumps(
+                tags, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            ).encode("utf-8")
+        )
+        <= EVENT_TAG_MAX_BYTES
+    )
+    async for client in get_client(app):
+        response = await client.post("/v1/icinga2/events", json=payload)
+    assert response.status_code == 200
+    assert response.json()["final_tags"] == tags
+    async with session_factory() as session:
+        stored = (
+            await session.execute(
+                sa.text("SELECT normalized_event->>'tags' FROM incident_events")
+            )
+        ).scalar_one()
+    assert json.loads(stored) == tags
+
+
+async def test_tag_validation_errors_redact_hostile_key_and_value(
+    caplog: pytest.LogCaptureFixture,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    processor = build_icinga2_processor(sessionmaker=session_factory)
+    app = create_app(
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        sessionmaker=session_factory,
+        icinga2_processor=processor,
+        lifecycle_worker=NoopLifecycleWorker(),
+    )
+    payload = valid_icinga2_service_payload()
+    payload["tags"] = {
+        "secret-token-" + "x" * 60: "secret-value",
+        "a": "x" * 257,
+    }
+    caplog.set_level(logging.INFO)
+    async for client in get_client(app):
+        response = await client.post("/v1/icinga2/events", json=payload)
+    assert response.status_code == 422
+    assert response.json() == {
+        "detail": [
+            {
+                "loc": ["body", "tags"],
+                "msg": "invalid event tags",
+                "type": "value_error.event_tags",
+            }
+        ]
+    }
+    assert "secret-token-" not in response.text
+    assert "secret-value" not in response.text
+    assert "secret-token-" not in "\n".join(r.getMessage() for r in caplog.records)
+    assert await _count_audit_rows(session_factory) == 0
+
+
+async def test_accepted_full_tags_reach_rules_and_postgres_snapshot_unchanged(
+    tmp_path: Path,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    topology_path = tmp_path / "topology.yaml"
+    rules_path = tmp_path / "rules.yaml"
+    _write_rules(rules_path, threshold=3)
+    rules = yaml.safe_load(rules_path.read_text())
+    rules["rules"][0]["match"]["tags"] = {"topology.site": "dc1"}
+    rules["rules"][0]["window"]["group_by"] = ["topology.site"]
+    rules_path.write_text(yaml.safe_dump(rules))
+    topology_path.write_text(
+        yaml.safe_dump(
+            {
+                "hostname_rules": [
+                    {
+                        "id": "host",
+                        "name": "Host",
+                        "hostname_pattern": "^(dc1)-.*",
+                        "tags": {"topology.site": "literal"},
+                        "tag_capture_groups": {"topology.site": 1},
+                    }
+                ],
+                "subnet_rules": [
+                    {
+                        "id": "subnet",
+                        "name": "Subnet",
+                        "subnet": "192.0.2.0/24",
+                        "tags": {"topology.site": "dc2"},
+                    }
+                ],
+            }
+        )
+    )
+    processor = build_icinga2_processor(
+        topology_path=topology_path,
+        rules_path=rules_path,
+        sessionmaker=session_factory,
+    )
+    app = create_app(
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        sessionmaker=session_factory,
+        icinga2_processor=processor,
+        lifecycle_worker=NoopLifecycleWorker(),
+    )
+    tags = {**_tags_near_byte_limit(127), "topology.site": "from-source"}
+    payload = valid_icinga2_service_payload()
+    payload["host"] = "dc1-web"
+    payload["tags"] = tags
+    expected = {**tags, "topology.site": "dc1"}
+    assert len(expected) == 128
+    async for client in get_client(app):
+        response = await client.post("/v1/icinga2/events", json=payload)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["final_tags"] == expected
+    assert body["matched_rules"] == ["service-critical"]
+    assert body["group_key"] == "topology.site=dc1"
+    assert body["rule_decision"]["summary"] == "Critical http in dc1"
+    assert body["enrichment_diagnostics"][0]["match_source"] == "hostname"
+    assert body["enrichment_diagnostics"][0]["tags_overridden"] == [
+        ["topology.site", "from-source", "literal"],
+        ["topology.site", "literal", "dc1"],
+    ]
+    async with session_factory() as session:
+        stored = (
+            await session.execute(
+                sa.text("SELECT normalized_event->>'tags' FROM incident_events")
+            )
+        ).scalar_one()
+    assert json.loads(stored) == expected
+
+
 async def test_response_with_no_topology_match_and_no_ip_returns_source_tags(
     tmp_path: Path,
     session_factory: async_sessionmaker[AsyncSession],

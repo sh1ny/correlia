@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from app.domain.audit import AuditDecisionSummary
-from app.domain.events import EventType
+from app.domain.events import EventType, validate_event_tags
 from app.domain.incidents import LifecycleOutcome
 from app.domain.notifications import NotificationResult
 from app.domain.rules import (
@@ -173,6 +173,11 @@ class Icinga2DecisionProcessor:
                     count=len(diagnostics),
                 ),
             )
+
+        # model_copy in enrichment deliberately preserves the chosen values but
+        # skips Pydantic. Check the effective map (also with no enricher) before
+        # RuleEngine can change threshold history or a transaction is opened.
+        validate_event_tags(event.tags)
 
         matched_rules: list[str] = []
         rule_decision: dict[str, object] | None = None

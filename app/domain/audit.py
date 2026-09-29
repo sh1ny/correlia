@@ -9,13 +9,21 @@ rows suitable for ``AuditEventResponse``.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.domain.events import EventType, Severity, TagKey, TagValue
+from app.domain.events import (
+    EventTagKey,
+    EventTagValidationError,
+    EventType,
+    Severity,
+    TagValue,
+    validate_event_tags,
+)
 from app.domain.incidents import BoundedString, BoundedStringTuple
 
 # D-08: dedicated response-only annotation for the audit-list message
@@ -32,6 +40,14 @@ BoundedNoDispatchReason = Annotated[str, Field(min_length=1, max_length=128)]
 
 #: The maximum number of incident ids recorded on an audit decision summary.
 AUDIT_INCIDENT_IDS_MAX = 20
+
+#: The response tag object is smaller than the accepted event snapshot.
+AUDIT_TAG_MAX_ENTRIES = 32
+AUDIT_TAG_MAX_BYTES = 4_096
+AuditTagOmissionReason = Literal["size_limit", "invalid_legacy_shape", "sensitive_key"]
+BoundedResponseHmac = Annotated[
+    str, Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+]
 
 
 class AuditDecisionSummary(BaseModel):
@@ -121,7 +137,7 @@ class AuditEventResponse(BaseModel):
     Implements D-08/D-15: no ``raw_payload`` field and no full
     ``normalized_event`` field. Only a bounded ``normalized_event_message``
     (capped at 512 chars) and ``normalized_event_tags`` (typed through the
-    existing ``TagKey``/``TagValue`` constraints) are projected. Raw-payload
+    shared event key/value constraints) are projected. Raw-payload
     metadata (lengths, truncation flag, redaction version, redacted path
     count, HMAC) is included for traceability without exposing the body.
     """
@@ -143,13 +159,43 @@ class AuditEventResponse(BaseModel):
     ]
     decision_summary: AuditDecisionSummary
     normalized_event_message: BoundedResponseMessage
-    normalized_event_tags: dict[TagKey, TagValue]
+    normalized_event_tags: dict[EventTagKey, TagValue] = Field(
+        max_length=AUDIT_TAG_MAX_ENTRIES
+    )
+    normalized_event_tags_omitted: bool
+    normalized_event_tags_omission_reasons: frozenset[AuditTagOmissionReason] = Field(
+        max_length=3
+    )
     raw_payload_original_byte_length: int | None
     raw_payload_stored_byte_length: int | None
     raw_payload_truncated: bool
     redaction_version: int | None
     redacted_path_count: int | None
-    raw_payload_hmac: str | None
+    raw_payload_hmac: BoundedResponseHmac | None
+
+    @field_validator("normalized_event_tags")
+    @classmethod
+    def require_bounded_response_tags(cls, tags: dict[str, str]) -> dict[str, str]:
+        try:
+            validate_event_tags(tags)
+            encoded_length = len(
+                json.dumps(
+                    tags, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+                ).encode("utf-8")
+            )
+        except (EventTagValidationError, UnicodeError) as exc:
+            raise ValueError("invalid audit response tags") from exc
+        if encoded_length > AUDIT_TAG_MAX_BYTES:
+            raise ValueError("audit response tags exceed byte limit")
+        return tags
+
+    @model_validator(mode="after")
+    def require_consistent_tag_omissions(self) -> AuditEventResponse:
+        if self.normalized_event_tags_omitted != bool(
+            self.normalized_event_tags_omission_reasons
+        ):
+            raise ValueError("audit tag omission metadata is inconsistent")
+        return self
 
 
 class AuditEventListResponse(BaseModel):

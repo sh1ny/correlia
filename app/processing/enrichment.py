@@ -85,10 +85,6 @@ class StaticTopologyEnricher:
                 captured = match.group(group_index)
                 if captured is None or captured == "":
                     continue
-                # Keep the 256-character cap in sync with TagValue in
-                # app/domain/events.py.
-                if len(captured) > 256:
-                    raise ValueError(f"derived tag '{key}' exceeds 256 characters")
                 value = captured
                 if key in new_tags:
                     old_value = new_tags[key]

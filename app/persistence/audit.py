@@ -18,21 +18,40 @@ import binascii
 import hashlib
 import hmac
 import json
-from itertools import islice
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from itertools import islice
+from typing import Any, Literal
 from uuid import UUID
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import (
+    Text,
+    and_,
+    case,
+    cast,
+    false,
+    func,
+    literal_column,
+    or_,
+    select,
+    true,
+)
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.audit import AUDIT_INCIDENT_IDS_MAX, AuditEventListFilters
+from app.domain.audit import (
+    AUDIT_INCIDENT_IDS_MAX,
+    AUDIT_TAG_MAX_BYTES,
+    AUDIT_TAG_MAX_ENTRIES,
+    AuditEventListFilters,
+    AuditTagOmissionReason,
+)
+from app.domain.events import EventTagValidationError, validate_event_tags
 from app.persistence.models import IncidentEvent
 
 #: Current redaction algorithm version. Bump when the redactor logic changes.
-REDACTION_VERSION: int = 1
+REDACTION_VERSION: int = 2
 
 #: Placeholder substituted for sensitive keys/values during redaction.
 AUDIT_REDACTION_PLACEHOLDER: str = "[redacted]"
@@ -96,11 +115,9 @@ class InvalidAuditCursorError(ValueError):
 class AuditEventListRow:
     """Default safe list projection for an audit event (D-08/D-15).
 
-    The repository maps projected SQL rows into this dataclass and applies
-    ``redact_normalized_event_message_tags`` to the projected message and
-    tags before returning, so neither the router nor any caller ever sees
-    raw payload or the full normalized event document on the default read
-    path.
+    The repository bounds and redacts the SQL-projected message and tags
+    before returning; neither the router nor any caller sees raw payload
+    or the full normalized event document on the default read path.
     """
 
     id: UUID
@@ -113,7 +130,9 @@ class AuditEventListRow:
     host: str
     service: str | None
     incident_ids: tuple[str, ...]
-    incident_effect: str
+    incident_effect: Literal[
+        "none", "inserted", "updated", "resolved", "affected_set_shrunk"
+    ]
     decision_summary: dict[str, Any]
     raw_payload_original_byte_length: int | None
     raw_payload_stored_byte_length: int | None
@@ -122,7 +141,11 @@ class AuditEventListRow:
     redacted_path_count: int | None
     raw_payload_hmac: str | None
     normalized_event_message: str
-    normalized_event_tags: dict[str, Any] = field(default_factory=dict)
+    normalized_event_tags: dict[str, str] = field(default_factory=dict)
+    normalized_event_tags_omitted: bool = False
+    normalized_event_tags_omission_reasons: frozenset[AuditTagOmissionReason] = (
+        frozenset()
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,6 +192,10 @@ def _coerce_hmac_key(hmac_key: str | Any) -> str:
     return hmac_key
 
 
+def _hmac_canonical_bytes(canonical: bytes, key: str) -> str:
+    return hmac.new(key.encode("utf-8"), canonical, hashlib.sha256).hexdigest()
+
+
 def compute_payload_hmac(payload: Any, hmac_key: str | Any) -> str:
     """Compute the keyed HMAC-SHA256 over the canonical pre-redaction payload.
 
@@ -179,21 +206,12 @@ def compute_payload_hmac(payload: Any, hmac_key: str | Any) -> str:
     """
 
     key = _coerce_hmac_key(hmac_key)
-    canonical = canonical_json_bytes(payload)
-    return hmac.new(key.encode("utf-8"), canonical, hashlib.sha256).hexdigest()
+    return _hmac_canonical_bytes(canonical_json_bytes(payload), key)
 
 
 # ---------------------------------------------------------------------------
 # Recursive redaction
 # ---------------------------------------------------------------------------
-
-
-def _secret_value_bytes(value: Any) -> str:
-    """Return a lowercased string view of ``value`` for fragment matching."""
-
-    if isinstance(value, str):
-        return value.lower()
-    return str(value).lower()
 
 
 def _contains_sensitive_fragment(text: str) -> bool:
@@ -251,96 +269,34 @@ def _count_redacted_leaves(original: Any, redacted: Any) -> int:
     return count
 
 
-def _stored_byte_length(payload: Any) -> int:
-    return len(canonical_json_bytes(payload))
+def _semantic_cap_payload(
+    payload: dict[str, Any], max_bytes: int
+) -> tuple[dict[str, Any], bool, int]:
+    """Keep full redacted JSON if it fits; otherwise omit whole top-level fields.
 
-
-def _semantic_cap_payload(payload: Any, max_bytes: int) -> tuple[Any, bool]:
-    """Semantically cap ``payload`` so its canonical JSON fits ``max_bytes``.
-
-    Implements D-06: capping is semantic, not arbitrary byte truncation of
-    JSONB. When the redacted payload already fits, it is returned unchanged
-    with ``truncated=False``. Otherwise the largest string values are
-    progressively shortened; if a string is already no longer than the
-    placeholder, the containing field is deleted entirely. If no reducible
-    string remains, the payload collapses to a minimal envelope — first
-    ``{"truncated":"[redacted]"}``, then ``{}`` if even that envelope
-    exceeds the cap. Each loop iteration strictly reduces the serialized
-    size, guaranteeing termination and preserving valid JSON throughout.
+    Each field's encoded key/value contribution is measured once. Removing a
+    field also removes one comma except when it was the only remaining field.
+    No nested value is shortened or serialized again during removal.
     """
 
-    if _stored_byte_length(payload) <= max_bytes:
-        return payload, False
+    stored_byte_length = len(canonical_json_bytes(payload))
+    if stored_byte_length <= max_bytes:
+        return payload, False, stored_byte_length
 
-    capped = _deep_copy_json(payload)
-    previous_length = _stored_byte_length(capped)
-
-    while _stored_byte_length(capped) > max_bytes:
-        target_path = _largest_string_path(capped)
-        if target_path is None:
+    fields = sorted(
+        (
+            (len(canonical_json_bytes({key: value})) - 2, key)
+            for key, value in payload.items()
+        ),
+        key=lambda field: (-field[0], field[1]),
+    )
+    for field_bytes, key in fields:
+        if stored_byte_length <= max_bytes:
             break
-        container, key, current = target_path
-        if isinstance(current, str) and len(current) > len(AUDIT_REDACTION_PLACEHOLDER):
-            container[key] = current[: max(0, len(current) // 2)]
-        else:
-            # Shrink-to-placeholder would not reduce size; drop the field
-            # outright so each iteration strictly shrinks the payload.
-            del container[key]
-        new_length = _stored_byte_length(capped)
-        if new_length >= previous_length:
-            # No further reduction possible; collapse to minimal envelope.
-            break
-        previous_length = new_length
+        stored_byte_length -= field_bytes + (len(payload) > 1)
+        del payload[key]
 
-    # Fallback envelopes: prefer a redacted truncation marker, then the
-    # empty object if even the marker does not fit (e.g. very low test
-    # cap or tiny original payload). ``{}`` is 2 bytes and fits any cap
-    # that is at least 2 bytes (the Settings floor is 1_024).
-    if _stored_byte_length(capped) > max_bytes:
-        capped = {"truncated": AUDIT_REDACTION_PLACEHOLDER}
-    if _stored_byte_length(capped) > max_bytes:
-        capped = {}
-
-    return capped, True
-
-
-def _deep_copy_json(value: Any) -> Any:
-    """Return a deep copy of a JSON-compatible value."""
-
-    return json.loads(json.dumps(value, ensure_ascii=False))
-
-
-def _largest_string_path(value: Any) -> tuple[Any, Any, str] | None:
-    """Find the path to the largest string leaf in ``value``.
-
-    Returns ``(container, key, current_value)`` where ``container[key]`` is
-    the largest string leaf, or ``None`` when no string leaves remain.
-    """
-
-    best: tuple[Any, Any, str] | None = None
-    best_len = -1
-
-    def walk(node: Any) -> None:
-        nonlocal best, best_len
-        if isinstance(node, dict):
-            for key, sub in node.items():
-                if isinstance(sub, str):
-                    if len(sub) > best_len:
-                        best = (node, key, sub)
-                        best_len = len(sub)
-                else:
-                    walk(sub)
-        elif isinstance(node, list):
-            for idx, sub in enumerate(node):
-                if isinstance(sub, str):
-                    if len(sub) > best_len:
-                        best = (node, idx, sub)
-                        best_len = len(sub)
-                else:
-                    walk(sub)
-
-    walk(value)
-    return best
+    return payload, True, len(canonical_json_bytes(payload))
 
 
 def redact_payload(
@@ -363,14 +319,19 @@ def redact_payload(
     raw_payload_original_byte_length`` must always hold.
     """
 
+    if max_bytes < 2:
+        raise ValueError("max_bytes must be at least 2")
+
     source = payload if payload is not None else {}
-    original_byte_length = _stored_byte_length(source)
-    payload_hmac = compute_payload_hmac(source, hmac_key)
+    original_bytes = canonical_json_bytes(source)
+    original_byte_length = len(original_bytes)
+    payload_hmac = _hmac_canonical_bytes(original_bytes, _coerce_hmac_key(hmac_key))
     redacted = _redact_value(source)
     redacted_path_count = _count_redacted_leaves(source, redacted)
     effective_cap = min(max_bytes, original_byte_length)
-    capped, truncated = _semantic_cap_payload(redacted, effective_cap)
-    stored_byte_length = _stored_byte_length(capped)
+    capped, truncated, stored_byte_length = _semantic_cap_payload(
+        redacted, effective_cap
+    )
 
     return RedactedPayload(
         payload=capped,
@@ -384,52 +345,67 @@ def redact_payload(
 
 
 # ---------------------------------------------------------------------------
-# Read-time redaction for normalized_event message/tags
+# Read-time message redaction and bounded tag projection
 # ---------------------------------------------------------------------------
 
 
-def _redact_normalized_event_message_tags(
-    message: str | None,
-    tags: dict[str, Any] | None,
-) -> tuple[str, dict[str, Any]]:
-    """Idempotently redact a projected normalized event message and tags.
-
-    The repository and the router can both call this safely. Top-level
-    sensitive tag keys are omitted; nested sensitive keys and string values
-    are replaced recursively, while safe nested containers are copied without
-    mutation.
-    """
-
+def _project_normalized_event_message(message: str | None) -> str:
+    """Check the whole message for sensitive content before the 512-char cap."""
     raw_message = message or ""
     safe_message = (
         AUDIT_REDACTION_PLACEHOLDER
-        if (raw_message and _contains_sensitive_fragment(raw_message))
+        if raw_message and _contains_sensitive_fragment(raw_message)
         else raw_message
     )
-    # D-08: cap the projected message to the response-surface bound so
-    # long non-sensitive messages (up to 4096 chars in NormalizedEvent)
-    # do not fail strict AuditEventResponse validation (max 512).
-    if len(safe_message) > AUDIT_MESSAGE_MAX_LENGTH:
-        safe_message = safe_message[:AUDIT_MESSAGE_MAX_LENGTH]
-    safe_tags: dict[str, Any] = {}
-    if tags:
-        safe_tags = {
-            key: _redact_value(value)
-            for key, value in tags.items()
-            if not _contains_sensitive_fragment(
-                key.lower() if isinstance(key, str) else str(key).lower()
-            )
-        }
-    return safe_message, safe_tags
+    return safe_message[:AUDIT_MESSAGE_MAX_LENGTH]
 
 
-def redact_normalized_event_message_tags(
-    message: str | None,
-    tags: dict[str, Any] | None,
-) -> tuple[str, dict[str, Any]]:
-    """Public alias for the read-time message/tag redactor (D-08)."""
+def _project_normalized_event_tags(
+    tags: Mapping[str, str],
+    *,
+    invalid_legacy_shape: bool = False,
+    size_limit: bool = False,
+) -> tuple[dict[str, str], frozenset[AuditTagOmissionReason]]:
+    """Keep valid flat tags in lexical order, within the response JSON budget.
 
-    return _redact_normalized_event_message_tags(message, tags)
+    SQL has already excluded non-string values and oversized source objects.
+    Account for redacted scalar values, JSON escapes, and commas before adding
+    a pair. A pair that does not fit does not prevent later small pairs.
+    """
+    reasons: set[AuditTagOmissionReason] = set()
+    if invalid_legacy_shape:
+        reasons.add("invalid_legacy_shape")
+    if size_limit:
+        reasons.add("size_limit")
+
+    projected: dict[str, str] = {}
+    encoded_bytes = 2  # Braces
+    for key in sorted(tags):
+        value = tags[key]
+        try:
+            validate_event_tags({key: value})
+        except EventTagValidationError:
+            reasons.add("invalid_legacy_shape")
+            continue
+        if _contains_sensitive_fragment(key):
+            reasons.add("sensitive_key")
+            continue
+        if len(projected) >= AUDIT_TAG_MAX_ENTRIES:
+            reasons.add("size_limit")
+            continue
+        safe_value = (
+            AUDIT_REDACTION_PLACEHOLDER
+            if _contains_sensitive_fragment(value)
+            else value
+        )
+        pair_bytes = len(canonical_json_bytes({key: safe_value})) - 2
+        additional_bytes = pair_bytes + bool(projected)
+        if encoded_bytes + additional_bytes > AUDIT_TAG_MAX_BYTES:
+            reasons.add("size_limit")
+            continue
+        projected[key] = safe_value
+        encoded_bytes += additional_bytes
+    return projected, frozenset(reasons)
 
 
 # ---------------------------------------------------------------------------
@@ -487,10 +463,57 @@ def decode_audit_cursor(value: str) -> AuditEventCursor:
 # ---------------------------------------------------------------------------
 
 
-# Default safe list projection (D-08/D-15). ``raw_payload`` and the full
-# ``normalized_event`` document are deliberately NOT selected; only the
-# bounded ``message`` and ``tags`` fields are projected from
-# ``normalized_event``.
+# An unbounded JSONB value must never reach the driver's JSON decoder. CASE
+# protects the jsonb_each argument itself (not merely a WHERE condition), so
+# neither non-object containers nor objects above the textual transfer cap
+# are visited. The filtered aggregate contains string-valued siblings only.
+_AUDIT_TAG_SQL_MAX_BYTES = 32_768
+_EMPTY_TAG_OBJECT = literal_column("'{}'::jsonb", type_=JSONB)
+_tag_source = IncidentEvent.normalized_event["tags"]
+_tag_is_object = func.jsonb_typeof(_tag_source) == "object"
+_tag_within_sql_limit = (
+    func.octet_length(cast(_tag_source, Text)) <= _AUDIT_TAG_SQL_MAX_BYTES
+)
+_guarded_tags = case(
+    (and_(_tag_is_object, _tag_within_sql_limit), _tag_source),
+    else_=_EMPTY_TAG_OBJECT,
+)
+_tag_entries = (
+    func.jsonb_each(_guarded_tags).table_valued("key", "value").alias("audit_tags")
+)
+_tag_is_string = func.jsonb_typeof(_tag_entries.c.value) == "string"
+_projected_sql_tags = (
+    select(
+        func.coalesce(
+            func.jsonb_object_agg(_tag_entries.c.key, _tag_entries.c.value).filter(
+                _tag_is_string
+            ),
+            _EMPTY_TAG_OBJECT,
+        )
+    )
+    .select_from(_tag_entries)
+    .scalar_subquery()
+)
+_has_nonstring_tags = (
+    select(_tag_entries.c.key).select_from(_tag_entries).where(~_tag_is_string).exists()
+)
+_tag_size_limited = case(
+    (_tag_is_object, ~_tag_within_sql_limit),
+    else_=false(),
+)
+_tag_invalid_shape = case(
+    (
+        _tag_is_object,
+        case(
+            (_tag_within_sql_limit, _has_nonstring_tags),
+            else_=false(),
+        ),
+    ),
+    else_=true(),
+)
+
+# Default safe list projection (D-08/D-15). Raw payload and the full
+# normalized document are not selected; only a message and guarded tags.
 _AUDIT_LIST_COLUMNS = (
     IncidentEvent.id,
     IncidentEvent.accepted_at,
@@ -511,7 +534,9 @@ _AUDIT_LIST_COLUMNS = (
     IncidentEvent.redacted_path_count,
     IncidentEvent.raw_payload_hmac,
     IncidentEvent.normalized_event["message"].astext.label("normalized_event_message"),
-    IncidentEvent.normalized_event["tags"].label("normalized_event_tags"),
+    _projected_sql_tags.label("normalized_event_tags"),
+    _tag_size_limited.label("normalized_event_tags_size_limited"),
+    _tag_invalid_shape.label("normalized_event_tags_invalid_shape"),
 )
 
 
@@ -628,10 +653,9 @@ def _apply_audit_filters(stmt: Any, filters: AuditEventListFilters) -> Any:
 def _row_to_audit_event_list_row(row: Sequence[Any]) -> AuditEventListRow:
     """Map a projected SQL row into a safe ``AuditEventListRow``.
 
-    Normalizes JSONB arrays/objects returned by asyncpg into tuples/dicts
-    before redaction so strict Pydantic validation in the API layer never
-    fails on a list-where-tuple mismatch. Applies read-time redaction to
-    the projected message and tags (D-08).
+    Normalizes JSONB arrays in decision summaries into tuples for strict
+    response validation, then redacts the projected message and string-only
+    tags. SQL has already excluded non-string values and oversized objects.
     """
 
     (
@@ -655,6 +679,8 @@ def _row_to_audit_event_list_row(row: Sequence[Any]) -> AuditEventListRow:
         raw_payload_hmac,
         normalized_event_message,
         normalized_event_tags,
+        normalized_event_tags_size_limited,
+        normalized_event_tags_invalid_shape,
     ) = row
 
     # SQL filtering operates on complete persisted JSONB values; cap only
@@ -675,10 +701,11 @@ def _row_to_audit_event_list_row(row: Sequence[Any]) -> AuditEventListRow:
         decision_summary_dict["incident_ids"] = tuple(
             decision_summary_dict["incident_ids"]
         )
-    tags_dict = dict(normalized_event_tags) if normalized_event_tags is not None else {}
-
-    safe_message, safe_tags = _redact_normalized_event_message_tags(
-        normalized_event_message, tags_dict
+    safe_message = _project_normalized_event_message(normalized_event_message)
+    safe_tags, omission_reasons = _project_normalized_event_tags(
+        normalized_event_tags,
+        size_limit=bool(normalized_event_tags_size_limited),
+        invalid_legacy_shape=bool(normalized_event_tags_invalid_shape),
     )
 
     return AuditEventListRow(
@@ -702,6 +729,8 @@ def _row_to_audit_event_list_row(row: Sequence[Any]) -> AuditEventListRow:
         raw_payload_hmac=raw_payload_hmac,
         normalized_event_message=safe_message,
         normalized_event_tags=safe_tags,
+        normalized_event_tags_omitted=bool(omission_reasons),
+        normalized_event_tags_omission_reasons=omission_reasons,
     )
 
 
@@ -718,11 +747,10 @@ async def list_incident_events(
     diagnostic-only and reports a filtered ``total``.
     """
 
-    base_stmt = _apply_audit_filters(select(*_AUDIT_LIST_COLUMNS), filters)
-    total = (
-        await session.scalar(select(func.count()).select_from(base_stmt.subquery()))
-        or 0
+    count_stmt = _apply_audit_filters(
+        select(func.count()).select_from(IncidentEvent), filters
     )
+    total = await session.scalar(count_stmt) or 0
 
     page_stmt = _apply_audit_filters(select(*_AUDIT_LIST_COLUMNS), filters)
     if filters.cursor is not None:
