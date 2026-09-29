@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
 import yaml
 
 from app.config.rules import load_rules_config
@@ -227,7 +229,13 @@ async def test_match_by_service_pattern(tmp_path: Path) -> None:
     assert isinstance(await engine.evaluate(_event(service=None)), NoOpDecision)
 
 
-async def test_match_by_tag_equality(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("configured_tag", "matching_tag", "different_tag"),
+    [("platform", "platform", "sre"), (".+", ".+", "prm1")],
+)
+async def test_match_by_tag_equality(
+    tmp_path: Path, configured_tag: str, matching_tag: str, different_tag: str
+) -> None:
     engine = _build_engine(
         tmp_path,
         {
@@ -238,7 +246,7 @@ async def test_match_by_tag_equality(tmp_path: Path) -> None:
                     "match": {
                         "severities": ["CRITICAL"],
                         "host_pattern": ".*",
-                        "tags": {"team.name": "platform"},
+                        "tags": {"team.name": configured_tag},
                     },
                     "window": {
                         "duration_seconds": 60,
@@ -254,11 +262,54 @@ async def test_match_by_tag_equality(tmp_path: Path) -> None:
         },
     )
     assert isinstance(
-        await engine.evaluate(_event(tags={"team.name": "platform"})), RuleMatch
+        await engine.evaluate(_event(tags={"team.name": matching_tag})), RuleMatch
     )
     assert isinstance(
-        await engine.evaluate(_event(tags={"team.name": "sre"})), NoOpDecision
+        await engine.evaluate(_event(tags={"team.name": different_tag})), NoOpDecision
     )
+
+
+@pytest.mark.parametrize(
+    ("datacenter", "expected_rule", "expected_group"),
+    [
+        ("prm1", "DC-Level Outage Aggregator", "topology.datacenter=prm1"),
+        ("prm2", "Host Alert Aggregator", "host=prm1-prd-web01"),
+        (None, "Host Alert Aggregator", "host=prm1-prd-web01"),
+    ],
+)
+async def test_published_rules_select_datacenter_or_host_fallback(
+    tmp_path: Path,
+    datacenter: str | None,
+    expected_rule: str,
+    expected_group: str,
+) -> None:
+    guide = (Path(__file__).resolve().parents[1] / "CONFIGURATION.md").read_text(
+        encoding="utf-8"
+    )
+    section = re.search(
+        r"^## Rules configuration[ \t]*\n(.*?)(?=^## |\Z)",
+        guide,
+        re.MULTILINE | re.DOTALL,
+    )
+    assert section is not None, "Rules configuration section missing"
+    block = re.search(
+        r"^```yaml[ \t]*\n(.*?)^```[ \t]*$",
+        section.group(1),
+        re.MULTILINE | re.DOTALL,
+    )
+    assert block is not None, "Rules configuration YAML fence missing"
+    path = tmp_path / "guide-rules.yaml"
+    path.write_text(block.group(1))
+    engine = RuleEngine(load_rules_config(path).rules)
+
+    tags = {"team.name": "platform"}
+    if datacenter is not None:
+        tags["topology.datacenter"] = datacenter
+    decision = await engine.evaluate(_event(host="prm1-prd-web01", tags=tags))
+
+    assert isinstance(decision, RuleMatch)
+    assert decision.rule_name == expected_rule
+    assert decision.group_key == expected_group
 
 
 async def test_match_with_empty_tags_criteria_matches_any_tags(tmp_path: Path) -> None:
