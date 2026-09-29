@@ -1,14 +1,21 @@
 from datetime import UTC, datetime
+import json
 
 import pytest
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from app.domain.events import (
+    EVENT_TAG_MAX_BYTES,
+    EVENT_TAG_MAX_ENTRIES,
+    EVENT_TAG_MAX_KEY_BYTES,
+    EventTagValidationError,
     EventType,
     NormalizedEvent,
     Severity,
     SEVERITY_RANK,
+    TagKey,
     max_severity,
+    validate_event_tags,
 )
 
 
@@ -117,3 +124,98 @@ def test_tags_must_be_normalized_non_empty_string_map(tags: object) -> None:
 
     with pytest.raises(ValidationError):
         NormalizedEvent.model_validate(data)
+
+
+def _exact_byte_limit_tags() -> dict[str, str]:
+    # Key JSON bytes: 6, colon: 1, value: 120 (119 on the last
+    # entry), commas: 127, braces: 2 -> exactly 16,384 bytes.
+    tags = {f"k{i:03}": "x" * 118 for i in range(EVENT_TAG_MAX_ENTRIES)}
+    tags["k127"] = "x" * 117
+    return tags
+
+
+@pytest.mark.parametrize(
+    "tags",
+    [
+        {},
+        {"a" * EVENT_TAG_MAX_KEY_BYTES: "x"},
+        {f"k{i:03}": "x" for i in range(EVENT_TAG_MAX_ENTRIES)},
+        _exact_byte_limit_tags(),
+        {"unicode": "🛰" * 256},
+        {"combining": "e\u0301" * 128},
+        {"escaping": 'quote" slash\\ tab\t control\x01'},
+    ],
+)
+def test_accepted_event_tags_remain_exact_and_nonmutating(tags: dict[str, str]) -> None:
+    original = dict(tags)
+    canonical_size = len(
+        json.dumps(
+            tags, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
+    )
+    assert canonical_size <= EVENT_TAG_MAX_BYTES
+    validate_event_tags(tags)
+    data = valid_event_data()
+    data["tags"] = tags
+    assert NormalizedEvent.model_validate(data).tags == original
+    assert tags == original
+
+
+def test_tag_aggregate_exact_limit_and_one_byte_over() -> None:
+    tags = _exact_byte_limit_tags()
+    assert (
+        len(
+            json.dumps(
+                tags, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            ).encode("utf-8")
+        )
+        == EVENT_TAG_MAX_BYTES
+    )
+
+    over = dict(tags)
+    over["k127"] += "x"
+    assert (
+        len(
+            json.dumps(
+                over, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            ).encode("utf-8")
+        )
+        == EVENT_TAG_MAX_BYTES + 1
+    )
+    with pytest.raises(EventTagValidationError, match="invalid event tags"):
+        validate_event_tags(over)
+    data = valid_event_data()
+    data["tags"] = over
+    with pytest.raises(ValidationError):
+        NormalizedEvent.model_validate(data)
+    assert over["k127"] == "x" * 118
+
+
+@pytest.mark.parametrize(
+    "tags",
+    [
+        {"a" * (EVENT_TAG_MAX_KEY_BYTES + 1): "secret"},
+        {"é": "secret"},
+        {"TEAM": "secret"},
+        {"a": ""},
+        {"a": "x" * 257},
+        {"a": "secret\x00tail"},
+        {"a": "\ud800"},
+        {f"k{i:03}": "x" for i in range(EVENT_TAG_MAX_ENTRIES + 1)},
+        dict(_exact_byte_limit_tags(), k127="🛰" * 117),
+    ],
+)
+def test_event_tag_boundaries_reject_unpersistable_and_overlimit_maps(
+    tags: dict[str, str],
+) -> None:
+    data = valid_event_data()
+    data["tags"] = tags
+    with pytest.raises(EventTagValidationError) as error:
+        validate_event_tags(tags)
+    assert str(error.value) == "invalid event tags"
+    with pytest.raises(ValidationError):
+        NormalizedEvent.model_validate(data)
+
+
+def test_event_limits_do_not_change_unrelated_tag_alias() -> None:
+    assert TypeAdapter(TagKey).validate_python("a" * 65) == "a" * 65

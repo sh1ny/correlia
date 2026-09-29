@@ -3,15 +3,14 @@
 Exposes ``GET /v1/incident-events`` with operator auth (D-09/D-16),
 cursor-first pagination (D-10), all D-11 filters, and a bounded
 response projection that omits ``raw_payload`` and full
-``normalized_event`` (D-08/D-15).  Read-time redaction of
-``normalized_event_message`` and ``normalized_event_tags`` is applied
-idempotently here even though the repository also redacts.
+``normalized_event`` (D-08/D-15). The repository supplies the finished
+read-time projection and its omission metadata.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Security, status
@@ -28,9 +27,9 @@ from app.domain.audit import (
 )
 from app.domain.events import EventType, Severity
 from app.persistence.audit import (
+    AuditEventListRow,
     InvalidAuditCursorError,
     list_incident_events,
-    redact_normalized_event_message_tags,
 )
 
 router = APIRouter(
@@ -90,16 +89,8 @@ async def audit_event_list_filters(
         ) from exc
 
 
-def _audit_event_response(row: Any) -> AuditEventResponse:
-    """Map an ``AuditEventListRow`` to a bounded ``AuditEventResponse``.
-
-    Applies idempotent read-time redaction to the projected message and
-    tags (D-08).  Never handles ``raw_payload`` or full ``normalized_event``.
-    """
-    safe_message, safe_tags = redact_normalized_event_message_tags(
-        row.normalized_event_message,
-        row.normalized_event_tags,
-    )
+def _audit_event_response(row: AuditEventListRow) -> AuditEventResponse:
+    """Map the repository's completed safe projection to the response DTO."""
     return AuditEventResponse(
         id=row.id,
         accepted_at=row.accepted_at,
@@ -113,8 +104,12 @@ def _audit_event_response(row: Any) -> AuditEventResponse:
         incident_ids=row.incident_ids,
         incident_effect=row.incident_effect,
         decision_summary=AuditDecisionSummary(**row.decision_summary),
-        normalized_event_message=safe_message,
-        normalized_event_tags=safe_tags,
+        normalized_event_message=row.normalized_event_message,
+        normalized_event_tags=row.normalized_event_tags,
+        normalized_event_tags_omitted=row.normalized_event_tags_omitted,
+        normalized_event_tags_omission_reasons=(
+            row.normalized_event_tags_omission_reasons
+        ),
         raw_payload_original_byte_length=row.raw_payload_original_byte_length,
         raw_payload_stored_byte_length=row.raw_payload_stored_byte_length,
         raw_payload_truncated=row.raw_payload_truncated,

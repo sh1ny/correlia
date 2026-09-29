@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from fnmatch import fnmatchcase
+from http.server import BaseHTTPRequestHandler, HTTPServer
 import base64
 from datetime import datetime, timezone
 import hashlib
@@ -12,6 +13,8 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
+from threading import Thread
 import time
 from uuid import UUID, uuid4
 
@@ -22,6 +25,13 @@ from app.config.plugins import load_plugin_registry_config
 from app.config.rules import load_rules_config
 from app.config.settings import Settings
 from app.config.topology import load_topology_config
+from app.persistence.audit import canonical_json_bytes
+from app.plugins.inputs.icinga2 import Icinga2WebhookPayload
+from scripts.qualify_audit_bounds import (
+    BODY_CEILING,
+    exact_tag_bytes,
+    make_corpus,
+)
 from app.plugins.loader import load_plugin_registry
 from scripts import cleanup_verification
 
@@ -37,6 +47,15 @@ CONFIG_DIRECTORY = PROJECT_ROOT / "config"
 _DOCKER_UNAVAILABLE_CAPABILITIES = (
     "image user/filesystem/process/signal, network/SMTP, and runtime-secret placement"
 )
+
+# Qualification-only quotas: the 60s windows include Compose healthchecks,
+# the existing smoke, idle health probes, and the finite loaded workload.
+_QUALIFICATION_HEALTH_QUOTA = 1_000
+_QUALIFICATION_INGRESS_QUOTA = 500
+_QUALIFICATION_WINDOW_SECONDS = 60
+_QUALIFICATION_DURATION_SECONDS = 11
+_QUALIFICATION_OFFERED_RATE_PER_SECOND = 10
+_QUALIFICATION_MAX_IN_FLIGHT = 2
 
 
 def _assert_secret_absent(value: str, surface: str, secret: str) -> None:
@@ -166,6 +185,308 @@ print(json.dumps((status, base64.b64encode(body).decode())))
         pytest.fail("container-local HTTP probe returned an invalid response")
 
 
+def _qualify_live_http(
+    container: str,
+    app_url: str,
+    ingress_token: str,
+    operator_token: str,
+) -> dict[str, object]:
+    """One container-local client schedules independent health and ingress I/O.
+
+    The measuring health thread is not part of Uvicorn's event loop; the
+    container is used only for network access because the app has no host port.
+    No token or source payload goes on the docker command line or in reports.
+    """
+    corpus = {case.name: case for case in make_corpus()}
+    families = ("exact_tag_bytes_16384", "four_byte_unicode", "message_4096")
+    requests: list[dict[str, object]] = []
+    for index in range(
+        _QUALIFICATION_DURATION_SECONDS * _QUALIFICATION_OFFERED_RATE_PER_SECOND
+    ):
+        family = "near_1mib_body" if index == 0 else families[index % len(families)]
+        payload = dict(corpus[family].payload)
+        payload.update(
+            source_id=f"u4-qual-{index:04}",
+            host="q",  # no hostname enrichment; keeps exact-tag maps permitted
+            service="probe",
+            state="WARNING",  # audit transaction, no unrelated SMTP fan-out
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
+        assert len(canonical_json_bytes(payload)) <= BODY_CEILING
+        Icinga2WebhookPayload.model_validate(payload)
+        requests.append(payload)
+    boundary = dict(corpus["exact_tag_bytes_16384"].payload)
+    boundary.update(
+        source_id="u4-qual-boundary",
+        host="u4-app-boundary",
+        state="DOWN",
+        service=None,
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        check_output="x" * 4096,
+        tags=exact_tag_bytes(topology_collision=True),
+    )
+    assert len(canonical_json_bytes(boundary["tags"])) == 16_384
+    Icinga2WebhookPayload.model_validate(boundary)
+    rejected = dict(boundary)
+    rejected.update(
+        source_id="u4-qual-over-limit",
+        tags={**boundary["tags"], "credential_payload": "secret-sentinel-value"},
+    )
+    script = """
+import json
+import statistics
+import sys
+import threading
+import time
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+
+settings = json.load(sys.stdin)
+base = settings["url"]
+headers = {"Authorization": "Bearer " + settings["ingress_token"],
+           "Content-Type": "application/json", "Connection": "close"}
+operator_headers = {"Authorization": "Bearer " + settings["operator_token"],
+                    "Connection": "close"}
+cadence = 0.05
+health_workers = 8
+
+def request(url, *, data=None, headers=None):
+    req = Request(url, data=data, headers=headers or {"Connection": "close"},
+                  method="POST" if data is not None else "GET")
+    started = time.monotonic()
+    try:
+        with urlopen(req, timeout=3) as response:
+            status, body = response.status, response.read()
+    except HTTPError as error:
+        status, body = error.code, error.read()
+    except (OSError, URLError):
+        status, body = 0, b""
+    return started, time.monotonic(), status, body
+
+def health_probe(due):
+    began, ended, status, _ = request(base + "/v1/health")
+    return due, began, ended, status
+
+def health_samples(duration):
+    start = time.monotonic()
+    index = 0
+    with ThreadPoolExecutor(max_workers=health_workers) as pool:
+        futures = []
+        while start + index * cadence < start + duration:
+            due = start + index * cadence
+            remaining = due - time.monotonic()
+            if remaining > 0:
+                time.sleep(remaining)
+            futures.append(pool.submit(health_probe, due))
+            index += 1
+        return [future.result() for future in futures]
+
+def percentile95(values):
+    ordered = sorted(values)
+    at = 0.95 * (len(ordered) - 1)
+    left = int(at)
+    return ordered[left] + (ordered[min(left + 1, len(ordered) - 1)] -
+                            ordered[left]) * (at - left)
+
+def describe(samples):
+    milliseconds = [(ended - due) * 1000 for due, _, ended, _ in samples]
+    dispatch_delays = [(began - due) * 1000 for due, began, _, _ in samples]
+    request_times = [(ended - began) * 1000 for _, began, ended, _ in samples]
+    statuses = {}
+    for _, _, _, code in samples:
+        statuses[str(code)] = statuses.get(str(code), 0) + 1
+    return {"probes": len(samples), "status_counts": statuses,
+            "median_ms": statistics.median(milliseconds),
+            "p95_ms": percentile95(milliseconds),
+            "max_ms": max(milliseconds),
+            "dispatch_delay_p95_ms": percentile95(dispatch_delays),
+            "actual_request_p95_ms": percentile95(request_times)}
+
+def post_prepared(body):
+    began, ended, status, response = request(
+        base + "/v1/icinga2/events", data=body, headers=headers)
+    try:
+        accepted = (status == 200 and json.loads(response).get("state_accepted") is True)
+    except (ValueError, AttributeError):
+        accepted = False
+    return began, ended, status, accepted
+
+# All request bodies, including the near-1MiB one, are serialized before
+# the idle baseline and loaded measurement windows.
+prepared = [json.dumps(p, ensure_ascii=False, separators=(",", ":")).encode()
+            for p in settings["requests"]]
+idle = health_samples(2)
+loaded_samples = []
+def monitor():
+    loaded_samples.extend(health_samples(settings["duration_seconds"]))
+monitor_thread = threading.Thread(target=monitor, name="independent-health-client")
+monitor_thread.start()
+sent = []
+with ThreadPoolExecutor(max_workers=settings["max_in_flight"]) as pool:
+    futures = set()
+    start = time.monotonic()
+    offered = 0
+    last_offer = float("-inf")
+    for raw in prepared:
+        spacing = 1 / settings["offered_rate_per_second"]
+        due = max(start + offered * spacing, last_offer + spacing)
+        if due >= start + settings["duration_seconds"]:
+            break
+        if len(futures) >= settings["max_in_flight"]:
+            done, futures = wait(futures, return_when=FIRST_COMPLETED)
+            sent.extend(f.result() for f in done)
+        remaining = due - time.monotonic()
+        if remaining > 0:
+            time.sleep(remaining)
+        if time.monotonic() >= start + settings["duration_seconds"]:
+            break
+        futures.add(pool.submit(post_prepared, raw))
+        last_offer = time.monotonic()
+        offered += 1
+    sent.extend(f.result() for f in futures)
+monitor_thread.join()
+first_ingress = min(row[0] for row in sent)
+last_ingress = max(row[1] for row in sent)
+overlap = [sample for sample in loaded_samples
+           if first_ingress <= sample[1] <= last_ingress]
+status_counts = {}
+for _, _, code, _ in sent:
+    status_counts[str(code)] = status_counts.get(str(code), 0) + 1
+
+_, _, boundary_status, boundary_body = request(
+    base + "/v1/icinga2/events",
+    data=json.dumps(settings["boundary"], ensure_ascii=False, separators=(",", ":")).encode(),
+    headers=headers)
+try:
+    boundary = json.loads(boundary_body)
+except ValueError:
+    boundary = {}
+boundary_ok = (
+    boundary_status == 200
+    and boundary.get("state_accepted") is True
+    and boundary.get("threshold_crossed") is True
+    and boundary.get("matched_rules") == ["docker-smoke-threshold"]
+    and boundary.get("final_tags") == settings["boundary"]["tags"]
+    and any(item.get("match_source") == "hostname"
+            for item in boundary.get("enrichment_diagnostics", []))
+)
+rejection_started, rejection_ended, rejection_status, rejected_body = request(
+    base + "/v1/icinga2/events",
+    data=json.dumps(settings["rejected"], ensure_ascii=False, separators=(",", ":")).encode(),
+    headers=headers)
+try:
+    rejection = json.loads(rejected_body)
+except ValueError:
+    rejection = {}
+rejection_safe = (
+    rejection_status == 422
+    and rejection.get("detail") == [
+        {"loc": ["body", "tags"], "msg": "invalid event tags",
+         "type": "value_error.event_tags"}]
+    and "secret-sentinel-value" not in json.dumps(rejection)
+    and "credential_payload" not in json.dumps(rejection)
+)
+_, _, audit_status, audit_body = request(
+    base + "/v1/incident-events?source_id=u4-qual-boundary",
+    headers=operator_headers)
+try:
+    audit = json.loads(audit_body)
+except ValueError:
+    audit = {}
+items = audit.get("items", [])
+audit_ok = (
+    audit_status == 200 and audit.get("total") == 1 and len(items) == 1
+    and items[0].get("redaction_version") == 2
+    and items[0].get("normalized_event_tags_omitted") is True
+    and "size_limit" in items[0].get("normalized_event_tags_omission_reasons", [])
+    and len(items[0].get("normalized_event_message", "")) == 512
+    and items[0].get("raw_payload_truncated") is False
+    and isinstance(items[0].get("raw_payload_hmac"), str)
+    and len(items[0]["raw_payload_hmac"]) == 64
+    and items[0].get("raw_payload_original_byte_length", 0) >=
+        items[0].get("raw_payload_stored_byte_length", 0) > 0
+    and "raw_payload" not in items[0]
+    and "normalized_event" not in items[0]
+)
+report = {
+    "schema_version": 1, "qualification": "real_compose_one_worker_http",
+    "effective_quotas": settings["quotas"],
+    "duration_seconds": settings["duration_seconds"],
+    "observed_ingress_workload_seconds": last_ingress - first_ingress,
+    "health_probe_interval_ms": 50, "offered_rate_cap_per_second":
+    settings["offered_rate_per_second"],
+    "max_in_flight_ingress": settings["max_in_flight"],
+    "idle_health": describe(idle), "loaded_health": describe(loaded_samples),
+    "health_overlapping_workload": len(overlap),
+    "ingress_offered": offered, "ingress_response_statuses": status_counts,
+    "successful_ingress_responses": sum(row[2] == 200 and row[3] for row in sent),
+    "topology_boundary_status": boundary_status, "topology_boundary_contract": boundary_ok,
+    "over_limit_status": rejection_status, "over_limit_safe_422": rejection_safe,
+    "over_limit_latency_ms": (rejection_ended - rejection_started) * 1000,
+    "operator_audit_status": audit_status, "operator_audit_projection_contract": audit_ok,
+}
+print(json.dumps(report, sort_keys=True))
+"""
+    input_data = {
+        "url": app_url,
+        "ingress_token": ingress_token,
+        "operator_token": operator_token,
+        "requests": requests,
+        "boundary": boundary,
+        "rejected": rejected,
+        "duration_seconds": _QUALIFICATION_DURATION_SECONDS,
+        "offered_rate_per_second": _QUALIFICATION_OFFERED_RATE_PER_SECOND,
+        "max_in_flight": _QUALIFICATION_MAX_IN_FLIGHT,
+        "quotas": {
+            "rate_limiting_enabled": True,
+            "health": {
+                "requests": _QUALIFICATION_HEALTH_QUOTA,
+                "window_seconds": _QUALIFICATION_WINDOW_SECONDS,
+            },
+            "ingress": {
+                "requests": _QUALIFICATION_INGRESS_QUOTA,
+                "window_seconds": _QUALIFICATION_WINDOW_SECONDS,
+            },
+        },
+    }
+    result = _docker(
+        ["exec", "--interactive", container, "python", "-c", script],
+        input_data=json.dumps(input_data, ensure_ascii=False),
+        timeout=180,
+    )
+    if result.returncode != 0:
+        pytest.fail("container-local qualification failed without exposing diagnostics")
+    try:
+        report = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        pytest.fail("container-local qualification did not return JSON")
+    assert isinstance(report, dict)
+    report["workload_families"] = [
+        "near_1mib_body",
+        "exact_tag_bytes_16384",
+        "four_byte_unicode",
+        "message_4096",
+        "exact_tag_bytes_16384_with_topology_collision",
+        "over_limit_129_tags",
+    ]
+    report["largest_offered_canonical_body_bytes"] = max(
+        len(canonical_json_bytes(payload)) for payload in requests
+    )
+    report["ingress_body_ceiling_bytes"] = BODY_CEILING
+    report["raw_cap_bytes"] = 65_536
+    return report
+
+
+def _publish_qualification_report(title: str, report: dict[str, object]) -> None:
+    document = json.dumps(report, sort_keys=True, ensure_ascii=False)
+    print(f"{title}: {document}", flush=True)
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary_path:
+        with open(summary_path, "a", encoding="utf-8") as summary:
+            summary.write(f"\n### {title}\n\n```json\n{document}\n```\n")
+
+
 def _mailpit_messages(container: str, url: str) -> list[dict[str, object]] | None:
     status, body = _container_http_response(container, url)
     if status != 200:
@@ -240,6 +561,79 @@ def _compose_cleanup(stack: dict[str, object]) -> None:
         failed = True
     if failed:
         pytest.fail("Docker cleanup failed without exposing its diagnostics")
+
+
+def test_health_sampling_counts_deadline_delay_during_repeated_response_stalls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    health_requests = 0
+    stalls = 0
+
+    class StalledHealthServer(HTTPServer):
+        request_queue_size = 128
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            nonlocal health_requests, stalls
+            if self.path == "/v1/health":
+                health_requests += 1
+                if health_requests % 32 == 0:
+                    stalls += 1
+                    time.sleep(0.8)
+            self.respond({"items": []})
+
+        def do_POST(self) -> None:
+            self.rfile.read(int(self.headers["Content-Length"]))
+            self.respond({"state_accepted": True})
+
+        def respond(self, data: dict[str, object]) -> None:
+            body = json.dumps(data).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format: str, *args: object) -> None:
+            pass
+
+    def run_client_locally(
+        arguments: list[str], *, input_data: str | None = None, timeout: float = 120
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, "-c", arguments[-1]],
+            input=input_data,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=min(timeout, 30),
+        )
+
+    monkeypatch.setitem(_qualify_live_http.__globals__, "_docker", run_client_locally)
+    monkeypatch.setitem(
+        _qualify_live_http.__globals__, "_QUALIFICATION_DURATION_SECONDS", 4
+    )
+    server = StalledHealthServer(("127.0.0.1", 0), Handler)
+    server_thread = Thread(target=server.serve_forever)
+    server_thread.start()
+    try:
+        report = _qualify_live_http(
+            "local-client",
+            f"http://127.0.0.1:{server.server_port}",
+            "ingress-token",
+            "operator-token",
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        server_thread.join(timeout=5)
+
+    assert not server_thread.is_alive()
+    loaded = report["loaded_health"]
+    assert isinstance(loaded, dict)
+    assert loaded["probes"] >= 75
+    assert loaded["status_counts"] == {"200": loaded["probes"]}
+    assert stalls >= 3
+    assert loaded["p95_ms"] > 250, loaded
 
 
 def test_container_http_probe_sends_authentication_only_over_stdin(
@@ -516,6 +910,11 @@ def docker_compose_stack(tmp_path: Path) -> Iterator[dict[str, object]]:
                 "    environment:",
                 "      CORRELIA_MIGRATION_REPORT_PATH: /app/reports/migration-report.json",
                 "      CORRELIA_RULES_PATH: /app/smoke/rules.yaml",
+                "      CORRELIA_RATE_LIMIT_ENABLED: 'true'",
+                f"      CORRELIA_RATE_LIMIT_REQUESTS_HEALTH: {_QUALIFICATION_HEALTH_QUOTA}",
+                f"      CORRELIA_RATE_LIMIT_WINDOW_SECONDS_HEALTH: {_QUALIFICATION_WINDOW_SECONDS}",
+                f"      CORRELIA_RATE_LIMIT_REQUESTS_INGRESS: {_QUALIFICATION_INGRESS_QUOTA}",
+                f"      CORRELIA_RATE_LIMIT_WINDOW_SECONDS_INGRESS: {_QUALIFICATION_WINDOW_SECONDS}",
                 "    volumes:",
                 f"      - {report_path}:/app/reports/migration-report.json:ro",
                 f"      - {smoke_rules_path}:/app/smoke/rules.yaml:ro",
@@ -1181,6 +1580,14 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
             pytest.fail(
                 "runtime secret was not injected exclusively into service environment"
             )
+    for setting, value in (
+        ("RATE_LIMIT_ENABLED", "true"),
+        ("RATE_LIMIT_REQUESTS_HEALTH", str(_QUALIFICATION_HEALTH_QUOTA)),
+        ("RATE_LIMIT_WINDOW_SECONDS_HEALTH", str(_QUALIFICATION_WINDOW_SECONDS)),
+        ("RATE_LIMIT_REQUESTS_INGRESS", str(_QUALIFICATION_INGRESS_QUOTA)),
+        ("RATE_LIMIT_WINDOW_SECONDS_INGRESS", str(_QUALIFICATION_WINDOW_SECONDS)),
+    ):
+        assert f"CORRELIA_{setting}={value}" in config["Env"]
     command_surface = json.dumps(
         {
             "command": config.get("Cmd"),
@@ -1438,6 +1845,115 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
         "icinga2:service:dc1-app-web:http",
     ):
         _assert_secret_absent(runtime_metrics, "runtime metrics", forbidden)
+
+    # One standalone function qualification in the full gate; it appends its
+    # JSON to GITHUB_STEP_SUMMARY even if a budget fails.
+    function_run = subprocess.run(
+        [sys.executable, str(PROJECT_ROOT / "scripts" / "qualify_audit_bounds.py")],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=180,
+    )
+    if not function_run.stdout:
+        pytest.fail("function qualification did not produce a JSON report")
+    try:
+        function_report = json.loads(function_run.stdout)
+    except json.JSONDecodeError:
+        pytest.fail("function qualification returned invalid JSON")
+    print("Audit function qualification: " + function_run.stdout, flush=True)
+    assert function_report["environment"]["python"] == "3.14.7"
+
+    live_report = _qualify_live_http(
+        app_container, app_url, ingress_token, operator_token
+    )
+    sql_report = _require_docker_success(
+        [
+            "exec",
+            postgres_container,
+            "sh",
+            "-c",
+            (
+                'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 '
+                '-U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc '
+                '"SELECT json_build_object('
+                "'accepted_rows', count(*), "
+                "'version2_rows', count(*) FILTER "
+                "(WHERE redaction_version = 2), "
+                "'bounded_raw_rows', count(*) FILTER "
+                "(WHERE raw_payload_stored_byte_length <= 65536 "
+                "AND raw_payload_stored_byte_length <= raw_payload_original_byte_length "
+                "AND raw_payload_hmac IS NOT NULL), "
+                "'boundary_rows', count(*) FILTER "
+                "(WHERE source_id = 'u4-qual-boundary' "
+                "AND normalized_event -> 'tags' ->> 'topology.datacenter' = 'u4' "
+                "AND (SELECT count(*) FROM jsonb_object_keys("
+                "normalized_event -> 'tags')) = 128 "
+                "AND length(normalized_event ->> 'message') = 4096), "
+                "'rejected_rows', count(*) FILTER "
+                "(WHERE source_id = 'u4-qual-over-limit'), "
+                "'boundary_tags', (SELECT normalized_event -> 'tags' "
+                "FROM incident_events WHERE source_id = 'u4-qual-boundary' "
+                "LIMIT 1)) "
+                "FROM incident_events WHERE source_id LIKE 'u4-qual-%'\""
+            ),
+        ]
+    ).stdout.strip()
+    try:
+        persisted = json.loads(sql_report)
+    except json.JSONDecodeError:
+        pytest.fail("qualification audit-row query returned invalid JSON")
+    persisted_boundary_tags = persisted.pop("boundary_tags", None)
+    live_report["persisted_final_tags_equal_input"] = (
+        persisted_boundary_tags == exact_tag_bytes(topology_collision=True)
+    )
+    live_report["persisted_audit_outcomes"] = persisted
+    live_report["revision"] = function_report["environment"]["revision"]
+    live_report["function_fixture_corpus_sha256"] = function_report["provenance"][
+        "fixture_corpus_sha256"
+    ]
+    _publish_qualification_report("Audit live HTTP qualification (#7/#8)", live_report)
+    offered = live_report["ingress_offered"]
+    assert isinstance(offered, int) and offered > 0
+    assert live_report["successful_ingress_responses"] == offered
+    assert live_report["ingress_response_statuses"] == {"200": offered}
+    assert live_report["health_overlapping_workload"] >= 100
+    assert live_report["observed_ingress_workload_seconds"] >= 10
+    loaded = live_report["loaded_health"]
+    idle = live_report["idle_health"]
+    assert isinstance(loaded, dict) and isinstance(idle, dict)
+    assert idle["probes"] >= 35
+    assert idle["status_counts"] == {"200": idle["probes"]}
+    assert loaded["status_counts"] == {"200": loaded["probes"]}
+    assert loaded["p95_ms"] <= 250
+    assert loaded["max_ms"] <= 1_000
+    assert live_report["topology_boundary_contract"]
+    assert live_report["over_limit_safe_422"]
+    assert live_report["over_limit_latency_ms"] <= 250
+    assert live_report["operator_audit_projection_contract"]
+    assert live_report["persisted_final_tags_equal_input"]
+    assert persisted == {
+        "accepted_rows": offered + 1,
+        "version2_rows": offered + 1,
+        "bounded_raw_rows": offered + 1,
+        "boundary_rows": 1,
+        "rejected_rows": 0,
+    }
+    assert function_report["passed"] and function_run.returncode == 0
+    boundary_subject = (
+        "[Correlia] [CRITICAL] docker-smoke-threshold: "
+        "Critical alert on u4-app-boundary"
+    )
+    _wait_until(
+        "qualification boundary SMTP notification",
+        lambda: any(
+            message.get("Subject") == boundary_subject
+            for message in (
+                _mailpit_messages(app_container, f"{mailpit_url}/api/v1/messages") or []
+            )
+        ),
+    )
     _require_docker_success(["stop", "--time", "1", postgres_container])
     try:
         status, _ = _container_http_response(app_container, f"{app_url}/v1/health")

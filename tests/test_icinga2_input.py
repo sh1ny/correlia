@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.domain.events import EventType, Severity
+from app.domain.events import EVENT_TAG_MAX_ENTRIES, EventType, Severity
 
 
 # These imports will fail until Task 2 creates the modules
@@ -134,6 +134,35 @@ async def test_soft_state_returns_rejection() -> None:
     assert result.state_accepted is False
     assert result.state_type == "SOFT"
     assert result.host == "web-01"
+
+
+@pytest.mark.parametrize("state_type", ["HARD", "SOFT"])
+async def test_tag_overflow_rejected_before_icinga_normalization_or_soft_rejection(
+    state_type: str,
+) -> None:
+    data = valid_service_payload()
+    data["state_type"] = state_type
+    data["tags"] = {f"k{i:03}": "secret" for i in range(EVENT_TAG_MAX_ENTRIES + 1)}
+    with pytest.raises(ValidationError):
+        Icinga2WebhookPayload.model_validate(data)
+    with pytest.raises(ValidationError):
+        await Icinga2InputPlugin().process_payload(data)
+
+
+def test_source_tag_escapes_and_four_byte_values_preserved() -> None:
+    data = valid_host_payload()
+    tags = {"a": 'one\\two"three\x01', "b": "🛰" * 256}
+    data["tags"] = tags
+
+    assert Icinga2WebhookPayload.model_validate(data).tags == tags
+
+
+@pytest.mark.parametrize("value", ["contains\x00NUL", "\ud800"])
+def test_unpersistable_source_tag_values_fail_at_request_boundary(value: str) -> None:
+    data = valid_service_payload()
+    data["tags"] = {"a": value}
+    with pytest.raises(ValidationError):
+        Icinga2WebhookPayload.model_validate(data)
 
 
 def test_fingerprint_is_stable_for_replay() -> None:

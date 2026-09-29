@@ -8,7 +8,12 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.domain.events import TagKey
+from app.domain.events import (
+    EVENT_TAG_MAX_ENTRIES,
+    EventTagKey,
+    EventTags,
+    validate_event_tags,
+)
 
 
 class HostnameTopologyRule(BaseModel):
@@ -17,12 +22,15 @@ class HostnameTopologyRule(BaseModel):
     id: str
     name: str
     hostname_pattern: str
-    tags: dict[str, str]
-    tag_capture_groups: dict[TagKey, int] = Field(default_factory=dict)
+    tags: EventTags
+    tag_capture_groups: dict[EventTagKey, int] = Field(
+        default_factory=dict, max_length=EVENT_TAG_MAX_ENTRIES
+    )
 
     @field_validator("tags")
     @classmethod
-    def _tags_must_start_with_topology(cls, value: dict[str, str]) -> dict[str, str]:
+    def _tags_must_start_with_topology(cls, value: EventTags) -> EventTags:
+        validate_event_tags(value)
         for key in value:
             if not key.startswith("topology."):
                 raise ValueError(f"tag key must start with 'topology.': {key}")
@@ -49,11 +57,12 @@ class SubnetTopologyRule(BaseModel):
     id: str
     name: str
     subnet: str
-    tags: dict[str, str]
+    tags: EventTags
 
     @field_validator("tags")
     @classmethod
-    def _tags_must_start_with_topology(cls, value: dict[str, str]) -> dict[str, str]:
+    def _tags_must_start_with_topology(cls, value: EventTags) -> EventTags:
+        validate_event_tags(value)
         for key in value:
             if not key.startswith("topology."):
                 raise ValueError(f"tag key must start with 'topology.': {key}")
