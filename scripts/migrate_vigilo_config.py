@@ -34,6 +34,7 @@ from app.config.plugins import load_plugin_registry_config  # noqa: E402
 from app.config.rules import _KNOWN_NORMALIZED_FIELDS, load_rules_config  # noqa: E402
 from app.config.topology import load_topology_config  # noqa: E402
 from app.domain.events import TagValue  # noqa: E402
+from app.domain.incidents import MAX_WINDOW_FINGERPRINTS  # noqa: E402
 from pydantic import TypeAdapter, ValidationError  # noqa: E402
 from app.plugins.loader import load_plugin_registry  # noqa: E402
 from app.processing.metrics import MIGRATION_REPORT_MAX_BYTES  # noqa: E402
@@ -1416,6 +1417,54 @@ def _validate_staged(staging: Path) -> None:
     load_topology_config(topology_path)
 
 
+def _staged_validation_issues(exc: Exception) -> list[MigrationIssue]:
+    issues: list[MigrationIssue] = []
+    has_other_errors = False
+    if isinstance(exc, ValidationError):
+        errors = exc.errors(include_input=False, include_context=False)
+        for error in errors:
+            location = error["loc"]
+            if (
+                len(location) != 4
+                or location[0] != "rules"
+                or type(location[1]) is not int
+                or location[1] < 0
+                or location[2:] != ("window", "trigger_threshold")
+                or error["type"]
+                not in (
+                    "int_type",
+                    "greater_than_equal",
+                    "less_than_equal",
+                )
+            ):
+                has_other_errors = True
+                continue
+            issues.append(
+                MigrationIssue(
+                    domain="rules",
+                    location=f"rules[{location[1]}].window.trigger_threshold",
+                    code="validation_failure",
+                    message=(
+                        "trigger_threshold must be an integer from 1 through "
+                        f"{MAX_WINDOW_FINGERPRINTS}"
+                    ),
+                    requirement="CFG-07",
+                )
+            )
+        if issues and not has_other_errors:
+            return issues
+    return [
+        *issues,
+        MigrationIssue(
+            domain="validation",
+            location="staging",
+            code="validation_failure",
+            message="generated config failed validation",
+            requirement="CFG-07",
+        ),
+    ]
+
+
 def _promote(staging: Path, out_dir: Path) -> None:
     created_out_dir = not out_dir.exists()
     target_files = {
@@ -1736,19 +1785,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         _write_yaml(staging_path / "plugins.yaml", transformed_plugins)
         try:
             _validate_staged(staging_path)
-        except Exception:
+        except Exception as exc:
             return _finish(
                 report_path=report_path,
                 ok=False,
-                issues=[
-                    MigrationIssue(
-                        domain="validation",
-                        location="staging",
-                        code="validation_failure",
-                        message="generated config failed validation",
-                        requirement="CFG-07",
-                    )
-                ],
+                issues=_staged_validation_issues(exc),
                 out_dir=None,
                 failure_code="staged_validation",
                 exit_code=1,

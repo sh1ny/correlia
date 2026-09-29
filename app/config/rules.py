@@ -9,6 +9,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.domain.events import Severity
+from app.domain.incidents import MAX_WINDOW_FINGERPRINTS
 from app.domain.rules import MatchCriteria, RuleAction, RuleDefinition, RuleWindow
 
 
@@ -41,7 +42,7 @@ class RuleWindowConfig(BaseModel):
 
     duration_seconds: int = Field(ge=1)
     group_by: list[str] = Field(min_length=1)
-    trigger_threshold: int = Field(ge=1)
+    trigger_threshold: int = Field(ge=1, le=MAX_WINDOW_FINGERPRINTS)
 
 
 class RuleDefinitionConfig(BaseModel):

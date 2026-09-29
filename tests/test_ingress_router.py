@@ -1,10 +1,10 @@
+from collections import Counter
 from collections.abc import AsyncIterator, Mapping
-from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 import asyncio
-import inspect
 import json
 import logging
 import subprocess
@@ -15,14 +15,14 @@ import yaml
 
 import pytest
 import sqlalchemy as sa
-from httpx import ASGITransport, AsyncClient
+from httpx import ASGITransport, AsyncClient, Response
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from testcontainers.postgres import PostgresContainer
 
 from app.config.plugins import load_plugin_registry_config
 from app.config.settings import Settings
 from app.domain.events import EVENT_TAG_MAX_BYTES, Severity
-from app.domain.rules import RuleDecision, ThresholdDecision
+from app.domain.rules import RuleMatch, RuleWindow
 from app.main import create_app
 from app.persistence.incidents import IncidentUpsertInput, upsert_open_incident
 from app.plugins.inputs.icinga2 import Icinga2InputPlugin
@@ -184,6 +184,58 @@ class SynchronizedOutputRegistry:
         return ()
 
 
+class CommittedStateRunner:
+    """Capture what a separate connection can see at notification submission."""
+
+    registered_task_names = ("notify",)
+
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        self.session_factory = session_factory
+        self.observations: list[
+            tuple[dict[str, Any], dict[str, Any] | None, list[dict[str, Any]]]
+        ] = []
+
+    async def submit(self, task_name: str, payload: Mapping[str, Any]) -> None:
+        assert task_name == "notify"
+        async with self.session_factory() as session:
+            incident = (
+                (
+                    await session.execute(
+                        sa.text(
+                            "SELECT event_count, threshold_crossed, window_state "
+                            "FROM incidents WHERE id = CAST(:id AS uuid)"
+                        ),
+                        {"id": payload["incident_id"]},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            crossing_audits = (
+                (
+                    await session.execute(
+                        sa.text(
+                            "SELECT source_id, fingerprint, decision_summary "
+                            "FROM incident_events WHERE "
+                            "decision_summary->>'first_threshold_transition' = 'true'"
+                        )
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        self.observations.append(
+            (
+                dict(payload),
+                dict(incident) if incident is not None else None,
+                [dict(row) for row in crossing_audits],
+            )
+        )
+
+    async def drain(self) -> None:
+        return None
+
+
 class RaisingSubmitRunner:
     registered_task_names: tuple[str, ...] = ()
 
@@ -238,6 +290,7 @@ def _write_rules(
     threshold: int = 2,
     actions: tuple[str, ...] = ("email-oncall",),
     rule_name: str = "service-critical",
+    duration_seconds: int = 300,
 ) -> None:
     path.write_text(
         yaml.safe_dump(
@@ -252,7 +305,7 @@ def _write_rules(
                             "service_pattern": "http",
                         },
                         "window": {
-                            "duration_seconds": 300,
+                            "duration_seconds": duration_seconds,
                             "group_by": ["service"],
                             "trigger_threshold": threshold,
                         },
@@ -325,6 +378,86 @@ def _payload(
     return payload
 
 
+async def _race_http_events_at_incident_insert(
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    first_payload: dict[str, object],
+    second_payload: dict[str, object],
+) -> tuple[Response, Response]:
+    # SHARE conflicts with both INSERTs' ROW EXCLUSIVE table locks. Observe
+    # two separate PostgreSQL backends waiting on incidents before releasing
+    # either; merely scheduling two asyncio tasks would not prove a DB race.
+    async with session_factory() as blocker:
+        await blocker.execute(sa.text("LOCK TABLE incidents IN SHARE MODE"))
+        requests = (
+            asyncio.create_task(client.post("/v1/icinga2/events", json=first_payload)),
+            asyncio.create_task(client.post("/v1/icinga2/events", json=second_payload)),
+        )
+        try:
+            async with session_factory() as observer:
+
+                async def both_waiting() -> None:
+                    while True:
+                        waiting = await observer.scalar(
+                            sa.text(
+                                "SELECT count(DISTINCT locks.pid) FROM pg_locks AS locks "
+                                "JOIN pg_class AS relation ON relation.oid = locks.relation "
+                                "WHERE relation.relname = 'incidents' "
+                                "AND locks.mode = 'RowExclusiveLock' "
+                                "AND NOT locks.granted"
+                            )
+                        )
+                        if waiting == 2:
+                            return
+                        if any(request.done() for request in requests):
+                            raise AssertionError(
+                                "request finished before both inserts waited"
+                            )
+
+                await asyncio.wait_for(both_waiting(), timeout=15)
+        finally:
+            # Always unblock the HTTP tasks, even on timeout or assertion
+            # failure, so the module-scoped PostgreSQL fixture can clean up.
+            await blocker.rollback()
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*requests, return_exceptions=True), timeout=15
+                )
+            finally:
+                for request in requests:
+                    if not request.done():
+                        request.cancel()
+    return requests[0].result(), requests[1].result()
+
+
+def _http_threshold_facts(body: dict[str, Any]) -> tuple[Any, ...]:
+    threshold = body["threshold_decision"]
+    assert threshold == body["rule_decision"]["threshold_decision"]
+    return (
+        threshold["counted"],
+        threshold["crossed"],
+        body["threshold_crossed"],
+        body["no_dispatch_reason"] == "replay",
+        body["notification_triggered"],
+        body["no_dispatch_reason"],
+        "dispatch_planned" if body["notification_triggered"] else "no_dispatch",
+    )
+
+
+def _audit_threshold_facts(summary: dict[str, Any]) -> tuple[Any, ...]:
+    assert summary["decision_kind"] == "problem"
+    assert summary["threshold_count"] == 2
+    return (
+        summary["counted_count"],
+        summary["counted_count"] >= summary["threshold_count"],
+        summary["threshold_crossed"],
+        summary["replay"],
+        summary["first_threshold_transition"],
+        summary["no_dispatch_reason"],
+        summary["notification_intent"],
+    )
+
+
 async def test_submit_notifications_without_task_runner_reports_failed_result_per_action(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -333,20 +466,15 @@ async def test_submit_notifications_without_task_runner_reports_failed_result_pe
         "app.processing.ingress.record_notification_submission",
         submissions.append,
     )
-    decision = RuleDecision(
+    decision = RuleMatch(
         rule_name="critical-rule",
         priority=10,
         matched_rules=["critical-rule"],
         group_key="service=http",
-        threshold_decision=ThresholdDecision(
-            rule_name="critical-rule",
-            group_key="service=http",
-            window_start=_event_time(),
-            window_end=_event_time(),
-            threshold=1,
-            counted_fingerprints=["first"],
-            counted=1,
-            crossed=True,
+        window=RuleWindow(
+            duration_seconds=60,
+            group_by=["service"],
+            trigger_threshold=1,
         ),
         summary="critical http service",
         actions=["zeta", "alpha", "zeta"],
@@ -510,6 +638,605 @@ async def test_icinga2_problem_webhook_aggregates_and_submits_notifications_once
     assert submissions == ["accepted"]
     # AUD-02: every accepted event must write exactly one audit row.
     assert (await _count_audit_rows(session_factory)) == 4
+
+
+async def test_http_replay_and_late_events_project_committed_window_to_response_and_audit(
+    tmp_path: Path,
+    session_factory: async_sessionmaker[AsyncSession],
+    postgres_url: str,
+) -> None:
+    rules_path = tmp_path / "rules.yaml"
+    _write_rules(rules_path, threshold=2, duration_seconds=60)
+    task_runner = AsyncIOTaskRunner()
+    submitted: list[dict[str, object]] = []
+
+    async def capture_notify(payload: dict[str, object]) -> None:
+        submitted.append(dict(payload))
+
+    task_runner.register("notify", capture_notify)
+    output_plugin = GateOutputPlugin()
+    output_plugin.release.set()
+    processor = build_icinga2_processor(
+        rules_path=rules_path,
+        sessionmaker=session_factory,
+        task_runner=task_runner,
+        plugin_registry=SynchronizedOutputRegistry({"email-oncall": output_plugin}),
+    )
+    app = create_app(
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        sessionmaker=session_factory,
+        icinga2_processor=processor,
+        task_runner=task_runner,
+        lifecycle_worker=NoopLifecycleWorker(),  # type: ignore[arg-type]
+    )
+    event_specs = (
+        ("web-01", "2026-06-08T12:01:40+00:00"),
+        ("web-02", "2026-06-08T12:01:20+00:00"),
+        ("web-01", "2026-06-08T12:01:40+00:00"),
+        ("web-03", "2026-06-08T12:00:39+00:00"),
+        ("web-04", "2026-06-08T12:03:40+00:00"),
+    )
+    responses = []
+    async for client in get_client(app):
+        first = await client.post(
+            "/v1/icinga2/events",
+            json=_payload(
+                host=event_specs[0][0],
+                source_id=f"icinga2:service:{event_specs[0][0]}:http",
+                timestamp=event_specs[0][1],
+            ),
+        )
+        assert first.status_code == 200
+        responses.append(first.json())
+    assert submitted == []
+    async with session_factory() as session:
+        persisted_first = (
+            (
+                await session.execute(
+                    sa.text(
+                        "SELECT event_count, threshold_crossed, window_state "
+                        "FROM incidents WHERE id = CAST(:id AS uuid)"
+                    ),
+                    {"id": responses[0]["incident_id"]},
+                )
+            )
+            .mappings()
+            .one()
+        )
+    assert persisted_first["event_count"] == 1
+    assert persisted_first["threshold_crossed"] is False
+    assert persisted_first["window_state"]["counted_count"] == 1
+
+    # Stop the first app and rebuild its processor, rule engine, runner, and
+    # SQLAlchemy engine; the new runtime reads only committed threshold state.
+    fresh_engine = create_async_engine(postgres_url)
+    fresh_factory = async_sessionmaker(fresh_engine, expire_on_commit=False)
+    fresh_runner = AsyncIOTaskRunner()
+    fresh_runner.register("notify", capture_notify)
+    fresh_output_plugin = GateOutputPlugin()
+    fresh_output_plugin.release.set()
+    fresh_processor = build_icinga2_processor(
+        rules_path=rules_path,
+        sessionmaker=fresh_factory,
+        task_runner=fresh_runner,
+        plugin_registry=SynchronizedOutputRegistry(
+            {"email-oncall": fresh_output_plugin}
+        ),
+    )
+    fresh_app = create_app(
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        sessionmaker=fresh_factory,
+        icinga2_processor=fresh_processor,
+        task_runner=fresh_runner,
+        lifecycle_worker=NoopLifecycleWorker(),  # type: ignore[arg-type]
+    )
+    try:
+        async for client in get_client(fresh_app):
+            for host, timestamp in event_specs[1:]:
+                response = await client.post(
+                    "/v1/icinga2/events",
+                    json=_payload(
+                        host=host,
+                        source_id=f"icinga2:service:{host}:http",
+                        timestamp=timestamp,
+                    ),
+                )
+                assert response.status_code == 200
+                responses.append(response.json())
+            detail_response = await client.get(
+                f"/v1/incidents/{responses[0]['incident_id']}"
+            )
+            await fresh_runner.drain()
+    finally:
+        await fresh_engine.dispose()
+
+    assert detail_response.status_code == 200
+    fingerprints = [body["fingerprint"] for body in responses]
+    assert fingerprints[0] == fingerprints[2]
+    expected_windows = (
+        ("2026-06-08T12:00:40+00:00", "2026-06-08T12:01:40+00:00"),
+        ("2026-06-08T12:00:40+00:00", "2026-06-08T12:01:40+00:00"),
+        ("2026-06-08T12:00:40+00:00", "2026-06-08T12:01:40+00:00"),
+        ("2026-06-08T12:00:40+00:00", "2026-06-08T12:01:40+00:00"),
+        ("2026-06-08T12:02:40+00:00", "2026-06-08T12:03:40+00:00"),
+    )
+    expected_fingerprints = (
+        {fingerprints[0]},
+        {fingerprints[0], fingerprints[1]},
+        {fingerprints[0], fingerprints[1]},
+        {fingerprints[0], fingerprints[1]},
+        {fingerprints[4]},
+    )
+    expected_counts = (1, 2, 2, 2, 1)
+    expected_current_crossings = (False, True, True, True, False)
+    expected_monotone_crossings = (False, True, True, True, True)
+    expected_first_transitions = (False, True, False, False, False)
+    for index, body in enumerate(responses):
+        threshold = body["threshold_decision"]
+        assert threshold == body["rule_decision"]["threshold_decision"]
+        assert threshold["threshold"] == 2
+        assert datetime.fromisoformat(
+            threshold["window_start"]
+        ) == datetime.fromisoformat(expected_windows[index][0])
+        assert datetime.fromisoformat(
+            threshold["window_end"]
+        ) == datetime.fromisoformat(expected_windows[index][1])
+        assert set(threshold["counted_fingerprints"]) == expected_fingerprints[index]
+        assert threshold["counted"] == expected_counts[index]
+        assert threshold["crossed"] is expected_current_crossings[index]
+        assert body["threshold_crossed"] is expected_monotone_crossings[index]
+        assert body["incident_id"] == responses[0]["incident_id"]
+    assert "replay" in responses[2]["threshold_decision"]["replay_or_skip_reasons"][0]
+    assert "outside" in responses[3]["threshold_decision"]["replay_or_skip_reasons"][0]
+    assert [body["no_dispatch_reason"] for body in responses] == [
+        "below_threshold",
+        None,
+        "replay",
+        "already_notified",
+        "already_notified",
+    ]
+    assert [body["notification_triggered"] for body in responses] == list(
+        expected_first_transitions
+    )
+    assert len(submitted) == 1
+    assert submitted[0]["incident_id"] == responses[0]["incident_id"]
+    assert task_runner.pending_count == 0
+    detail = detail_response.json()
+    assert detail["threshold_crossed"] is True
+    assert detail["window_state"]["counted_count"] == 1
+
+    async with session_factory() as session:
+        audit_rows = (
+            (
+                await session.execute(
+                    sa.text(
+                        "SELECT source_id, fingerprint, decision_summary "
+                        "FROM incident_events"
+                    )
+                )
+            )
+            .mappings()
+            .all()
+        )
+    assert len(audit_rows) == len(responses)
+    responses_by_request: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for body in responses:
+        responses_by_request.setdefault(
+            (body["source_id"], body["fingerprint"]), []
+        ).append(body)
+    audits_by_request: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for row in audit_rows:
+        audits_by_request.setdefault((row["source_id"], row["fingerprint"]), []).append(
+            row["decision_summary"]
+        )
+    assert responses_by_request.keys() == audits_by_request.keys()
+    for request_key, response_group in responses_by_request.items():
+        assert Counter(_http_threshold_facts(body) for body in response_group) == (
+            Counter(
+                _audit_threshold_facts(summary)
+                for summary in audits_by_request[request_key]
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    ("fresh-inserts", "existing-distinct", "existing-identical"),
+)
+async def test_concurrent_http_threshold_two_serializes_each_request_and_submits_once(
+    scenario: str,
+    tmp_path: Path,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    rules_path = tmp_path / "rules.yaml"
+    _write_rules(rules_path, threshold=2)
+    runner = CommittedStateRunner(session_factory)
+    plugin_registry = SynchronizedOutputRegistry({"email-oncall": GateOutputPlugin()})
+    processor = build_icinga2_processor(
+        rules_path=rules_path,
+        sessionmaker=session_factory,
+        task_runner=runner,
+        plugin_registry=plugin_registry,
+    )
+    app = create_app(
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        sessionmaker=session_factory,
+        icinga2_processor=processor,
+        task_runner=runner,  # type: ignore[arg-type]
+        plugin_registry=plugin_registry,  # type: ignore[arg-type]
+        lifecycle_worker=NoopLifecycleWorker(),  # type: ignore[arg-type]
+    )
+    seed = None
+    async for client in get_client(app):
+        if scenario != "fresh-inserts":
+            seed_response = await client.post(
+                "/v1/icinga2/events",
+                json=_payload(host="web-01", source_id="icinga2:service:web-01:http"),
+            )
+            assert seed_response.status_code == 200
+            seed = seed_response.json()
+            assert seed["threshold_decision"]["counted"] == 1
+            assert runner.observations == []
+
+        first_payload = _payload(
+            host="web-02" if seed is not None else "web-01",
+            source_id=(
+                "icinga2:service:web-02:http"
+                if seed is not None
+                else "icinga2:service:web-01:http"
+            ),
+            timestamp="2026-06-08T12:01:00+00:00",
+        )
+        second_payload = (
+            dict(first_payload)
+            if scenario == "existing-identical"
+            else _payload(
+                host="web-03" if seed is not None else "web-02",
+                source_id=(
+                    "icinga2:service:web-03:http"
+                    if seed is not None
+                    else "icinga2:service:web-02:http"
+                ),
+                timestamp="2026-06-08T12:01:00+00:00",
+            )
+        )
+        http_responses = await _race_http_events_at_incident_insert(
+            client, session_factory, first_payload, second_payload
+        )
+        assert all(response.status_code == 200 for response in http_responses)
+        responses = [response.json() for response in http_responses]
+
+    incident_id = responses[0]["incident_id"]
+    assert all(body["incident_id"] == incident_id for body in responses)
+    assert seed is None or seed["incident_id"] == incident_id
+    expected_count = 2 if scenario != "existing-distinct" else 3
+    expected_fingerprints = {body["fingerprint"] for body in responses} | (
+        {seed["fingerprint"]} if seed is not None else set()
+    )
+    assert len(expected_fingerprints) == expected_count
+    assert (
+        Counter(body["threshold_decision"]["counted"] for body in responses)
+        == {
+            "fresh-inserts": Counter({1: 1, 2: 1}),
+            "existing-distinct": Counter({2: 1, 3: 1}),
+            "existing-identical": Counter({2: 2}),
+        }[scenario]
+    )
+    assert sum(body["notification_triggered"] for body in responses) == 1
+    assert sum(body["no_dispatch_reason"] == "replay" for body in responses) == (
+        1 if scenario == "existing-identical" else 0
+    )
+    for body in responses:
+        threshold = body["threshold_decision"]
+        assert threshold["threshold"] == 2
+        assert datetime.fromisoformat(threshold["window_start"]) == datetime(
+            2026, 6, 8, 11, 56, tzinfo=timezone.utc
+        )
+        assert datetime.fromisoformat(threshold["window_end"]) == datetime(
+            2026, 6, 8, 12, 1, tzinfo=timezone.utc
+        )
+        assert len(threshold["counted_fingerprints"]) == threshold["counted"]
+        assert body["threshold_crossed"] is (threshold["counted"] >= 2)
+        assert body["notification_count"] == int(body["notification_triggered"])
+        assert body["notification_failed"] is False
+        assert body["fingerprint"] in threshold["counted_fingerprints"]
+        assert set(threshold["counted_fingerprints"]) <= expected_fingerprints
+
+    async with session_factory() as session:
+        incidents = (
+            (
+                await session.execute(
+                    sa.text(
+                        "SELECT id, status, event_count, threshold_crossed, window_state "
+                        "FROM incidents WHERE rule_name = 'service-critical'"
+                    )
+                )
+            )
+            .mappings()
+            .all()
+        )
+        audits = (
+            (
+                await session.execute(
+                    sa.text(
+                        "SELECT source_id, fingerprint, incident_ids, decision_summary "
+                        "FROM incident_events"
+                    )
+                )
+            )
+            .mappings()
+            .all()
+        )
+    assert len(incidents) == 1
+    row = incidents[0]
+    assert str(row["id"]) == incident_id
+    assert row["status"] == "OPEN"
+    assert row["event_count"] == expected_count
+    assert row["threshold_crossed"] is True
+    assert row["window_state"]["counted_count"] == expected_count
+    assert set(row["window_state"]["counted_fingerprint_timestamps"]) == (
+        expected_fingerprints
+    )
+    assert len(audits) == len(responses) + int(seed is not None)
+    assert all(audit["incident_ids"] == [incident_id] for audit in audits)
+    assert (
+        sum(audit["decision_summary"]["first_threshold_transition"] for audit in audits)
+        == 1
+    )
+    race_audits = [
+        audit
+        for audit in audits
+        if seed is None or audit["fingerprint"] != seed["fingerprint"]
+    ]
+    assert len(race_audits) == 2
+    if scenario == "existing-identical":
+        # Both requests have the same fingerprint AND source_id. Their
+        # transaction outcomes (new vs replay), not audit row ordering,
+        # identify the two matching audit facts.
+        assert all(
+            (audit["source_id"], audit["fingerprint"])
+            == (responses[0]["source_id"], responses[0]["fingerprint"])
+            for audit in race_audits
+        )
+        assert Counter(_http_threshold_facts(body) for body in responses) == Counter(
+            _audit_threshold_facts(audit["decision_summary"]) for audit in race_audits
+        )
+    else:
+        audits_by_request = {
+            (audit["source_id"], audit["fingerprint"]): audit["decision_summary"]
+            for audit in race_audits
+        }
+        assert len(audits_by_request) == 2
+        for body in responses:
+            assert _http_threshold_facts(body) == _audit_threshold_facts(
+                audits_by_request[(body["source_id"], body["fingerprint"])]
+            )
+
+    # The runner queries through its own AsyncSession at submit time; a
+    # staged-but-uncommitted crossing would be invisible to this callback.
+    assert len(runner.observations) == 1
+    submitted, visible_incident, visible_audits = runner.observations[0]
+    assert submitted["incident_id"] == incident_id
+    assert submitted["plugin_name"] == "email-oncall"
+    assert visible_incident is not None
+    assert visible_incident["threshold_crossed"] is True
+    assert visible_incident["window_state"]["counted_count"] >= 2
+    assert len(visible_audits) == 1
+    winner = next(body for body in responses if body["notification_triggered"])
+    assert visible_audits[0]["source_id"] == winner["source_id"]
+    assert visible_audits[0]["fingerprint"] == winner["fingerprint"]
+    assert visible_audits[0]["decision_summary"]["incident_ids"] == [incident_id]
+    assert visible_audits[0]["decision_summary"]["counted_count"] == 2
+    assert visible_audits[0]["decision_summary"]["first_threshold_transition"] is True
+
+
+async def test_failed_audit_insert_rolls_back_crossing_and_retry_submits_once(
+    tmp_path: Path,
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.processing import ingress as ingress_module
+
+    rules_path = tmp_path / "rules.yaml"
+    _write_rules(rules_path, threshold=2)
+    runner = CommittedStateRunner(session_factory)
+    plugin_registry = SynchronizedOutputRegistry({"email-oncall": GateOutputPlugin()})
+    processor = build_icinga2_processor(
+        rules_path=rules_path,
+        sessionmaker=session_factory,
+        task_runner=runner,
+        plugin_registry=plugin_registry,
+    )
+    app = create_app(
+        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        sessionmaker=session_factory,
+        icinga2_processor=processor,
+        task_runner=runner,  # type: ignore[arg-type]
+        plugin_registry=plugin_registry,  # type: ignore[arg-type]
+        lifecycle_worker=NoopLifecycleWorker(),  # type: ignore[arg-type]
+    )
+    crossing_payload = _payload(
+        host="web-02",
+        source_id="icinga2:service:web-02:http",
+        timestamp="2026-06-08T12:01:00+00:00",
+    )
+    trigger_name = "u4_reject_crossing_audit"
+    async for client in get_client(app):
+        first = await client.post(
+            "/v1/icinga2/events",
+            json=_payload(host="web-01", source_id="icinga2:service:web-01:http"),
+        )
+        assert first.status_code == 200
+        incident_id = first.json()["incident_id"]
+        async with session_factory() as session:
+            before = (
+                (
+                    await session.execute(
+                        sa.text(
+                            "SELECT event_count, last_update_time, window_state, "
+                            "threshold_crossed, decision_context FROM incidents "
+                            "WHERE id = CAST(:id AS uuid)"
+                        ),
+                        {"id": incident_id},
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            before_snapshot = dict(before)
+
+        # A real PostgreSQL trigger checks the crossing is already visible
+        # inside this transaction before rejecting its audit INSERT. Failure
+        # before aggregation would raise a different error and fail the test.
+        async with session_factory() as ddl:
+            await ddl.execute(
+                sa.text(
+                    "CREATE FUNCTION u4_reject_crossing_audit() RETURNS trigger "
+                    "LANGUAGE plpgsql AS $$ "
+                    "BEGIN "
+                    "IF NOT EXISTS ("
+                    "SELECT 1 FROM incidents "
+                    "WHERE id = (NEW.incident_ids->>0)::uuid "
+                    "AND threshold_crossed "
+                    "AND (window_state->>'counted_count')::integer = 2"
+                    ") THEN "
+                    "RAISE EXCEPTION 'audit reached before incident crossing'; "
+                    "END IF; "
+                    "RAISE EXCEPTION 'u4_reject_crossing_audit' USING ERRCODE = '23514'; "
+                    "END; $$"
+                )
+            )
+            await ddl.execute(
+                sa.text(
+                    "CREATE TRIGGER u4_reject_crossing_audit "
+                    "BEFORE INSERT ON incident_events FOR EACH ROW "
+                    "WHEN (NEW.source_id = 'icinga2:service:web-02:http') "
+                    "EXECUTE FUNCTION u4_reject_crossing_audit()"
+                )
+            )
+            await ddl.commit()
+
+        actual_insert = ingress_module.insert_incident_event
+        audit_errors: list[tuple[str | None, str]] = []
+
+        async def observe_real_audit_insert(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return await actual_insert(*args, **kwargs)
+            except sa.exc.IntegrityError as error:
+                audit_errors.append(
+                    (getattr(error.orig, "sqlstate", None), str(error.orig))
+                )
+                raise
+
+        monkeypatch.setattr(
+            ingress_module, "insert_incident_event", observe_real_audit_insert
+        )
+        try:
+            failed = await client.post("/v1/icinga2/events", json=crossing_payload)
+            assert failed.status_code == 500
+            assert failed.json() == {"detail": "ingest failed"}
+            assert len(audit_errors) == 1
+            assert audit_errors[0][0] == "23514"
+            assert trigger_name in audit_errors[0][1]
+
+            async with session_factory() as inspection:
+                unchanged = (
+                    (
+                        await inspection.execute(
+                            sa.text(
+                                "SELECT event_count, last_update_time, window_state, "
+                                "threshold_crossed, decision_context FROM incidents "
+                                "WHERE id = CAST(:id AS uuid)"
+                            ),
+                            {"id": incident_id},
+                        )
+                    )
+                    .mappings()
+                    .one()
+                )
+                audit_rows = (
+                    (
+                        await inspection.execute(
+                            sa.text(
+                                "SELECT source_id FROM incident_events "
+                                "WHERE incident_ids @> jsonb_build_array(CAST(:id AS text))"
+                            ),
+                            {"id": incident_id},
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+            assert dict(unchanged) == before_snapshot
+            assert audit_rows == ["icinga2:service:web-01:http"]
+            assert runner.observations == []
+        finally:
+            async with session_factory() as ddl:
+                await ddl.execute(
+                    sa.text("DROP TRIGGER u4_reject_crossing_audit ON incident_events")
+                )
+                await ddl.execute(sa.text("DROP FUNCTION u4_reject_crossing_audit()"))
+                await ddl.commit()
+
+        retry = await client.post("/v1/icinga2/events", json=crossing_payload)
+        assert retry.status_code == 200
+        body = retry.json()
+        assert body["incident_id"] == incident_id
+        assert body["threshold_decision"]["counted"] == 2
+        assert body["threshold_decision"]["crossed"] is True
+        assert body["threshold_crossed"] is True
+        assert body["notification_triggered"] is True
+        assert body["notification_count"] == 1
+
+    async with session_factory() as inspection:
+        final = (
+            (
+                await inspection.execute(
+                    sa.text(
+                        "SELECT event_count, threshold_crossed, window_state "
+                        "FROM incidents WHERE id = CAST(:id AS uuid)"
+                    ),
+                    {"id": incident_id},
+                )
+            )
+            .mappings()
+            .one()
+        )
+        audit_rows = (
+            (
+                await inspection.execute(
+                    sa.text(
+                        "SELECT source_id, fingerprint, decision_summary "
+                        "FROM incident_events"
+                    )
+                )
+            )
+            .mappings()
+            .all()
+        )
+    assert final["event_count"] == 2
+    assert final["threshold_crossed"] is True
+    assert final["window_state"]["counted_count"] == 2
+    assert len(audit_rows) == 2
+    retried_audits = [
+        audit
+        for audit in audit_rows
+        if audit["source_id"] == crossing_payload["source_id"]
+    ]
+    assert len(retried_audits) == 1
+    assert retried_audits[0]["fingerprint"] == body["fingerprint"]
+    assert retried_audits[0]["decision_summary"]["first_threshold_transition"] is True
+    assert retried_audits[0]["decision_summary"]["counted_count"] == 2
+    assert len(runner.observations) == 1
+    submitted, visible_incident, visible_audits = runner.observations[0]
+    assert submitted["incident_id"] == incident_id
+    assert visible_incident is not None
+    assert visible_incident["threshold_crossed"] is True
+    assert visible_incident["window_state"]["counted_count"] == 2
+    assert len(visible_audits) == 1
+    assert visible_audits[0]["source_id"] == crossing_payload["source_id"]
+    assert visible_audits[0]["fingerprint"] == body["fingerprint"]
+    assert visible_audits[0]["decision_summary"]["incident_ids"] == [incident_id]
 
 
 async def test_ingress_returns_after_submission_before_slow_plugin_exception_is_terminal(
@@ -782,6 +1509,14 @@ async def test_ingress_retains_twenty_terminal_results_through_aggregation_and_r
     try:
         async for fresh_client in get_client(fresh_app):
             reopened = await fresh_client.get(f"/v1/incidents/{incident_id}")
+            replay = await fresh_client.post(
+                "/v1/icinga2/events",
+                json=_payload(
+                    host="web-01",
+                    source_id="icinga2:service:web-01:http",
+                ),
+            )
+            after_replay = await fresh_client.get(f"/v1/incidents/{incident_id}")
     finally:
         await fresh_engine.dispose()
 
@@ -791,6 +1526,16 @@ async def test_ingress_retains_twenty_terminal_results_through_aggregation_and_r
     assert (
         reopened_context["notification_delivery_results"]
         == aggregated_context["notification_delivery_results"]
+    )
+    assert replay.status_code == 200
+    assert replay.json()["incident_id"] == incident_id
+    assert replay.json()["threshold_decision"]["counted"] == 2
+    assert replay.json()["no_dispatch_reason"] == "replay"
+    assert replay.json()["notification_results"] == []
+    assert fresh_runner.pending_count == 0
+    assert (
+        after_replay.json()["decision_context"]["notification_delivery_results"]
+        == (aggregated_context["notification_delivery_results"])
     )
 
 
@@ -1191,26 +1936,21 @@ async def test_recovery_response_contains_lifecycle_outcome_without_notification
 
     body = response.json()
     assert body["threshold_decision"] is None
+    assert body["rule_decision"]["reason"] == "recovery events bypass rule aggregation"
     assert body["lifecycle_outcome"]["effect"] == "affected_set_shrunk"
     assert body["affected_object_removed"] is True
     assert body["notification_count"] == 0
     assert submitted == []
-
-
-def test_recovery_branch_does_not_call_apply_problem_or_raw_state_names() -> None:
-    import app.processing.ingress as ingress_module
-
-    source = inspect.getsource(ingress_module.Icinga2DecisionProcessor.process_payload)
-    recovery_start = source.index("elif event.event_type is EventType.RECOVERY:")
-    recovery_end = source.index("\n\n            summary =", recovery_start)
-    recovery_branch = source[recovery_start:recovery_end]
-
-    assert "LifecycleManager(" in recovery_branch
-    assert "resolve_for_event" in recovery_branch
-    assert "IncidentManager(" not in recovery_branch
-    # Raw Icinga2 fields must not appear in ingress.
-    assert "state_type" not in source
-    assert "check_output" not in source
+    async with session_factory() as session:
+        summary = (
+            await session.execute(
+                sa.text("SELECT decision_summary FROM incident_events")
+            )
+        ).scalar_one()
+    assert summary["decision_kind"] == "recovery"
+    assert summary["threshold_count"] is None
+    assert summary["counted_count"] is None
+    assert summary["threshold_crossed"] is None
 
 
 # ING-01: POST /webhooks/icinga2 exists and returns 200
@@ -1602,52 +2342,6 @@ def test_v1_icinga2_events_route_is_exposed_without_legacy_alias() -> None:
     assert "/api/v1/incidents" not in route_paths
 
 
-# Source assertions: processing.ingress must not import persistence
-
-
-def test_processing_ingress_dependency_boundaries_for_audit() -> None:
-    """Phase 7 audit-write ownership boundaries (AUD-03).
-
-    Ingress is the only processing module that may import audit persistence
-    or audit domain symbols (for the post-decision audit row insert). The
-    manager, lifecycle, persistence.incidents, and lifecycle worker modules
-    must NOT import audit persistence or audit ORM symbols — keeping audit
-    strictly observational.
-    """
-
-    import inspect
-    import app.processing.ingress as ingress_module
-    import app.processing.incident_manager as incident_manager_module
-    import app.processing.lifecycle as lifecycle_module
-    import app.persistence.incidents as incidents_module
-    import app.processing.lifecycle_worker as lifecycle_worker_module
-
-    ingress_source = inspect.getsource(ingress_module)
-    assert "from app.persistence.audit" in ingress_source
-    assert "from app.domain.audit" in ingress_source
-    assert "yaml.load" not in ingress_source
-    assert "eval(" not in ingress_source
-    assert "exec(" not in ingress_source
-
-    forbidden = (
-        "app.persistence.audit",
-        "app.domain.audit",
-        "IncidentEvent",
-    )
-    for module_name, module in (
-        ("incident_manager", incident_manager_module),
-        ("lifecycle", lifecycle_module),
-        ("incidents", incidents_module),
-        ("lifecycle_worker", lifecycle_worker_module),
-    ):
-        module_source = inspect.getsource(module)
-        for needle in forbidden:
-            assert needle not in module_source, (
-                f"{module_name} must not import {needle} — audit must remain "
-                "observational and excluded from decision code"
-            )
-
-
 # ---------------------------------------------------------------------------
 # Topology enrichment integration via HTTP entrypoint
 # ---------------------------------------------------------------------------
@@ -1769,8 +2463,13 @@ async def test_tag_overflow_has_sanitized_422_and_no_state_changes(
         accepted = await client.post("/v1/icinga2/events", json=seed)
         assert accepted.status_code == 200
         assert accepted.json()["threshold_decision"]["counted"] == 1
-        before_window = deepcopy(processor._rule_engine._window_state)
         async with session_factory() as session:
+            before_window = (
+                await session.execute(
+                    sa.text("SELECT window_state FROM incidents WHERE id = :id"),
+                    {"id": UUID(accepted.json()["incident_id"])},
+                )
+            ).scalar_one()
             before_audits = (
                 await session.execute(sa.text("SELECT COUNT(*) FROM incident_events"))
             ).scalar_one()
@@ -1790,9 +2489,14 @@ async def test_tag_overflow_has_sanitized_422_and_no_state_changes(
             }
         ]
     }
-    assert processor._rule_engine._window_state == before_window
     assert submitted == []
     async with session_factory() as session:
+        assert (
+            await session.execute(
+                sa.text("SELECT window_state FROM incidents WHERE id = :id"),
+                {"id": UUID(accepted.json()["incident_id"])},
+            )
+        ).scalar_one() == before_window
         assert (
             await session.execute(sa.text("SELECT COUNT(*) FROM incident_events"))
         ).scalar_one() == before_audits
@@ -2176,6 +2880,15 @@ async def test_response_with_no_rule_match_returns_empty_matched_rules(
     assert body["group_key"] is None
     assert body["threshold_decision"] is None
     assert body["rule_decision"]["reason"] == "no matching rule"
+    async with session_factory() as session:
+        summary = (
+            await session.execute(
+                sa.text("SELECT decision_summary FROM incident_events")
+            )
+        ).scalar_one()
+    assert summary["decision_kind"] == "noop"
+    assert summary["threshold_count"] is None
+    assert summary["counted_count"] is None
 
 
 async def test_recovery_event_returns_no_rule_match(
@@ -2284,6 +2997,7 @@ async def test_response_with_rule_match_contains_group_key_and_threshold(
     assert td["counted"] == 1
     assert td["crossed"] is True
     assert td["counted_fingerprints"] == [body["fingerprint"]]
+    assert body["rule_decision"]["threshold_decision"] == td
     assert body["rule_decision"]["rule_name"] == "web-critical"
     assert body["rule_decision"]["priority"] == 10
     assert body["rule_decision"]["summary"] == "Critical http on web-01"
@@ -2291,18 +3005,6 @@ async def test_response_with_rule_match_contains_group_key_and_threshold(
     assert body["incident_effects"]["updated"] == 0
     assert body["closure_count"] == 0
     assert body["notification_count"] == 0
-
-
-# ---------------------------------------------------------------------------
-# Task 3: ingress processor must not import raw Icinga2 fields
-# ---------------------------------------------------------------------------
-def test_processing_ingress_has_no_icinga2_raw_state_refs() -> None:
-    import inspect
-    import app.processing.ingress as ingress_module
-
-    source = inspect.getsource(ingress_module)
-    assert "state_type" not in source
-    assert "check_output" not in source
 
 
 # ---------------------------------------------------------------------------

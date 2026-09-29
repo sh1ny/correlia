@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-import inspect
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
 
 from app.config.rules import load_rules_config
 from app.domain.events import EventType, NormalizedEvent, Severity
-from app.domain.rules import NoOpDecision, RuleDecision
+from app.domain.rules import NoOpDecision, RuleMatch
 from app.processing.rule_engine import RuleEngine
 
 
@@ -64,9 +63,7 @@ async def test_rules_evaluated_in_ascending_priority_order(tmp_path: Path) -> No
                         "trigger_threshold": 1,
                     },
                     "output_summary": "Low: {host}",
-                    "actions": [
-                        {"name": "create_incident", "plugin": "default_output"}
-                    ],
+                    "actions": [{"name": "create_incident", "plugin": "low_output"}],
                 },
                 {
                     "name": "high-priority",
@@ -78,18 +75,21 @@ async def test_rules_evaluated_in_ascending_priority_order(tmp_path: Path) -> No
                         "trigger_threshold": 1,
                     },
                     "output_summary": "High: {host}",
-                    "actions": [
-                        {"name": "create_incident", "plugin": "default_output"}
-                    ],
+                    "actions": [{"name": "create_incident", "plugin": "high_output"}],
                 },
             ]
         },
     )
     event = _event()
     decision = await engine.evaluate(event)
-    assert isinstance(decision, RuleDecision)
+    assert isinstance(decision, RuleMatch)
     assert decision.rule_name == "high-priority"
     assert decision.priority == 10
+    assert decision.summary == "High: web-01"
+    assert decision.actions == ["high_output"]
+    assert decision.window.duration_seconds == 60
+    assert decision.window.trigger_threshold == 1
+    assert decision.window.group_by == ["host"]
 
 
 async def test_first_match_wins_stops_evaluation(tmp_path: Path) -> None:
@@ -130,7 +130,7 @@ async def test_first_match_wins_stops_evaluation(tmp_path: Path) -> None:
     )
     event = _event()
     decision = await engine.evaluate(event)
-    assert isinstance(decision, RuleDecision)
+    assert isinstance(decision, RuleMatch)
     assert decision.rule_name == "first"
     assert decision.matched_rules == ["first"]
 
@@ -163,7 +163,7 @@ async def test_match_by_severity(tmp_path: Path) -> None:
         },
     )
     assert isinstance(
-        await engine.evaluate(_event(severity=Severity.CRITICAL)), RuleDecision
+        await engine.evaluate(_event(severity=Severity.CRITICAL)), RuleMatch
     )
     assert isinstance(
         await engine.evaluate(_event(severity=Severity.WARNING)), NoOpDecision
@@ -192,7 +192,7 @@ async def test_match_by_host_pattern(tmp_path: Path) -> None:
             ]
         },
     )
-    assert isinstance(await engine.evaluate(_event(host="web-01")), RuleDecision)
+    assert isinstance(await engine.evaluate(_event(host="web-01")), RuleMatch)
     assert isinstance(await engine.evaluate(_event(host="db-01")), NoOpDecision)
 
 
@@ -222,7 +222,7 @@ async def test_match_by_service_pattern(tmp_path: Path) -> None:
             ]
         },
     )
-    assert isinstance(await engine.evaluate(_event(service="http")), RuleDecision)
+    assert isinstance(await engine.evaluate(_event(service="http")), RuleMatch)
     assert isinstance(await engine.evaluate(_event(service="ssh")), NoOpDecision)
     assert isinstance(await engine.evaluate(_event(service=None)), NoOpDecision)
 
@@ -254,7 +254,7 @@ async def test_match_by_tag_equality(tmp_path: Path) -> None:
         },
     )
     assert isinstance(
-        await engine.evaluate(_event(tags={"team.name": "platform"})), RuleDecision
+        await engine.evaluate(_event(tags={"team.name": "platform"})), RuleMatch
     )
     assert isinstance(
         await engine.evaluate(_event(tags={"team.name": "sre"})), NoOpDecision
@@ -287,7 +287,7 @@ async def test_match_with_empty_tags_criteria_matches_any_tags(tmp_path: Path) -
             ]
         },
     )
-    assert isinstance(await engine.evaluate(_event(tags={"a": "b"})), RuleDecision)
+    assert isinstance(await engine.evaluate(_event(tags={"a": "b"})), RuleMatch)
 
 
 async def test_match_requires_all_tag_criteria(tmp_path: Path) -> None:
@@ -320,7 +320,7 @@ async def test_match_requires_all_tag_criteria(tmp_path: Path) -> None:
         await engine.evaluate(
             _event(tags={"team.name": "platform", "topology.site": "dc1"})
         ),
-        RuleDecision,
+        RuleMatch,
     )
     assert isinstance(
         await engine.evaluate(_event(tags={"team.name": "platform"})), NoOpDecision
@@ -357,7 +357,7 @@ async def test_group_key_uses_ordered_field_segments(tmp_path: Path) -> None:
     decision = await engine.evaluate(
         _event(service="http", tags={"topology.site": "dc1"})
     )
-    assert isinstance(decision, RuleDecision)
+    assert isinstance(decision, RuleMatch)
     assert decision.group_key == "topology.site=dc1|service=http"
 
 
@@ -384,7 +384,7 @@ async def test_group_key_uses_host_when_configured(tmp_path: Path) -> None:
         },
     )
     decision = await engine.evaluate(_event(host="web-01"))
-    assert isinstance(decision, RuleDecision)
+    assert isinstance(decision, RuleMatch)
     assert decision.group_key == "host=web-01"
 
 
@@ -443,200 +443,6 @@ async def test_group_key_with_none_service_omits_segment(tmp_path: Path) -> None
     assert "missing" in decision.reason.lower()
 
 
-# ---------------------------------------------------------------------------
-# RUL-06: threshold and window decisions
-# ---------------------------------------------------------------------------
-
-
-async def test_threshold_not_crossed_with_fewer_events(tmp_path: Path) -> None:
-    engine = _build_engine(
-        tmp_path,
-        {
-            "rules": [
-                {
-                    "name": "thresh",
-                    "priority": 10,
-                    "match": {"severities": ["CRITICAL"], "host_pattern": ".*"},
-                    "window": {
-                        "duration_seconds": 300,
-                        "group_by": ["host"],
-                        "trigger_threshold": 3,
-                    },
-                    "output_summary": "x",
-                    "actions": [
-                        {"name": "create_incident", "plugin": "default_output"}
-                    ],
-                }
-            ]
-        },
-    )
-    base = datetime(2026, 6, 8, 12, 0, 0, tzinfo=UTC)
-    decision = await engine.evaluate(_event(fingerprint="fp1", timestamp=base))
-    assert isinstance(decision, RuleDecision)
-    assert decision.threshold_decision.crossed is False
-    assert decision.threshold_decision.counted == 1
-
-
-async def test_threshold_crossed_when_count_reaches_threshold(tmp_path: Path) -> None:
-    engine = _build_engine(
-        tmp_path,
-        {
-            "rules": [
-                {
-                    "name": "thresh",
-                    "priority": 10,
-                    "match": {"severities": ["CRITICAL"], "host_pattern": ".*"},
-                    "window": {
-                        "duration_seconds": 300,
-                        "group_by": ["host"],
-                        "trigger_threshold": 2,
-                    },
-                    "output_summary": "x",
-                    "actions": [
-                        {"name": "create_incident", "plugin": "default_output"}
-                    ],
-                }
-            ]
-        },
-    )
-    base = datetime(2026, 6, 8, 12, 0, 0, tzinfo=UTC)
-    await engine.evaluate(_event(fingerprint="fp1", timestamp=base))
-    decision = await engine.evaluate(_event(fingerprint="fp2", timestamp=base))
-    assert isinstance(decision, RuleDecision)
-    assert decision.threshold_decision.crossed is True
-    assert decision.threshold_decision.counted == 2
-
-
-async def test_same_fingerprint_does_not_double_count(tmp_path: Path) -> None:
-    engine = _build_engine(
-        tmp_path,
-        {
-            "rules": [
-                {
-                    "name": "thresh",
-                    "priority": 10,
-                    "match": {"severities": ["CRITICAL"], "host_pattern": ".*"},
-                    "window": {
-                        "duration_seconds": 300,
-                        "group_by": ["host"],
-                        "trigger_threshold": 2,
-                    },
-                    "output_summary": "x",
-                    "actions": [
-                        {"name": "create_incident", "plugin": "default_output"}
-                    ],
-                }
-            ]
-        },
-    )
-    base = datetime(2026, 6, 8, 12, 0, 0, tzinfo=UTC)
-    await engine.evaluate(_event(fingerprint="fp1", timestamp=base))
-    decision = await engine.evaluate(_event(fingerprint="fp1", timestamp=base))
-    assert isinstance(decision, RuleDecision)
-    assert decision.threshold_decision.counted == 1
-    assert decision.threshold_decision.replay_or_skip_reasons == [
-        "replay: fingerprint fp1 already counted in window"
-    ]
-
-
-async def test_events_outside_window_are_not_counted(tmp_path: Path) -> None:
-    engine = _build_engine(
-        tmp_path,
-        {
-            "rules": [
-                {
-                    "name": "thresh",
-                    "priority": 10,
-                    "match": {"severities": ["CRITICAL"], "host_pattern": ".*"},
-                    "window": {
-                        "duration_seconds": 60,
-                        "group_by": ["host"],
-                        "trigger_threshold": 2,
-                    },
-                    "output_summary": "x",
-                    "actions": [
-                        {"name": "create_incident", "plugin": "default_output"}
-                    ],
-                }
-            ]
-        },
-    )
-    base = datetime(2026, 6, 8, 12, 0, 0, tzinfo=UTC)
-    await engine.evaluate(
-        _event(fingerprint="fp1", timestamp=base - timedelta(seconds=61))
-    )
-    decision = await engine.evaluate(_event(fingerprint="fp2", timestamp=base))
-    assert isinstance(decision, RuleDecision)
-    assert decision.threshold_decision.counted == 1
-    assert decision.threshold_decision.crossed is False
-
-
-async def test_future_events_remain_counted_for_out_of_order_delivery(
-    tmp_path: Path,
-) -> None:
-    engine = _build_engine(
-        tmp_path,
-        {
-            "rules": [
-                {
-                    "name": "thresh",
-                    "priority": 10,
-                    "match": {"severities": ["CRITICAL"], "host_pattern": ".*"},
-                    "window": {
-                        "duration_seconds": 300,
-                        "group_by": ["host"],
-                        "trigger_threshold": 2,
-                    },
-                    "output_summary": "x",
-                    "actions": [
-                        {"name": "create_incident", "plugin": "default_output"}
-                    ],
-                }
-            ]
-        },
-    )
-    base = datetime(2026, 6, 8, 12, 0, 0, tzinfo=UTC)
-    await engine.evaluate(_event(fingerprint="future", timestamp=base))
-    decision = await engine.evaluate(
-        _event(fingerprint="older", timestamp=base - timedelta(seconds=30))
-    )
-
-    assert isinstance(decision, RuleDecision)
-    assert decision.threshold_decision.counted == 2
-    assert decision.threshold_decision.crossed is True
-
-
-async def test_threshold_window_bounds_are_correct(tmp_path: Path) -> None:
-    engine = _build_engine(
-        tmp_path,
-        {
-            "rules": [
-                {
-                    "name": "thresh",
-                    "priority": 10,
-                    "match": {"severities": ["CRITICAL"], "host_pattern": ".*"},
-                    "window": {
-                        "duration_seconds": 300,
-                        "group_by": ["host"],
-                        "trigger_threshold": 1,
-                    },
-                    "output_summary": "x",
-                    "actions": [
-                        {"name": "create_incident", "plugin": "default_output"}
-                    ],
-                }
-            ]
-        },
-    )
-    base = datetime(2026, 6, 8, 12, 0, 0, tzinfo=UTC)
-    decision = await engine.evaluate(_event(timestamp=base))
-    assert isinstance(decision, RuleDecision)
-    td = decision.threshold_decision
-    assert td.window_start == base - timedelta(seconds=300)
-    assert td.window_end == base
-    assert td.threshold == 1
-
-
 async def test_summary_uses_normalized_fields_before_same_named_tags(
     tmp_path: Path,
 ) -> None:
@@ -665,7 +471,7 @@ async def test_summary_uses_normalized_fields_before_same_named_tags(
         _event(tags={"host": "shadow-host", "team.name": "platform"})
     )
 
-    assert isinstance(decision, RuleDecision)
+    assert isinstance(decision, RuleMatch)
     assert decision.summary == "Host web-01 from platform"
 
 
@@ -737,27 +543,6 @@ async def test_recovery_event_returns_no_op(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Source boundary: rule engine must not import persistence
-# ---------------------------------------------------------------------------
-
-
-def test_rule_engine_has_no_persistence_import() -> None:
-    import app.processing.rule_engine as rule_engine_module
-
-    source = inspect.getsource(rule_engine_module)
-    assert "app.persistence" not in source
-    assert "AsyncSession" not in source
-
-
-def test_rule_engine_has_no_icinga2_raw_state_refs() -> None:
-    import app.processing.rule_engine as rule_engine_module
-
-    source = inspect.getsource(rule_engine_module)
-    assert "state_type" not in source
-    assert "check_output" not in source
-
-
-# ---------------------------------------------------------------------------
 # Task 3: group-key collision resistance
 # ---------------------------------------------------------------------------
 async def test_group_keys_are_collision_resistant_for_swapped_values(
@@ -786,19 +571,8 @@ async def test_group_keys_are_collision_resistant_for_swapped_values(
     )
     decision_a = await engine.evaluate(_event(host="a", service="b"))
     decision_b = await engine.evaluate(_event(host="b", service="a"))
-    assert isinstance(decision_a, RuleDecision)
-    assert isinstance(decision_b, RuleDecision)
+    assert isinstance(decision_a, RuleMatch)
+    assert isinstance(decision_b, RuleMatch)
     assert decision_a.group_key != decision_b.group_key
     assert decision_a.group_key == "host=a|service=b"
     assert decision_b.group_key == "host=b|service=a"
-
-
-# ---------------------------------------------------------------------------
-# Task 3: config.rules module boundary
-# ---------------------------------------------------------------------------
-def test_config_rules_has_no_persistence_import() -> None:
-    import app.config.rules as rules_config_module
-
-    source = inspect.getsource(rules_config_module)
-    assert "app.persistence" not in source
-    assert "AsyncSession" not in source

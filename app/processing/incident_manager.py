@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.domain.events import EventType, NormalizedEvent
 from app.domain.notifications import NotificationDeliveryRecord
 from app.domain.incidents import DecisionContext
-from app.domain.rules import RuleDecision
+from app.domain.rules import RuleMatch, ThresholdDecision
 from app.persistence.incidents import (
     IncidentAggregationWriteResult,
     IncidentUpsertInput,
@@ -53,6 +53,7 @@ class IncidentAggregationResult:
     inside_window: bool
     counted: bool
     counted_count: int
+    threshold_decision: ThresholdDecision
     threshold_crossed: bool
     first_threshold_transition: bool
     notification_intent: NotificationIntent
@@ -76,22 +77,13 @@ class IncidentManager:
     async def apply_problem(
         self,
         event: NormalizedEvent,
-        decision: RuleDecision,
+        decision: RuleMatch,
     ) -> IncidentAggregationResult:
         if event.event_type is not EventType.PROBLEM:
             raise ValueError(
                 "IncidentManager.apply_problem only accepts PROBLEM events"
             )
 
-        window_seconds = max(
-            1,
-            int(
-                (
-                    decision.threshold_decision.window_end
-                    - decision.threshold_decision.window_start
-                ).total_seconds()
-            ),
-        )
         preliminary_context = self._decision_context(
             event=event,
             decision=decision,
@@ -110,9 +102,27 @@ class IncidentManager:
                 affected_services=(event.service,) if event.service is not None else (),
                 decision_context=preliminary_context,
                 fingerprint=event.fingerprint,
-                threshold_count=decision.threshold_decision.threshold,
-                window_seconds=window_seconds,
+                threshold_count=decision.window.trigger_threshold,
+                window_seconds=decision.window.duration_seconds,
             ),
+        )
+        replay_or_skip_reasons: list[str] = []
+        if write_result.replay:
+            replay_or_skip_reasons.append(
+                f"replay: fingerprint {event.fingerprint} already counted in window"
+            )
+        if not write_result.inside_window:
+            replay_or_skip_reasons.append("outside window: event timestamp not counted")
+        threshold_decision = ThresholdDecision(
+            rule_name=decision.rule_name,
+            group_key=decision.group_key,
+            window_start=write_result.window_started_at,
+            window_end=write_result.window_ended_at,
+            threshold=write_result.threshold_count,
+            counted_fingerprints=list(write_result.counted_fingerprints),
+            counted=write_result.counted_count,
+            crossed=write_result.window_crossed,
+            replay_or_skip_reasons=replay_or_skip_reasons,
         )
         record_incident_effect(write_result.effect)
         logger.info(
@@ -170,6 +180,7 @@ class IncidentManager:
             inside_window=write_result.inside_window,
             counted=write_result.counted,
             counted_count=write_result.counted_count,
+            threshold_decision=threshold_decision,
             threshold_crossed=write_result.threshold_crossed,
             first_threshold_transition=write_result.first_threshold_transition,
             notification_intent=notification_intent,
@@ -181,7 +192,7 @@ class IncidentManager:
     def _decision_context(
         self,
         event: NormalizedEvent,
-        decision: RuleDecision,
+        decision: RuleMatch,
         write_result: IncidentAggregationWriteResult | None,
         no_dispatch_reason: NoDispatchReason | None,
     ) -> DecisionContext:
@@ -213,7 +224,11 @@ class IncidentManager:
             else None,
             config_hash=self._config_hash,
             notes=notes,
-            threshold_count=decision.threshold_decision.threshold,
+            threshold_count=(
+                write_result.threshold_count
+                if write_result is not None
+                else decision.window.trigger_threshold
+            ),
             counted_count=write_result.counted_count
             if write_result is not None
             else None,

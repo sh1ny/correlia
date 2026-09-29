@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from fnmatch import fnmatchcase
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import base64
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
@@ -860,6 +860,36 @@ def docker_compose_stack(tmp_path: Path) -> Iterator[dict[str, object]]:
             {
                 "rules": [
                     {
+                        "name": "docker-smoke-restart-threshold",
+                        "priority": -1,
+                        "match": {
+                            "severities": ["CRITICAL"],
+                            "host_pattern": "^u5-window$",
+                        },
+                        "window": {
+                            "duration_seconds": 60,
+                            "group_by": ["host"],
+                            "trigger_threshold": 2,
+                        },
+                        "output_summary": "Window alert on {host}",
+                        "actions": [{"name": "create_incident", "plugin": "email-ops"}],
+                    },
+                    {
+                        "name": "docker-smoke-capacity-threshold",
+                        "priority": 0,
+                        "match": {
+                            "severities": ["CRITICAL"],
+                            "host_pattern": "^u5-capacity$",
+                        },
+                        "window": {
+                            "duration_seconds": 300,
+                            "group_by": ["host"],
+                            "trigger_threshold": 100,
+                        },
+                        "output_summary": "Capacity alert on {host}",
+                        "actions": [{"name": "create_incident", "plugin": "email-ops"}],
+                    },
+                    {
                         "name": "docker-smoke-threshold",
                         "priority": 1,
                         "match": {"severities": ["CRITICAL"], "host_pattern": ".+"},
@@ -870,7 +900,7 @@ def docker_compose_stack(tmp_path: Path) -> Iterator[dict[str, object]]:
                         },
                         "output_summary": "Critical alert on {host}",
                         "actions": [{"name": "create_incident", "plugin": "email-ops"}],
-                    }
+                    },
                 ]
             }
         )
@@ -1954,6 +1984,343 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
             )
         ),
     )
+    # These narrowly matched rules leave the existing threshold-1 smoke and
+    # qualification metric baselines unchanged. All events are future-dated
+    # relative to the wall clock so the expiration worker cannot remove them.
+    window_end = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(
+        minutes=10
+    )
+    window_sources = (
+        "u5-window-first",
+        "u5-window-second",
+        "u5-window-first",
+        "u5-window-late",
+        "u5-window-outside",
+        "u5-window-pruned",
+    )
+    window_times = (
+        window_end,
+        window_end - timedelta(seconds=20),
+        window_end,
+        window_end - timedelta(seconds=40),
+        window_end - timedelta(seconds=61),
+        window_end + timedelta(seconds=61),
+    )
+
+    def post_threshold_event(
+        *,
+        host: str,
+        source_id: str,
+        event_time: datetime,
+    ) -> dict[str, object]:
+        status, response_body = _container_http_response(
+            app_container,
+            f"{app_url}/v1/icinga2/events",
+            token=ingress_token,
+            payload={
+                "source_id": source_id,
+                "host": host,
+                "service": "probe",
+                "state": "CRITICAL",
+                "state_type": "HARD",
+                "timestamp": event_time.isoformat(),
+                "check_output": "Threshold smoke",
+                "tags": {},
+            },
+            method="POST",
+        )
+        assert status == 200
+        response = json.loads(response_body)
+        assert response["state_accepted"] is True
+        assert (
+            response["threshold_decision"]
+            == response["rule_decision"]["threshold_decision"]
+        )
+        return response
+
+    first_window = post_threshold_event(
+        host="u5-window", source_id=window_sources[0], event_time=window_times[0]
+    )
+    window_incident_id = str(UUID(str(first_window["incident_id"])))
+    status, before_restart_body = _container_http_response(
+        app_container,
+        f"{app_url}/v1/incidents/{window_incident_id}",
+        token=operator_token,
+    )
+    assert status == 200
+    before_restart = json.loads(before_restart_body)
+    assert before_restart["window_state"]["counted_count"] == 1
+    assert set(before_restart["window_state"]["counted_fingerprint_timestamps"]) == {
+        first_window["fingerprint"]
+    }
+    assert before_restart["threshold_crossed"] is False
+
+    # Restart only the application, preserving PostgreSQL and the mounted rules.
+    _require_docker_success(
+        _docker_compose_arguments(stack, "restart", "correlia"),
+        environment=stack["environment"],  # type: ignore[arg-type]
+    )
+    assert (
+        _require_docker_success(
+            _docker_compose_arguments(stack, "ps", "--quiet", "postgres")
+        ).stdout.strip()
+        == postgres_container
+    )
+    _wait_until(
+        "public application health after threshold restart",
+        lambda: (
+            response
+            if (
+                response := _container_http_response(
+                    app_container, f"{app_url}/v1/health"
+                )
+            )[0]
+            == 200
+            else None
+        ),
+    )
+    _wait_until(
+        "application readiness after threshold restart",
+        lambda: (
+            response
+            if (
+                response := _container_http_response(
+                    app_container, f"{app_url}/v1/readyz", token=operator_token
+                )
+            )[0]
+            == 200
+            else None
+        ),
+    )
+    window_responses = [first_window]
+    for source_id, event_time in zip(window_sources[1:], window_times[1:]):
+        window_responses.append(
+            post_threshold_event(
+                host="u5-window", source_id=source_id, event_time=event_time
+            )
+        )
+
+    window_fingerprints = [body["fingerprint"] for body in window_responses]
+    assert window_fingerprints[0] == window_fingerprints[2]
+    assert len(set(window_fingerprints)) == 5
+    expected_window_counts = (1, 2, 2, 3, 3, 1)
+    expected_window_crossings = (False, True, True, True, True, False)
+    expected_monotone_crossings = (False, True, True, True, True, True)
+    expected_reasons = (
+        "below_threshold",
+        None,
+        "replay",
+        "already_notified",
+        "already_notified",
+        "already_notified",
+    )
+    expected_retained = (
+        {window_fingerprints[0]},
+        {window_fingerprints[0], window_fingerprints[1]},
+        {window_fingerprints[0], window_fingerprints[1]},
+        {window_fingerprints[0], window_fingerprints[1], window_fingerprints[3]},
+        {window_fingerprints[0], window_fingerprints[1], window_fingerprints[3]},
+        {window_fingerprints[5]},
+    )
+    window_audits: list[dict[str, object]] = []
+    for index, body in enumerate(window_responses):
+        threshold = body["threshold_decision"]
+        assert body["matched_rules"] == ["docker-smoke-restart-threshold"]
+        assert body["incident_id"] == window_incident_id
+        assert body["group_key"] == "host=u5-window"
+        assert threshold["threshold"] == 2
+        assert threshold["rule_name"] == "docker-smoke-restart-threshold"
+        assert threshold["group_key"] == body["group_key"]
+        expected_end = window_times[5] if index == 5 else window_end
+        assert datetime.fromisoformat(threshold["window_end"]) == expected_end
+        assert datetime.fromisoformat(threshold["window_start"]) == (
+            expected_end - timedelta(seconds=60)
+        )
+        assert threshold["counted"] == expected_window_counts[index]
+        assert set(threshold["counted_fingerprints"]) == expected_retained[index]
+        assert threshold["crossed"] is expected_window_crossings[index]
+        assert body["threshold_crossed"] is expected_monotone_crossings[index]
+        assert body["notification_count"] == int(index == 1)
+        assert body["notification_triggered"] is (index == 1)
+        assert body["no_dispatch_reason"] == expected_reasons[index]
+        assert body["incident_effects"] == (
+            {"inserted": 1, "updated": 0}
+            if index == 0
+            else {"inserted": 0, "updated": 1}
+        )
+        if index == 2:
+            assert any(
+                "replay" in reason for reason in threshold["replay_or_skip_reasons"]
+            )
+        if index == 4:
+            assert any(
+                "outside" in reason for reason in threshold["replay_or_skip_reasons"]
+            )
+
+        # The audit endpoint returns a separate, committed snapshot for each
+        # request. Replay shares a source id and fingerprint with event one.
+        status, audit_body = _container_http_response(
+            app_container,
+            f"{app_url}/v1/incident-events?source_id={window_sources[index]}",
+            token=operator_token,
+        )
+        assert status == 200
+        audit_page = json.loads(audit_body)
+        assert audit_page["total"] == (2 if index in (0, 2) else 1)
+        if index == 0:
+            audit = next(
+                item
+                for item in audit_page["items"]
+                if item["decision_summary"]["replay"] is False
+            )
+        elif index == 2:
+            audit = next(
+                item
+                for item in audit_page["items"]
+                if item["decision_summary"]["replay"] is True
+            )
+        else:
+            audit = audit_page["items"][0]
+        assert audit["source_id"] == body["source_id"]
+        assert audit["fingerprint"] == body["fingerprint"]
+        assert audit["incident_ids"] == [window_incident_id]
+        summary = audit["decision_summary"]
+        assert summary["decision_kind"] == "problem"
+        assert summary["rule_name"] == "docker-smoke-restart-threshold"
+        assert summary["group_key"] == body["group_key"]
+        assert summary["incident_effect"] == ("inserted" if index == 0 else "updated")
+        assert summary["counted_count"] == threshold["counted"]
+        assert summary["threshold_count"] == threshold["threshold"]
+        assert summary["threshold_crossed"] is body["threshold_crossed"]
+        assert summary["replay"] is (index == 2)
+        assert summary["first_threshold_transition"] is (index == 1)
+        assert summary["no_dispatch_reason"] == body["no_dispatch_reason"]
+        assert summary["notification_intent"] == (
+            "dispatch_planned" if index == 1 else "no_dispatch"
+        )
+        window_audits.append(summary)
+    assert (
+        sum(audit["first_threshold_transition"] is True for audit in window_audits) == 1
+    )
+    status, window_detail_body = _container_http_response(
+        app_container,
+        f"{app_url}/v1/incidents/{window_incident_id}",
+        token=operator_token,
+    )
+    assert status == 200
+    window_detail = json.loads(window_detail_body)
+    window_state = window_detail["window_state"]
+    assert window_detail["status"] == "OPEN"
+    assert window_detail["event_count"] == 4
+    assert window_detail["threshold_crossed"] is True
+    assert window_state["threshold_count"] == 2
+    assert window_state["window_seconds"] == 60
+    assert window_state["counted_count"] == 1
+    assert window_state["max_size"] == 100
+    assert set(window_state["counted_fingerprint_timestamps"]) == {
+        window_fingerprints[5]
+    }
+    assert datetime.fromisoformat(window_state["window_started_at"]) == (
+        window_times[5] - timedelta(seconds=60)
+    )
+    assert datetime.fromisoformat(window_state["window_ended_at"]) == window_times[5]
+
+    capacity_time = window_end
+    capacity_incident_id: str | None = None
+    capacity_fingerprints: set[str] = set()
+    for index in range(1, 101):
+        response = post_threshold_event(
+            host="u5-capacity",
+            source_id=f"u5-capacity-{index:03}",
+            event_time=capacity_time,
+        )
+        threshold = response["threshold_decision"]
+        if capacity_incident_id is None:
+            capacity_incident_id = str(UUID(str(response["incident_id"])))
+        assert response["incident_id"] == capacity_incident_id
+        assert response["matched_rules"] == ["docker-smoke-capacity-threshold"]
+        assert response["group_key"] == "host=u5-capacity"
+        assert threshold["threshold"] == 100
+        assert threshold["rule_name"] == "docker-smoke-capacity-threshold"
+        assert threshold["group_key"] == response["group_key"]
+        assert datetime.fromisoformat(threshold["window_start"]) == (
+            capacity_time - timedelta(seconds=300)
+        )
+        assert datetime.fromisoformat(threshold["window_end"]) == capacity_time
+        capacity_fingerprints.add(response["fingerprint"])
+        assert len(capacity_fingerprints) == index
+        assert threshold["counted"] == index
+        assert set(threshold["counted_fingerprints"]) == capacity_fingerprints
+        assert threshold["crossed"] is (index == 100)
+        assert response["threshold_crossed"] is (index == 100)
+        assert response["notification_count"] == int(index == 100)
+        assert response["notification_triggered"] is (index == 100)
+        assert response["no_dispatch_reason"] == (
+            None if index == 100 else "below_threshold"
+        )
+
+    assert capacity_incident_id is not None
+    status, capacity_detail_body = _container_http_response(
+        app_container,
+        f"{app_url}/v1/incidents/{capacity_incident_id}",
+        token=operator_token,
+    )
+    assert status == 200
+    capacity_detail = json.loads(capacity_detail_body)
+    capacity_state = capacity_detail["window_state"]
+    assert capacity_detail["status"] == "OPEN"
+    assert capacity_detail["event_count"] == 100
+    assert capacity_detail["threshold_crossed"] is True
+    assert capacity_state["threshold_count"] == 100
+    assert capacity_state["counted_count"] == 100
+    assert capacity_state["max_size"] == 100
+    assert len(capacity_state["counted_fingerprint_timestamps"]) == 100
+    assert (
+        set(capacity_state["counted_fingerprint_timestamps"]) == capacity_fingerprints
+    )
+    for index, crossed in ((99, False), (100, True)):
+        status, capacity_audit_body = _container_http_response(
+            app_container,
+            f"{app_url}/v1/incident-events?source_id=u5-capacity-{index:03}",
+            token=operator_token,
+        )
+        assert status == 200
+        capacity_page = json.loads(capacity_audit_body)
+        assert capacity_page["total"] == 1
+        capacity_summary = capacity_page["items"][0]["decision_summary"]
+        assert capacity_summary["threshold_count"] == 100
+        assert capacity_summary["counted_count"] == index
+        assert capacity_summary["threshold_crossed"] is crossed
+        assert capacity_summary["first_threshold_transition"] is crossed
+        assert capacity_summary["replay"] is False
+        assert capacity_summary["notification_intent"] == (
+            "dispatch_planned" if crossed else "no_dispatch"
+        )
+
+    threshold_report: dict[str, object] = {
+        "schema_version": 1,
+        "threshold_2_restart": {
+            "request_window_counts": list(expected_window_counts),
+            "window_duration_seconds": 60,
+            "initial_window_start": (window_end - timedelta(seconds=60)).isoformat(),
+            "initial_window_end": window_end.isoformat(),
+            "pruned_window_start": (
+                window_times[5] - timedelta(seconds=60)
+            ).isoformat(),
+            "pruned_window_end": window_times[5].isoformat(),
+            "first_transition_count": 1,
+            "accepted_notification_submissions": 1,
+            "audit_snapshots": len(window_audits),
+            "retained_after_pruning": 1,
+        },
+        "threshold_100_capacity": {
+            "eligible_distinct_events": 100,
+            "count_before_crossing": 99,
+            "crossing_count": 100,
+            "retained_fingerprints": len(capacity_fingerprints),
+        },
+    }
+
     _require_docker_success(["stop", "--time", "1", postgres_container])
     try:
         status, _ = _container_http_response(app_container, f"{app_url}/v1/health")
@@ -2139,7 +2506,69 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
     finally:
         _require_docker_success(["rm", "--force", invalid_plugin_name])
 
+    invalid_threshold_config = tmp_path / "invalid-threshold-config"
+    shutil.copytree(CONFIG_DIRECTORY, invalid_threshold_config)
+    invalid_rules_path = invalid_threshold_config / "rules.yaml"
+    invalid_rules = yaml.safe_load(invalid_rules_path.read_text())
+    invalid_rules["rules"][0]["window"]["trigger_threshold"] = 101
+    invalid_rules_path.write_text(yaml.safe_dump(invalid_rules))
+    invalid_threshold_name = f"{project}-invalid-threshold"
+    try:
+        invalid_threshold = _docker(
+            [
+                "run",
+                "--name",
+                invalid_threshold_name,
+                "--label",
+                f"com.docker.compose.project={project}",
+                "--network",
+                f"{project}_database",
+                "--volume",
+                f"{invalid_threshold_config}:/app/config:ro",
+                "--env-file",
+                str(env_file),
+                "correlia:local",
+            ],
+            timeout=90,
+        )
+        assert invalid_threshold.returncode != 0
+        invalid_threshold_logs = _require_docker_success(
+            ["logs", invalid_threshold_name]
+        )
+        for surface in (
+            invalid_threshold.stdout,
+            invalid_threshold.stderr,
+            invalid_threshold_logs.stdout,
+            invalid_threshold_logs.stderr,
+        ):
+            for secret in (postgres_password, operator_token, ingress_token, audit_key):
+                _assert_secret_absent(
+                    surface, "invalid threshold startup diagnostics", secret
+                )
+        threshold_diagnostics = (
+            f"{invalid_threshold.stdout}\n{invalid_threshold.stderr}\n"
+            f"{invalid_threshold_logs.stdout}\n{invalid_threshold_logs.stderr}"
+        )
+        assert "rules.0.window.trigger_threshold" in threshold_diagnostics
+        assert "less_than_equal" in threshold_diagnostics
+        assert "100" in threshold_diagnostics
+        threshold_inspection = _docker_json(["inspect", invalid_threshold_name])
+        assert isinstance(threshold_inspection, list) and len(threshold_inspection) == 1
+        assert threshold_inspection[0]["State"]["Running"] is False
+        assert threshold_inspection[0]["State"]["ExitCode"] != 0
+    finally:
+        _require_docker_success(["rm", "--force", invalid_threshold_name])
+
     assert _file_checksum(report_path) == report_checksum_before
     assert {
         path: _file_checksum(path) for path in CONFIG_DIRECTORY.glob("*.yaml")
     } == config_checksums_before
+    threshold_report["threshold_101_startup"] = {
+        "rejected_before_serving": True,
+        "validation_field": "rules[0].window.trigger_threshold",
+        "supported_maximum": 100,
+        "diagnostics_secret_free": True,
+    }
+    _publish_qualification_report(
+        "Durable threshold runtime qualification", threshold_report
+    )

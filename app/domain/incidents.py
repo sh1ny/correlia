@@ -11,6 +11,9 @@ from app.domain.events import Severity, TagKey, TagValue
 from app.domain.notifications import NotificationDeliveryRecord
 
 
+MAX_WINDOW_FINGERPRINTS = 100
+
+
 class IncidentStatus(StrEnum):
     OPEN = "OPEN"
     RESOLVED = "RESOLVED"
@@ -27,7 +30,9 @@ class IncidentStatusFilter(StrEnum):
 BoundedString = Annotated[str, Field(min_length=1, max_length=256)]
 BoundedStringTuple = Annotated[tuple[BoundedString, ...], Field(max_length=20)]
 ServicePairTuple = Annotated[tuple[BoundedString, ...], Field(max_length=100)]
-WindowTimestampMap = Annotated[dict[BoundedString, datetime], Field(max_length=100)]
+WindowTimestampMap = Annotated[
+    dict[BoundedString, datetime], Field(max_length=MAX_WINDOW_FINGERPRINTS)
+]
 
 
 _FORBIDDEN_NOTE_FRAGMENTS = (
@@ -153,7 +158,7 @@ class IncidentWindowState(BaseModel):
     threshold_count: int = Field(ge=1)
     counted_fingerprint_timestamps: WindowTimestampMap = Field(default_factory=dict)
     counted_count: int = Field(ge=0)
-    max_size: int = Field(ge=1, le=100)
+    max_size: int = Field(ge=1, le=MAX_WINDOW_FINGERPRINTS)
     active_service_pairs: ServicePairTuple = ()
 
     @field_validator("window_started_at", "window_ended_at", mode="after")
