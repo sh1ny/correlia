@@ -10,6 +10,7 @@ class Settings(BaseSettings):
         env_prefix="CORRELIA_",
         case_sensitive=False,
         extra="forbid",
+        hide_input_in_errors=True,
     )
 
     database_url: PostgresDsn = Field(validation_alias="DATABASE_URL")
@@ -58,6 +59,16 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _require_security_tokens_when_enabled(self) -> Self:
+        if self.environment == "production":
+            unsafe: list[str] = []
+            if not self.api_auth_enabled:
+                unsafe.append("api_auth_enabled=true")
+            if self.expose_readyz:
+                unsafe.append("expose_readyz=false")
+            if self.expose_metrics:
+                unsafe.append("expose_metrics=false")
+            if unsafe:
+                raise ValueError(f"production requires: {', '.join(unsafe)}")
         if not self.api_auth_enabled:
             return self
         operator_value: str | None = (
