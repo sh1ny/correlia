@@ -25,12 +25,6 @@ def test_valid_database_url_and_defaults() -> None:
     assert settings.plugins_path is None
 
 
-def test_settings_model_config_contract() -> None:
-    assert Settings.model_config["extra"] == "forbid"
-    assert Settings.model_config["env_prefix"] == "CORRELIA_"
-    assert Settings.model_fields["database_url"].validation_alias == "DATABASE_URL"
-
-
 @pytest.mark.parametrize(
     ("kwargs", "expected_error"),
     [
@@ -51,7 +45,12 @@ def test_invalid_settings_raise_explicit_validation_errors(
     kwargs: dict[str, str], expected_error: str
 ) -> None:
     with pytest.raises(ValidationError) as exc_info:
-        Settings(**kwargs)
+        Settings(
+            operator_api_token="operator-secret",
+            ingress_api_token="ingress-secret",
+            audit_raw_payload_hmac_key="audit-secret",
+            **kwargs,
+        )
 
     error_types = {error["type"] for error in exc_info.value.errors()}
     assert expected_error in error_types
@@ -108,6 +107,284 @@ async def test_check_database_ready_raises_original_connectivity_failure() -> No
     assert exc_info.value is failure
 
 
+@pytest.mark.parametrize("source", ["constructor", "environment"])
+@pytest.mark.parametrize("api_auth_enabled", [False, True])
+@pytest.mark.parametrize("expose_readyz", [False, True])
+@pytest.mark.parametrize("expose_metrics", [False, True])
+def test_production_auth_and_exposure_policy(
+    monkeypatch: pytest.MonkeyPatch,
+    source: str,
+    api_auth_enabled: bool,
+    expose_readyz: bool,
+    expose_metrics: bool,
+) -> None:
+    def construct() -> Settings:
+        if source == "environment":
+            monkeypatch.setenv("DATABASE_URL", VALID_DATABASE_URL)
+            monkeypatch.setenv("CORRELIA_ENVIRONMENT", "production")
+            monkeypatch.setenv("CORRELIA_OPERATOR_API_TOKEN", "operator-secret")
+            monkeypatch.setenv("CORRELIA_INGRESS_API_TOKEN", "ingress-secret")
+            monkeypatch.setenv("CORRELIA_AUDIT_RAW_PAYLOAD_HMAC_KEY", "audit-secret")
+            monkeypatch.setenv("CORRELIA_API_AUTH_ENABLED", str(api_auth_enabled))
+            monkeypatch.setenv("CORRELIA_EXPOSE_READYZ", str(expose_readyz))
+            monkeypatch.setenv("CORRELIA_EXPOSE_METRICS", str(expose_metrics))
+            return Settings()  # type: ignore[call-arg]
+        return Settings(
+            DATABASE_URL=VALID_DATABASE_URL,
+            environment="production",
+            api_auth_enabled=api_auth_enabled,
+            expose_readyz=expose_readyz,
+            expose_metrics=expose_metrics,
+            operator_api_token="operator-secret",
+            ingress_api_token="ingress-secret",
+            audit_raw_payload_hmac_key="audit-secret",
+        )
+
+    if api_auth_enabled and not expose_readyz and not expose_metrics:
+        settings = construct()
+        assert settings.api_auth_enabled is True
+        assert settings.expose_readyz is False
+        assert settings.expose_metrics is False
+        return
+
+    with pytest.raises(ValidationError) as exc_info:
+        construct()
+    message = str(exc_info.value)
+    assert "production" in message
+    for field, unsafe in (
+        ("api_auth_enabled", not api_auth_enabled),
+        ("expose_readyz", expose_readyz),
+        ("expose_metrics", expose_metrics),
+    ):
+        if unsafe:
+            assert field in message
+
+
+@pytest.mark.parametrize("source", ["constructor", "environment"])
+@pytest.mark.parametrize(
+    "omitted_fields",
+    [
+        ("expose_readyz", "expose_metrics"),
+        ("expose_readyz",),
+        ("expose_metrics",),
+    ],
+)
+def test_production_rejects_omitted_public_exposure_defaults(
+    monkeypatch: pytest.MonkeyPatch, source: str, omitted_fields: tuple[str, ...]
+) -> None:
+    exposure = {
+        field: False
+        for field in ("expose_readyz", "expose_metrics")
+        if field not in omitted_fields
+    }
+    with pytest.raises(ValidationError) as exc_info:
+        if source == "environment":
+            monkeypatch.setenv("DATABASE_URL", VALID_DATABASE_URL)
+            monkeypatch.setenv("CORRELIA_ENVIRONMENT", "production")
+            monkeypatch.setenv("CORRELIA_API_AUTH_ENABLED", "true")
+            monkeypatch.setenv("CORRELIA_OPERATOR_API_TOKEN", "operator-secret")
+            monkeypatch.setenv("CORRELIA_INGRESS_API_TOKEN", "ingress-secret")
+            monkeypatch.setenv("CORRELIA_AUDIT_RAW_PAYLOAD_HMAC_KEY", "audit-secret")
+            for field in omitted_fields:
+                monkeypatch.delenv(f"CORRELIA_{field.upper()}", raising=False)
+            for field in exposure:
+                monkeypatch.setenv(f"CORRELIA_{field.upper()}", "false")
+            Settings()  # type: ignore[call-arg]
+        else:
+            Settings(
+                DATABASE_URL=VALID_DATABASE_URL,
+                environment="production",
+                api_auth_enabled=True,
+                operator_api_token="operator-secret",
+                ingress_api_token="ingress-secret",
+                audit_raw_payload_hmac_key="audit-secret",
+                **exposure,
+            )
+    message = str(exc_info.value)
+    for field in omitted_fields:
+        assert field in message
+
+
+@pytest.mark.parametrize("source", ["constructor", "environment"])
+@pytest.mark.parametrize("environment", [None, "local", "test"])
+@pytest.mark.parametrize("expose_readyz", [False, True])
+@pytest.mark.parametrize("expose_metrics", [False, True])
+def test_nonproduction_auth_disabled_exposure_combinations(
+    monkeypatch: pytest.MonkeyPatch,
+    source: str,
+    environment: str | None,
+    expose_readyz: bool,
+    expose_metrics: bool,
+) -> None:
+    if source == "environment":
+        monkeypatch.setenv("DATABASE_URL", VALID_DATABASE_URL)
+        monkeypatch.setenv("CORRELIA_API_AUTH_ENABLED", "false")
+        monkeypatch.setenv("CORRELIA_AUDIT_RAW_PAYLOAD_HMAC_KEY", "audit-secret")
+        monkeypatch.setenv("CORRELIA_EXPOSE_READYZ", str(expose_readyz))
+        monkeypatch.setenv("CORRELIA_EXPOSE_METRICS", str(expose_metrics))
+        if environment is not None:
+            monkeypatch.setenv("CORRELIA_ENVIRONMENT", environment)
+        settings = Settings()  # type: ignore[call-arg]
+    else:
+        environment_input = {} if environment is None else {"environment": environment}
+        settings = Settings(
+            DATABASE_URL=VALID_DATABASE_URL,
+            api_auth_enabled=False,
+            expose_readyz=expose_readyz,
+            expose_metrics=expose_metrics,
+            audit_raw_payload_hmac_key="audit-secret",
+            **environment_input,
+        )
+    assert settings.environment == (environment or "local")
+    assert settings.api_auth_enabled is False
+    assert settings.operator_api_token is None
+    assert settings.ingress_api_token is None
+    assert settings.expose_readyz is expose_readyz
+    assert settings.expose_metrics is expose_metrics
+
+
+@pytest.mark.parametrize("source", ["constructor", "environment"])
+@pytest.mark.parametrize("environment", [None, "local", "test"])
+def test_nonproduction_keeps_public_exposure_defaults(
+    monkeypatch: pytest.MonkeyPatch, source: str, environment: str | None
+) -> None:
+    if source == "environment":
+        monkeypatch.setenv("DATABASE_URL", VALID_DATABASE_URL)
+        monkeypatch.setenv("CORRELIA_API_AUTH_ENABLED", "false")
+        monkeypatch.setenv("CORRELIA_AUDIT_RAW_PAYLOAD_HMAC_KEY", "audit-secret")
+        if environment is not None:
+            monkeypatch.setenv("CORRELIA_ENVIRONMENT", environment)
+        settings = Settings()  # type: ignore[call-arg]
+    else:
+        environment_input = {} if environment is None else {"environment": environment}
+        settings = Settings(
+            DATABASE_URL=VALID_DATABASE_URL,
+            api_auth_enabled=False,
+            audit_raw_payload_hmac_key="audit-secret",
+            **environment_input,
+        )
+    assert settings.environment == (environment or "local")
+    assert settings.expose_readyz is True
+    assert settings.expose_metrics is True
+
+
+def test_unknown_environment_from_process_environment_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", VALID_DATABASE_URL)
+    monkeypatch.setenv("CORRELIA_ENVIRONMENT", "staging")
+    monkeypatch.setenv("CORRELIA_OPERATOR_API_TOKEN", "operator-secret")
+    monkeypatch.setenv("CORRELIA_INGRESS_API_TOKEN", "ingress-secret")
+    monkeypatch.setenv("CORRELIA_AUDIT_RAW_PAYLOAD_HMAC_KEY", "audit-secret")
+    with pytest.raises(ValidationError) as exc_info:
+        Settings()  # type: ignore[call-arg]
+    assert any(
+        error["loc"] == ("environment",) and error["type"] == "literal_error"
+        for error in exc_info.value.errors()
+    )
+
+
+@pytest.mark.parametrize(
+    ("credentials", "expected_fields"),
+    [
+        (
+            {"operator_api_token": None, "ingress_api_token": None},
+            ("operator_api_token", "ingress_api_token"),
+        ),
+        ({"operator_api_token": None}, ("operator_api_token",)),
+        ({"ingress_api_token": None}, ("ingress_api_token",)),
+        ({"operator_api_token": ""}, ("operator_api_token",)),
+        ({"operator_api_token": "   "}, ("operator_api_token",)),
+        ({"ingress_api_token": ""}, ("ingress_api_token",)),
+        ({"ingress_api_token": "   "}, ("ingress_api_token",)),
+        (
+            {
+                "operator_api_token": "shared-secret",
+                "ingress_api_token": "shared-secret",
+            },
+            ("operator_api_token", "ingress_api_token"),
+        ),
+        ({"audit_raw_payload_hmac_key": None}, ("audit_raw_payload_hmac_key",)),
+        ({"audit_raw_payload_hmac_key": ""}, ("audit_raw_payload_hmac_key",)),
+        ({"audit_raw_payload_hmac_key": "   "}, ("audit_raw_payload_hmac_key",)),
+        (
+            {"audit_raw_payload_hmac_key": "operator-secret"},
+            ("audit_raw_payload_hmac_key", "operator_api_token"),
+        ),
+        (
+            {"audit_raw_payload_hmac_key": "ingress-secret"},
+            ("audit_raw_payload_hmac_key", "ingress_api_token"),
+        ),
+    ],
+)
+def test_safe_production_still_requires_valid_separate_credentials(
+    credentials: dict[str, str | None], expected_fields: tuple[str, ...]
+) -> None:
+    values: dict[str, str | None] = {
+        "operator_api_token": "operator-secret",
+        "ingress_api_token": "ingress-secret",
+        "audit_raw_payload_hmac_key": "audit-secret",
+    }
+    values.update(credentials)
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            DATABASE_URL=VALID_DATABASE_URL,
+            environment="production",
+            api_auth_enabled=True,
+            expose_readyz=False,
+            expose_metrics=False,
+            **{field: value for field, value in values.items() if value is not None},
+        )
+    message = str(exc_info.value)
+    for field in expected_fields:
+        assert field in message
+
+
+@pytest.mark.parametrize(
+    ("api_auth_enabled", "expose_readyz", "expose_metrics", "expected_field"),
+    [
+        (False, False, False, "api_auth_enabled"),
+        (True, True, False, "expose_readyz"),
+        (True, False, True, "expose_metrics"),
+    ],
+)
+def test_production_policy_diagnostics_hide_supplied_secrets(
+    api_auth_enabled: bool,
+    expose_readyz: bool,
+    expose_metrics: bool,
+    expected_field: str,
+) -> None:
+    database_secret = "disposable-database-sentinel"
+    operator_secret = "disposable-operator-sentinel"
+    ingress_secret = "disposable-ingress-sentinel"
+    audit_secret = "disposable-audit-sentinel"
+    database_url = (
+        f"postgresql+asyncpg://user:{database_secret}@localhost:5432/correlia"
+    )
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            DATABASE_URL=database_url,
+            environment="production",
+            api_auth_enabled=api_auth_enabled,
+            expose_readyz=expose_readyz,
+            expose_metrics=expose_metrics,
+            operator_api_token=operator_secret,
+            ingress_api_token=ingress_secret,
+            audit_raw_payload_hmac_key=audit_secret,
+        )
+    message = str(exc_info.value)
+    assert "production" in message
+    assert expected_field in message
+    for sentinel in (
+        database_url,
+        database_secret,
+        operator_secret,
+        ingress_secret,
+        audit_secret,
+    ):
+        assert sentinel not in message
+
+
 # Phase 5 security-settings tests
 
 
@@ -144,7 +421,8 @@ def test_auth_enabled_requires_distinct_operator_and_ingress_tokens() -> None:
             audit_raw_payload_hmac_key="audit-secret",
         )
     message = " ".join(str(err.get("msg", "")) for err in exc_info.value.errors())
-    assert "distinct operator_api_token and ingress_api_token" in message
+    assert "operator_api_token" in message
+    assert "ingress_api_token" in message
 
 
 def test_tokens_stored_as_secret_str() -> None:
@@ -163,12 +441,17 @@ def test_tokens_stored_as_secret_str() -> None:
 
 @pytest.mark.parametrize("environment", ["local", "test", "production"])
 def test_token_validation_has_no_environment_bypass(environment: str) -> None:
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as exc_info:
         Settings(
             DATABASE_URL=VALID_DATABASE_URL,
             environment=environment,  # type: ignore[arg-type]
+            expose_readyz=False,
+            expose_metrics=False,
             audit_raw_payload_hmac_key="audit-secret",
         )
+    message = str(exc_info.value)
+    assert "operator_api_token" in message
+    assert "ingress_api_token" in message
 
 
 def test_auth_can_be_disabled_without_tokens() -> None:

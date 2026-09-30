@@ -205,7 +205,80 @@ docker compose up --build
 
 The operator configuration is mounted read-only at `/app/config`. PostgreSQL and SMTP are isolated on private Compose networks; only the Correlia API (`127.0.0.1:8000`) and Mailpit UI (`127.0.0.1:8025`) are published to the host. Mailpit's SMTP listener remains private at `mailpit:1025`.
 
-The sample keeps API authentication enabled, protects `/v1/readyz` with the operator token, leaves `/v1/health` public for the token-free container healthcheck, and preserves metrics exposure through `CORRELIA_EXPOSE_METRICS`.
+The sample intentionally selects `local`, enables API authentication, protects `/v1/readyz` with the operator token, and exposes `/v1/metrics` publicly. Compose's container healthcheck calls `/v1/readyz` with the operator bearer token; it is not token-free. `/v1/health` remains public minimal liveness and is independent of readiness.
+
+## Production authentication and route exposure
+
+Production must be selected explicitly; the application does not infer it from network location. With valid database/configuration inputs, set all four policy values:
+
+```bash
+CORRELIA_ENVIRONMENT=production
+CORRELIA_API_AUTH_ENABLED=true
+CORRELIA_EXPOSE_READYZ=false
+CORRELIA_EXPOSE_METRICS=false
+```
+
+Supply distinct, non-empty `CORRELIA_OPERATOR_API_TOKEN`, `CORRELIA_INGRESS_API_TOKEN`, and `CORRELIA_AUDIT_RAW_PAYLOAD_HMAC_KEY` through protected deployment configuration. Production application authentication is mandatory, even behind an authenticated proxy. The operator and ingress tokens grant separate roles; neither grants the other role.
+
+An omitted environment means `local`. Direct application settings retain defaults of authentication enabled and both operational exposure flags `true`; Compose and `.env.example` instead set readiness exposure `false` and metrics exposure `true`. These nonproduction defaults are unchanged. Selecting production alone intentionally fails: both flags must resolve to `false`, whether supplied explicitly or through deployment environment values. Production rejects authentication disabled or either exposure flag `true` before the application can serve requests; it does not silently clamp values or substitute safer defaults.
+
+### Settings ownership and precedence
+
+`create_app(settings=...)` uses the supplied `Settings` instance rather than loading another one from the process environment. Explicit `Settings(...)` constructor values take precedence over environment values for the same field. Without injection, the factory resolves settings from the process environment and defaults. One resolved settings instance owns the factory's route surface, lifespan initialization, and request dependencies; lifespan does not reload settings.
+
+Host startup does not automatically load `.env` (see [Local factory startup](#local-factory-startup)). Compose's `.env`/`--env-file` handling is a separate CLI interpolation step: the [Compose shell environment takes precedence over env-file values](https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/), and this manifest passes interpolated `environment:` values into the container. A safe-looking env file therefore does not prove the effective container policy. Check only the resolved environment selector and three nonsecret policy flags; do not print or log full rendered Compose configuration, container environments, or secret-bearing diagnostics.
+
+Startup rejection guarantees no application serving, not that no database work or dependency resources were started. Compose starts its dependencies first, and the checked-in container entrypoint runs `alembic upgrade head` before starting the one-worker Uvicorn HTTP backend.
+
+### Normative route matrix
+
+“Operator” and “Ingress” require the matching bearer token when authentication is enabled. Local/test with authentication disabled bypass those role dependencies, including readiness/metrics protection regardless of the exposure flags. Production cannot select that mode.
+
+| Method and path | Local/test, auth enabled | Local/test, auth disabled | Valid production |
+|---|---|---|---|
+| GET `/v1/health` | Public minimal liveness | Public minimal liveness | Public minimal liveness |
+| GET `/v1/readyz` | Public if `expose_readyz=true`; otherwise Operator | Public, regardless of exposure flag | Operator |
+| GET `/v1/metrics` | Public if `expose_metrics=true`; otherwise Operator | Public, regardless of exposure flag | Operator |
+| POST `/v1/icinga2/events` | Ingress | Public | Ingress |
+| GET `/v1/plugins` | Operator | Public | Operator |
+| GET `/v1/rules` | Operator | Public | Operator |
+| GET `/v1/topology` | Operator | Public | Operator |
+| GET `/v1/incidents` | Operator | Public | Operator |
+| GET `/v1/incidents/{incident_id}` | Operator | Public | Operator |
+| POST `/v1/incidents/{incident_id}/ack` | Operator | Public | Operator |
+| POST `/v1/incidents/{incident_id}/close` | Operator | Public | Operator |
+| PATCH `/v1/incidents/{incident_id}` | Operator; compatibility acknowledge/close | Public; compatibility acknowledge/close | Operator; compatibility acknowledge/close |
+| DELETE `/v1/incidents/{incident_id}` | Operator; compatibility close, not deletion | Public; compatibility close, not deletion | Operator; compatibility close, not deletion |
+| GET `/v1/incident-events` | Operator | Public | Operator |
+| GET `/docs` | Public Swagger | Public Swagger | Absent |
+| GET `/redoc` | Public ReDoc | Public ReDoc | Absent |
+| GET `/openapi.json` | Public schema | Public schema | Absent |
+| GET `/docs/oauth2-redirect` | Public documentation helper | Public documentation helper | Absent |
+
+Missing, invalid, and wrong-role credentials receive generic `401` denial on protected supported methods with syntactically valid bounded requests and available rate-limit capacity, without protected handler output or work. Existing routing, validation, size, and rate-limit precedence still applies; unsupported methods, malformed/oversized requests, or exhausted quotas need not return `401`. Production's four documentation URLs are absent, not merely authenticated: credentials do not restore them, and exact/trailing-slash GET/HEAD requests return `404` without following redirects. Obsolete unprefixed API paths remain absent.
+
+### External TLS, backend reachability, and proxy trust
+
+The repository supplies an HTTP backend, not a TLS terminator or production proxy. Before any external bearer-bearing request, establish **certificate-verified HTTPS** to the intended endpoint. Do not send a token over HTTP to test a redirect: redirecting afterward cannot undo disclosure. Keep credentials out of URLs and proxy/application diagnostics. Restrict readiness, metrics, and operator API routes at the edge to the operator/monitoring network, consistent with [OWASP management-endpoint guidance](https://cheatsheetseries.owasp.org/cheatsheets/REST_Security_Cheat_Sheet.html#management-endpoints). Do not have the proxy inject a shared privileged token for arbitrary clients; application role checks must remain meaningful.
+
+Choose and qualify the actual topology rather than combining these two designs:
+
+- **Host reverse proxy:** retain a backend publication bound to host loopback, as the local manifest does at `127.0.0.1:8000`, and terminate external HTTPS at the host proxy. Loopback publication does not exclude host processes or prove all container/network paths are blocked.
+- **Containerized reverse proxy:** use a controlled private network between proxy and backend, with no backend host-port publication. This requires deployment-specific networking, not a proxy already supplied by `compose.yaml`. An unpublished backend port is not “proxy-only”: the host and same-bridge peers may still reach it. Limit network membership and enforce the intended reachability.
+
+The proxy-to-application HTTP hop carries bearer credentials in plaintext. Trust and protect that hop and its host/network peers; encrypt it if the network is untrusted or crosses hosts. Application authentication does not replace transport confidentiality or backend isolation. See [OWASP HTTPS and access-control guidance](https://cheatsheetseries.owasp.org/cheatsheets/REST_Security_Cheat_Sheet.html) and [Docker port-publishing behavior](https://docs.docker.com/engine/network/port-publishing/).
+
+Forwarded metadata is neither authentication nor proof of TLS. Configure an explicit allowlist of trusted **connecting proxy peers**, based on the peer addresses the backend actually sees, and ensure the proxy overwrites untrusted incoming forwarding metadata. Pinned [Uvicorn 0.49.0 proxy handling](https://github.com/Kludex/uvicorn/blob/0.49.0/uvicorn/middleware/proxy_headers.py) defaults to trusting `127.0.0.1`; a proxy reached through container networking is not necessarily that peer. It processes `X-Forwarded-Proto` and `X-Forwarded-For` for scheme/client IP, not `X-Forwarded-Host`. Preserve or set the real `Host` header as required by the deployment. Do not use wildcard forwarding trust as a substitute for an explicit peer boundary.
+
+Qualify IPv4 and IPv6, bridge membership, Docker direct routing/gateway modes, and Docker-aware firewall paths. Docker documents a localhost-published-port caveat for Engine versions before 28; [Docker firewall integration](https://docs.docker.com/engine/network/packet-filtering-firewalls/) also explains why a generic host firewall/ufw claim is not isolation proof. On the real topology, establish certificate trust first, then verify permitted proxy/operator/ingress traffic and blocked direct backend access from external IPv4/IPv6 and routable-container positions. Do not send real bearer credentials on an exposed plaintext probe path.
+
+### Activation, rollback, and evidence boundaries
+
+Prepare the production policy inputs, protected credentials, and operator-authenticated readiness/metrics monitoring before activation. If startup rejects effective settings, correct the inputs or keep the service unavailable. Never disable authentication, expose operations, or select local/test as an availability workaround.
+
+Roll back only to an image/configuration proven to preserve the production authentication and route surface. Check compatibility with the current database schema first: migrations may already have run, and rollback must not automatically downgrade the database.
+
+The checked-in image/Compose loopback HTTP smoke is the verification gate for application policy, authorized behavior, and unsafe-settings rejection; a passing run does **not** qualify external HTTPS, certificate trust, or backend network isolation. Those are separate deployment-operator checks before public operation.
 
 ## Rate limiting
 

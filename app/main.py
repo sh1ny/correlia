@@ -1,8 +1,8 @@
 import logging
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, cast
 
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
@@ -148,8 +148,6 @@ def _valid_tokens_for_rate_limit(settings: Settings) -> dict[str, str | None]:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    if not hasattr(app.state, "settings"):
-        app.state.settings = get_settings()
     configure_json_logging(app.state.settings.log_level)
     configure_migration_report_projection(app.state.settings.migration_report_path)
 
@@ -268,20 +266,31 @@ def create_app(
     plugin_registry: PluginRegistry | None = None,
     lifecycle_worker: LifecycleWorker | None = None,
 ) -> FastAPI:
-    app = FastAPI(lifespan=lifespan)
+    effective_settings = settings if settings is not None else get_settings()
+    # Pydantic restores instance methods at class creation, but its decorator
+    # annotations retain the descriptor proxy type.
+    cast(
+        Callable[[], Settings], effective_settings._require_security_tokens_when_enabled
+    )()
+    cast(Callable[[], Settings], effective_settings._require_audit_hmac_key)()
+    is_production = effective_settings.environment == "production"
+    app = FastAPI(
+        lifespan=lifespan,
+        docs_url=None if is_production else "/docs",
+        redoc_url=None if is_production else "/redoc",
+        openapi_url=None if is_production else "/openapi.json",
+        swagger_ui_oauth2_redirect_url=(
+            None if is_production else "/docs/oauth2-redirect"
+        ),
+    )
+    app.state.settings = effective_settings
     app.add_exception_handler(
         RequestValidationError, request_validation_exception_handler
     )
 
     if settings is not None:
-        app.state.settings = settings
         configure_json_logging(settings.log_level)
 
-    effective_settings = (
-        settings
-        if settings is not None
-        else getattr(app.state, "settings", get_settings())
-    )
     rate_limiter = InProcessRateLimiter()
     app.state.rate_limiter = rate_limiter
     raw_valid_tokens = _valid_tokens_for_rate_limit(effective_settings)

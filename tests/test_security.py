@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from pathlib import Path
+from typing import Literal
 
-from httpx import ASGITransport, AsyncClient
-
+import pytest
+import yaml
+from fastapi import FastAPI
 from fastapi.security import HTTPAuthorizationCredentials
+from httpx import ASGITransport, AsyncClient
 
 from app.api.security import _token_matches
 from app.config.settings import Settings
@@ -26,153 +30,177 @@ class NoopLifecycleWorker:
         return None
 
 
-class FakePluginRegistry:
-    def list_plugins(self) -> tuple[dict[str, object], ...]:
-        return ()
-
-    @property
-    def names(self) -> frozenset[str]:
-        return frozenset()
-
-
-def _auth_settings(api_auth_enabled: bool = True) -> Settings:
-    return Settings(
-        DATABASE_URL=VALID_DATABASE_URL,
-        api_auth_enabled=api_auth_enabled,
-        operator_api_token=OPERATOR_TOKEN if api_auth_enabled else None,
-        ingress_api_token=INGRESS_TOKEN if api_auth_enabled else None,
-        audit_raw_payload_hmac_key="test-audit-hmac",
-    )
-
-
-def _app(settings: Settings) -> object:
-    return create_app(
-        settings=settings,
-        sessionmaker=lambda: object(),
-        plugin_registry=FakePluginRegistry(),
-        lifecycle_worker=NoopLifecycleWorker(),
-    )
-
-
-async def get_client(app) -> AsyncIterator[AsyncClient]:
+async def get_client(app: FastAPI) -> AsyncIterator[AsyncClient]:
     async with app.router.lifespan_context(app):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             yield client
 
 
-async def test_operator_routes_accept_valid_operator_token() -> None:
-    app = _app(_auth_settings())
-    async for client in get_client(app):
-        response = await client.get(
-            "/v1/plugins", headers={"Authorization": f"Bearer {OPERATOR_TOKEN}"}
+@pytest.mark.parametrize(
+    ("environment", "api_auth_enabled"),
+    (
+        ("local", False),
+        ("local", True),
+        ("test", False),
+        ("test", True),
+        ("production", True),
+    ),
+)
+async def test_config_routes_preserve_safe_results_for_operator_or_nonproduction_bypass(
+    environment: Literal["local", "test", "production"],
+    api_auth_enabled: bool,
+    tmp_path: Path,
+) -> None:
+    plugins_path = tmp_path / "plugins.yaml"
+    plugins_path.write_text(
+        yaml.safe_dump(
+            {
+                "outputs": [
+                    {
+                        "name": "email-oncall",
+                        "plugin_type": "email",
+                        "class_path": "app.plugins.outputs.email.SmtpOutputPlugin",
+                        "options": {
+                            "host": "localhost",
+                            "port": 1025,
+                            "username": "operator",
+                            "password": "configuration-password-sentinel",
+                            "start_tls": True,
+                            "to_addresses": ["ops@example.test"],
+                        },
+                    }
+                ]
+            }
         )
-    assert response.status_code == 200
-
-
-async def test_operator_routes_reject_missing_token() -> None:
-    app = _app(_auth_settings())
-    async for client in get_client(app):
-        response = await client.get("/v1/plugins")
-    assert response.status_code == 401
-    assert response.json() == {"detail": "unauthorized"}
-    assert response.headers.get("WWW-Authenticate") == "Bearer"
-
-
-async def test_operator_routes_reject_invalid_token() -> None:
-    app = _app(_auth_settings())
-    async for client in get_client(app):
-        response = await client.get(
-            "/v1/plugins", headers={"Authorization": "Bearer wrong-token"}
+    )
+    rules_path = tmp_path / "rules.yaml"
+    rules_path.write_text(
+        yaml.safe_dump(
+            {
+                "rules": [
+                    {
+                        "name": "web-critical",
+                        "priority": 10,
+                        "match": {
+                            "severities": ["CRITICAL"],
+                            "host_pattern": "web-.*",
+                            "service_pattern": "http",
+                            "tags": {"team.name": "platform"},
+                        },
+                        "window": {
+                            "duration_seconds": 300,
+                            "group_by": ["host", "service"],
+                            "trigger_threshold": 2,
+                        },
+                        "output_summary": "Critical {service} on {host}",
+                        "actions": [
+                            {"name": "create_incident", "plugin": "email-oncall"}
+                        ],
+                    }
+                ]
+            }
         )
-    assert response.status_code == 401
-    assert response.json() == {"detail": "unauthorized"}
-
-
-async def test_operator_routes_reject_ingress_token() -> None:
-    app = _app(_auth_settings())
-    async for client in get_client(app):
-        response = await client.get(
-            "/v1/plugins", headers={"Authorization": f"Bearer {INGRESS_TOKEN}"}
+    )
+    topology_path = tmp_path / "topology.yaml"
+    topology_path.write_text(
+        yaml.safe_dump(
+            {
+                "hostname_rules": [
+                    {
+                        "id": "web-hosts",
+                        "name": "Web Hosts",
+                        "hostname_pattern": "^web-.*",
+                        "tags": {"topology.role": "web", "topology.site": "dc1"},
+                    }
+                ],
+                "subnet_rules": [
+                    {
+                        "id": "dc1-subnet",
+                        "name": "DC1 Subnet",
+                        "subnet": "192.0.2.0/24",
+                        "tags": {"topology.site": "dc1"},
+                    }
+                ],
+            }
         )
-    assert response.status_code == 401
-    assert response.json() == {"detail": "unauthorized"}
-
-
-async def test_ingress_route_accepts_valid_ingress_token() -> None:
-    app = _app(_auth_settings())
+    )
+    app = create_app(
+        settings=Settings(
+            DATABASE_URL=VALID_DATABASE_URL,
+            environment=environment,
+            api_auth_enabled=api_auth_enabled,
+            operator_api_token=OPERATOR_TOKEN if api_auth_enabled else None,
+            ingress_api_token=INGRESS_TOKEN if api_auth_enabled else None,
+            audit_raw_payload_hmac_key="test-audit-hmac",
+            expose_readyz=False,
+            expose_metrics=False,
+            plugins_path=plugins_path,
+            rules_path=rules_path,
+            topology_path=topology_path,
+        ),
+        sessionmaker=lambda: object(),
+        lifecycle_worker=NoopLifecycleWorker(),
+    )
+    headers = {"Authorization": f"Bearer {OPERATOR_TOKEN}"} if api_auth_enabled else {}
     async for client in get_client(app):
-        response = await client.post(
-            "/v1/icinga2/events",
-            json={},
-            headers={"Authorization": f"Bearer {INGRESS_TOKEN}"},
-        )
-    # 422 is expected because the empty body fails Icinga2 validation,
-    # proving auth succeeded and the route handler was reached.
-    assert response.status_code == 422
+        plugins = await client.get("/v1/plugins", headers=headers)
+        rules = await client.get("/v1/rules", headers=headers)
+        topology = await client.get("/v1/topology", headers=headers)
 
-
-async def test_ingress_route_rejects_missing_token() -> None:
-    app = _app(_auth_settings())
-    async for client in get_client(app):
-        response = await client.post("/v1/icinga2/events", json={})
-    assert response.status_code == 401
-    assert response.json() == {"detail": "unauthorized"}
-    assert response.headers.get("WWW-Authenticate") == "Bearer"
-
-
-async def test_ingress_route_rejects_invalid_token() -> None:
-    app = _app(_auth_settings())
-    async for client in get_client(app):
-        response = await client.post(
-            "/v1/icinga2/events",
-            json={},
-            headers={"Authorization": "Bearer wrong-token"},
-        )
-    assert response.status_code == 401
-    assert response.json() == {"detail": "unauthorized"}
-
-
-async def test_ingress_route_rejects_operator_token() -> None:
-    app = _app(_auth_settings())
-    async for client in get_client(app):
-        response = await client.post(
-            "/v1/icinga2/events",
-            json={},
-            headers={"Authorization": f"Bearer {OPERATOR_TOKEN}"},
-        )
-    assert response.status_code == 401
-    assert response.json() == {"detail": "unauthorized"}
-
-
-async def test_unauthorized_response_does_not_reveal_token_class() -> None:
-    app = _app(_auth_settings())
-    async for client in get_client(app):
-        operator_response = await client.get(
-            "/v1/plugins", headers={"Authorization": f"Bearer {INGRESS_TOKEN}"}
-        )
-        ingress_response = await client.post(
-            "/v1/icinga2/events",
-            json={},
-            headers={"Authorization": f"Bearer {OPERATOR_TOKEN}"},
-        )
-    assert operator_response.json() == ingress_response.json()
-    assert "operator" not in operator_response.text.lower()
-    assert "ingress" not in operator_response.text.lower()
-
-
-async def test_auth_disabled_allows_unauthenticated_operator_access() -> None:
-    app = _app(_auth_settings(api_auth_enabled=False))
-    async for client in get_client(app):
-        response = await client.get("/v1/plugins")
-    assert response.status_code == 200
-
-
-async def test_auth_disabled_allows_unauthenticated_ingress_access() -> None:
-    app = _app(_auth_settings(api_auth_enabled=False))
-    async for client in get_client(app):
-        response = await client.post("/v1/icinga2/events", json={})
-    assert response.status_code == 422
+    assert plugins.status_code == 200
+    assert plugins.json() == [
+        {
+            "name": "email-oncall",
+            "plugin_type": "email",
+            "status": "ready",
+            "ready": True,
+        }
+    ]
+    assert rules.status_code == 200
+    assert set(rules.json()) == {"config_hash", "rules"}
+    assert rules.json()["rules"] == [
+        {
+            "name": "web-critical",
+            "priority": 10,
+            "group_by": ["host", "service"],
+            "actions": [{"name": "create_incident", "plugin": "email-oncall"}],
+        }
+    ]
+    assert topology.status_code == 200
+    assert set(topology.json()) == {"config_hash", "rules"}
+    assert topology.json()["rules"] == [
+        {
+            "id": "web-hosts",
+            "name": "Web Hosts",
+            "match_type": "hostname",
+            "tag_keys": ["topology.role", "topology.site"],
+        },
+        {
+            "id": "dc1-subnet",
+            "name": "DC1 Subnet",
+            "match_type": "subnet",
+            "tag_keys": ["topology.site"],
+        },
+    ]
+    for response in (plugins, rules, topology):
+        serialized = response.text.lower()
+        for forbidden in (
+            "configuration-password-sentinel",
+            "password",
+            "options",
+            "class_path",
+            "smtpoutputplugin",
+            "ops@example.test",
+            "host_pattern",
+            "service_pattern",
+            "critical {service}",
+            "^web-",
+            "192.0.2.0/24",
+            OPERATOR_TOKEN,
+            INGRESS_TOKEN,
+        ):
+            assert forbidden not in serialized
 
 
 def test_token_matches_returns_false_on_malformed_bearer() -> None:

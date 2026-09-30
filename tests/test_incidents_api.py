@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from testcontainers.postgres import PostgresContainer
 
@@ -21,6 +21,9 @@ from app.persistence.models import Incident, IncidentEvent
 
 
 VALID_DATABASE_URL = "postgresql+asyncpg://user:pass@localhost:5432/correlia"
+OPERATOR_TOKEN = "production-operator-secret"
+INGRESS_TOKEN = "production-ingress-secret"
+OPERATOR_HEADERS = {"Authorization": f"Bearer {OPERATOR_TOKEN}"}
 
 
 def _run_alembic_upgrade(database_url: str) -> None:
@@ -92,12 +95,84 @@ def _settings() -> Settings:
     )
 
 
-def _app(session_factory: async_sessionmaker[AsyncSession]):
+def _production_settings() -> Settings:
+    return Settings(
+        DATABASE_URL=VALID_DATABASE_URL,
+        environment="production",
+        api_auth_enabled=True,
+        expose_readyz=False,
+        expose_metrics=False,
+        operator_api_token=OPERATOR_TOKEN,
+        ingress_api_token=INGRESS_TOKEN,
+        audit_raw_payload_hmac_key="test-audit-hmac",
+    )
+
+
+def _app(
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    settings: Settings | None = None,
+):
     return create_app(
-        settings=_settings(),
+        settings=settings if settings is not None else _settings(),
         sessionmaker=session_factory,
         lifecycle_worker=NoopLifecycleWorker(),
     )
+
+
+async def _persisted_state(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> dict[str, list[dict[str, object]]]:
+    state: dict[str, list[dict[str, object]]] = {}
+    async with session_factory() as session:
+        for table in (Incident.__table__, IncidentEvent.__table__):
+            result = await session.execute(select(table).order_by(table.c.id))
+            state[table.name] = [dict(row) for row in result.mappings()]
+    return state
+
+
+async def _assert_operator_denials_preserve_state(
+    client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    method: str,
+    path: str,
+    *,
+    payload: dict[str, str] | None = None,
+) -> None:
+    # Core row snapshots include memberships, acknowledgement, lifecycle and
+    # audit JSONB; unchanged counts alone cannot detect an unauthorized update.
+    before = await _persisted_state(session_factory)
+    engine = session_factory.kw["bind"].sync_engine
+
+    for headers in (
+        {},
+        {"Authorization": "Bearer invalid-token"},
+        {"Authorization": f"Bearer {INGRESS_TOKEN}"},
+    ):
+        statements: list[str] = []
+
+        def record_statement(
+            _connection: object,
+            _cursor: object,
+            statement: str,
+            _parameters: object,
+            _context: object,
+            _executemany: bool,
+        ) -> None:
+            statements.append(statement)
+
+        # Record request SQL only, excluding startup and snapshot queries.
+        event.listen(engine, "before_cursor_execute", record_statement)
+        try:
+            response = await client.request(method, path, headers=headers, json=payload)
+        finally:
+            event.remove(engine, "before_cursor_execute", record_statement)
+
+        assert response.status_code == 401
+        assert response.json() == {"detail": "unauthorized"}
+        assert response.headers["WWW-Authenticate"] == "Bearer"
+        assert statements == []
+        assert await _persisted_state(session_factory) == before
 
 
 def _event_time(offset_minutes: int) -> datetime:
@@ -191,9 +266,14 @@ async def test_list_incidents_filters_and_cursor_pagination(
             event_time=_event_time(2),
         )
 
-    app = _app(session_factory)
+    app = _app(session_factory, settings=_production_settings())
     async for client in get_client(app):
-        page1 = await client.get("/v1/incidents", params={"limit": 2})
+        await _assert_operator_denials_preserve_state(
+            client, session_factory, "GET", "/v1/incidents"
+        )
+        page1 = await client.get(
+            "/v1/incidents", params={"limit": 2}, headers=OPERATOR_HEADERS
+        )
         filtered = await client.get(
             "/v1/incidents",
             params={
@@ -204,10 +284,12 @@ async def test_list_incidents_filters_and_cursor_pagination(
                 "service": "disk",
                 "updated_since": _event_time(1).isoformat(),
             },
+            headers=OPERATOR_HEADERS,
         )
         older = await client.get(
             "/v1/incidents",
             params={"updated_since": _event_time(3).isoformat()},
+            headers=OPERATOR_HEADERS,
         )
 
     assert page1.status_code == 200
@@ -221,6 +303,7 @@ async def test_list_incidents_filters_and_cursor_pagination(
         page2 = await client.get(
             "/v1/incidents",
             params={"limit": 2, "cursor": body1["next_cursor"]},
+            headers=OPERATOR_HEADERS,
         )
     assert page2.status_code == 200
     body2 = page2.json()
@@ -247,9 +330,14 @@ async def test_incident_detail_excludes_raw_payloads_and_secrets(
             event_time=_event_time(0),
         )
 
-    app = _app(session_factory)
+    app = _app(session_factory, settings=_production_settings())
     async for client in get_client(app):
-        response = await client.get(f"/v1/incidents/{incident.id}")
+        await _assert_operator_denials_preserve_state(
+            client, session_factory, "GET", f"/v1/incidents/{incident.id}"
+        )
+        response = await client.get(
+            f"/v1/incidents/{incident.id}", headers=OPERATOR_HEADERS
+        )
 
     assert response.status_code == 200
     body = response.json()
@@ -297,18 +385,46 @@ async def test_ack_is_idempotent_and_keeps_incident_open(
             event_time=_event_time(0),
         )
 
-    app = _app(session_factory)
+    app = _app(session_factory, settings=_production_settings())
     payload = {"operator": "operator-a"}
     async for client in get_client(app):
-        first = await client.post(f"/v1/incidents/{incident.id}/ack", json=payload)
-        second = await client.post(f"/v1/incidents/{incident.id}/ack", json=payload)
+        await _assert_operator_denials_preserve_state(
+            client,
+            session_factory,
+            "POST",
+            f"/v1/incidents/{incident.id}/ack",
+            payload=payload,
+        )
+        first = await client.post(
+            f"/v1/incidents/{incident.id}/ack",
+            json=payload,
+            headers=OPERATOR_HEADERS,
+        )
+        second = await client.post(
+            f"/v1/incidents/{incident.id}/ack",
+            json=payload,
+            headers=OPERATOR_HEADERS,
+        )
 
     assert first.status_code == 200
     assert second.status_code == 200
     assert first.json()["status"] == "OPEN"
     assert second.json()["status"] == "OPEN"
     assert second.json()["acknowledgement"]["acknowledged_by"] == "operator-a"
+    assert (
+        first.json()["acknowledgement"]["acknowledged_at"]
+        == second.json()["acknowledgement"]["acknowledged_at"]
+    )
     async with session_factory() as session:
+        acknowledged = await session.get(Incident, incident.id)
+        assert acknowledged is not None
+        assert acknowledged.status == IncidentStatus.OPEN.value
+        assert acknowledged.acknowledged_by == "operator-a"
+        assert acknowledged.acknowledged_at is not None
+        assert acknowledged.affected_hosts == ["ack-1"]
+        assert acknowledged.affected_services == ["cpu"]
+        assert acknowledged.event_count == incident.event_count
+        assert acknowledged.window_state == incident.window_state
         count = await session.scalar(
             select(func.count())
             .select_from(Incident)
@@ -342,17 +458,42 @@ async def test_manual_close_is_idempotent_and_frees_open_slot(
             event_time=_event_time(0),
         )
 
-    app = _app(session_factory)
+    app = _app(session_factory, settings=_production_settings())
     payload = {"operator": "operator-a", "reason": "handled manually"}
     async for client in get_client(app):
-        first = await client.post(f"/v1/incidents/{incident.id}/close", json=payload)
-        second = await client.post(f"/v1/incidents/{incident.id}/close", json=payload)
+        await _assert_operator_denials_preserve_state(
+            client,
+            session_factory,
+            "POST",
+            f"/v1/incidents/{incident.id}/close",
+            payload=payload,
+        )
+        first = await client.post(
+            f"/v1/incidents/{incident.id}/close",
+            json=payload,
+            headers=OPERATOR_HEADERS,
+        )
+        after_close = await _persisted_state(session_factory)
+        second = await client.post(
+            f"/v1/incidents/{incident.id}/close",
+            json=payload,
+            headers=OPERATOR_HEADERS,
+        )
 
     assert first.status_code == 200
     assert second.status_code == 200
     assert first.json()["status"] == "CLOSED"
     assert second.json()["status"] == "CLOSED"
+    assert await _persisted_state(session_factory) == after_close
     async with session_factory() as session:
+        closed = await session.get(Incident, incident.id)
+        assert closed is not None
+        assert closed.status == IncidentStatus.CLOSED.value
+        assert closed.closed_at is not None
+        assert closed.affected_hosts == ["close-1"]
+        assert closed.affected_services == ["disk"]
+        assert closed.event_count == incident.event_count
+        assert closed.window_state == incident.window_state
         reopened = await _seed_incident(
             session,
             rule_name="close-rule",
@@ -653,13 +794,25 @@ async def test_patch_acknowledges_with_vigilo_defaults_and_is_idempotent(
             event_time=_event_time(0),
         )
 
-    app = _app(session_factory)
+    app = _app(session_factory, settings=_production_settings())
+    payload = {"status": "ACKNOWLEDGED"}
     async for client in get_client(app):
+        await _assert_operator_denials_preserve_state(
+            client,
+            session_factory,
+            "PATCH",
+            f"/v1/incidents/{incident.id}",
+            payload=payload,
+        )
         first = await client.patch(
-            f"/v1/incidents/{incident.id}", json={"status": "ACKNOWLEDGED"}
+            f"/v1/incidents/{incident.id}",
+            json=payload,
+            headers=OPERATOR_HEADERS,
         )
         second = await client.patch(
-            f"/v1/incidents/{incident.id}", json={"status": "ACKNOWLEDGED"}
+            f"/v1/incidents/{incident.id}",
+            json=payload,
+            headers=OPERATOR_HEADERS,
         )
 
     assert first.status_code == 200
@@ -668,6 +821,20 @@ async def test_patch_acknowledges_with_vigilo_defaults_and_is_idempotent(
     assert second.json()["status"] == "OPEN"
     assert first.json()["acknowledgement"]["acknowledged_by"] == "vigilo-compat"
     assert second.json()["acknowledgement"]["acknowledged_by"] == "vigilo-compat"
+    assert (
+        first.json()["acknowledgement"]["acknowledged_at"]
+        == second.json()["acknowledgement"]["acknowledged_at"]
+    )
+    async with session_factory() as session:
+        acknowledged = await session.get(Incident, incident.id)
+        assert acknowledged is not None
+        assert acknowledged.status == IncidentStatus.OPEN.value
+        assert acknowledged.acknowledged_by == "vigilo-compat"
+        assert acknowledged.acknowledged_at is not None
+        assert acknowledged.affected_hosts == ["patch-ack"]
+        assert acknowledged.affected_services == ["cpu"]
+        assert acknowledged.event_count == incident.event_count
+        assert acknowledged.window_state == incident.window_state
 
     # AUD-03: PATCH compatibility ack must not create audit rows.
     async with session_factory() as session:
@@ -700,16 +867,39 @@ async def test_patch_close_and_delete_close_with_vigilo_defaults_are_idempotent(
             event_time=_event_time(1),
         )
 
-    app = _app(session_factory)
+    app = _app(session_factory, settings=_production_settings())
+    payload = {"status": "CLOSED"}
     async for client in get_client(app):
+        await _assert_operator_denials_preserve_state(
+            client,
+            session_factory,
+            "PATCH",
+            f"/v1/incidents/{patch_incident.id}",
+            payload=payload,
+        )
+        await _assert_operator_denials_preserve_state(
+            client, session_factory, "DELETE", f"/v1/incidents/{delete_incident.id}"
+        )
         first_close = await client.patch(
-            f"/v1/incidents/{patch_incident.id}", json={"status": "CLOSED"}
+            f"/v1/incidents/{patch_incident.id}",
+            json=payload,
+            headers=OPERATOR_HEADERS,
         )
+        after_patch_close = await _persisted_state(session_factory)
         repeat_close = await client.patch(
-            f"/v1/incidents/{patch_incident.id}", json={"status": "CLOSED"}
+            f"/v1/incidents/{patch_incident.id}",
+            json=payload,
+            headers=OPERATOR_HEADERS,
         )
-        first_delete = await client.delete(f"/v1/incidents/{delete_incident.id}")
-        repeat_delete = await client.delete(f"/v1/incidents/{delete_incident.id}")
+        assert await _persisted_state(session_factory) == after_patch_close
+        first_delete = await client.delete(
+            f"/v1/incidents/{delete_incident.id}", headers=OPERATOR_HEADERS
+        )
+        after_delete_close = await _persisted_state(session_factory)
+        repeat_delete = await client.delete(
+            f"/v1/incidents/{delete_incident.id}", headers=OPERATOR_HEADERS
+        )
+        assert await _persisted_state(session_factory) == after_delete_close
 
     assert first_close.status_code == 200
     assert repeat_close.status_code == 200
@@ -719,6 +909,17 @@ async def test_patch_close_and_delete_close_with_vigilo_defaults_are_idempotent(
     assert repeat_delete.status_code == 200
     assert first_delete.json()["status"] == "CLOSED"
     assert repeat_delete.json()["status"] == "CLOSED"
+    async with session_factory() as session:
+        for original in (patch_incident, delete_incident):
+            closed = await session.get(Incident, original.id)
+            assert closed is not None
+            assert closed.id == original.id
+            assert closed.status == IncidentStatus.CLOSED.value
+            assert closed.closed_at is not None
+            assert closed.affected_hosts == original.affected_hosts
+            assert closed.affected_services == original.affected_services
+            assert closed.event_count == original.event_count
+            assert closed.window_state == original.window_state
 
     # AUD-03: PATCH/DELETE compatibility close must not create audit rows.
     async with session_factory() as session:

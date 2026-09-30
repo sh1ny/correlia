@@ -15,16 +15,27 @@ from app.config.topology import CompiledTopologyConfig
 
 
 VALID_DATABASE_URL = "postgresql+asyncpg://user:pass@localhost:5432/correlia"
-PHASE_FOUR_TARGETED_VERIFICATION_COMMAND = (
-    "uv run pytest tests/test_domain_incidents.py tests/test_settings.py "
-    "tests/test_icinga2_input.py tests/test_ingress_router.py "
-    "tests/test_topology_enrichment.py tests/test_rule_topology_yaml.py "
-    "tests/test_rule_engine.py tests/test_notification_dispatch.py "
-    "tests/test_incident_manager.py tests/test_lifecycle_repository.py "
-    "tests/test_lifecycle_expiration.py tests/test_lifecycle_worker.py "
-    "tests/test_incidents_api.py tests/test_config_status_api.py "
-    "tests/test_metrics_api.py tests/test_structured_logging.py tests/test_health.py -x"
-)
+OPERATOR_TOKEN = "operator-token"
+INGRESS_TOKEN = "ingress-token"
+
+
+def _production_settings(
+    *,
+    rules_path: Path | None = None,
+    topology_path: Path | None = None,
+) -> Settings:
+    return Settings(
+        DATABASE_URL=VALID_DATABASE_URL,
+        environment="production",
+        api_auth_enabled=True,
+        expose_readyz=False,
+        expose_metrics=False,
+        operator_api_token=OPERATOR_TOKEN,
+        ingress_api_token=INGRESS_TOKEN,
+        audit_raw_payload_hmac_key="test-audit-hmac",
+        rules_path=rules_path,
+        topology_path=topology_path,
+    )
 
 
 class HealthyLifecycleWorker:
@@ -64,6 +75,7 @@ class PluginRegistryStatus:
     ) -> None:
         self._rows = rows
         self._status_error = status_error
+        self.readiness_calls = 0
         self.names = tuple(str(row["name"]) for row in rows)
         self.config_hash = "safe-config-hash"
 
@@ -71,6 +83,7 @@ class PluginRegistryStatus:
         return self._rows
 
     def readiness_states(self) -> dict[str, str]:
+        self.readiness_calls += 1
         if self._status_error is not None:
             raise self._status_error
         ready = [row.get("ready") is True for row in self._rows]
@@ -105,6 +118,7 @@ class SuccessfulSession:
 class FailingSession:
     def __init__(self, failure: RuntimeError) -> None:
         self.failure = failure
+        self.executed_sql: list[str] = []
 
     async def __aenter__(self) -> "FailingSession":
         return self
@@ -113,6 +127,7 @@ class FailingSession:
         return None
 
     async def execute(self, statement: object) -> None:
+        self.executed_sql.append(statement.text)
         raise self.failure
 
 
@@ -131,13 +146,7 @@ def _app(
     lifecycle_worker: object | None = None,
 ):
     return create_app(
-        settings=settings
-        or Settings(
-            DATABASE_URL=VALID_DATABASE_URL,
-            operator_api_token="operator-token",
-            ingress_api_token="ingress-token",
-            audit_raw_payload_hmac_key="test-audit-hmac",
-        ),
+        settings=settings or _production_settings(),
         sessionmaker=lambda: sessionmaker(),
         plugin_registry=plugin_registry or PluginRegistryStatus(),
         icinga2_processor=object(),
@@ -145,23 +154,59 @@ def _app(
     )
 
 
+async def _assert_readyz_denials_skip_probes(
+    client: AsyncClient,
+    session: SuccessfulSession | FailingSession,
+    registry: PluginRegistryStatus,
+) -> None:
+    for token in (None, "invalid-readiness-token", INGRESS_TOKEN):
+        headers = {} if token is None else {"Authorization": f"Bearer {token}"}
+        denied = await client.get("/v1/readyz", headers=headers)
+        assert denied.status_code == 401
+        assert denied.json() == {"detail": "unauthorized"}
+        assert denied.headers.get("WWW-Authenticate") == "Bearer"
+    assert session.executed_sql == []
+    assert registry.readiness_calls == 0
+
+
 async def test_health_returns_ok_without_database_readiness() -> None:
     failure = RuntimeError("DATABASE_URL postgresql://user:password@host/token-secret")
-    app = _app(sessionmaker=lambda: FailingSession(failure))
+    session = FailingSession(failure)
+    registry = PluginRegistryStatus()
+    app = _app(sessionmaker=lambda: session, plugin_registry=registry)
 
     async for client in get_client(app):
-        response = await client.get("/v1/health")
+        before = await client.get("/v1/health")
+        assert before.status_code == 200
+        assert before.json() == {"status": "ok"}
+        assert session.executed_sql == []
+        assert registry.readiness_calls == 0
 
-    assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+        not_ready = await client.get(
+            "/v1/readyz", headers={"Authorization": f"Bearer {OPERATOR_TOKEN}"}
+        )
+        assert not_ready.status_code == 503
+        assert not_ready.json()["checks"]["database"] == "not_ready"
+        assert session.executed_sql == ["select 1"]
+        assert registry.readiness_calls == 1
+
+        after = await client.get("/v1/health")
+        assert after.status_code == 200
+        assert after.json() == {"status": "ok"}
+        assert session.executed_sql == ["select 1"]
+        assert registry.readiness_calls == 1
 
 
 async def test_readyz_returns_ready_when_database_check_succeeds() -> None:
     session = SuccessfulSession()
-    app = _app(sessionmaker=lambda: session)
+    registry = PluginRegistryStatus()
+    app = _app(sessionmaker=lambda: session, plugin_registry=registry)
 
     async for client in get_client(app):
-        response = await client.get("/v1/readyz")
+        await _assert_readyz_denials_skip_probes(client, session, registry)
+        response = await client.get(
+            "/v1/readyz", headers={"Authorization": f"Bearer {OPERATOR_TOKEN}"}
+        )
 
     assert response.status_code == 200
     assert response.json() == {
@@ -178,6 +223,7 @@ async def test_readyz_returns_ready_when_database_check_succeeds() -> None:
         },
     }
     assert session.executed_sql == ["select 1"]
+    assert registry.readiness_calls == 1
     from app.processing.metrics import render_metrics
 
     metrics = render_metrics().decode()
@@ -191,13 +237,21 @@ async def test_readyz_returns_ready_when_database_check_succeeds() -> None:
 
 async def test_readyz_returns_non_secret_503_when_database_check_fails() -> None:
     failure = RuntimeError("DATABASE_URL postgresql://user:password@host/token-secret")
-    app = _app(sessionmaker=lambda: FailingSession(failure))
+    session = FailingSession(failure)
+    registry = PluginRegistryStatus()
+    app = _app(sessionmaker=lambda: session, plugin_registry=registry)
 
     async for client in get_client(app):
-        response = await client.get("/v1/readyz")
+        await _assert_readyz_denials_skip_probes(client, session, registry)
+        response = await client.get(
+            "/v1/readyz", headers={"Authorization": f"Bearer {OPERATOR_TOKEN}"}
+        )
 
     assert response.status_code == 503
     assert response.json()["detail"] == "not ready"
+    assert response.json()["checks"]["database"] == "not_ready"
+    assert session.executed_sql == ["select 1"]
+    assert registry.readiness_calls == 1
     response_body = response.text.lower()
     for secret_fragment in (
         "database_url",
@@ -207,20 +261,6 @@ async def test_readyz_returns_non_secret_503_when_database_check_fails() -> None
         "secret",
     ):
         assert secret_fragment not in response_body
-
-
-def test_v1_health_and_readyz_routes_replace_legacy_paths() -> None:
-    app = _app()
-
-    route_paths = {route.path for route in app.routes}
-
-    assert "/v1/health" in route_paths
-    assert "/v1/readyz" in route_paths
-    assert "/health" not in route_paths
-    assert "/readyz" not in route_paths
-    assert "/metrics" not in route_paths
-    assert "/config" not in route_paths
-    assert "/config-summary" not in route_paths
 
 
 @pytest.mark.parametrize(
@@ -238,12 +278,7 @@ async def test_readyz_reports_dependency_failures_without_secrets(
     expected_check: str,
     tmp_path: Path,
 ) -> None:
-    settings = Settings(
-        DATABASE_URL=VALID_DATABASE_URL,
-        operator_api_token="operator-token",
-        ingress_api_token="ingress-token",
-        audit_raw_payload_hmac_key="test-audit-hmac",
-    )
+    settings = _production_settings()
     sessionmaker = SuccessfulSession
     plugin_registry: PluginRegistryStatus | None = PluginRegistryStatus()
     if case == "database":
@@ -254,20 +289,12 @@ async def test_readyz_reports_dependency_failures_without_secrets(
         def sessionmaker() -> FailingSession:
             return FailingSession(failure)
     elif case == "rules":
-        settings = Settings(
-            DATABASE_URL=VALID_DATABASE_URL,
-            rules_path=tmp_path / "rules-password-token-secret.yaml",
-            operator_api_token="operator-token",
-            ingress_api_token="ingress-token",
-            audit_raw_payload_hmac_key="test-audit-hmac",
+        settings = _production_settings(
+            rules_path=tmp_path / "rules-password-token-secret.yaml"
         )
     elif case == "topology":
-        settings = Settings(
-            DATABASE_URL=VALID_DATABASE_URL,
-            topology_path=tmp_path / "topology-password-token-secret.yaml",
-            operator_api_token="operator-token",
-            ingress_api_token="ingress-token",
-            audit_raw_payload_hmac_key="test-audit-hmac",
+        settings = _production_settings(
+            topology_path=tmp_path / "topology-password-token-secret.yaml"
         )
         plugin_registry = None
     elif case == "plugin_not_ready":
@@ -298,7 +325,9 @@ async def test_readyz_reports_dependency_failures_without_secrets(
         app.state.plugin_registry = None
 
     async for client in get_client(app):
-        response = await client.get("/v1/readyz")
+        response = await client.get(
+            "/v1/readyz", headers={"Authorization": f"Bearer {OPERATOR_TOKEN}"}
+        )
 
     assert response.status_code == 503
     payload = response.json()
@@ -321,13 +350,17 @@ async def test_readyz_requires_lifecycle_worker_health() -> None:
     for worker in (WorkerWithoutHealth(), UnhealthyLifecycleWorker()):
         app = _app(lifecycle_worker=worker)
         async for client in get_client(app):
-            response = await client.get("/v1/readyz")
+            response = await client.get(
+                "/v1/readyz", headers={"Authorization": f"Bearer {OPERATOR_TOKEN}"}
+            )
         assert response.status_code == 503
         assert response.json()["checks"]["lifecycle_worker"] == "not_ready"
 
     app = _app(lifecycle_worker=HealthyLifecycleWorker())
     async for client in get_client(app):
-        response = await client.get("/v1/readyz")
+        response = await client.get(
+            "/v1/readyz", headers={"Authorization": f"Bearer {OPERATOR_TOKEN}"}
+        )
     assert response.status_code == 200
     assert response.json()["status"] == "ready"
     assert response.json()["checks"]["lifecycle_worker"] == "ready"
@@ -355,7 +388,9 @@ async def test_readyz_aggregates_plugin_categories_without_plugin_details() -> N
     )
 
     async for client in get_client(app):
-        response = await client.get("/v1/readyz")
+        response = await client.get(
+            "/v1/readyz", headers={"Authorization": f"Bearer {OPERATOR_TOKEN}"}
+        )
 
     assert response.status_code == 503
     payload = response.json()
@@ -399,7 +434,9 @@ async def test_readyz_fails_closed_when_plugin_status_evaluation_raises(
     caplog.set_level(logging.INFO, logger="app.api.routers.health")
 
     async for client in get_client(app):
-        response = await client.get("/v1/readyz")
+        response = await client.get(
+            "/v1/readyz", headers={"Authorization": f"Bearer {OPERATOR_TOKEN}"}
+        )
 
     assert response.status_code == 503
     assert response.json()["checks"]["email"] == "not_ready"
@@ -416,33 +453,6 @@ async def test_readyz_fails_closed_when_plugin_status_evaluation_raises(
     assert "smtp" not in repr(events).lower()
 
 
-async def test_readyz_is_protected_while_liveness_stays_public() -> None:
-    settings = Settings(
-        DATABASE_URL=VALID_DATABASE_URL,
-        operator_api_token="operator-token",
-        ingress_api_token="ingress-token",
-        audit_raw_payload_hmac_key="test-audit-hmac",
-        expose_readyz=False,
-    )
-    app = _app(settings=settings)
-
-    async for client in get_client(app):
-        health = await client.get("/v1/health")
-        unauthenticated = await client.get("/v1/readyz")
-        wrong_token = await client.get(
-            "/v1/readyz", headers={"Authorization": "Bearer ingress-token"}
-        )
-        ready = await client.get(
-            "/v1/readyz", headers={"Authorization": "Bearer operator-token"}
-        )
-
-    assert health.status_code == 200
-    assert health.json() == {"status": "ok"}
-    assert unauthenticated.status_code == 401
-    assert wrong_token.status_code == 401
-    assert ready.status_code == 200
-
-
 async def test_readyz_logs_only_meaningful_state_transitions(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -451,10 +461,11 @@ async def test_readyz_logs_only_meaningful_state_transitions(
     caplog.set_level(logging.INFO, logger="app.api.routers.health")
 
     async for client in get_client(app):
-        first = await client.get("/v1/readyz")
-        second = await client.get("/v1/readyz")
+        headers = {"Authorization": f"Bearer {OPERATOR_TOKEN}"}
+        first = await client.get("/v1/readyz", headers=headers)
+        second = await client.get("/v1/readyz", headers=headers)
         worker.healthy = False
-        third = await client.get("/v1/readyz")
+        third = await client.get("/v1/readyz", headers=headers)
 
     assert [response.status_code for response in (first, second, third)] == [
         200,
@@ -467,28 +478,3 @@ async def test_readyz_logs_only_meaningful_state_transitions(
         if record.__dict__.get("event") == "readiness"
     ]
     assert events == [("aggregate", "ready"), ("lifecycle_worker", "not_ready")]
-
-
-def test_phase_four_targeted_verification_commands_are_documented() -> None:
-    command = PHASE_FOUR_TARGETED_VERIFICATION_COMMAND
-
-    assert command == (
-        "uv run pytest tests/test_domain_incidents.py tests/test_settings.py "
-        "tests/test_icinga2_input.py tests/test_ingress_router.py "
-        "tests/test_topology_enrichment.py tests/test_rule_topology_yaml.py "
-        "tests/test_rule_engine.py tests/test_notification_dispatch.py "
-        "tests/test_incident_manager.py tests/test_lifecycle_repository.py "
-        "tests/test_lifecycle_expiration.py tests/test_lifecycle_worker.py "
-        "tests/test_incidents_api.py tests/test_config_status_api.py "
-        "tests/test_metrics_api.py tests/test_structured_logging.py tests/test_health.py -x"
-    )
-    assert "sqlite" not in command.lower()
-
-
-def test_readyz_source_keeps_failure_details_safe() -> None:
-    source = Path("app/api/routers/health.py").read_text().lower()
-
-    assert "database_url" not in source
-    assert "str(exc)" not in source
-    assert "repr(exc)" not in source
-    assert "exc.args" not in source

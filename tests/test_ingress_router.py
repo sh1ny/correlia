@@ -558,19 +558,101 @@ async def test_icinga2_problem_webhook_aggregates_and_submits_notifications_once
         task_runner=task_runner,
         plugin_registry=plugin_registry,
     )
+    operator_token = "production-operator-token"
+    ingress_token = "production-ingress-token"
     app = create_app(
-        settings=Settings(DATABASE_URL=VALID_DATABASE_URL),
+        settings=Settings(
+            DATABASE_URL=VALID_DATABASE_URL,
+            environment="production",
+            api_auth_enabled=True,
+            expose_readyz=False,
+            expose_metrics=False,
+            operator_api_token=operator_token,
+            ingress_api_token=ingress_token,
+            audit_raw_payload_hmac_key="test-audit-hmac",
+        ),
         sessionmaker=session_factory,
         icinga2_processor=processor,
         task_runner=task_runner,
         plugin_registry=plugin_registry,
+        # Background expiry must not contaminate request-only SQL recording.
+        lifecycle_worker=NoopLifecycleWorker(),  # type: ignore[arg-type]
     )
+    first_payload = _payload(host="web-01", source_id="icinga2:service:web-01:http")
+    ingress_headers = {"Authorization": f"Bearer {ingress_token}"}
 
+    async def persisted_rows() -> list[list[dict[str, Any]]]:
+        async with session_factory() as session:
+            return [
+                [
+                    dict(row)
+                    for row in (await session.execute(statement)).mappings().all()
+                ]
+                for statement in (
+                    sa.text("SELECT * FROM incidents ORDER BY id"),
+                    sa.text("SELECT * FROM incident_events ORDER BY id"),
+                )
+            ]
+
+    processor_calls: list[object] = []
+    process_payload = processor.process_payload
+
+    async def record_process_payload(payload: Any) -> Any:
+        processor_calls.append(payload)
+        return await process_payload(payload)
+
+    sql_statements: list[str] = []
+
+    def record_sql(
+        connection: Any,
+        cursor: Any,
+        statement: str,
+        parameters: Any,
+        context: Any,
+        executemany: bool,
+    ) -> None:
+        sql_statements.append(statement)
+
+    engine = session_factory.kw["bind"]
     async for client in get_client(app):
+        before_denials = await persisted_rows()
+        assert before_denials == [[], []]
+        # Both recording seams exist only for denied requests. Authorized
+        # processing below uses the unwrapped real processor and PostgreSQL.
+        with monkeypatch.context() as denied_patch:
+            denied_patch.setattr(processor, "process_payload", record_process_payload)
+            for headers in (
+                {},
+                {"Authorization": "Bearer invalid-token"},
+                {"Authorization": f"Bearer {operator_token}"},
+            ):
+                sa.event.listen(engine.sync_engine, "before_cursor_execute", record_sql)
+                try:
+                    denied = await client.post(
+                        "/v1/icinga2/events",
+                        json=first_payload,
+                        headers=headers,
+                    )
+                    await task_runner.drain()
+                finally:
+                    sa.event.remove(
+                        engine.sync_engine, "before_cursor_execute", record_sql
+                    )
+                assert denied.status_code == 401
+                assert denied.json() == {"detail": "unauthorized"}
+                assert denied.headers["WWW-Authenticate"] == "Bearer"
+                assert processor_calls == []
+                assert sql_statements == []
+                assert await persisted_rows() == before_denials
+                assert submitted == []
+                assert submissions == []
+
         first = await client.post(
             "/v1/icinga2/events",
-            json=_payload(host="web-01", source_id="icinga2:service:web-01:http"),
+            json=first_payload,
+            headers=ingress_headers,
         )
+        assert first.status_code == 200
         second = await client.post(
             "/v1/icinga2/events",
             json=_payload(
@@ -578,7 +660,9 @@ async def test_icinga2_problem_webhook_aggregates_and_submits_notifications_once
                 source_id="icinga2:service:web-02:http",
                 timestamp="2026-06-08T12:01:00+00:00",
             ),
+            headers=ingress_headers,
         )
+        assert second.status_code == 200
         replay = await client.post(
             "/v1/icinga2/events",
             json=_payload(
@@ -586,7 +670,9 @@ async def test_icinga2_problem_webhook_aggregates_and_submits_notifications_once
                 source_id="icinga2:service:web-02:http",
                 timestamp="2026-06-08T12:01:00+00:00",
             ),
+            headers=ingress_headers,
         )
+        assert replay.status_code == 200
         already = await client.post(
             "/v1/icinga2/events",
             json=_payload(
@@ -594,7 +680,9 @@ async def test_icinga2_problem_webhook_aggregates_and_submits_notifications_once
                 source_id="icinga2:service:web-03:http",
                 timestamp="2026-06-08T12:02:00+00:00",
             ),
+            headers=ingress_headers,
         )
+        assert already.status_code == 200
         await task_runner.drain()
 
     first_body = first.json()
@@ -638,6 +726,29 @@ async def test_icinga2_problem_webhook_aggregates_and_submits_notifications_once
     assert submissions == ["accepted"]
     # AUD-02: every accepted event must write exactly one audit row.
     assert (await _count_audit_rows(session_factory)) == 4
+
+    persisted_incidents, _ = await persisted_rows()
+    assert len(persisted_incidents) == 1
+    incident = persisted_incidents[0]
+    assert str(incident["id"]) == first_body["incident_id"]
+    assert incident["status"] == "OPEN"
+    assert incident["rule_name"] == "service-critical"
+    assert incident["severity"] == "CRITICAL"
+    assert incident["summary"] == "Critical http in dc1"
+    assert incident["event_count"] == 3
+    assert incident["affected_hosts"] == ["web-01", "web-02", "web-03"]
+    assert incident["affected_services"] == ["http"]
+    assert incident["start_time"] == _event_time()
+    assert incident["last_update_time"] == datetime(
+        2026, 6, 8, 12, 2, tzinfo=timezone.utc
+    )
+    assert incident["threshold_crossed"] is True
+    assert incident["window_state"]["counted_count"] == 3
+    assert set(incident["window_state"]["counted_fingerprint_timestamps"]) == {
+        first_body["fingerprint"],
+        second_body["fingerprint"],
+        already_body["fingerprint"],
+    }
 
 
 async def test_http_replay_and_late_events_project_committed_window_to_response_and_audit(
