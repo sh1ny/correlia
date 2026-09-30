@@ -123,14 +123,33 @@ def _settings(api_auth_enabled: bool = False) -> Settings:
     )
 
 
+def _production_settings() -> Settings:
+    return Settings(
+        DATABASE_URL=VALID_DATABASE_URL,
+        environment="production",
+        api_auth_enabled=True,
+        expose_readyz=False,
+        expose_metrics=False,
+        operator_api_token=OPERATOR_TOKEN,
+        ingress_api_token=INGRESS_TOKEN,
+        audit_raw_payload_hmac_key=HMAC_KEY,
+    )
+
+
 def _app(
     session_factory: async_sessionmaker[AsyncSession],
     api_auth_enabled: bool = False,
     icinga2_processor: Icinga2DecisionProcessor | None = None,
     task_runner: object | None = None,
+    *,
+    settings: Settings | None = None,
 ) -> object:
     return create_app(
-        settings=_settings(api_auth_enabled=api_auth_enabled),
+        settings=(
+            settings
+            if settings is not None
+            else _settings(api_auth_enabled=api_auth_enabled)
+        ),
         sessionmaker=session_factory,
         icinga2_processor=icinga2_processor,
         task_runner=task_runner or AsyncIOTaskRunner(),
@@ -362,24 +381,100 @@ def _build_processor(
 
 async def test_incident_events_requires_operator_token(
     session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    app = _app(session_factory, api_auth_enabled=True)
-    async for client in get_client(app):
-        resp_no_auth = await client.get("/v1/incident-events")
-        assert resp_no_auth.status_code == 401
-        assert resp_no_auth.json() == {"detail": "unauthorized"}
-
-        resp_ingress_token = await client.get(
-            "/v1/incident-events",
-            headers={"Authorization": f"Bearer {INGRESS_TOKEN}"},
+    fingerprint = "fp-operator-only"
+    source_id = "icinga2:service:protected-web:http"
+    message = "operator-visible audit event"
+    async with session_factory() as session:
+        event = await _seed_audit_event(
+            session,
+            fingerprint=fingerprint,
+            source_id=source_id,
+            host="protected-web",
+            service="http",
+            severity="CRITICAL",
+            normalized_event=_minimal_normalized_event(
+                fingerprint=fingerprint,
+                source_id=source_id,
+                host="protected-web",
+                service="http",
+                severity="CRITICAL",
+                message=message,
+                tags={"region": "protected-region"},
+            ),
         )
-        assert resp_ingress_token.status_code == 401
+        await session.commit()
 
-        resp_ok = await client.get(
+    async def persisted_rows() -> dict[str, list[dict[str, Any]]]:
+        rows: dict[str, list[dict[str, Any]]] = {}
+        async with session_factory() as session:
+            for table in (Incident.__table__, IncidentEvent.__table__):
+                result = await session.execute(
+                    select(table).order_by(*table.primary_key.columns)
+                )
+                rows[table.name] = [dict(row) for row in result.mappings()]
+        return rows
+
+    before = await persisted_rows()
+    session_calls: list[None] = []
+
+    def recording_session_factory() -> AsyncSession:
+        session_calls.append(None)
+        return session_factory()
+
+    app = _app(session_factory, settings=_production_settings())
+    params = {"limit": 1, "fingerprint": fingerprint}
+    async for client in get_client(app):
+        # Record real session creation only during denials; authorized reads
+        # below use the original PostgreSQL session factory without a wrapper.
+        with monkeypatch.context() as denied:
+            denied.setattr(app.state, "sessionmaker", recording_session_factory)
+            for headers in (
+                {},
+                {"Authorization": "Bearer invalid-audit-token"},
+                {"Authorization": f"Bearer {INGRESS_TOKEN}"},
+            ):
+                response = await client.get(
+                    "/v1/incident-events", params=params, headers=headers
+                )
+                assert response.status_code == 401
+                assert response.json() == {"detail": "unauthorized"}
+                assert response.headers["WWW-Authenticate"] == "Bearer"
+                for protected_value in (str(event.id), fingerprint, source_id, message):
+                    assert protected_value not in response.text
+                assert session_calls == []
+                assert await persisted_rows() == before
+
+        response = await client.get(
             "/v1/incident-events",
+            params=params,
             headers={"Authorization": f"Bearer {OPERATOR_TOKEN}"},
         )
-        assert resp_ok.status_code == 200
+        assert response.status_code == 200
+        body = response.json()
+        assert body["total"] == 1
+        assert body["limit"] == 1
+        assert body["offset"] == 0
+        assert body["next_cursor"] is None
+        assert len(body["items"]) == 1
+        item = body["items"][0]
+        expected = {
+            "id": str(event.id),
+            "fingerprint": fingerprint,
+            "source_id": source_id,
+            "event_type": "PROBLEM",
+            "severity": "CRITICAL",
+            "host": "protected-web",
+            "service": "http",
+            "incident_ids": [],
+            "incident_effect": "none",
+            "normalized_event_message": message,
+            "normalized_event_tags": {"region": "protected-region"},
+            "raw_payload_hmac": event.raw_payload_hmac,
+        }
+        assert {key: item[key] for key in expected} == expected
+        assert await persisted_rows() == before
 
 
 # ---------------------------------------------------------------------------
@@ -415,7 +510,7 @@ async def test_list_incident_events_uses_bounded_projection(
 ) -> None:
     secret_value = "supersecretvalue12345"
     async with session_factory() as session:
-        await _seed_audit_event(
+        event = await _seed_audit_event(
             session,
             normalized_event=_minimal_normalized_event(
                 message=f"connection failed with password={secret_value}",
@@ -433,13 +528,21 @@ async def test_list_incident_events_uses_bounded_projection(
         )
         await session.commit()
 
-    app = _app(session_factory)
+    app = _app(session_factory, settings=_production_settings())
     async for client in get_client(app):
-        resp = await client.get("/v1/incident-events")
+        resp = await client.get(
+            "/v1/incident-events",
+            headers={"Authorization": f"Bearer {OPERATOR_TOKEN}"},
+        )
         assert resp.status_code == 200
+        assert resp.json()["total"] == 1
         items = resp.json()["items"]
         assert len(items) == 1
         item = items[0]
+        assert item["id"] == str(event.id)
+        assert item["source_id"] == event.source_id
+        assert item["fingerprint"] == event.fingerprint
+        assert item["raw_payload_hmac"] == event.raw_payload_hmac
 
         # raw_payload and normalized_event must not appear
         assert "raw_payload" not in item
@@ -483,7 +586,15 @@ async def test_value_only_tag_redaction_is_not_an_omission(
         )
         await session.commit()
 
-    app = _app(session_factory)
+    app = _app(
+        session_factory,
+        settings=Settings(
+            DATABASE_URL=VALID_DATABASE_URL,
+            environment="local",
+            api_auth_enabled=False,
+            audit_raw_payload_hmac_key=HMAC_KEY,
+        ),
+    )
     async for client in get_client(app):
         response = await client.get("/v1/incident-events")
         assert response.status_code == 200

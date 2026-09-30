@@ -7,7 +7,10 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from pydantic import SecretStr
+from starlette.routing import Route
 
+from app.api import deps
+from app.api.routers import metrics as metrics_router
 from app.config.settings import Settings
 from app.main import create_app
 
@@ -17,6 +20,57 @@ OPERATOR_TOKEN = "operator-secret"
 INGRESS_TOKEN = "ingress-secret"
 AUDIT_HMAC_KEY = "test-audit-hmac"
 DOCS_PATHS = ("/docs", "/redoc", "/openapi.json", "/docs/oauth2-redirect")
+EXPECTED_DOCUMENTATION_POLICY = tuple(
+    (method, path, "public")
+    for path in DOCS_PATHS
+    for method in ("GET", "HEAD")
+)
+INCIDENT_ID = "b64dccf2-9a4b-4fd4-baf5-91ce12d12340"
+VALID_INGRESS_BODY = {
+    "source_id": "icinga2:service:web-01:http",
+    "host": "web-01",
+    "service": "http",
+    "state": "CRITICAL",
+    "state_type": "HARD",
+    "timestamp": "2026-09-30T12:00:00Z",
+    "check_output": "HTTP is unavailable",
+    "ip_address": "192.0.2.10",
+    "tags": {"team.name": "platform"},
+}
+
+# Product policy, not a projection of dependencies or OpenAPI. Operational flags
+# may make readiness/metrics public only in nonproduction; other roles stay fixed.
+EXPECTED_API_POLICY = (
+    ("GET", "/v1/health", "public", None),
+    ("GET", "/v1/readyz", "operator", None),
+    ("GET", "/v1/metrics", "operator", None),
+    ("POST", "/v1/icinga2/events", "ingress", VALID_INGRESS_BODY),
+    ("GET", "/v1/plugins", "operator", None),
+    ("GET", "/v1/rules", "operator", None),
+    ("GET", "/v1/topology", "operator", None),
+    ("GET", "/v1/incidents", "operator", None),
+    ("GET", "/v1/incidents/{incident_id}", "operator", None),
+    (
+        "POST",
+        "/v1/incidents/{incident_id}/ack",
+        "operator",
+        {"operator": "policy-operator"},
+    ),
+    (
+        "POST",
+        "/v1/incidents/{incident_id}/close",
+        "operator",
+        {"operator": "policy-operator", "reason": "handled manually"},
+    ),
+    (
+        "PATCH",
+        "/v1/incidents/{incident_id}",
+        "operator",
+        {"status": "ACKNOWLEDGED"},
+    ),
+    ("DELETE", "/v1/incidents/{incident_id}", "operator", None),
+    ("GET", "/v1/incident-events", "operator", None),
+)
 
 
 class NoopLifecycleWorker:
@@ -74,8 +128,115 @@ async def get_client(app: FastAPI) -> AsyncIterator[AsyncClient]:
             yield client
 
 
-async def test_health_is_public_when_auth_enabled() -> None:
-    app = _app(_settings())
+@pytest.mark.parametrize(
+    ("environment", "api_auth_enabled"),
+    (
+        ("local", False),
+        ("local", True),
+        ("test", False),
+        ("test", True),
+        ("production", True),
+    ),
+)
+def test_http_route_inventory_matches_independent_policy(
+    environment: Literal["local", "test", "production"],
+    api_auth_enabled: bool,
+) -> None:
+    app = _app(
+        _settings(
+            environment=environment,
+            api_auth_enabled=api_auth_enabled,
+            expose_readyz=False,
+            expose_metrics=False,
+        )
+    )
+    expected = {(method, path) for method, path, _, _ in EXPECTED_API_POLICY}
+    if environment != "production":
+        expected.update(
+            (method, path) for method, path, _ in EXPECTED_DOCUMENTATION_POLICY
+        )
+    # APIRoute is a Route subclass; FastAPI's built-in documentation routes are
+    # ordinary Routes and must not disappear from the completeness check.
+    registered = {
+        (method, route.path)
+        for route in app.routes
+        if isinstance(route, Route)
+        for method in route.methods or ()
+    }
+    assert registered == expected
+
+
+@pytest.mark.parametrize("environment", ("local", "test", "production"))
+@pytest.mark.parametrize("credential", ("missing", "invalid", "wrong_role"))
+@pytest.mark.parametrize(
+    ("method", "path", "role", "body"),
+    [row for row in EXPECTED_API_POLICY if row[2] != "public"],
+    ids=[
+        f"{method} {path}"
+        for method, path, role, _ in EXPECTED_API_POLICY
+        if role != "public"
+    ],
+)
+async def test_protected_route_matrix_denies_before_handler_work(
+    environment: Literal["local", "test", "production"],
+    credential: str,
+    method: str,
+    path: str,
+    role: str,
+    body: dict[str, object] | None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Every supported request has valid identifiers/body and a fresh quota.
+    app = _app(
+        _settings(
+            environment=environment, expose_readyz=False, expose_metrics=False
+        )
+    )
+    protected_work: list[str] = []
+
+    def unexpected_work() -> None:
+        protected_work.append("protected collaborator")
+        raise AssertionError("denied request reached protected handler work")
+
+    for dependency in (
+        deps.get_sessionmaker,
+        deps.get_icinga2_processor,
+        deps.get_plugin_registry,
+        deps.get_rules_config,
+        deps.get_topology_config,
+    ):
+        app.dependency_overrides[dependency] = unexpected_work
+    monkeypatch.setattr(metrics_router, "render_metrics", unexpected_work)
+
+    token = {
+        "missing": None,
+        "invalid": "invalid-policy-token",
+        "wrong_role": INGRESS_TOKEN if role == "operator" else OPERATOR_TOKEN,
+    }[credential]
+    headers = {} if token is None else {"Authorization": f"Bearer {token}"}
+    async for client in get_client(app):
+        response = await client.request(
+            method,
+            path.format(incident_id=INCIDENT_ID),
+            headers=headers,
+            json=body,
+            follow_redirects=False,
+        )
+    assert response.status_code == 401
+    assert response.json() == {"detail": "unauthorized"}
+    assert response.headers.get("WWW-Authenticate") == "Bearer"
+    assert protected_work == []
+
+
+@pytest.mark.parametrize("environment", ("local", "test", "production"))
+async def test_health_is_public_when_auth_enabled(
+    environment: Literal["local", "test", "production"],
+) -> None:
+    app = _app(
+        _settings(
+            environment=environment, expose_readyz=False, expose_metrics=False
+        )
+    )
     async for client in get_client(app):
         response = await client.get("/v1/health")
     assert response.status_code == 200
@@ -159,24 +320,28 @@ async def test_production_documentation_routes_are_absent(
 @pytest.mark.parametrize("environment", ("local", "test"))
 @pytest.mark.parametrize("api_auth_enabled", (False, True))
 @pytest.mark.parametrize("path", DOCS_PATHS)
+@pytest.mark.parametrize("method", ("GET", "HEAD"))
 async def test_nonproduction_documentation_remains_public(
     environment: Literal["local", "test"],
     api_auth_enabled: bool,
     path: str,
+    method: str,
 ) -> None:
     app = _app(
         _settings(environment=environment, api_auth_enabled=api_auth_enabled)
     )
     async for client in get_client(app):
-        response = await client.get(path, follow_redirects=False)
+        response = await client.request(method, path, follow_redirects=False)
     assert response.status_code == 200
     assert "location" not in response.headers
-    if path == "/openapi.json":
+    expected_type = "application/json" if path == "/openapi.json" else "text/html"
+    assert response.headers["content-type"].startswith(expected_type)
+    if method == "HEAD":
+        assert response.content == b""
+    elif path == "/openapi.json":
         assert "/v1/health" in response.json()["paths"]
-    else:
-        assert response.headers["content-type"].startswith("text/html")
-        if path in ("/docs", "/redoc"):
-            assert "/openapi.json" in response.text
+    elif path in ("/docs", "/redoc"):
+        assert "/openapi.json" in response.text
 
 
 def _set_environment(

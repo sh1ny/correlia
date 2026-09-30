@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 from httpx import ASGITransport, AsyncClient
 import pytest
 
+from app.config.settings import Settings
 from app.domain.events import EventType, NormalizedEvent, Severity
 from app.domain.rules import NoOpDecision, RuleMatch, RuleWindow
 from app.persistence.incidents import (
@@ -178,13 +179,49 @@ def _incident(incident_id: UUID) -> Incident:
     )
 
 
-async def test_metrics_route_returns_prometheus_text() -> None:
-    app = create_app()
+async def test_metrics_route_returns_prometheus_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routers import metrics as metrics_router
+
+    app = create_app(
+        settings=Settings(
+            DATABASE_URL="postgresql+asyncpg://user:pass@localhost:5432/correlia",
+            environment="production",
+            api_auth_enabled=True,
+            expose_readyz=False,
+            expose_metrics=False,
+            operator_api_token="operator-token",
+            ingress_api_token="ingress-token",
+            audit_raw_payload_hmac_key="test-audit-hmac",
+        )
+    )
+    render_calls = 0
+    original_render = metrics_router.render_metrics
+
+    def recording_render() -> bytes:
+        nonlocal render_calls
+        render_calls += 1
+        return original_render()
+
+    monkeypatch.setattr(metrics_router, "render_metrics", recording_render)
     transport = ASGITransport(app=app)
 
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.get("/v1/metrics")
+        for token in (None, "invalid-metrics-token", "ingress-token"):
+            headers = {} if token is None else {"Authorization": f"Bearer {token}"}
+            denied = await client.get("/v1/metrics", headers=headers)
+            assert denied.status_code == 401
+            assert denied.json() == {"detail": "unauthorized"}
+            assert denied.headers.get("WWW-Authenticate") == "Bearer"
+            assert "correlia_" not in denied.text
+        assert render_calls == 0
 
+        response = await client.get(
+            "/v1/metrics", headers={"Authorization": "Bearer operator-token"}
+        )
+
+    assert render_calls == 1
     assert response.status_code == 200
     content_type = response.headers["content-type"]
     assert content_type.startswith("text/plain")
