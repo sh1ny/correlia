@@ -566,11 +566,18 @@ Compare that revision to the saved baseline and the intended image's `alembic he
 dc exec correlia alembic heads
 ```
 
+Stage app JSON through a process running as the default `correlia` user in its writable `/tmp` tmpfs because [`docker cp` uses daemon-side filesystem extraction](https://docs.docker.com/reference/cli/docker/container/cp/#corner-cases), which cannot write the app's read-only root filesystem; PostgreSQL has a writable root filesystem, so its binary archives still use `docker cp` without host-shell binary redirection.
+
 ```sh
 printf '%s' 'Recorded stable incident UUID: '
 IFS= read -r BASELINE_INCIDENT_ID
-docker cp "$WORK/source-baseline.txt" "$APP_CONTAINER:/tmp/cutover-baseline.json"
-docker exec --user root "$APP_CONTAINER" chown correlia:correlia /tmp/cutover-baseline.json
+docker exec --interactive "$APP_CONTAINER" sh -eu -c '
+    umask 077
+    if [ -e /tmp/cutover-baseline.json ]; then
+        chmod 600 /tmp/cutover-baseline.json
+    fi
+    cat > /tmp/cutover-baseline.json
+' < "$WORK/source-baseline.txt"
 docker exec --interactive --env "BASELINE_INCIDENT_ID=$BASELINE_INCIDENT_ID" \
     "$APP_CONTAINER" python - <<'PY'
 import json
@@ -649,8 +656,13 @@ After the baseline matches and startup expiry changes are understood, prepare **
 ```sh
 test -s "$WORK/accepted-event.json"
 chmod 600 "$WORK/accepted-event.json"
-docker cp "$WORK/accepted-event.json" "$APP_CONTAINER:/tmp/cutover-accepted-event.json"
-docker exec --user root "$APP_CONTAINER" chown correlia:correlia /tmp/cutover-accepted-event.json
+docker exec --interactive "$APP_CONTAINER" sh -eu -c '
+    umask 077
+    if [ -e /tmp/cutover-accepted-event.json ]; then
+        chmod 600 /tmp/cutover-accepted-event.json
+    fi
+    cat > /tmp/cutover-accepted-event.json
+' < "$WORK/accepted-event.json"
 docker exec --interactive "$APP_CONTAINER" python - <<'PY'
 import json
 import os

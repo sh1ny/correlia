@@ -1068,31 +1068,26 @@ def rehearse_local_postgres_migration(stack: dict[str, object], tmp_path: Path) 
             pytest.fail(
                 "U3 documented baseline Python terminator missing", pytrace=False
             )
-        deployment._require_docker_success(
-            ["cp", str(baseline_file), f"{target_app}:/tmp/cutover-baseline.json"]
-        )
-        deployment._require_docker_success(
+        baseline_staging = deployment._docker(
             [
                 "exec",
-                "--user",
-                "root",
+                "--interactive",
                 target_app,
-                "chown",
-                "correlia:correlia",
-                "/tmp/cutover-baseline.json",
-            ]
+                "sh",
+                "-eu",
+                "-c",
+                "umask 077; "
+                "if [ -e /tmp/cutover-baseline.json ]; then "
+                "chmod 600 /tmp/cutover-baseline.json; fi; "
+                "cat > /tmp/cutover-baseline.json",
+            ],
+            input_data=baseline_file.read_text(encoding="utf-8"),
         )
-        deployment._require_docker_success(
-            [
-                "exec",
-                "--user",
-                "root",
-                target_app,
-                "chmod",
-                "600",
-                "/tmp/cutover-baseline.json",
-            ]
-        )
+        if baseline_staging.returncode != 0:
+            pytest.fail(
+                "U3 private baseline staging failed; diagnostics withheld",
+                pytrace=False,
+            )
         burst_script = """
 import os as _u3_os
 import urllib.request as _u3_transport
