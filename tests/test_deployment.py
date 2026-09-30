@@ -593,7 +593,49 @@ def _docker_compose_arguments(stack: dict[str, object], *arguments: str) -> list
     ]
 
 
+def _postgres_storage_identity(
+    stack: dict[str, object], postgres_container: str
+) -> dict[str, object]:
+    """Prove the live PG16 mount is the production project's named volume."""
+    project = str(stack["project"])
+    expected_name = cleanup_verification.postgres_data_volume(project)
+    mounts = _docker_json(
+        ["inspect", "--format", "{{json .Mounts}}", postgres_container]
+    )
+    assert isinstance(mounts, list)
+    data_mounts = [
+        mount
+        for mount in mounts
+        if isinstance(mount, dict)
+        and mount.get("Destination") == "/var/lib/postgresql/data"
+    ]
+    assert len(data_mounts) == 1
+    mount = data_mounts[0]
+    assert mount["Type"] == "volume"
+    assert mount["Name"] == expected_name
+    labels = _docker_json(
+        ["volume", "inspect", "--format", "{{json .Labels}}", expected_name]
+    )
+    assert isinstance(labels, dict)
+    assert labels["com.docker.compose.project"] == project
+    assert labels["com.docker.compose.volume"] == "postgres-data"
+    return {
+        "name": expected_name,
+        "destination": "/var/lib/postgresql/data",
+        "project": project,
+        "logical_volume": "postgres-data",
+    }
+
+
 def _compose_cleanup(stack: dict[str, object]) -> None:
+    project = str(stack["project"])
+    invocation = str(stack.get("invocation", ""))
+    receipt = Path(str(stack.get("ownership_receipt", "")))
+    try:
+        if not cleanup_verification.has_ownership(project, invocation, receipt):
+            pytest.fail("Docker cleanup refused without matching invocation ownership")
+    except (ValueError, RuntimeError):
+        pytest.fail("Docker cleanup refused without matching invocation ownership")
     failed = False
     try:
         result = _docker(
@@ -603,8 +645,9 @@ def _compose_cleanup(stack: dict[str, object]) -> None:
     except OSError, subprocess.TimeoutExpired:
         failed = True
     try:
-        cleanup_verification.cleanup(str(stack["project"]))
-    except RuntimeError:
+        if not cleanup_verification.cleanup_owned(project, invocation, receipt):
+            failed = True
+    except (ValueError, RuntimeError):
         failed = True
     if failed:
         pytest.fail("Docker cleanup failed without exposing its diagnostics")
@@ -748,9 +791,9 @@ def test_compose_cleanup_attempts_all_resource_removal_after_down_failure(
         "network": {"orphan-network"},
     }
     resources = {
-        "container": owned["container"] | {"developer-container"},
-        "volume": owned["volume"] | {"developer-volume"},
-        "network": owned["network"] | {"developer-network"},
+        "container": {"developer-container"},
+        "volume": {"developer-volume"},
+        "network": {"developer-network"},
     }
 
     def fake_docker(
@@ -758,8 +801,10 @@ def test_compose_cleanup_attempts_all_resource_removal_after_down_failure(
     ) -> subprocess.CompletedProcess[str]:
         if arguments[0] == "compose":
             return subprocess.CompletedProcess(["docker", *arguments], 1)
-        assert arguments[-1] == f"label=com.docker.compose.project={project}" or (
-            arguments[-1] in set().union(*owned.values())
+        assert (
+            arguments == ["volume", "ls", "--quiet"]
+            or arguments[-1] == f"label=com.docker.compose.project={project}"
+            or arguments[-1] in set().union(*owned.values())
         )
         listing = {
             ("ps", "--all"): "container",
@@ -768,10 +813,15 @@ def test_compose_cleanup_attempts_all_resource_removal_after_down_failure(
         }
         kind = listing.get(tuple(arguments[:2]))
         if kind:
+            names = (
+                resources[kind] & owned[kind]
+                if "--filter" in arguments
+                else resources[kind]
+            )
             return subprocess.CompletedProcess(
                 ["docker", *arguments],
                 0,
-                stdout="\n".join(sorted(resources[kind] & owned[kind])),
+                stdout="\n".join(sorted(names)),
             )
         removal = {
             ("rm", "--force"): "container",
@@ -784,8 +834,15 @@ def test_compose_cleanup_attempts_all_resource_removal_after_down_failure(
 
     monkeypatch.setitem(_compose_cleanup.__globals__, "_docker", fake_docker)
     monkeypatch.setattr(cleanup_verification, "_docker", fake_docker)
+    invocation = uuid4().hex
+    receipt = tmp_path / "ownership.json"
+    cleanup_verification.acquire(project, invocation, receipt)
+    for kind in resources:
+        resources[kind].update(owned[kind])
     stack = {
         "project": project,
+        "invocation": invocation,
+        "ownership_receipt": receipt,
         "env_file": tmp_path / ".env",
         "override_file": tmp_path / "override.yaml",
     }
@@ -798,6 +855,48 @@ def test_compose_cleanup_attempts_all_resource_removal_after_down_failure(
         "network": {"developer-network"},
     }
     cleanup_verification.cleanup(project)
+
+
+@pytest.mark.parametrize("receipt_state", ["missing", "project", "invocation"])
+def test_compose_cleanup_refuses_unowned_down(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, receipt_state: str
+) -> None:
+    def unexpected_docker(
+        _arguments: list[str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        pytest.fail("unowned cleanup must not reach Docker Compose or Docker")
+
+    monkeypatch.setitem(_compose_cleanup.__globals__, "_docker", unexpected_docker)
+    monkeypatch.setattr(cleanup_verification, "_docker", unexpected_docker)
+    project = "correlia-verify-compose-gate"
+    invocation = uuid4().hex
+    receipt = tmp_path / "ownership.json"
+    if receipt_state != "missing":
+        receipt.write_text(
+            json.dumps(
+                {
+                    "project": (
+                        project
+                        if receipt_state != "project"
+                        else "correlia-verify-other"
+                    ),
+                    "invocation": (
+                        invocation if receipt_state != "invocation" else uuid4().hex
+                    ),
+                }
+            ),
+            encoding="utf-8",
+        )
+    stack: dict[str, object] = {
+        "project": project,
+        "invocation": invocation,
+        "ownership_receipt": receipt,
+        "env_file": tmp_path / ".env",
+        "override_file": tmp_path / "override.yaml",
+    }
+
+    with pytest.raises(pytest.fail.Exception, match="without matching invocation"):
+        _compose_cleanup(stack)
 
 
 def test_verification_cleanup_reports_residuals_but_attempts_other_resources(
@@ -865,13 +964,26 @@ def docker_compose_stack(tmp_path: Path) -> Iterator[dict[str, object]]:
     if compose_version is None or compose_version.returncode != 0:
         pytest.skip("Docker Compose unavailable; cannot run real deployment smoke")
 
-    project = os.environ.setdefault(
+    project = os.environ.get(
         "CORRELIA_VERIFICATION_PROJECT", f"correlia-verify-{uuid4().hex}"
     )
+    invocation = os.environ.get("CORRELIA_VERIFICATION_INVOCATION")
+    receipt_path = os.environ.get("CORRELIA_VERIFICATION_RECEIPT")
     try:
         cleanup_verification.validate_project(project)
-    except ValueError:
-        pytest.fail("invalid verification project identifier")
+        if invocation is not None or receipt_path is not None:
+            if not invocation or not receipt_path:
+                pytest.fail("incomplete verification invocation ownership")
+            receipt = Path(receipt_path)
+            if not cleanup_verification.has_ownership(project, invocation, receipt):
+                pytest.fail("missing or mismatched verification invocation ownership")
+        else:
+            invocation = uuid4().hex
+            receipt = tmp_path / "verification-ownership.json"
+            cleanup_verification.acquire(project, invocation, receipt)
+    except (ValueError, RuntimeError) as error:
+        # A rejected namespace has no receipt and must never reach a finalizer.
+        pytest.fail(str(error))
     suffix = uuid4().hex[:12]
     secrets = {
         "postgres_password": f"u7-postgres-{suffix}",
@@ -999,17 +1111,14 @@ def docker_compose_stack(tmp_path: Path) -> Iterator[dict[str, object]]:
                 f"      - {smoke_rules_path}:/app/smoke/rules.yaml:ro",
                 "  mailpit:",
                 "    ports: !reset []",
-                "  postgres:",
-                "    volumes:",
-                "      - verification-data:/var/lib/postgresql/data",
-                "volumes:",
-                "  verification-data: {}",
                 "",
             )
         )
     )
     stack: dict[str, object] = {
         "project": project,
+        "invocation": invocation,
+        "ownership_receipt": receipt,
         "env_file": env_file,
         "override_file": override_file,
         "report_path": report_path,
@@ -1023,6 +1132,14 @@ def docker_compose_stack(tmp_path: Path) -> Iterator[dict[str, object]]:
             environment=stack["environment"],  # type: ignore[arg-type]
             timeout=300,
         )
+        postgres_container = _require_docker_success(
+            _docker_compose_arguments(stack, "ps", "--quiet", "postgres")
+        ).stdout.strip()
+        if not postgres_container:
+            pytest.fail("Compose smoke did not create PostgreSQL")
+        storage = _postgres_storage_identity(stack, postgres_container)
+        stack["postgres_storage"] = storage
+        _publish_qualification_report("Production PostgreSQL storage", storage)
     except BaseException:
         _compose_cleanup(stack)
         raise

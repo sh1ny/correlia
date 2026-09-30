@@ -1,6 +1,8 @@
 services:
   postgres:
     image: postgres:16.9-alpine
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-correlia}
       POSTGRES_USER: ${POSTGRES_USER:-correlia}
@@ -65,6 +67,9 @@ services:
       - 127.0.0.1:8000:8000
     deploy:
       replicas: 1
+
+volumes:
+  postgres-data: {}
 
 networks:
   database:

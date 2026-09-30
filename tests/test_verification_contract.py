@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+import importlib.util
+import json
 import os
 from pathlib import Path
 import subprocess
 import sys
 import textwrap
+from types import ModuleType
+from uuid import uuid4
 
 import pytest
+
+from scripts import cleanup_verification
 
 
 _SMOKE = """
@@ -342,3 +349,530 @@ def test_portable_keeps_database_free_cases_in_mixed_modules(
     assert result.returncode == 0, _output(result)
     assert "1 passed" in _output(result)
     assert "3 deselected" in _output(result)
+
+
+class _OwnershipDocker:
+    """Keep resource identity/state at the Docker boundary, not a cleanup mock."""
+
+    def __init__(self) -> None:
+        self.resources = {
+            "container": {"developer-container": "developer-project"},
+            "volume": {"developer-volume": "developer-project"},
+            "network": {"developer-network": "developer-project"},
+        }
+        self.failed_inspection: tuple[str, ...] | None = None
+
+    def run(self, arguments: list[str]) -> subprocess.CompletedProcess[str]:
+        if tuple(arguments) == self.failed_inspection:
+            return subprocess.CompletedProcess(["docker", *arguments], 1, stdout="")
+        kind = {
+            ("ps", "--all"): "container",
+            ("volume", "ls"): "volume",
+            ("network", "ls"): "network",
+        }.get(tuple(arguments[:2]))
+        if kind:
+            resources = self.resources[kind]
+            if "--filter" in arguments:
+                project = arguments[-1].removeprefix(
+                    "label=com.docker.compose.project="
+                )
+                names = [name for name, owner in resources.items() if owner == project]
+            else:
+                names = list(resources)
+            return subprocess.CompletedProcess(
+                ["docker", *arguments], 0, stdout="\n".join(sorted(names))
+            )
+        kind = {
+            ("rm", "--force"): "container",
+            ("volume", "rm"): "volume",
+            ("network", "rm"): "network",
+        }[tuple(arguments[:2])]
+        del self.resources[kind][arguments[-1]]
+        return subprocess.CompletedProcess(["docker", *arguments], 0, stdout="")
+
+    def create_project(self, project: str) -> None:
+        self.resources["container"][f"{project}-postgres"] = project
+        self.resources["volume"][f"{project}_postgres-data"] = project
+        self.resources["network"][f"{project}_database"] = project
+
+    def snapshot(self) -> dict[str, dict[str, str]]:
+        return {kind: dict(resources) for kind, resources in self.resources.items()}
+
+
+@pytest.fixture
+def ownership_boundary(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> tuple[ModuleType, _OwnershipDocker, Path]:
+    script = Path(__file__).resolve().parents[1] / "scripts" / "verification.py"
+    monkeypatch.setitem(sys.modules, "cleanup_verification", cleanup_verification)
+    spec = importlib.util.spec_from_file_location("verification_under_test", script)
+    assert spec is not None and spec.loader is not None
+    wrapper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(wrapper)
+    (tmp_path / "uv.lock").write_text("unchanged-lock", encoding="utf-8")
+    monkeypatch.setattr(wrapper, "ROOT", tmp_path)
+    monkeypatch.setattr(wrapper, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(sys, "argv", [str(script), "test:deployment", "--", "child"])
+    monkeypatch.setenv("CORRELIA_VERIFICATION_PROJECT", "correlia-verify-boundary")
+    for name in (
+        "CORRELIA_VERIFICATION_INVOCATION",
+        "CORRELIA_VERIFICATION_RECEIPT",
+        "GITHUB_ENV",
+        "GITHUB_STEP_SUMMARY",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    docker = _OwnershipDocker()
+    monkeypatch.setattr(cleanup_verification, "_docker", docker.run)
+    started = tmp_path / "child-started"
+
+    def child(
+        command: list[str], *, env: dict[str, str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        started.write_text("started", encoding="utf-8")
+        docker.create_project(env["CORRELIA_VERIFICATION_PROJECT"])
+        return subprocess.CompletedProcess(command, 7)
+
+    monkeypatch.setattr(wrapper.subprocess, "run", child)
+    return wrapper, docker, started
+
+
+@pytest.mark.parametrize("kind", ["container", "volume", "network"])
+def test_outer_finalizer_never_deletes_a_rejected_namespace(
+    ownership_boundary: tuple[ModuleType, _OwnershipDocker, Path], kind: str
+) -> None:
+    wrapper, docker, started = ownership_boundary
+    docker.resources[kind]["preexisting-resource"] = "correlia-verify-boundary"
+    before = docker.snapshot()
+
+    assert wrapper.main() != 0
+    assert not started.exists()
+    assert docker.resources == before
+
+
+@pytest.mark.parametrize("owner", ["", "correlia-verify-foreign"])
+def test_outer_finalizer_rejects_exact_database_volume_without_matching_labels(
+    ownership_boundary: tuple[ModuleType, _OwnershipDocker, Path], owner: str
+) -> None:
+    wrapper, docker, started = ownership_boundary
+    docker.resources["volume"]["correlia-verify-boundary_postgres-data"] = owner
+    before = docker.snapshot()
+
+    assert wrapper.main() != 0
+    assert not started.exists()
+    assert docker.resources == before
+
+
+@pytest.mark.parametrize(
+    "inspection",
+    [
+        (
+            "ps",
+            "--all",
+            "--quiet",
+            "--filter",
+            "label=com.docker.compose.project=correlia-verify-boundary",
+        ),
+        (
+            "volume",
+            "ls",
+            "--quiet",
+            "--filter",
+            "label=com.docker.compose.project=correlia-verify-boundary",
+        ),
+        (
+            "network",
+            "ls",
+            "--quiet",
+            "--filter",
+            "label=com.docker.compose.project=correlia-verify-boundary",
+        ),
+        ("volume", "ls", "--quiet"),
+    ],
+)
+def test_outer_finalizer_fails_closed_when_freshness_cannot_be_inspected(
+    ownership_boundary: tuple[ModuleType, _OwnershipDocker, Path],
+    inspection: tuple[str, ...],
+) -> None:
+    wrapper, docker, started = ownership_boundary
+    docker.failed_inspection = inspection
+    before = docker.snapshot()
+
+    assert wrapper.main() != 0
+    assert not started.exists()
+    assert docker.resources == before
+
+
+def test_outer_finalizer_removes_only_owned_resources_after_child_failure(
+    ownership_boundary: tuple[ModuleType, _OwnershipDocker, Path],
+) -> None:
+    wrapper, docker, started = ownership_boundary
+    before = docker.snapshot()
+
+    assert wrapper.main() == 7
+    assert started.exists()
+    assert docker.resources == before
+
+
+def test_outer_finalizer_honors_receipt_after_interrupted_creation(
+    ownership_boundary: tuple[ModuleType, _OwnershipDocker, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    wrapper, docker, started = ownership_boundary
+    before = docker.snapshot()
+
+    def interrupted_child(
+        _command: list[str], *, env: dict[str, str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        started.write_text("interrupted", encoding="utf-8")
+        docker.create_project(env["CORRELIA_VERIFICATION_PROJECT"])
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(wrapper.subprocess, "run", interrupted_child)
+
+    assert wrapper.main() == 130
+    assert started.exists()
+    assert docker.resources == before
+
+
+@pytest.mark.parametrize("receipt_state", ["missing", "project", "invocation"])
+def test_automatic_cleanup_gate_refuses_missing_or_mismatched_receipt(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, receipt_state: str
+) -> None:
+    docker = _OwnershipDocker()
+    monkeypatch.setattr(cleanup_verification, "_docker", docker.run)
+    project = "correlia-verify-gate"
+    invocation = uuid4().hex
+    receipt = tmp_path / "ownership.json"
+    if receipt_state != "missing":
+        receipt.write_text(
+            json.dumps(
+                {
+                    "project": (
+                        project
+                        if receipt_state != "project"
+                        else "correlia-verify-other"
+                    ),
+                    "invocation": (
+                        invocation if receipt_state != "invocation" else uuid4().hex
+                    ),
+                }
+            ),
+            encoding="utf-8",
+        )
+    docker.create_project(project)
+    before = docker.snapshot()
+    monkeypatch.setenv("CORRELIA_VERIFICATION_PROJECT", project)
+    monkeypatch.setenv("CORRELIA_VERIFICATION_INVOCATION", invocation)
+    monkeypatch.setenv("CORRELIA_VERIFICATION_RECEIPT", str(receipt))
+    monkeypatch.setattr(sys, "argv", ["cleanup_verification.py", "--owned"])
+
+    cleanup_verification.main()
+
+    assert docker.resources == before
+
+
+def test_automatic_cleanup_gate_recovers_a_valid_interrupted_receipt(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    docker = _OwnershipDocker()
+    monkeypatch.setattr(cleanup_verification, "_docker", docker.run)
+    project = "correlia-verify-interrupted"
+    invocation = uuid4().hex
+    receipt = tmp_path / "ownership.json"
+    cleanup_verification.acquire(project, invocation, receipt)
+    before = docker.snapshot()
+    docker.create_project(project)
+    monkeypatch.setenv("CORRELIA_VERIFICATION_PROJECT", project)
+    monkeypatch.setenv("CORRELIA_VERIFICATION_INVOCATION", invocation)
+    monkeypatch.setenv("CORRELIA_VERIFICATION_RECEIPT", str(receipt))
+    monkeypatch.setattr(sys, "argv", ["cleanup_verification.py", "--owned"])
+
+    cleanup_verification.main()
+
+    assert docker.resources == before
+
+
+def _ownership_docker(arguments: list[str]) -> subprocess.CompletedProcess[str]:
+    result = subprocess.run(
+        ["docker", *arguments],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=90,
+    )
+    assert result.returncode == 0, "ownership qualification Docker operation failed"
+    return result
+
+
+@pytest.fixture
+def live_ownership_namespace(tmp_path: Path) -> Iterator[dict[str, object]]:
+    project = f"correlia-verify-{uuid4().hex}"
+    invocation = uuid4().hex
+    receipt = tmp_path / "ownership.json"
+    cleanup_verification.acquire(project, invocation, receipt)
+    # Exact-name foreign/unlabeled sentinels must be removed by their creator,
+    # never by project cleanup. Record only successful creations below.
+    created_volumes: list[str] = []
+    namespace: dict[str, object] = {
+        "project": project,
+        "invocation": invocation,
+        "receipt": receipt,
+        "created_volumes": created_volumes,
+    }
+    try:
+        yield namespace
+    finally:
+        cleanup_verification.cleanup_owned(project, invocation, receipt)
+        remaining = _ownership_docker(["volume", "ls", "--quiet"]).stdout.split()
+        for volume in created_volumes:
+            if volume in remaining:
+                _ownership_docker(["volume", "rm", volume])
+
+
+def _create_ownership_volume(
+    namespace: dict[str, object], name: str, *, owner: str | None
+) -> None:
+    existing = _ownership_docker(["volume", "ls", "--quiet"]).stdout.split()
+    assert name not in existing, "ownership rehearsal volume already exists"
+    arguments = ["volume", "create"]
+    if owner is not None:
+        arguments.extend(["--label", f"com.docker.compose.project={owner}"])
+    _ownership_docker([*arguments, name])
+    created_volumes = namespace["created_volumes"]
+    assert isinstance(created_volumes, list)
+    created_volumes.append(name)
+
+
+def _ownership_environment(
+    namespace: dict[str, object], *, receipt: Path | None = None
+) -> dict[str, str]:
+    environment = os.environ.copy()
+    for name in ("GITHUB_ENV", "GITHUB_STEP_SUMMARY"):
+        environment.pop(name, None)
+    environment.update(
+        {
+            "CORRELIA_VERIFICATION_PROJECT": str(namespace["project"]),
+            "CORRELIA_VERIFICATION_INVOCATION": str(namespace["invocation"]),
+            "CORRELIA_VERIFICATION_RECEIPT": str(
+                receipt if receipt is not None else namespace["receipt"]
+            ),
+        }
+    )
+    return environment
+
+
+@pytest.mark.deployment
+@pytest.mark.parametrize("collision", ["project-network", "unlabeled", "foreign"])
+def test_live_outer_finalizer_preserves_preoccupied_namespace_and_database_bytes(
+    live_ownership_namespace: dict[str, object],
+    postgres_image: str,
+    tmp_path: Path,
+    collision: str,
+) -> None:
+    namespace = live_ownership_namespace
+    project = str(namespace["project"])
+    volume = f"{project}_postgres-data"
+    network = f"{project}-preexisting"
+    if collision == "project-network":
+        _ownership_docker(
+            [
+                "network",
+                "create",
+                "--label",
+                f"com.docker.compose.project={project}",
+                network,
+            ]
+        )
+    else:
+        _create_ownership_volume(
+            namespace,
+            volume,
+            owner=(
+                None if collision == "unlabeled" else f"correlia-verify-{uuid4().hex}"
+            ),
+        )
+        _ownership_docker(
+            [
+                "run",
+                "--rm",
+                "--network",
+                "none",
+                "--volume",
+                f"{volume}:/sentinel",
+                "--entrypoint",
+                "sh",
+                postgres_image,
+                "-c",
+                "printf preserved-database-bytes > /sentinel/ownership-marker",
+            ]
+        )
+    marker = tmp_path / "child-started"
+    exports = tmp_path / "workflow-environment"
+    exports.write_text("", encoding="utf-8")
+    environment = _ownership_environment(namespace)
+    environment.pop("CORRELIA_VERIFICATION_INVOCATION")
+    environment.pop("CORRELIA_VERIFICATION_RECEIPT")
+    environment["GITHUB_ENV"] = str(exports)
+    root = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(root / "scripts" / "verification.py"),
+            "test:deployment",
+            "--",
+            sys.executable,
+            "-c",
+            f"from pathlib import Path; Path({str(marker)!r}).write_text('started')",
+        ],
+        cwd=root,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=90,
+    )
+
+    assert result.returncode != 0, _output(result)
+    assert not marker.exists()
+    # Exercise the workflow's next-step environment and cleanup entrypoint,
+    # including the rejected acquisition's absence of a published ownership gate.
+    for line in exports.read_text(encoding="utf-8").splitlines():
+        name, value = line.split("=", 1)
+        environment[name] = value
+    fallback = subprocess.run(
+        [
+            sys.executable,
+            str(root / "scripts" / "cleanup_verification.py"),
+            "--owned",
+        ],
+        cwd=root,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=90,
+    )
+    assert fallback.returncode == 0, _output(fallback)
+    if collision == "project-network":
+        labels = json.loads(
+            _ownership_docker(
+                ["network", "inspect", "--format", "{{json .Labels}}", network]
+            ).stdout
+        )
+        assert labels["com.docker.compose.project"] == project
+    else:
+        assert volume in _ownership_docker(["volume", "ls", "--quiet"]).stdout.split()
+        marker_bytes = _ownership_docker(
+            [
+                "run",
+                "--rm",
+                "--network",
+                "none",
+                "--volume",
+                f"{volume}:/sentinel:ro",
+                "--entrypoint",
+                "sh",
+                postgres_image,
+                "-c",
+                "cat /sentinel/ownership-marker",
+            ]
+        ).stdout
+        assert marker_bytes == "preserved-database-bytes"
+
+
+@pytest.mark.deployment
+def test_live_outer_finalizer_removes_only_this_failed_invocations_resources(
+    live_ownership_namespace: dict[str, object],
+) -> None:
+    namespace = live_ownership_namespace
+    project = str(namespace["project"])
+    volume = f"{project}_postgres-data"
+    sentinel = f"{project}-sentinel"
+    _create_ownership_volume(namespace, sentinel, owner="developer-project")
+    child = (
+        "import os, subprocess; "
+        "project = os.environ['CORRELIA_VERIFICATION_PROJECT']; "
+        "subprocess.run(['docker', 'volume', 'create', '--label', "
+        "f'com.docker.compose.project={project}', "
+        "f'{project}_postgres-data'], check=True); "
+        "raise SystemExit(7)"
+    )
+    root = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(root / "scripts" / "verification.py"),
+            "test:deployment",
+            "--",
+            sys.executable,
+            "-c",
+            child,
+        ],
+        cwd=root,
+        env=_ownership_environment(namespace),
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=90,
+    )
+
+    assert result.returncode == 7, _output(result)
+    remaining = _ownership_docker(["volume", "ls", "--quiet"]).stdout.split()
+    assert volume not in remaining
+    assert sentinel in remaining
+
+
+@pytest.mark.deployment
+@pytest.mark.parametrize(
+    "receipt_state", ["valid", "missing", "project", "invocation"]
+)
+def test_live_workflow_gate_cleans_only_a_matching_interrupted_invocation(
+    live_ownership_namespace: dict[str, object], tmp_path: Path, receipt_state: str
+) -> None:
+    namespace = live_ownership_namespace
+    project = str(namespace["project"])
+    owned_volume = f"{project}_postgres-data"
+    foreign_volume = f"{project}-sentinel"
+    _create_ownership_volume(namespace, owned_volume, owner=project)
+    _create_ownership_volume(namespace, foreign_volume, owner="developer-project")
+    receipt = Path(str(namespace["receipt"]))
+    if receipt_state == "missing":
+        receipt = tmp_path / "missing-receipt.json"
+    elif receipt_state != "valid":
+        receipt = tmp_path / "mismatched-receipt.json"
+        receipt.write_text(
+            json.dumps(
+                {
+                    "project": (
+                        project
+                        if receipt_state != "project"
+                        else "correlia-verify-other"
+                    ),
+                    "invocation": (
+                        str(namespace["invocation"])
+                        if receipt_state != "invocation"
+                        else uuid4().hex
+                    ),
+                }
+            ),
+            encoding="utf-8",
+        )
+    root = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(root / "scripts" / "cleanup_verification.py"),
+            "--owned",
+        ],
+        cwd=root,
+        env=_ownership_environment(namespace, receipt=receipt),
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=90,
+    )
+
+    assert result.returncode == 0, _output(result)
+    remaining = _ownership_docker(["volume", "ls", "--quiet"]).stdout.split()
+    assert (owned_volume in remaining) is (receipt_state != "valid")
+    assert foreign_volume in remaining

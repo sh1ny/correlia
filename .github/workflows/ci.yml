@@ -41,4 +41,4 @@ jobs:
         run: mise run ci
       - name: Remove owned verification resources
         if: ${{ always() && steps.tools.outcome == 'success' }}
-        run: mise run clean:verification
+        run: mise run clean:verification:owned
