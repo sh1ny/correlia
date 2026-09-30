@@ -132,9 +132,7 @@ def main() -> None:
     parser.add_argument(
         "--invocation", default=os.getenv("CORRELIA_VERIFICATION_INVOCATION")
     )
-    parser.add_argument(
-        "--receipt", default=os.getenv("CORRELIA_VERIFICATION_RECEIPT")
-    )
+    parser.add_argument("--receipt", default=os.getenv("CORRELIA_VERIFICATION_RECEIPT"))
     arguments = parser.parse_args()
     try:
         if arguments.owned:

@@ -534,6 +534,46 @@ def test_outer_finalizer_honors_receipt_after_interrupted_creation(
     assert docker.resources == before
 
 
+@pytest.mark.parametrize("receipt_state", ["missing", "mismatch"])
+def test_outer_finalizer_rejects_invalid_receipt_after_successful_child(
+    ownership_boundary: tuple[ModuleType, _OwnershipDocker, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    receipt_state: str,
+) -> None:
+    wrapper, docker, started = ownership_boundary
+    sentinel = "correlia-verify-boundary-sentinel"
+    docker.resources["volume"][sentinel] = "developer-project"
+    after_creation: dict[str, dict[str, str]] = {}
+
+    def successful_child(
+        command: list[str], *, env: dict[str, str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        project = env["CORRELIA_VERIFICATION_PROJECT"]
+        receipt = Path(env["CORRELIA_VERIFICATION_RECEIPT"])
+        assert cleanup_verification.has_ownership(
+            project, env["CORRELIA_VERIFICATION_INVOCATION"], receipt
+        )
+        started.write_text("successful", encoding="utf-8")
+        docker.create_project(project)
+        after_creation.update(docker.snapshot())
+        if receipt_state == "missing":
+            receipt.unlink()
+        else:
+            recorded = json.loads(receipt.read_text(encoding="utf-8"))
+            recorded["invocation"] = "foreign-invocation"
+            receipt.write_text(json.dumps(recorded), encoding="utf-8")
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(wrapper.subprocess, "run", successful_child)
+
+    assert wrapper.main() != 0
+    assert started.read_text(encoding="utf-8") == "successful"
+    assert "Verification resource cleanup failed" in capsys.readouterr().err
+    assert docker.resources == after_creation
+    assert docker.resources["volume"][sentinel] == "developer-project"
+
+
 @pytest.mark.parametrize("receipt_state", ["missing", "project", "invocation"])
 def test_automatic_cleanup_gate_refuses_missing_or_mismatched_receipt(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, receipt_state: str
@@ -823,9 +863,7 @@ def test_live_outer_finalizer_removes_only_this_failed_invocations_resources(
 
 
 @pytest.mark.deployment
-@pytest.mark.parametrize(
-    "receipt_state", ["valid", "missing", "project", "invocation"]
-)
+@pytest.mark.parametrize("receipt_state", ["valid", "missing", "project", "invocation"])
 def test_live_workflow_gate_cleans_only_a_matching_interrupted_invocation(
     live_ownership_namespace: dict[str, object], tmp_path: Path, receipt_state: str
 ) -> None:
