@@ -246,6 +246,8 @@ Do this **before** starting Correlia against the new named mount. The container 
 
 The following is a POSIX Linux, pinned **PG16.9** logical whole-database cutover for the default single login/owner role `correlia` and database `correlia`. It uses a fresh, explicitly selected destination project so the old source remains separate. It is not an automatic discovery/migration tool. Use trusted source data; a restore executes SQL chosen by the source's owners. Other roles, role memberships, nondefault database grants/settings, tablespaces or an ICU locale require a reviewed extension of the role/property setup below; **stop**, do not skip them or blindly replay cluster globals. Never add `--no-owner`, `--no-acl`, `--clean`, `--create` or parallel restore jobs to make an error disappear.
 
+Release qualification: [Linux run 36790428888](https://github.com/sh1ny/correlia/actions/runs/36790428888) exercised this pinned **PG16.9**, default single-role cutover with **generated synthetic data**. The run observed fixed pre-cutover data baselines, post-restore equality, application startup, failure and recovery paths, and invocation-owned scoped cleanup. Its retained summary and logs are evidence for that bounded lifecycle/cutover scenario, not qualification of general backups or other PostgreSQL versions, role layouts or deployments.
+
 #### 1. Identify exactly one source and stop every writer
 
 Start a dedicated shell from the repository root. Set `SOURCE_PROJECT` to the old stack's **recorded** project, not a guess, and choose a new destination project whose resources do not already exist:

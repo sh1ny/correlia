@@ -3632,10 +3632,6 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
         ):
             pytest.fail("sentinel cleanup refused without invocation ownership")
 
-    from _local_postgres_migration_rehearsal import rehearse_local_postgres_migration
-
-    rehearse_local_postgres_migration(stack, tmp_path)
-
     assert _file_checksum(report_path) == report_checksum_before
     assert {
         path: _file_checksum(path) for path in CONFIG_DIRECTORY.glob("*.yaml")

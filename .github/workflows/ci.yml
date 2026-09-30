@@ -38,10 +38,7 @@ jobs:
         run: |
           printf '## Linux verification\n\nTested merge: `%s`\n\nPR head: `%s`\n\nOnly listed outcomes executed; absent outcomes are not passes.\n\n' "$TESTED_SHA" "$PR_HEAD" >> "$GITHUB_STEP_SUMMARY"
       - name: Run shared Linux gate
-        run: |
-          mise run ci
-          # Temporary migration/lifecycle evidence carrier; remove after rehearsal.
-          cat "$GITHUB_STEP_SUMMARY"
+        run: mise run ci
       - name: Remove owned verification resources
         if: ${{ always() && steps.tools.outcome == 'success' }}
         run: mise run clean:verification:owned
