@@ -95,6 +95,7 @@ MIGRATION_REPORT_ISSUE_CODES = frozenset(
         "invalid_yaml",
         "invalid_source_document",
         "missing_top_level_wrapper",
+        "unknown_source_field",
         "unsupported_rule_min_hosts",
         "unsupported_rule_is_dc_level",
         "invalid_rule_severity",

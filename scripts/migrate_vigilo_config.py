@@ -54,6 +54,17 @@ _ALLOWED_EMAIL_CONFIG_KEYS = frozenset(
         "use_tls",
     }
 )
+_RULE_SOURCE_FIELDS = frozenset(
+    {"name", "priority", "match", "window", "output_summary", "actions", "is_dc_level"}
+)
+_RULE_MATCH_SOURCE_FIELDS = frozenset({"severity", "host", "service", "tags"})
+_RULE_WINDOW_SOURCE_FIELDS = frozenset(
+    {"group_by", "duration_seconds", "trigger_threshold", "min_hosts"}
+)
+_TOPOLOGY_SOURCE_FIELDS = frozenset({"hostname_patterns", "ip_subnets"})
+_HOSTNAME_SOURCE_FIELDS = frozenset({"name", "regex", "target_tag", "tags"})
+_SUBNET_SOURCE_FIELDS = frozenset({"name", "cidr", "value", "target_tag"})
+_OUTPUT_SOURCE_FIELDS = frozenset({"module", "class", "config"})
 _CREDENTIAL_KEYS = frozenset({"smtp_username", "smtp_password", "username", "password"})
 _EMAIL_MODULE = "app.plugins.outputs.email"
 _EMAIL_SOURCE_CLASS = "EmailPlugin"
@@ -94,6 +105,7 @@ class MigrationIssue:
 
 UNSUPPORTED_FIELD_CATALOG_CODES: frozenset[str] = frozenset(
     {
+        "unknown_source_field",
         "unsupported_rule_min_hosts",
         "unsupported_rule_is_dc_level",
         "invalid_rule_severity",
@@ -414,6 +426,26 @@ def _rewrite_group_by(entries: list[Any]) -> tuple[list[str], list[MigrationIssu
     return rewritten, issues
 
 
+def _unknown_source_field_issues(
+    source: dict[Any, Any],
+    allowed_fields: frozenset[str],
+    *,
+    domain: str,
+    location: str,
+) -> list[MigrationIssue]:
+    return [
+        MigrationIssue(
+            domain=domain,
+            location=f"{location}.{key}" if location else str(key),
+            code="unknown_source_field",
+            message="unknown source schema field is not supported",
+            requirement="CFG-06",
+        )
+        for key in source
+        if not isinstance(key, str) or key not in allowed_fields
+    ]
+
+
 def _preflight_rules(raw_rules: list[Any]) -> list[MigrationIssue]:
     issues: list[MigrationIssue] = []
     if not isinstance(raw_rules, list):
@@ -443,9 +475,22 @@ def _preflight_rules(raw_rules: list[Any]) -> list[MigrationIssue]:
             )
             continue
 
+        issues.extend(
+            _unknown_source_field_issues(
+                rule, _RULE_SOURCE_FIELDS, domain="rules", location=loc
+            )
+        )
         window = rule.get("window", {})
         if not isinstance(window, dict):
             window = {}
+        issues.extend(
+            _unknown_source_field_issues(
+                window,
+                _RULE_WINDOW_SOURCE_FIELDS,
+                domain="rules",
+                location=f"{loc}.window",
+            )
+        )
         if "min_hosts" in window:
             issues.append(
                 MigrationIssue(
@@ -479,6 +524,14 @@ def _preflight_rules(raw_rules: list[Any]) -> list[MigrationIssue]:
                 )
             )
         else:
+            issues.extend(
+                _unknown_source_field_issues(
+                    match_block,
+                    _RULE_MATCH_SOURCE_FIELDS,
+                    domain="rules",
+                    location=f"{loc}.match",
+                )
+            )
             severity = match_block.get("severity")
             if not isinstance(severity, list) or not severity:
                 issues.append(
@@ -729,6 +782,14 @@ def _preflight_topology(raw_topology: dict[str, Any]) -> list[MigrationIssue]:
         )
         return issues
 
+    issues.extend(
+        _unknown_source_field_issues(
+            raw_topology,
+            _TOPOLOGY_SOURCE_FIELDS,
+            domain="topology",
+            location="topology_rules",
+        )
+    )
     hostname_patterns = raw_topology.get("hostname_patterns", [])
     if not isinstance(hostname_patterns, list):
         issues.append(
@@ -754,6 +815,11 @@ def _preflight_topology(raw_topology: dict[str, Any]) -> list[MigrationIssue]:
                 )
             )
             continue
+        issues.extend(
+            _unknown_source_field_issues(
+                entry, _HOSTNAME_SOURCE_FIELDS, domain="topology", location=loc
+            )
+        )
         regex = entry.get("regex", "")
         if not isinstance(regex, str):
             issues.append(
@@ -913,6 +979,11 @@ def _preflight_topology(raw_topology: dict[str, Any]) -> list[MigrationIssue]:
                 )
             )
             continue
+        issues.extend(
+            _unknown_source_field_issues(
+                entry, _SUBNET_SOURCE_FIELDS, domain="topology", location=loc
+            )
+        )
         for field in ("cidr", "value", "target_tag"):
             if field not in entry:
                 issues.append(
@@ -1141,6 +1212,11 @@ def _preflight_plugins(raw_plugins: dict[str, Any]) -> list[MigrationIssue]:
                 )
             )
             continue
+        issues.extend(
+            _unknown_source_field_issues(
+                output, _OUTPUT_SOURCE_FIELDS, domain="plugins", location=loc
+            )
+        )
         module = output.get("module", "")
         class_name = output.get("class", "")
 
@@ -1740,20 +1816,26 @@ def main(argv: Sequence[str] | None = None) -> int:
                     requirement="CFG-06",
                 )
             )
-        elif wrapper not in raw_document:
-            issues.append(
-                MigrationIssue(
-                    domain=domain,
-                    location=wrapper,
-                    code="missing_top_level_wrapper",
-                    message=f"{domain} source document is missing top-level '{wrapper}'",
-                    requirement="CFG-06",
+        else:
+            issues.extend(
+                _unknown_source_field_issues(
+                    raw_document, frozenset({wrapper}), domain=domain, location=""
                 )
             )
-        elif domain == "rules":
-            rules_list = raw_document[wrapper]
-        else:
-            topology_rules = raw_document[wrapper]
+            if wrapper not in raw_document:
+                issues.append(
+                    MigrationIssue(
+                        domain=domain,
+                        location=wrapper,
+                        code="missing_top_level_wrapper",
+                        message=f"{domain} source document is missing top-level '{wrapper}'",
+                        requirement="CFG-06",
+                    )
+                )
+            elif domain == "rules":
+                rules_list = raw_document[wrapper]
+            else:
+                topology_rules = raw_document[wrapper]
 
     issues.extend(_preflight_rules(rules_list))
     issues.extend(_preflight_topology(topology_rules))
