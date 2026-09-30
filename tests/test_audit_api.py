@@ -586,15 +586,7 @@ async def test_value_only_tag_redaction_is_not_an_omission(
         )
         await session.commit()
 
-    app = _app(
-        session_factory,
-        settings=Settings(
-            DATABASE_URL=VALID_DATABASE_URL,
-            environment="local",
-            api_auth_enabled=False,
-            audit_raw_payload_hmac_key=HMAC_KEY,
-        ),
-    )
+    app = _app(session_factory)
     async for client in get_client(app):
         response = await client.get("/v1/incident-events")
         assert response.status_code == 200

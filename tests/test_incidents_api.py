@@ -164,9 +164,7 @@ async def _assert_operator_denials_preserve_state(
         # Record request SQL only, excluding startup and snapshot queries.
         event.listen(engine, "before_cursor_execute", record_statement)
         try:
-            response = await client.request(
-                method, path, headers=headers, json=payload
-            )
+            response = await client.request(method, path, headers=headers, json=payload)
         finally:
             event.remove(engine, "before_cursor_execute", record_statement)
 

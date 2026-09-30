@@ -21,9 +21,7 @@ INGRESS_TOKEN = "ingress-secret"
 AUDIT_HMAC_KEY = "test-audit-hmac"
 DOCS_PATHS = ("/docs", "/redoc", "/openapi.json", "/docs/oauth2-redirect")
 EXPECTED_DOCUMENTATION_POLICY = tuple(
-    (method, path, "public")
-    for path in DOCS_PATHS
-    for method in ("GET", "HEAD")
+    (method, path, "public") for path in DOCS_PATHS for method in ("GET", "HEAD")
 )
 INCIDENT_ID = "b64dccf2-9a4b-4fd4-baf5-91ce12d12340"
 VALID_INGRESS_BODY = {
@@ -188,9 +186,7 @@ async def test_protected_route_matrix_denies_before_handler_work(
 ) -> None:
     # Every supported request has valid identifiers/body and a fresh quota.
     app = _app(
-        _settings(
-            environment=environment, expose_readyz=False, expose_metrics=False
-        )
+        _settings(environment=environment, expose_readyz=False, expose_metrics=False)
     )
     protected_work: list[str] = []
 
@@ -233,9 +229,7 @@ async def test_health_is_public_when_auth_enabled(
     environment: Literal["local", "test", "production"],
 ) -> None:
     app = _app(
-        _settings(
-            environment=environment, expose_readyz=False, expose_metrics=False
-        )
+        _settings(environment=environment, expose_readyz=False, expose_metrics=False)
     )
     async for client in get_client(app):
         response = await client.get("/v1/health")
@@ -300,9 +294,7 @@ async def test_production_documentation_routes_are_absent(
 ) -> None:
     # A new app gives every method/path/credential case independent rate-limit quota.
     app = _app(
-        _settings(
-            environment="production", expose_readyz=False, expose_metrics=False
-        )
+        _settings(environment="production", expose_readyz=False, expose_metrics=False)
     )
     headers = {} if token is None else {"Authorization": f"Bearer {token}"}
     async for client in get_client(app):
@@ -327,9 +319,7 @@ async def test_nonproduction_documentation_remains_public(
     path: str,
     method: str,
 ) -> None:
-    app = _app(
-        _settings(environment=environment, api_auth_enabled=api_auth_enabled)
-    )
+    app = _app(_settings(environment=environment, api_auth_enabled=api_auth_enabled))
     async for client in get_client(app):
         response = await client.request(method, path, follow_redirects=False)
     assert response.status_code == 200
@@ -380,9 +370,7 @@ async def test_injected_production_settings_override_local_environment(
         ingress_token="environment-ingress",
     )
     app = _app(
-        _settings(
-            environment="production", expose_readyz=False, expose_metrics=False
-        )
+        _settings(environment="production", expose_readyz=False, expose_metrics=False)
     )
     async for client in get_client(app):
         for path in DOCS_PATHS:
@@ -455,9 +443,7 @@ async def test_uninjected_settings_survive_environment_changes_before_lifespan(
             assert "location" not in response.headers
         for path in ("/v1/readyz", "/v1/metrics"):
             for token in (None, "changed-operator", INGRESS_TOKEN):
-                headers = (
-                    {} if token is None else {"Authorization": f"Bearer {token}"}
-                )
+                headers = {} if token is None else {"Authorization": f"Bearer {token}"}
                 denied = await client.get(path, headers=headers)
                 assert denied.status_code == 401
             operator = await client.get(

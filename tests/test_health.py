@@ -478,4 +478,3 @@ async def test_readyz_logs_only_meaningful_state_transitions(
         if record.__dict__.get("event") == "readiness"
     ]
     assert events == [("aggregate", "ready"), ("lifecycle_worker", "not_ready")]
-

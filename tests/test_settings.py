@@ -25,7 +25,6 @@ def test_valid_database_url_and_defaults() -> None:
     assert settings.plugins_path is None
 
 
-
 @pytest.mark.parametrize(
     ("kwargs", "expected_error"),
     [
@@ -299,7 +298,10 @@ def test_unknown_environment_from_process_environment_is_rejected(
         ({"ingress_api_token": ""}, ("ingress_api_token",)),
         ({"ingress_api_token": "   "}, ("ingress_api_token",)),
         (
-            {"operator_api_token": "shared-secret", "ingress_api_token": "shared-secret"},
+            {
+                "operator_api_token": "shared-secret",
+                "ingress_api_token": "shared-secret",
+            },
             ("operator_api_token", "ingress_api_token"),
         ),
         ({"audit_raw_payload_hmac_key": None}, ("audit_raw_payload_hmac_key",)),
@@ -356,7 +358,9 @@ def test_production_policy_diagnostics_hide_supplied_secrets(
     operator_secret = "disposable-operator-sentinel"
     ingress_secret = "disposable-ingress-sentinel"
     audit_secret = "disposable-audit-sentinel"
-    database_url = f"postgresql+asyncpg://user:{database_secret}@localhost:5432/correlia"
+    database_url = (
+        f"postgresql+asyncpg://user:{database_secret}@localhost:5432/correlia"
+    )
     with pytest.raises(ValidationError) as exc_info:
         Settings(
             DATABASE_URL=database_url,

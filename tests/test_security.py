@@ -142,9 +142,7 @@ async def test_config_routes_preserve_safe_results_for_operator_or_nonproduction
         sessionmaker=lambda: object(),
         lifecycle_worker=NoopLifecycleWorker(),
     )
-    headers = (
-        {"Authorization": f"Bearer {OPERATOR_TOKEN}"} if api_auth_enabled else {}
-    )
+    headers = {"Authorization": f"Bearer {OPERATOR_TOKEN}"} if api_auth_enabled else {}
     async for client in get_client(app):
         plugins = await client.get("/v1/plugins", headers=headers)
         rules = await client.get("/v1/rules", headers=headers)

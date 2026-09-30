@@ -578,9 +578,7 @@ async def test_icinga2_problem_webhook_aggregates_and_submits_notifications_once
         # Background expiry must not contaminate request-only SQL recording.
         lifecycle_worker=NoopLifecycleWorker(),  # type: ignore[arg-type]
     )
-    first_payload = _payload(
-        host="web-01", source_id="icinga2:service:web-01:http"
-    )
+    first_payload = _payload(host="web-01", source_id="icinga2:service:web-01:http")
     ingress_headers = {"Authorization": f"Bearer {ingress_token}"}
 
     async def persisted_rows() -> list[list[dict[str, Any]]]:
@@ -628,9 +626,7 @@ async def test_icinga2_problem_webhook_aggregates_and_submits_notifications_once
                 {"Authorization": "Bearer invalid-token"},
                 {"Authorization": f"Bearer {operator_token}"},
             ):
-                sa.event.listen(
-                    engine.sync_engine, "before_cursor_execute", record_sql
-                )
+                sa.event.listen(engine.sync_engine, "before_cursor_execute", record_sql)
                 try:
                     denied = await client.post(
                         "/v1/icinga2/events",

@@ -1,8 +1,8 @@
 import logging
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, cast
 
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
@@ -267,8 +267,12 @@ def create_app(
     lifecycle_worker: LifecycleWorker | None = None,
 ) -> FastAPI:
     effective_settings = settings if settings is not None else get_settings()
-    effective_settings._require_security_tokens_when_enabled()
-    effective_settings._require_audit_hmac_key()
+    # Pydantic restores instance methods at class creation, but its decorator
+    # annotations retain the descriptor proxy type.
+    cast(
+        Callable[[], Settings], effective_settings._require_security_tokens_when_enabled
+    )()
+    cast(Callable[[], Settings], effective_settings._require_audit_hmac_key)()
     is_production = effective_settings.environment == "production"
     app = FastAPI(
         lifespan=lifespan,
