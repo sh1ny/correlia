@@ -1152,6 +1152,275 @@ def test_rewrite_group_by_rejects_rule_name() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Unknown source fields
+# ---------------------------------------------------------------------------
+
+
+def _valid_source_documents() -> dict[str, Any]:
+    return {
+        domain: yaml.safe_load(_fixture_path(f"{domain}_valid.yaml").read_text())
+        for domain in ("rules", "topology", "plugins")
+    }
+
+
+def _run_rejected_sources_preserving_destination(
+    documents: dict[str, Any], tmp_path: Path
+) -> dict[str, Any]:
+    sources: dict[str, str] = {}
+    for domain, document in documents.items():
+        source_path = tmp_path / f"source_{domain}.yaml"
+        source_path.write_text(yaml.safe_dump(document, sort_keys=False))
+        sources[domain] = str(source_path)
+
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    prior_files = {
+        f"{domain}.yaml": (
+            b"# Existing destination; preserve comments and bytes.\r\n"
+            + _fixture_path(f"{domain}_valid.yaml").read_bytes()
+        )
+        for domain in ("rules", "topology", "plugins")
+    }
+    prior_files["unrelated.bin"] = b"\x00unrelated sentinel\r\n\xff"
+    for name, contents in prior_files.items():
+        (out_dir / name).write_bytes(contents)
+    report_path = tmp_path / "report.json"
+
+    result = _run_cli(
+        **sources,
+        out_dir=str(out_dir),
+        report_path=str(report_path),
+    )
+
+    assert result.returncode != 0, result.stdout
+    report = json.loads(report_path.read_text())
+    assert report["ok"] is False
+    assert report["generated"] is None
+    assert {path.name: path.read_bytes() for path in out_dir.iterdir()} == prior_files
+    return report
+
+
+@pytest.mark.parametrize(
+    ("domain", "mapping_path", "location_prefix"),
+    [
+        pytest.param("rules", (), "", id="rules-document"),
+        pytest.param("rules", ("rules", 0), "rules[0].", id="rule"),
+        pytest.param(
+            "rules", ("rules", 0, "match"), "rules[0].match.", id="rule-match"
+        ),
+        pytest.param(
+            "rules", ("rules", 0, "window"), "rules[0].window.", id="rule-window"
+        ),
+        pytest.param("topology", (), "", id="topology-document"),
+        pytest.param(
+            "topology",
+            ("topology_rules",),
+            "topology_rules.",
+            id="topology-sections",
+        ),
+        pytest.param(
+            "topology",
+            ("topology_rules", "hostname_patterns", 0),
+            "topology_rules.hostname_patterns[0].",
+            id="hostname-entry",
+        ),
+        pytest.param(
+            "topology",
+            ("topology_rules", "ip_subnets", 0),
+            "topology_rules.ip_subnets[0].",
+            id="subnet-entry",
+        ),
+        pytest.param(
+            "plugins",
+            ("outputs", "email-ops"),
+            "plugins.outputs.email-ops.",
+            id="plugin-output-entry",
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    "unknown_key",
+    [
+        pytest.param("foo", id="string-key"),
+        pytest.param(42, id="integer-key"),
+        pytest.param(True, id="boolean-key"),
+    ],
+)
+def test_cli_rejects_unknown_source_fields_without_replacing_destinations(
+    domain: str,
+    mapping_path: tuple[str | int, ...],
+    location_prefix: str,
+    unknown_key: str | int | bool,
+    tmp_path: Path,
+) -> None:
+    documents = _valid_source_documents()
+    mapping = documents[domain]
+    for component in mapping_path:
+        mapping = mapping[component]
+    mapping[unknown_key] = "untranslated source behavior"
+
+    report = _run_rejected_sources_preserving_destination(documents, tmp_path)
+
+    assert [
+        (error["domain"], error["location"], error["code"], error["requirement"])
+        for error in report["errors"]
+    ] == [
+        (
+            domain,
+            f"{location_prefix}{unknown_key}",
+            "unknown_source_field",
+            "CFG-06",
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    ("mapping_path", "location", "code"),
+    [
+        (
+            (),
+            "plugins.foo",
+            "unsupported_plugin_section",
+        ),
+        (
+            ("outputs", "email-ops", "config"),
+            "plugins.outputs.email-ops.config.foo",
+            "unsupported_plugin_option",
+        ),
+    ],
+)
+def test_cli_retains_existing_plugin_unknown_field_diagnostics(
+    mapping_path: tuple[str, ...], location: str, code: str, tmp_path: Path
+) -> None:
+    documents = _valid_source_documents()
+    mapping = documents["plugins"]
+    for component in mapping_path:
+        mapping = mapping[component]
+    mapping["foo"] = "untranslated plugin behavior"
+
+    report = _run_rejected_sources_preserving_destination(documents, tmp_path)
+
+    assert [
+        (error["domain"], error["location"], error["code"], error["requirement"])
+        for error in report["errors"]
+    ] == [("plugins", location, code, "CFG-06")]
+
+
+def test_cli_aggregates_unknown_fields_with_semantic_and_credential_failures(
+    tmp_path: Path,
+) -> None:
+    documents = _valid_source_documents()
+    rule = documents["rules"]["rules"][0]
+    rule["foo"] = "unknown rule setting"
+    rule["match"]["foo"] = "unknown matcher"
+    rule["window"]["foo"] = "unknown window setting"
+    rule["is_dc_level"] = True
+    rule["window"]["min_hosts"] = 2
+    topology = documents["topology"]["topology_rules"]
+    topology["hostname_patterns"][0]["foo"] = "unknown hostname setting"
+    del topology["ip_subnets"][0]["cidr"]
+    output = documents["plugins"]["outputs"]["email-ops"]
+    output["foo"] = "unknown output setting"
+    output["config"]["smtp_username"] = "legacy-username"
+    output["config"]["foo"] = "unknown plugin option"
+
+    report = _run_rejected_sources_preserving_destination(documents, tmp_path)
+
+    actual = [
+        (error["domain"], error["location"], error["code"], error["requirement"])
+        for error in report["errors"]
+    ]
+    expected = [
+        ("rules", "rules[0].foo", "unknown_source_field", "CFG-06"),
+        ("rules", "rules[0].match.foo", "unknown_source_field", "CFG-06"),
+        ("rules", "rules[0].window.foo", "unknown_source_field", "CFG-06"),
+        (
+            "rules",
+            "rules[0].is_dc_level",
+            "unsupported_rule_is_dc_level",
+            "CFG-06",
+        ),
+        (
+            "rules",
+            "rules[0].window.min_hosts",
+            "unsupported_rule_min_hosts",
+            "CFG-06",
+        ),
+        (
+            "topology",
+            "topology_rules.hostname_patterns[0].foo",
+            "unknown_source_field",
+            "CFG-06",
+        ),
+        (
+            "topology",
+            "topology_rules.ip_subnets[0].cidr",
+            "missing_subnet_field",
+            "CFG-06",
+        ),
+        (
+            "plugins",
+            "plugins.outputs.email-ops.foo",
+            "unknown_source_field",
+            "CFG-06",
+        ),
+        (
+            "plugins",
+            "plugins.outputs.email-ops.config.smtp_username",
+            "plaintext_smtp_credentials",
+            "CFG-06",
+        ),
+        (
+            "plugins",
+            "plugins.outputs.email-ops.config.foo",
+            "unsupported_plugin_option",
+            "CFG-06",
+        ),
+    ]
+    assert sorted(actual) == sorted(expected)
+
+
+def test_cli_preserves_open_tag_names_and_output_names(tmp_path: Path) -> None:
+    documents = _valid_source_documents()
+    arbitrary_tags = {"tenant_zone": "production", "custom.region": "west"}
+    documents["rules"]["rules"][0]["match"]["tags"].update(arbitrary_tags)
+    documents["topology"]["topology_rules"]["hostname_patterns"][2]["tags"].update(
+        arbitrary_tags
+    )
+    output_name = "custom-notification"
+    outputs = documents["plugins"]["outputs"]
+    outputs[output_name] = outputs.pop("email-ops")
+    for rule in documents["rules"]["rules"]:
+        rule["actions"] = [output_name]
+    sources: dict[str, str] = {}
+    for domain, document in documents.items():
+        source_path = tmp_path / f"source_{domain}.yaml"
+        source_path.write_text(yaml.safe_dump(document, sort_keys=False))
+        sources[domain] = str(source_path)
+    out_dir = tmp_path / "out"
+    report_path = tmp_path / "report.json"
+
+    result = _run_cli(**sources, out_dir=str(out_dir), report_path=str(report_path))
+
+    assert result.returncode == 0, result.stderr
+    report = json.loads(report_path.read_text())
+    assert report["ok"] is True
+    assert report["errors"] == []
+    generated_rules = yaml.safe_load((out_dir / "rules.yaml").read_text())["rules"]
+    generated_topology = yaml.safe_load((out_dir / "topology.yaml").read_text())
+    generated_plugins = yaml.safe_load((out_dir / "plugins.yaml").read_text())
+    expected_tags = {f"topology.{key}": value for key, value in arbitrary_tags.items()}
+    for key, value in expected_tags.items():
+        assert generated_rules[0]["match"]["tags"][key] == value
+        assert generated_topology["hostname_rules"][2]["tags"][key] == value
+    assert generated_plugins["outputs"][0]["name"] == output_name
+    assert all(
+        rule["actions"] == [{"name": "create_incident", "plugin": output_name}]
+        for rule in generated_rules
+    )
+
+
+# ---------------------------------------------------------------------------
 # Unsupported-field catalog
 # ---------------------------------------------------------------------------
 

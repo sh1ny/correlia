@@ -756,6 +756,85 @@ async def test_migration_report_projection_refreshes_at_metrics_render_boundary(
     )
 
 
+async def test_metrics_route_replaces_previous_success_with_unknown_source_field_failure(
+    tmp_path: Path,
+) -> None:
+    import os
+
+    import app.processing.metrics as metrics
+    from scripts.migrate_vigilo_config import _build_report, _preflight_rules
+
+    app = create_app()
+    transport = ASGITransport(app=app)
+    report_path = tmp_path / "migration-report.json"
+    report_path.write_text(
+        json.dumps(
+            _build_report(
+                ok=True,
+                issues=[],
+                out_dir=tmp_path / "generated",
+                failure_code="none",
+            )
+        )
+    )
+    metrics.configure_migration_report_projection(report_path)
+
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        previous_response = await client.get("/v1/metrics")
+        assert previous_response.status_code == 200
+        assert 'correlia_vigilo_migration_report_status{status="valid"} 1.0' in (
+            previous_response.text
+        )
+        assert 'correlia_vigilo_migration_report_outcome{outcome="success"} 1.0' in (
+            previous_response.text
+        )
+        assert 'correlia_vigilo_migration_report_failure_code{code="none"} 1.0' in (
+            previous_response.text
+        )
+
+        issues = _preflight_rules(
+            [
+                {
+                    "name": "example",
+                    "priority": 1,
+                    "match": {"severity": ["CRITICAL"]},
+                    "actions": ["email"],
+                    "future_option": "private-source-detail",
+                }
+            ]
+        )
+        replacement = tmp_path / "replacement.json"
+        replacement.write_text(
+            json.dumps(
+                _build_report(
+                    ok=False,
+                    issues=issues,
+                    out_dir=None,
+                    failure_code="cataloged_incompatibility",
+                )
+            )
+        )
+        os.replace(replacement, report_path)
+
+        response = await client.get("/v1/metrics")
+
+    assert response.status_code == 200
+    body = response.text
+    assert 'correlia_vigilo_migration_report_status{status="valid"} 1.0' in body
+    assert (
+        'correlia_vigilo_migration_report_status{status="invalid_summary"} 0.0' in body
+    )
+    assert 'correlia_vigilo_migration_report_outcome{outcome="failure"} 1.0' in body
+    assert 'correlia_vigilo_migration_report_outcome{outcome="success"} 0.0' in body
+    assert (
+        'correlia_vigilo_migration_report_failure_code{code="cataloged_incompatibility"} 1.0'
+        in body
+    )
+    assert 'correlia_vigilo_migration_report_failure_code{code="none"} 0.0' in body
+    assert "future_option" not in body
+    assert "private-source-detail" not in body
+
+
 async def test_migration_report_renders_are_consistent_during_atomic_replacement(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
