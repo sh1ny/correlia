@@ -3057,8 +3057,10 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
             _docker_json(["inspect", "--format", "{{json .State.Running}}", container])
             is False
         )
+    # Compose v2 has no start --wait flag; the preservation probe below waits
+    # for authenticated readiness before comparing the retained data.
     _require_docker_success(
-        _docker_compose_arguments(stack, "start", "--wait"),
+        _docker_compose_arguments(stack, "start"),
         environment=stack["environment"],  # type: ignore[arg-type]
     )
     prove_preservation("full stop/start", previous_postgres, same_container=True)
