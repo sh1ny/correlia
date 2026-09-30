@@ -962,6 +962,8 @@ def rehearse_local_postgres_migration(stack: dict[str, object], tmp_path: Path) 
             )
             == target_database_inventory
         )
+        # Localhost may match initdb trust; use this target's private-network name,
+        # not the canonical stack's "postgres" alias, for both credential probes.
         assert json.loads(recovered_sql(_BASELINE_SQL)) == baseline
         wrong_password = deployment._docker(
             [
@@ -972,14 +974,36 @@ def rehearse_local_postgres_migration(stack: dict[str, object], tmp_path: Path) 
                 "-eu",
                 "-c",
                 "IFS= read -r PGPASSWORD; export PGPASSWORD; "
-                "exec psql --no-psqlrc --host=127.0.0.1 --username=correlia --dbname=correlia "
+                'exec psql --no-psqlrc --host="$1" --username=correlia --dbname=correlia '
                 '--no-password --set=ON_ERROR_STOP=1 --command="SELECT current_user"',
+                "sh",
+                target_name,
             ],
             input_data=f"u3-invalid-{uuid4().hex}\n",
         )
         assert wrong_password.returncode != 0
         assert "password authentication failed" in wrong_password.stderr
-        assert sql(target_name, "SELECT current_user;") == "correlia"
+        valid_password = deployment._docker(
+            [
+                "exec",
+                "--interactive",
+                target_name,
+                "sh",
+                "-eu",
+                "-c",
+                'export PGPASSWORD="$POSTGRES_PASSWORD"; '
+                'exec psql --no-psqlrc --host="$1" --username=correlia --dbname=correlia '
+                "--no-password --set=ON_ERROR_STOP=1 --tuples-only --no-align",
+                "sh",
+                target_name,
+            ],
+            input_data=(
+                "SELECT current_user, inet_client_addr() IS NOT NULL AND "
+                "inet_client_addr() NOT IN ('127.0.0.1'::inet, '::1'::inet);\n"
+            ),
+        )
+        assert valid_password.returncode == 0
+        assert valid_password.stdout.strip() == "correlia|t"
 
         # App startup is the mutation boundary; no ingress is resumed yet.
         start_app(target_app, target_name, destination=True)

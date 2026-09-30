@@ -510,19 +510,34 @@ done
 
 Inventory settings are empty on this default path; customized inventories containing cluster-local OIDs require semantic role/database-name comparison, not raw OID equality. Confirm the incident UUIDs/status/acknowledgement fields, audit UUIDs/source IDs/fingerprints/linkage/decision summaries and exact `alembic_version` match. Acknowledgement is metadata: an acknowledged incident remains `OPEN`. Compare a long-window/non-expiring incident separately from any incident already overdue.
 
-The target queries above use **TCP and password authentication**, not local socket trust. Confirm a deliberately incorrect password is rejected, without putting it in command arguments or changing the role:
+The inventory/baseline queries above use localhost TCP, which may match the image's `initdb` **trust** rules and is not password proof. For both credential checks, use the destination project's private Compose service hostname `postgres` (the project selected explicitly by `dc`), not localhost or a full container ID. Confirm a deliberately incorrect password is rejected, without putting it in command arguments or changing the role:
 
 ```sh
 # Enter a deliberately incorrect password at this prompt.
-if docker exec -it --user postgres "$TARGET_CONTAINER" psql --no-psqlrc \
-    --host=127.0.0.1 --username=correlia --dbname=correlia --password \
+if dc exec --user postgres postgres psql --no-psqlrc \
+    --host=postgres --username=correlia --dbname=correlia --password \
     --set=ON_ERROR_STOP=1 --command='SELECT current_user;'; then
     printf '%s\n' 'STOP: incorrect database password was accepted' >&2
     exit 1
 fi
 ```
 
-Require the failure to be **password authentication failed**, not a broken container/network; the preceding successful TCP queries establish the working credential path. The actual application DSN must use the verified role/password/database. Owner/ACL errors are failures, not reasons to suppress ownership/grants.
+Require the failure to be **password authentication failed**, not a broken container/network. Then prove the initialized password works on the **same non-loopback path**, as role `correlia`:
+
+```sh
+credential_proof=$(dc exec --no-TTY postgres sh -eu -c '
+    export PGPASSWORD="$POSTGRES_PASSWORD"
+    exec psql --no-psqlrc --host=postgres --username=correlia --dbname=correlia \
+      --no-password --set=ON_ERROR_STOP=1 --tuples-only --no-align
+' <<'SQL'
+SELECT current_user, inet_client_addr() IS NOT NULL AND
+    inet_client_addr() NOT IN ('127.0.0.1'::inet, '::1'::inet);
+SQL
+)
+test "$credential_proof" = 'correlia|t'
+```
+
+The actual application DSN must use the verified role/password/database. Owner/ACL errors are failures, not reasons to suppress ownership/grants.
 
 Only after those checks:
 
