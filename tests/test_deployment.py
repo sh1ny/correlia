@@ -52,6 +52,7 @@ _DOCKER_UNAVAILABLE_CAPABILITIES = (
 # the existing smoke, idle health probes, and the finite loaded workload.
 _QUALIFICATION_HEALTH_QUOTA = 1_000
 _QUALIFICATION_INGRESS_QUOTA = 500
+_QUALIFICATION_OPERATOR_QUOTA = 500
 _QUALIFICATION_WINDOW_SECONDS = 60
 _QUALIFICATION_DURATION_SECONDS = 11
 _QUALIFICATION_OFFERED_RATE_PER_SECOND = 10
@@ -119,6 +120,46 @@ def _docker_json(arguments: list[str]) -> object:
         pytest.fail("Docker inspection did not return JSON")
 
 
+def _container_startup_policy_state(
+    container: str,
+) -> tuple[dict[str, str], bool, int, str]:
+    """Inspect only nonsecret policy inputs and the named container's state."""
+    policy_names = (
+        "CORRELIA_ENVIRONMENT",
+        "CORRELIA_API_AUTH_ENABLED",
+        "CORRELIA_EXPOSE_READYZ",
+        "CORRELIA_EXPOSE_METRICS",
+    )
+    selection = " ".join(f'(eq (index $parts 0) "{name}")' for name in policy_names)
+    template = (
+        '{"running":{{json .State.Running}},'
+        '"exit_code":{{json .State.ExitCode}},'
+        '"status":{{json .State.Status}},'
+        '"environment":[{{range .Config.Env}}{{$parts := split . "="}}'
+        "{{if or " + selection + "}}{{json .}},{{end}}{{end}}null]}"
+    )
+    inspection = _docker_json(["inspect", "--format", template, container])
+    if not isinstance(inspection, dict):
+        pytest.fail("policy inspection did not return the named container state")
+    environment = inspection.get("environment")
+    running = inspection.get("running")
+    exit_code = inspection.get("exit_code")
+    status = inspection.get("status")
+    if (
+        not isinstance(environment, list)
+        or not isinstance(running, bool)
+        or not isinstance(exit_code, int)
+        or not isinstance(status, str)
+    ):
+        pytest.fail("policy inspection returned invalid nonsecret fields")
+    policy = {
+        entry.partition("=")[0]: entry.partition("=")[2]
+        for entry in environment
+        if isinstance(entry, str)
+    }
+    return policy, running, exit_code, status
+
+
 def _wait_until(
     description: str,
     predicate: object,
@@ -142,22 +183,28 @@ def _container_http_response(
     token: str | None = None,
     payload: dict[str, object] | None = None,
     method: str = "GET",
+    follow_redirects: bool = True,
 ) -> tuple[int, bytes]:
     script = """
 import base64
 import json
 import sys
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-url, method, token, payload = json.loads(sys.stdin.read())
+class NoRedirects(HTTPRedirectHandler):
+    def redirect_request(self, request, file_pointer, code, message, headers, new_url):
+        return None
+
+url, method, token, payload, follow_redirects = json.loads(sys.stdin.read())
+opener = build_opener() if follow_redirects else build_opener(NoRedirects())
 data = json.dumps(payload).encode() if payload is not None else None
 headers = {"Content-Type": "application/json"} if data is not None else {}
 if token:
     headers["Authorization"] = f"Bearer {token}"
 request = Request(url, data=data, headers=headers, method=method)
 try:
-    with urlopen(request, timeout=2) as response:
+    with opener.open(request, timeout=2) as response:
         status, body = response.status, response.read()
 except HTTPError as error:
     status, body = error.code, error.read()
@@ -174,7 +221,7 @@ print(json.dumps((status, base64.b64encode(body).decode())))
             "-c",
             script,
         ],
-        input_data=json.dumps((url, method, token, payload)),
+        input_data=json.dumps((url, method, token, payload, follow_redirects)),
     )
     if result.returncode != 0:
         pytest.fail("container-local HTTP probe failed without exposing diagnostics")
@@ -913,7 +960,7 @@ def docker_compose_stack(tmp_path: Path) -> Iterator[dict[str, object]]:
             "postgresql+asyncpg://correlia:"
             f"{secrets['postgres_password']}@postgres:5432/correlia"
         ),
-        "CORRELIA_ENVIRONMENT": "test",
+        "CORRELIA_ENVIRONMENT": "production",
         "CORRELIA_LOG_LEVEL": "INFO",
         "CORRELIA_RULES_PATH": "/app/config/rules.yaml",
         "CORRELIA_TOPOLOGY_PATH": "/app/config/topology.yaml",
@@ -945,6 +992,8 @@ def docker_compose_stack(tmp_path: Path) -> Iterator[dict[str, object]]:
                 f"      CORRELIA_RATE_LIMIT_WINDOW_SECONDS_HEALTH: {_QUALIFICATION_WINDOW_SECONDS}",
                 f"      CORRELIA_RATE_LIMIT_REQUESTS_INGRESS: {_QUALIFICATION_INGRESS_QUOTA}",
                 f"      CORRELIA_RATE_LIMIT_WINDOW_SECONDS_INGRESS: {_QUALIFICATION_WINDOW_SECONDS}",
+                f"      CORRELIA_RATE_LIMIT_REQUESTS_OPERATOR: {_QUALIFICATION_OPERATOR_QUOTA}",
+                f"      CORRELIA_RATE_LIMIT_WINDOW_SECONDS_OPERATOR: {_QUALIFICATION_WINDOW_SECONDS}",
                 "    volumes:",
                 f"      - {report_path}:/app/reports/migration-report.json:ro",
                 f"      - {smoke_rules_path}:/app/smoke/rules.yaml:ro",
@@ -1417,8 +1466,10 @@ def test_environment_and_config_samples_construct_strict_runtime_configuration(
 
     settings = Settings()
 
+    assert settings.environment == "local"
     assert settings.api_auth_enabled is True
     assert settings.expose_readyz is False
+    assert settings.expose_metrics is True
     assert settings.operator_api_token is not None
     assert settings.ingress_api_token is not None
     assert settings.operator_api_token.get_secret_value() != (
@@ -1499,20 +1550,65 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
     assert status == 200
     assert json.loads(health_body) == {"status": "ok"}
 
-    status, _ = _container_http_response(app_container, f"{app_url}/v1/readyz")
-    assert status == 401
-    status, _ = _container_http_response(
-        app_container, f"{app_url}/v1/readyz", token="wrong-token"
-    )
-    assert status == 401
+    invalid_token = "production-invalid-credential"
+    for token in (invalid_token, operator_token, ingress_token):
+        status, public_body = _container_http_response(
+            app_container, f"{app_url}/v1/health", token=token
+        )
+        assert status == 200
+        assert json.loads(public_body) == {"status": "ok"}
+
+    def assert_role_denials(
+        path: str,
+        *,
+        method: str = "GET",
+        payload: dict[str, object] | None = None,
+        wrong_role: str = ingress_token,
+    ) -> None:
+        for token in (None, invalid_token, wrong_role):
+            status, denied_body = _container_http_response(
+                app_container,
+                f"{app_url}{path}",
+                token=token,
+                payload=payload,
+                method=method,
+                follow_redirects=False,
+            )
+            denial_diagnostics = denied_body.decode(errors="replace")
+            for secret in (postgres_password, operator_token, ingress_token, audit_key):
+                _assert_secret_absent(
+                    denial_diagnostics, "production role denial", secret
+                )
+            assert status == 401
+            assert json.loads(denied_body) == {"detail": "unauthorized"}
+
+    for path in ("/v1/readyz", "/v1/metrics"):
+        assert_role_denials(path)
+
+    # Exercise absence before operator traffic, with fresh qualification quota.
+    for path in ("/docs", "/redoc", "/openapi.json", "/docs/oauth2-redirect"):
+        for suffix in ("", "/"):
+            for method in ("GET", "HEAD"):
+                for token in (None, operator_token, ingress_token):
+                    status, absent_body = _container_http_response(
+                        app_container,
+                        f"{app_url}{path}{suffix}",
+                        token=token,
+                        method=method,
+                        follow_redirects=False,
+                    )
+                    assert status == 404
+                    if method == "GET":
+                        assert json.loads(absent_body) == {"detail": "Not Found"}
+                    else:
+                        assert absent_body == b""
     status, ready_body = _container_http_response(
         app_container, f"{app_url}/v1/readyz", token=operator_token
     )
     assert status == 200
-    assert json.loads(ready_body)["status"] == "ready"
-
-    status, _ = _container_http_response(app_container, f"{app_url}/v1/metrics")
-    assert status == 401
+    readiness = json.loads(ready_body)
+    assert readiness["status"] == "ready"
+    assert readiness["checks"]["database"] == "ready"
     status, metrics_body = _container_http_response(
         app_container, f"{app_url}/v1/metrics", token=operator_token
     )
@@ -1610,14 +1706,39 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
             pytest.fail(
                 "runtime secret was not injected exclusively into service environment"
             )
+    safe_policy = {
+        "CORRELIA_ENVIRONMENT": "production",
+        "CORRELIA_API_AUTH_ENABLED": "true",
+        "CORRELIA_EXPOSE_READYZ": "false",
+        "CORRELIA_EXPOSE_METRICS": "false",
+    }
+    effective_policy, running, _, _ = _container_startup_policy_state(app_container)
+    assert effective_policy == safe_policy
+    assert running is True
+    qualification_environment = {
+        entry.partition("=")[0]: entry.partition("=")[2]
+        for entry in config["Env"]
+        if entry.partition("=")[0]
+        in {
+            "CORRELIA_RATE_LIMIT_ENABLED",
+            "CORRELIA_RATE_LIMIT_REQUESTS_HEALTH",
+            "CORRELIA_RATE_LIMIT_WINDOW_SECONDS_HEALTH",
+            "CORRELIA_RATE_LIMIT_REQUESTS_INGRESS",
+            "CORRELIA_RATE_LIMIT_WINDOW_SECONDS_INGRESS",
+            "CORRELIA_RATE_LIMIT_REQUESTS_OPERATOR",
+            "CORRELIA_RATE_LIMIT_WINDOW_SECONDS_OPERATOR",
+        }
+    }
     for setting, value in (
         ("RATE_LIMIT_ENABLED", "true"),
         ("RATE_LIMIT_REQUESTS_HEALTH", str(_QUALIFICATION_HEALTH_QUOTA)),
         ("RATE_LIMIT_WINDOW_SECONDS_HEALTH", str(_QUALIFICATION_WINDOW_SECONDS)),
         ("RATE_LIMIT_REQUESTS_INGRESS", str(_QUALIFICATION_INGRESS_QUOTA)),
         ("RATE_LIMIT_WINDOW_SECONDS_INGRESS", str(_QUALIFICATION_WINDOW_SECONDS)),
+        ("RATE_LIMIT_REQUESTS_OPERATOR", str(_QUALIFICATION_OPERATOR_QUOTA)),
+        ("RATE_LIMIT_WINDOW_SECONDS_OPERATOR", str(_QUALIFICATION_WINDOW_SECONDS)),
     ):
-        assert f"CORRELIA_{setting}={value}" in config["Env"]
+        assert qualification_environment[f"CORRELIA_{setting}"] == value
     command_surface = json.dumps(
         {
             "command": config.get("Cmd"),
@@ -1717,6 +1838,37 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
         "check_output": "HTTP 503",
         "tags": {"team.name": "platform", "topology.datacenter": "dc1"},
     }
+
+    def policy_database_snapshot() -> str:
+        return _require_docker_success(
+            [
+                "exec",
+                postgres_container,
+                "sh",
+                "-c",
+                (
+                    'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 '
+                    '-U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc '
+                    '"SELECT (SELECT count(*) FROM incidents), '
+                    "(SELECT count(*) FROM incident_events), "
+                    "(SELECT count(*) FROM incidents "
+                    "WHERE acknowledged_at IS NOT NULL), "
+                    "(SELECT count(*) FROM incidents "
+                    'WHERE closed_at IS NOT NULL)"'
+                ),
+            ]
+        ).stdout.strip()
+
+    before_denied_ingestion = policy_database_snapshot()
+    assert before_denied_ingestion == "0|0|0|0"
+    assert_role_denials(
+        "/v1/icinga2/events",
+        method="POST",
+        payload=payload,
+        wrong_role=operator_token,
+    )
+    assert policy_database_snapshot() == before_denied_ingestion
+
     status, ingestion_body = _container_http_response(
         app_container,
         f"{app_url}/v1/icinga2/events",
@@ -1743,6 +1895,79 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
             ),
         ]
     ).stdout.strip()
+    before_denied_operators = policy_database_snapshot()
+    for path in (
+        "/v1/plugins",
+        "/v1/rules",
+        "/v1/topology",
+        "/v1/incidents",
+        f"/v1/incidents/{incident_id}",
+        f"/v1/incident-events?source_id={payload['source_id']}",
+    ):
+        assert_role_denials(path)
+    denied_mutations: tuple[tuple[str, str, dict[str, object] | None], ...] = (
+        ("POST", "/ack", {"operator": "deployment-operator"}),
+        (
+            "POST",
+            "/close",
+            {"operator": "deployment-operator", "reason": "production role smoke"},
+        ),
+        ("PATCH", "", {"status": "ACKNOWLEDGED"}),
+        ("PATCH", "", {"status": "CLOSED"}),
+        ("DELETE", "", None),
+    )
+    for method, suffix, mutation_payload in denied_mutations:
+        assert_role_denials(
+            f"/v1/incidents/{incident_id}{suffix}",
+            method=method,
+            payload=mutation_payload,
+        )
+    assert policy_database_snapshot() == before_denied_operators
+
+    status, plugins_body = _container_http_response(
+        app_container, f"{app_url}/v1/plugins", token=operator_token
+    )
+    assert status == 200
+    assert any(
+        plugin["name"] == "email-ops" and plugin["ready"] is True
+        for plugin in json.loads(plugins_body)
+    )
+    status, rules_body = _container_http_response(
+        app_container, f"{app_url}/v1/rules", token=operator_token
+    )
+    assert status == 200
+    assert {rule["name"] for rule in json.loads(rules_body)["rules"]} == {
+        "docker-smoke-restart-threshold",
+        "docker-smoke-capacity-threshold",
+        "docker-smoke-threshold",
+    }
+    status, topology_body = _container_http_response(
+        app_container, f"{app_url}/v1/topology", token=operator_token
+    )
+    assert status == 200
+    assert {rule["id"] for rule in json.loads(topology_body)["rules"]} == {
+        "sample-datacenter-hostname",
+        "documentation-subnet",
+    }
+    status, incident_body = _container_http_response(
+        app_container,
+        f"{app_url}/v1/incidents/{incident_id}",
+        token=operator_token,
+    )
+    assert status == 200
+    assert json.loads(incident_body)["id"] == incident_id
+    assert json.loads(incident_body)["status"] == "OPEN"
+    assert json.loads(incident_body)["acknowledgement"]["acknowledged_at"] is None
+    status, audit_body = _container_http_response(
+        app_container,
+        f"{app_url}/v1/incident-events?source_id={payload['source_id']}",
+        token=operator_token,
+    )
+    assert status == 200
+    audit_page = json.loads(audit_body)
+    assert audit_page["total"] == 1
+    assert audit_page["items"][0]["incident_ids"] == [incident_id]
+
     assert persisted_incident == f"{incident_id}|OPEN"
     status, incidents_body = _container_http_response(
         app_container, f"{app_url}/v1/incidents", token=operator_token
@@ -2038,6 +2263,70 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
         )
         return response
 
+    # These real mutations run after the existing metric-delta qualification.
+    # Each close path starts with its own incident and proves retained storage.
+    authorized_closures: tuple[tuple[str, str, str, dict[str, object] | None], ...] = (
+        (
+            "explicit",
+            "POST",
+            "/close",
+            {"operator": "deployment-operator", "reason": "production role smoke"},
+        ),
+        ("patch", "PATCH", "", {"status": "CLOSED"}),
+        ("delete", "DELETE", "", None),
+    )
+    for label, close_method, close_suffix, close_payload in authorized_closures:
+        mutation_ingestion = post_threshold_event(
+            host=f"u4-production-{label}",
+            source_id=f"u4-production-{label}",
+            event_time=window_end,
+        )
+        mutation_incident_id = str(UUID(str(mutation_ingestion["incident_id"])))
+        mutation_path = f"{app_url}/v1/incidents/{mutation_incident_id}"
+        if label == "explicit":
+            status, explicit_ack_body = _container_http_response(
+                app_container,
+                f"{mutation_path}/ack",
+                token=operator_token,
+                payload={"operator": "deployment-operator"},
+                method="POST",
+            )
+            assert status == 200
+            explicit_ack = json.loads(explicit_ack_body)
+            assert explicit_ack["status"] == "OPEN"
+            assert explicit_ack["acknowledgement"]["acknowledged_by"] == (
+                "deployment-operator"
+            )
+            assert explicit_ack["acknowledgement"]["acknowledged_at"] is not None
+        status, closed_body = _container_http_response(
+            app_container,
+            f"{mutation_path}{close_suffix}",
+            token=operator_token,
+            payload=close_payload,
+            method=close_method,
+        )
+        assert status == 200
+        closed = json.loads(closed_body)
+        assert closed["id"] == mutation_incident_id
+        assert closed["status"] == "CLOSED"
+        assert closed["closed_at"] is not None
+        notes = closed["decision_context"]["notes"]
+        assert notes["lifecycle.operator"] == (
+            "deployment-operator" if label == "explicit" else "vigilo-compat"
+        )
+        assert notes["lifecycle.detail"] == (
+            "production role smoke" if label == "explicit" else "vigilo-compat"
+        )
+        status, stored_closed_body = _container_http_response(
+            app_container, mutation_path, token=operator_token
+        )
+        assert status == 200
+        stored_closed = json.loads(stored_closed_body)
+        assert stored_closed["id"] == mutation_incident_id
+        assert stored_closed["status"] == "CLOSED"
+        assert stored_closed["closed_at"] == closed["closed_at"]
+        assert stored_closed["decision_context"]["notes"] == notes
+
     first_window = post_threshold_event(
         host="u5-window", source_id=window_sources[0], event_time=window_times[0]
     )
@@ -2323,8 +2612,13 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
 
     _require_docker_success(["stop", "--time", "1", postgres_container])
     try:
-        status, _ = _container_http_response(app_container, f"{app_url}/v1/health")
+        status, outage_health = _container_http_response(
+            app_container, f"{app_url}/v1/health"
+        )
         assert status == 200
+        assert json.loads(outage_health) == {"status": "ok"}
+        for path in ("/v1/readyz", "/v1/metrics"):
+            assert_role_denials(path)
         status, readiness_diagnostics = _wait_until(
             "readiness to report runtime database loss",
             lambda: (
@@ -2342,6 +2636,9 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
         diagnostics = readiness_diagnostics.decode()
         for secret in (postgres_password, operator_token, ingress_token, audit_key):
             _assert_secret_absent(diagnostics, "readiness diagnostics", secret)
+        outage_readiness = json.loads(readiness_diagnostics)
+        assert outage_readiness["detail"] == "not ready"
+        assert outage_readiness["checks"]["database"] == "not_ready"
     finally:
         _require_docker_success(["start", postgres_container])
     _wait_until(
@@ -2399,6 +2696,192 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
     assert persisted_read["status"] == "OPEN"
     assert persisted_read["acknowledgement"] == acknowledgement
 
+    # Reuse the built service and healthy migrated database, never a second stack.
+    # Compose process overrides must defeat an intact, safe --env-file.
+    env_file = stack["env_file"]
+    assert isinstance(env_file, Path)
+    policy_environment = _load_dotenv_example(env_file)
+    policy_suffix = uuid4().hex
+    policy_environment.update(
+        {
+            "CORRELIA_OPERATOR_API_TOKEN": f"u4-policy-operator-{policy_suffix}",
+            "CORRELIA_INGRESS_API_TOKEN": f"u4-policy-ingress-{policy_suffix}",
+            "CORRELIA_AUDIT_RAW_PAYLOAD_HMAC_KEY": f"u4-policy-audit-{policy_suffix}",
+        }
+    )
+    lower_policy = {name: policy_environment[name] for name in safe_policy}
+    assert lower_policy == safe_policy
+    policy_env_file = tmp_path / "production-policy-safe.env"
+    policy_env_file.write_text(
+        "\n".join(f"{name}={value}" for name, value in policy_environment.items())
+        + "\n"
+    )
+    policy_env_checksum = _file_checksum(policy_env_file)
+    local_defaults = {
+        name: value
+        for name, value in policy_environment.items()
+        if name != "CORRELIA_EXPOSE_METRICS"
+    }
+    local_defaults["CORRELIA_ENVIRONMENT"] = "local"
+    local_defaults_file = tmp_path / "production-policy-local-defaults.env"
+    local_defaults_file.write_text(
+        "\n".join(f"{name}={value}" for name, value in local_defaults.items()) + "\n"
+    )
+    policy_secrets = (
+        postgres_password,
+        operator_token,
+        ingress_token,
+        audit_key,
+        policy_environment["DATABASE_URL"],
+        policy_environment["CORRELIA_OPERATOR_API_TOKEN"],
+        policy_environment["CORRELIA_INGRESS_API_TOKEN"],
+        policy_environment["CORRELIA_AUDIT_RAW_PAYLOAD_HMAC_KEY"],
+    )
+    policy_rejections: list[dict[str, object]] = []
+    for label, setting, unsafe_value, required_value, uses_local_default in (
+        (
+            "auth-disabled",
+            "CORRELIA_API_AUTH_ENABLED",
+            "false",
+            "api_auth_enabled=true",
+            False,
+        ),
+        (
+            "public-readiness",
+            "CORRELIA_EXPOSE_READYZ",
+            "true",
+            "expose_readyz=false",
+            False,
+        ),
+        (
+            "public-metrics",
+            "CORRELIA_EXPOSE_METRICS",
+            "true",
+            "expose_metrics=false",
+            False,
+        ),
+        (
+            "production-with-local-metrics-default",
+            "CORRELIA_ENVIRONMENT",
+            "production",
+            "expose_metrics=false",
+            True,
+        ),
+    ):
+        status, healthy_database_body = _container_http_response(
+            app_container, f"{app_url}/v1/readyz", token=operator_token
+        )
+        assert status == 200
+        assert json.loads(healthy_database_body)["checks"]["database"] == "ready"
+        probe_environment = {**os.environ, **policy_environment}
+        probe_environment[setting] = unsafe_value
+        expected_policy = {**safe_policy, setting: unsafe_value}
+        probe_stack = {**stack, "env_file": policy_env_file}
+        if uses_local_default:
+            # No metrics value remains in either interpolation source; the
+            # checked-in Compose local default, true, is the effective input.
+            probe_environment.pop("CORRELIA_EXPOSE_METRICS", None)
+            probe_stack["env_file"] = local_defaults_file
+            expected_policy["CORRELIA_EXPOSE_METRICS"] = "true"
+        policy_container = f"{project}-policy-{label}-{uuid4().hex[:8]}"
+        try:
+            try:
+                policy_run = _docker(
+                    _docker_compose_arguments(
+                        probe_stack,
+                        "run",
+                        "--no-deps",
+                        "--name",
+                        policy_container,
+                        "correlia",
+                    ),
+                    environment=probe_environment,
+                    timeout=90,
+                )
+            except OSError, subprocess.TimeoutExpired:
+                pytest.fail(
+                    "production policy probe did not reach a bounded startup result",
+                    pytrace=False,
+                )
+            policy_logs = _require_docker_success(["logs", policy_container])
+            healthcheck_logs = _require_docker_success(
+                [
+                    "inspect",
+                    "--format",
+                    "{{with .State.Health}}{{range .Log}}{{println .Output}}{{end}}{{end}}",
+                    policy_container,
+                ]
+            )
+            surfaces = (
+                policy_run.stdout,
+                policy_run.stderr,
+                policy_logs.stdout,
+                policy_logs.stderr,
+                healthcheck_logs.stdout,
+                healthcheck_logs.stderr,
+            )
+            for surface in surfaces:
+                for secret in policy_secrets:
+                    _assert_secret_absent(
+                        surface, "production policy startup diagnostics", secret
+                    )
+            if policy_run.returncode == 0:
+                pytest.fail("unsafe production startup unexpectedly succeeded")
+            effective_policy, running, exit_code, container_status = (
+                _container_startup_policy_state(policy_container)
+            )
+            assert effective_policy == expected_policy
+            assert running is False
+            assert container_status == "exited"
+            assert exit_code != 0
+            diagnostics = "\n".join(surfaces)
+            if f"production requires: {required_value}" not in diagnostics:
+                pytest.fail("startup did not report the expected production policy")
+            if "Database migration failed" in diagnostics:
+                pytest.fail("migration failure is not production policy rejection")
+            if any(
+                marker in diagnostics
+                for marker in ("Application startup complete", "Uvicorn running on")
+            ):
+                pytest.fail("unsafe production startup reached a serving lifecycle")
+            policy_rejections.append(
+                {
+                    "scenario": label,
+                    "effective_policy": effective_policy,
+                    "running": running,
+                    "state": container_status,
+                    "exit_code": exit_code,
+                    "policy_requirement": required_value,
+                    "diagnostics_secret_free": True,
+                }
+            )
+        finally:
+            _require_docker_success(["rm", "--force", policy_container])
+    assert _file_checksum(policy_env_file) == policy_env_checksum
+    migration_revision_after_policy_probes = _require_docker_success(
+        [
+            "exec",
+            postgres_container,
+            "sh",
+            "-c",
+            (
+                'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 '
+                '-U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc '
+                "'SELECT version_num FROM alembic_version'"
+            ),
+        ]
+    ).stdout.strip()
+    assert migration_revision_after_policy_probes == image_head
+    _publish_qualification_report(
+        "Production startup policy qualification",
+        {
+            "schema_version": 1,
+            "healthy_migrated_database": True,
+            "safe_lower_precedence_env_file_unchanged": True,
+            "policy_rejections": policy_rejections,
+        },
+    )
+
     migration_failure_name = f"{project}-migration-failure"
     migration_failure_secret = f"migration-failure-{uuid4().hex}"
     migration_failure_dsn = (
@@ -2452,8 +2935,6 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
     )
     (invalid_config / "plugins.yaml").write_text(yaml.safe_dump(invalid_plugins))
     invalid_plugin_name = f"{project}-invalid-plugin"
-    env_file = stack["env_file"]
-    assert isinstance(env_file, Path)
     try:
         invalid_plugin = _docker(
             [
