@@ -155,7 +155,8 @@ This runs the same quality/audit checks and a portable pytest subset. It require
 | `ci` | Complete Linux verification |
 | `check:portable` | Portable development checks |
 | `run` | Local reload-enabled FastAPI factory startup |
-| `clean:verification` | Remove only the identified verification project's resources |
+| `clean:verification` | Deliberately delete the explicitly identified verification project's resources |
+| `clean:verification:owned` | Automatic cleanup authorized by the current invocation's receipt and Docker namespace claim |
 
 Use `mise run test:deployment` for focused deployment work, not as another step after `ci`. Focused debugging may use `mise exec -- uv run --locked --no-sync pytest <test-path>` after setup; that invocation is not the required gate.
 
@@ -169,13 +170,21 @@ Resolve findings through a reviewed dependency update or removal and an intentio
 
 ### Interrupted-run cleanup
 
-The smoke prints its run-specific `correlia-verify-...` project identifier before startup. Its finalizer and the task wrapper attempt cleanup on failure and interruption; the workflow invokes the same scoped cleanup task in finalization. To recover an interrupted local run, pass the printed identifier:
+Before inspecting or creating project resources, verification atomically claims the `correlia-verify-...` namespace with a stopped Docker container named `<project>-verification-owner`. Docker container names are exclusive on one daemon, so concurrent invocations using the same project cannot both acquire it, even from different processes, checkouts or machines. The marker uses the PostgreSQL image from `compose.yaml`, resolved through Compose without credential interpolation; a tmpfs overrides the image's data volume, so the marker creates no persistent database volume. Its verification labels are separate from Compose's project labels so `compose down --remove-orphans` cannot release the claim.
+
+Only the winner inspects the namespace and records a local receipt bound to its project, invocation and immutable marker container ID. Existing project resources or an existing physical PostgreSQL volume name, even without matching labels, still reject acquisition. Rejection removes only the marker that invocation successfully created, never a winner's or replacement marker. If container creation has an ambiguous outcome, no receipt is accepted and any surviving marker requires deliberate manual cleanup.
+
+The fixture, task wrapper and workflow's `clean:verification:owned` finalizer require both the matching receipt and that exact live claim before automatic deletion. Missing, stale or replaced claims grant no cleanup authority; loss of ownership after child success fails the verification command. Nested fixture cleanups and destructive-reset rehearsals retain the claim while the invocation is active. Final cleanup releases the marker by immutable ID and removes its receipt only after all owned resources are gone. Failed resource cleanup or marker release retains the claim and prevents concurrent reuse.
+
+This boundary coordinates verification invocations sharing the same Docker daemon; do not switch Docker contexts during a run. It is not a lock across different daemons, nor can it prevent an operator or other non-cooperating process from deleting the marker or creating foreign resources after inspection. Stop such writers before running verification or authorizing manual deletion.
+
+The smoke prints its project identifier before startup. If automatic cleanup was interrupted, an operator can deliberately delete an identified **disposable verification project** by passing its printed identifier:
 
 ```sh
 mise run clean:verification correlia-verify-<printed-suffix>
 ```
 
-Cleanup removes only containers, volumes and networks labeled for that verification project, including auxiliary failure-test containers. Missing/invalid identifiers and failed cleanup return non-zero. Do not pass another run's identifier. Repeating cleanup is safe after the owned resources are gone. Hard termination or host loss may prevent finalizers from running; ephemeral hosted runners bound that risk, not a guarantee of crash-atomic teardown.
+This manual command is an explicit deletion authorization, not receipt-gated automatic recovery: it removes containers, volumes and networks labeled for that verification project, including its auxiliary containers, then releases its recognized namespace claim only if resource cleanup succeeded. Missing/invalid identifiers and failed cleanup return non-zero. Confirm the printed identifier belongs to the intended disposable run; never substitute a local operator stack or another run's project. Repeating it is safe after those resources are gone. Anonymous volumes without project labels are not discovered or deleted by this command; a rehearsal removes only its own separately recorded anonymous volume. Hard termination or host loss may prevent finalizers from running; ephemeral hosted runners bound that risk, not a guarantee of crash-atomic teardown.
 
 ### Local factory startup
 
@@ -195,10 +204,16 @@ Issue #49 should link this section as the onboarding boundary. Future #55 work m
 
 `compose.yaml` starts PostgreSQL, one Correlia application container, and [Mailpit](https://github.com/axllent/mailpit) for local SMTP capture:
 
-```bash
+```sh
+umask 077
 cp .env.example .env
-# Replace every replace-with-* value in .env.
-docker compose up --build
+chmod 600 .env
+# Replace every replace-with-* value in .env; do not commit it.
+PROJECT=correlia-local
+dc() {
+    docker compose --project-name "$PROJECT" --env-file .env --file compose.yaml "$@"
+}
+dc up --build --detach --wait
 ```
 
 `DATABASE_URL` is the database alias consumed by `Settings`; keep its PostgreSQL username, password, database, and hostname consistent with `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB`. The required `CORRELIA_OPERATOR_API_TOKEN`, `CORRELIA_INGRESS_API_TOKEN`, and `CORRELIA_AUDIT_RAW_PAYLOAD_HMAC_KEY` must be distinct non-empty deployment secrets.
@@ -206,6 +221,552 @@ docker compose up --build
 The operator configuration is mounted read-only at `/app/config`. PostgreSQL and SMTP are isolated on private Compose networks; only the Correlia API (`127.0.0.1:8000`) and Mailpit UI (`127.0.0.1:8025`) are published to the host. Mailpit's SMTP listener remains private at `mailpit:1025`.
 
 The sample intentionally selects `local`, enables API authentication, protects `/v1/readyz` with the operator token, and exposes `/v1/metrics` publicly. Compose's container healthcheck calls `/v1/readyz` with the operator bearer token; it is not token-free. `/v1/health` remains public minimal liveness and is independent of readiness.
+
+### Persistent local lifecycle
+
+The PG16 service mounts the project-scoped `postgres-data` volume at `/var/lib/postgresql/data`; with the explicit project above its physical name is `correlia-local_postgres-data`. Use the **same project, manifest and protected env file** every time. Do not rely on the checkout directory's implicit project name: moving/renaming the directory or choosing another `--project-name` selects different storage, which can be healthy but empty. Adding this mount does **not** adopt an older anonymous volume.
+
+| Operation using `dc` above | PostgreSQL container | Incident, acknowledgement and audit data |
+|---|---|---|
+| `dc stop`, then `dc start` | Retained | Reattached to the same named volume |
+| `dc down`, then `dc up --detach --wait` | Replaced | Retained in the same named volume |
+| Stop Correlia, recreate PostgreSQL, then restart Correlia (below) | Replaced | Retained in the same named volume |
+| `down --volumes`, explicit volume removal or host storage loss | May be replaced | Data can be deleted; not an ordinary shutdown |
+
+For an intentional database-container replacement without deleting data:
+
+```sh
+dc stop correlia
+dc up --detach --wait --force-recreate postgres
+dc start correlia
+dc up --detach --wait
+```
+
+`POSTGRES_USER`, `POSTGRES_DB` and `POSTGRES_PASSWORD` initialize an **empty** PostgreSQL data directory. An existing volume keeps its initialized roles, databases and passwords. Editing those values does not rotate a password or rename a database; update the actual database deliberately, then update the application's protected `DATABASE_URL` consistently. Do not delete data to repair an authentication mismatch.
+
+This is local persistence, **not a backup or production durability guarantee**. It does not protect against volume deletion, corruption, Docker-host/disk loss or restore mistakes, and supplies no replication or backup schedule. A per-database logical archive also needs a separate roles/settings/grants inventory. Keep protected backups off the Docker host and test recovery according to your operating requirements. Intentional verification deletion belongs only to the isolated `correlia-verify-...` projects described under [Interrupted-run cleanup](#interrupted-run-cleanup), never to an operator stack.
+
+### Preserve an older anonymous-volume database
+
+Do this **before** starting Correlia against the new named mount. The container entrypoint runs `alembic upgrade head` before HTTP startup, and the lifecycle worker sweeps immediately at startup. An empty destination must not receive either action before restore and verification.
+
+The following is a POSIX Linux, pinned **PG16.9** logical whole-database cutover for the default single login/owner role `correlia` and database `correlia`. It uses a fresh, explicitly selected destination project so the old source remains separate. It is not an automatic discovery/migration tool. Use trusted source data; a restore executes SQL chosen by the source's owners. Other roles, role memberships, nondefault database grants/settings, tablespaces or an ICU locale require a reviewed extension of the role/property setup below; **stop**, do not skip them or blindly replay cluster globals. Never add `--no-owner`, `--no-acl`, `--clean`, `--create` or parallel restore jobs to make an error disappear.
+
+Release qualification: [Linux run 36790428888](https://github.com/sh1ny/correlia/actions/runs/36790428888) exercised this pinned **PG16.9**, default single-role cutover with **generated synthetic data**. The run observed fixed pre-cutover data baselines, post-restore equality, application startup, failure and recovery paths, and invocation-owned scoped cleanup. Its retained summary and logs are evidence for that bounded lifecycle/cutover scenario, not qualification of general backups or other PostgreSQL versions, role layouts or deployments.
+
+#### 1. Identify exactly one source and stop every writer
+
+Start a dedicated shell from the repository root. Set `SOURCE_PROJECT` to the old stack's **recorded** project, not a guess, and choose a new destination project whose resources do not already exist:
+
+```sh
+set -eu
+umask 077
+SOURCE_PROJECT=correlia-local
+PROJECT=correlia-local-persistent
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/correlia-cutover.XXXXXXXX")
+chmod 700 "$WORK"
+dc() {
+    docker compose --project-name "$PROJECT" --env-file .env --file compose.yaml "$@"
+}
+SOURCE_CANDIDATES=$(docker ps --all --quiet \
+    --filter "label=com.docker.compose.project=$SOURCE_PROJECT" \
+    --filter "label=com.docker.compose.service=postgres")
+set -- $SOURCE_CANDIDATES
+if [ "$#" -ne 1 ]; then
+    printf '%s\n' 'STOP: missing or ambiguous source container' >&2
+    exit 1
+fi
+SOURCE_CONTAINER=$1
+docker inspect --format \
+    '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{println .Type .Name .Destination}}{{end}}{{end}}' \
+    "$SOURCE_CONTAINER" > "$WORK/source-mount.txt"
+set -- $(cat "$WORK/source-mount.txt")
+if [ "$#" -ne 3 ] || [ "$1" != volume ] || [ "$3" != /var/lib/postgresql/data ]; then
+    printf '%s\n' 'STOP: source mount is missing or ambiguous' >&2
+    exit 1
+fi
+SOURCE_VOLUME=$2
+docker volume inspect --format '{{.Name}}' "$SOURCE_VOLUME"
+docker inspect --format '{{.Id}} {{.Config.Image}}' "$SOURCE_CONTAINER"
+printf '%s\n' "$SOURCE_CONTAINER" > "$WORK/source-container-id"
+printf '%s\n' "$SOURCE_VOLUME" > "$WORK/source-volume-name"
+```
+
+Verify those selected fields identify the intended PG16 database; the anonymous volume's actual name is the source identity, not its age, size or an inferred naming pattern. If the old container is already gone, stop this discovery path and use a previously recorded exact volume identity with the recovery procedure below. An unidentified detached volume needs operator investigation; no command here chooses one for you.
+
+Fence ingress, stop schedulers/integrations and every application/worker that can write to this database, including host processes or other deployments. For the old checked-in stack:
+
+```sh
+docker compose --project-name "$SOURCE_PROJECT" --env-file .env \
+    --file compose.yaml stop correlia
+```
+
+Keep the source PostgreSQL container running for the dump. Check for remaining database clients; unexpected clients are a stop gate, not a reason to terminate someone else's session:
+
+```sh
+docker exec -it --user postgres "$SOURCE_CONTAINER" psql --no-psqlrc \
+    --host=127.0.0.1 --username=correlia --dbname=correlia --password \
+    --set=ON_ERROR_STOP=1 \
+    --command="SELECT pid, usename, application_name, state FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid();"
+```
+
+Enter the source's **initialized password** at the prompt. It may differ from today's `.env`; do not expose it in shell arguments, history or a printed DSN. No other rows should remain, and writers must stay fenced through acceptance. Verify `SHOW server_version;` and `pg_dump --version` identify PG16 tools before continuing.
+
+```sh
+docker exec --user postgres "$SOURCE_CONTAINER" pg_dump --version
+docker exec -it --user postgres "$SOURCE_CONTAINER" psql --no-psqlrc \
+    --host=127.0.0.1 --username=correlia --dbname=correlia --password \
+    --set=ON_ERROR_STOP=1 --command='SHOW server_version;'
+```
+
+#### 2. Record properties, roles and a durable baseline; create the archive
+
+Use a protected SQL file to record database properties and role/database settings separately from application records:
+
+```sh
+cat > "$WORK/inventory.sql" <<'SQL'
+SELECT jsonb_build_object(
+  'database', (SELECT jsonb_build_object(
+    'name', datname, 'owner', pg_get_userbyid(datdba),
+    'encoding', pg_encoding_to_char(encoding), 'locale_provider', datlocprovider,
+    'collate', datcollate, 'ctype', datctype, 'icu_locale', daticulocale,
+    'collation_version', datcollversion, 'connection_limit', datconnlimit,
+    'tablespace', (SELECT spcname FROM pg_tablespace WHERE oid = dattablespace),
+    'grants', datacl) FROM pg_database WHERE datname = current_database()),
+  'roles', (SELECT jsonb_agg(jsonb_build_object(
+    'name', rolname, 'superuser', rolsuper, 'inherit', rolinherit,
+    'create_role', rolcreaterole, 'create_db', rolcreatedb, 'login', rolcanlogin,
+    'replication', rolreplication, 'bypass_rls', rolbypassrls,
+    'connection_limit', rolconnlimit, 'valid_until', rolvaliduntil) ORDER BY rolname)
+    FROM pg_roles WHERE rolname !~ '^pg_'),
+  'memberships', (SELECT coalesce(jsonb_agg(jsonb_build_object(
+    'role', pg_get_userbyid(roleid), 'member', pg_get_userbyid(member),
+    'admin', admin_option, 'inherit', inherit_option, 'set', set_option)
+    ORDER BY roleid, member), '[]'::jsonb) FROM pg_auth_members
+    WHERE pg_get_userbyid(roleid) !~ '^pg_' OR pg_get_userbyid(member) !~ '^pg_'),
+  'settings', (SELECT coalesce(jsonb_agg(jsonb_build_object(
+    'database', setdatabase, 'role', setrole, 'values', setconfig)
+    ORDER BY setdatabase, setrole), '[]'::jsonb) FROM pg_db_role_setting),
+  'object_owners', (SELECT coalesce(jsonb_agg(DISTINCT pg_get_userbyid(c.relowner)),
+    '[]'::jsonb) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname !~ '^pg_' AND n.nspname <> 'information_schema'),
+  'schema_grants', (SELECT coalesce(jsonb_agg(jsonb_build_object(
+    'schema', nspname, 'owner', pg_get_userbyid(nspowner), 'grants', nspacl)
+    ORDER BY nspname), '[]'::jsonb) FROM pg_namespace
+    WHERE nspname !~ '^pg_' AND nspname <> 'information_schema'));
+SQL
+cat > "$WORK/baseline.sql" <<'SQL'
+SELECT jsonb_build_object(
+  'revision', (SELECT jsonb_agg(version_num ORDER BY version_num) FROM alembic_version),
+  'incidents', (SELECT coalesce(jsonb_agg(jsonb_build_object(
+    'id', id, 'status', status, 'event_count', event_count,
+    'acknowledged_at', acknowledged_at, 'acknowledged_by', acknowledged_by,
+    'last_update_time', last_update_time, 'window_state', window_state,
+    'closed_at', closed_at, 'decision_context', decision_context) ORDER BY id),
+    '[]'::jsonb) FROM incidents),
+  'audit', (SELECT coalesce(jsonb_agg(jsonb_build_object(
+    'id', id, 'source_id', source_id, 'fingerprint', fingerprint,
+    'incident_ids', incident_ids, 'incident_effect', incident_effect,
+    'decision_summary', decision_summary) ORDER BY id), '[]'::jsonb)
+    FROM incident_events));
+SQL
+docker exec --user postgres "$SOURCE_CONTAINER" sh -eu -c \
+    'umask 077; mkdir /tmp/correlia-cutover'
+docker cp "$WORK/inventory.sql" "$SOURCE_CONTAINER:/tmp/correlia-cutover/inventory.sql"
+docker cp "$WORK/baseline.sql" "$SOURCE_CONTAINER:/tmp/correlia-cutover/baseline.sql"
+docker exec "$SOURCE_CONTAINER" chown -R postgres:postgres /tmp/correlia-cutover
+for kind in inventory baseline; do
+    docker exec -it --user postgres "$SOURCE_CONTAINER" sh -eu -c '
+        umask 077
+        exec psql --no-psqlrc --host=127.0.0.1 --username=correlia \
+          --dbname=correlia --password --set=ON_ERROR_STOP=1 --tuples-only --no-align \
+          --file="/tmp/correlia-cutover/$1.sql" --output="/tmp/correlia-cutover/$1.txt"
+    ' sh "$kind"
+    docker cp "$SOURCE_CONTAINER:/tmp/correlia-cutover/$kind.txt" "$WORK/source-$kind.txt"
+done
+docker exec -it --user postgres "$SOURCE_CONTAINER" sh -eu -c '
+    umask 077
+    exec pg_dump --host=127.0.0.1 --username=correlia --dbname=correlia \
+      --password --format=custom --file=/tmp/correlia-cutover/source.dump
+'
+docker cp "$SOURCE_CONTAINER:/tmp/correlia-cutover/source.dump" "$WORK/source.dump"
+chmod 600 "$WORK/"*
+docker exec --user postgres "$SOURCE_CONTAINER" pg_restore \
+    --list /tmp/correlia-cutover/source.dump > "$WORK/archive-contents.txt"
+```
+
+The custom archive is written **inside PostgreSQL's container** and transferred by `docker cp`, never host-shell binary redirection. Treat the archive, inventories and baseline as sensitive database material; keep them outside Git and do not upload them to CI artifacts or paste them into logs. This is a complete application-database dump, not selected tables or a PGDATA filesystem copy.
+
+Review the inventory privately. The path below requires database name/owner `correlia`, exactly that one non-`pg_` role with the default image-initialized attributes, no custom-role memberships or database/role settings, default database ACL (`null`), `pg_default` tablespace and a `libc` provider (`c`). Object ownership and grants must match the intended one-role installation (`pg_database_owner` for the default public schema is normal). Do not omit object grants from the archive. Record any nondefault settings/grants and provision every required role with reviewed attributes and credentials before restore; this default path stops rather than losing them. A dump does not carry role passwords or cluster globals, and restoring to a pre-created database does not automatically reproduce all database-level properties/settings/grants.
+
+Generate the empty database's creation command from the recorded source properties, using PostgreSQL quoting rather than copying locale text into shell SQL:
+
+```sh
+cat > "$WORK/create-target.sql" <<'SQL'
+SELECT format(
+  'CREATE DATABASE %I OWNER %I TEMPLATE template0 ENCODING %L LOCALE_PROVIDER libc LC_COLLATE %L LC_CTYPE %L;',
+  datname, pg_get_userbyid(datdba), pg_encoding_to_char(encoding), datcollate, datctype)
+FROM pg_database WHERE datname = current_database() AND datlocprovider = 'c';
+SQL
+docker cp "$WORK/create-target.sql" "$SOURCE_CONTAINER:/tmp/correlia-cutover/create-target.sql"
+docker exec "$SOURCE_CONTAINER" chown postgres:postgres /tmp/correlia-cutover/create-target.sql
+docker exec -it --user postgres "$SOURCE_CONTAINER" sh -eu -c '
+    umask 077
+    exec psql --no-psqlrc --host=127.0.0.1 --username=correlia --dbname=correlia \
+      --password --set=ON_ERROR_STOP=1 --tuples-only --no-align \
+      --file=/tmp/correlia-cutover/create-target.sql --output=/tmp/correlia-cutover/create-target.sql.out
+'
+docker cp "$SOURCE_CONTAINER:/tmp/correlia-cutover/create-target.sql.out" "$WORK/create-target.sql.out"
+test -s "$WORK/create-target.sql.out"
+```
+
+#### 3. Create only a fresh destination database, then restore transactionally
+
+Keep the old project stopped except for its source PostgreSQL. Privately prepare the destination `.env`, including its new database password, consistent application DSN and distinct API/HMAC secrets. Preserve existing operator/ingress/HMAC secrets if clients and audit continuity require them. Do not print `docker compose config` or a full container environment.
+
+This default path requires `POSTGRES_USER=correlia`, `POSTGRES_DB=correlia`, and an application DSN for role/database `correlia` at Compose hostname `postgres`. Build the intended application image below without starting it; do not accidentally reuse an old `correlia:local` tag.
+
+Fail closed on inspection errors or a pre-existing destination resource; an unlabeled physical volume name is still a collision:
+
+```sh
+docker ps --all --quiet --filter "label=com.docker.compose.project=$PROJECT" > "$WORK/target-containers"
+docker network ls --quiet --filter "label=com.docker.compose.project=$PROJECT" > "$WORK/target-networks"
+docker volume ls --quiet --filter "label=com.docker.compose.project=$PROJECT" > "$WORK/target-volumes"
+docker volume ls --format '{{.Name}}' > "$WORK/all-volume-names"
+test ! -s "$WORK/target-containers"
+test ! -s "$WORK/target-networks"
+test ! -s "$WORK/target-volumes"
+if grep -Fx "${PROJECT}_postgres-data" "$WORK/all-volume-names"; then
+    printf '%s\n' 'STOP: destination physical volume already exists' >&2
+    exit 1
+fi
+dc build correlia
+POSTGRES_DB=postgres dc up --detach --wait postgres
+TARGET_CONTAINER=$(dc ps --quiet postgres)
+test -n "$TARGET_CONTAINER"
+docker inspect --format \
+    '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{println .Type .Name .Destination}}{{end}}{{end}}' \
+    "$TARGET_CONTAINER" > "$WORK/target-mount.txt"
+set -- $(cat "$WORK/target-mount.txt")
+test "$#" -eq 3
+test "$1" = volume
+test "$2" = "${PROJECT}_postgres-data"
+test "$2" != "$SOURCE_VOLUME"
+test "$3" = /var/lib/postgresql/data
+docker volume inspect --format '{{json .Labels}}' "${PROJECT}_postgres-data"
+docker cp "$WORK/create-target.sql.out" "$TARGET_CONTAINER:/tmp/create-target.sql"
+docker exec "$TARGET_CONTAINER" sh -eu -c '
+    export PGPASSWORD="$POSTGRES_PASSWORD"
+    exec psql --no-psqlrc --host=127.0.0.1 --username=correlia --dbname=postgres \
+      --set=ON_ERROR_STOP=1 --file=/tmp/create-target.sql
+'
+```
+
+The bootstrap database is `postgres`, so `correlia` is created explicitly from **`template0`** with its recorded owner/encoding/locale; a pre-existing database makes `CREATE DATABASE` fail. The target role is initialized from the protected `.env`. Inspect its role attributes and the new database's properties against the source inventory before proceeding. No application container has been started in this new project.
+
+Copy the archive and apply this empty-target gate immediately before the restore. It counts user relations, functions/types/schemas, nonbuiltin extensions, default ACLs and large objects, not just incident rows:
+
+```sh
+docker cp "$WORK/source.dump" "$TARGET_CONTAINER:/tmp/source.dump"
+docker exec "$TARGET_CONTAINER" chown postgres:postgres /tmp/source.dump
+docker exec "$TARGET_CONTAINER" chmod 600 /tmp/source.dump
+docker exec --user postgres "$TARGET_CONTAINER" sh -eu -c '
+    export PGPASSWORD="$POSTGRES_PASSWORD"
+    objects=$(psql --no-psqlrc --host=127.0.0.1 --username=correlia --dbname=correlia \
+      --set=ON_ERROR_STOP=1 --tuples-only --no-align --command="
+      SELECT
+        (SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+          WHERE n.nspname !~ '\''^pg_'\'' AND n.nspname <> '\''information_schema'\'') +
+        (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+          WHERE n.nspname !~ '\''^pg_'\'' AND n.nspname <> '\''information_schema'\'') +
+        (SELECT count(*) FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace
+          WHERE n.nspname !~ '\''^pg_'\'' AND n.nspname <> '\''information_schema'\'') +
+        (SELECT count(*) FROM pg_namespace
+          WHERE nspname !~ '\''^pg_'\'' AND nspname NOT IN ('\''public'\'','\''information_schema'\'')) +
+        (SELECT count(*) FROM pg_extension WHERE extname <> '\''plpgsql'\'') +
+        (SELECT count(*) FROM pg_default_acl) +
+        (SELECT count(*) FROM pg_largeobject_metadata);")
+    if [ "$objects" != 0 ]; then
+        printf "%s\n" "STOP: destination database is populated" >&2
+        exit 1
+    fi
+    exec pg_restore --host=127.0.0.1 --username=correlia --dbname=correlia \
+      --exit-on-error --single-transaction /tmp/source.dump
+'
+```
+
+A populated target or any restore error is a **stop**: do not start Correlia, do not overwrite/drop the target to force success, and do not modify the source. Investigate using the retained source/archive. `--single-transaction` leaves no partially restored objects on an SQL failure; it is not permission to ignore a non-zero result.
+
+#### 4. Verify SQL and credentials before app startup, then verify consumers
+
+Copy the same `inventory.sql` and `baseline.sql` to the target, execute them with the target's protected initialized password and compare the results **before** starting the app:
+
+```sh
+for kind in inventory baseline; do
+    docker cp "$WORK/$kind.sql" "$TARGET_CONTAINER:/tmp/$kind.sql"
+    docker exec "$TARGET_CONTAINER" sh -eu -c '
+        umask 077
+        export PGPASSWORD="$POSTGRES_PASSWORD"
+        exec psql --no-psqlrc --host=127.0.0.1 --username=correlia --dbname=correlia \
+          --set=ON_ERROR_STOP=1 --tuples-only --no-align \
+          --file="/tmp/$1.sql" --output="/tmp/$1.txt"
+    ' sh "$kind"
+    docker cp "$TARGET_CONTAINER:/tmp/$kind.txt" "$WORK/target-$kind.txt"
+    cmp "$WORK/source-$kind.txt" "$WORK/target-$kind.txt"
+done
+```
+
+Inventory settings are empty on this default path; customized inventories containing cluster-local OIDs require semantic role/database-name comparison, not raw OID equality. Confirm the incident UUIDs/status/acknowledgement fields, audit UUIDs/source IDs/fingerprints/linkage/decision summaries and exact `alembic_version` match. Acknowledgement is metadata: an acknowledged incident remains `OPEN`. Compare a long-window/non-expiring incident separately from any incident already overdue.
+
+The inventory/baseline queries above use localhost TCP, which may match the image's `initdb` **trust** rules and is not password proof. For both credential checks, use the destination project's private Compose service hostname `postgres` (the project selected explicitly by `dc`), not localhost or a full container ID. Confirm a deliberately incorrect password is rejected, without putting it in command arguments or changing the role:
+
+```sh
+# Enter a deliberately incorrect password at this prompt.
+if dc exec --user postgres postgres psql --no-psqlrc \
+    --host=postgres --username=correlia --dbname=correlia --password \
+    --set=ON_ERROR_STOP=1 --command='SELECT current_user;'; then
+    printf '%s\n' 'STOP: incorrect database password was accepted' >&2
+    exit 1
+fi
+```
+
+Require the failure to be **password authentication failed**, not a broken container/network. Then prove the initialized password works on the **same non-loopback path**, as role `correlia`:
+
+```sh
+credential_proof=$(dc exec --no-TTY postgres sh -eu -c '
+    export PGPASSWORD="$POSTGRES_PASSWORD"
+    exec psql --no-psqlrc --host=postgres --username=correlia --dbname=correlia \
+      --no-password --set=ON_ERROR_STOP=1 --tuples-only --no-align
+' <<'SQL'
+SELECT current_user, inet_client_addr() IS NOT NULL AND
+    inet_client_addr() NOT IN ('127.0.0.1'::inet, '::1'::inet);
+SQL
+)
+test "$credential_proof" = 'correlia|t'
+```
+
+The actual application DSN must use the verified role/password/database. Owner/ACL errors are failures, not reasons to suppress ownership/grants.
+
+Only after those checks:
+
+```sh
+dc up --detach --wait
+```
+
+This may recreate the bootstrap PostgreSQL container when the `.env` initialization value returns to `POSTGRES_DB=correlia`; the named volume keeps the already restored cluster. Correlia runs startup migrations. Refresh container handles and recheck the SQL revision:
+
+```sh
+TARGET_CONTAINER=$(dc ps --quiet postgres)
+APP_CONTAINER=$(dc ps --quiet correlia)
+test -n "$TARGET_CONTAINER"
+test -n "$APP_CONTAINER"
+docker exec "$TARGET_CONTAINER" sh -eu -c '
+    export PGPASSWORD="$POSTGRES_PASSWORD"
+    exec psql --no-psqlrc --host=127.0.0.1 --username=correlia --dbname=correlia \
+      --set=ON_ERROR_STOP=1 --tuples-only --no-align \
+      --command="SELECT version_num FROM alembic_version"
+'
+```
+
+Compare that revision to the saved baseline and the intended image's `alembic heads`. For authenticated consumer checks, use the tokens already injected into the app container, never bearer tokens in host shell arguments. Select a recorded stable incident UUID (a long-window `OPEN` record or a terminal record, not the separate overdue incident):
+
+```sh
+dc exec correlia alembic heads
+```
+
+Stage app JSON through a process running as the default `correlia` user in its writable `/tmp` tmpfs because [`docker cp` uses daemon-side filesystem extraction](https://docs.docker.com/reference/cli/docker/container/cp/#corner-cases), which cannot write the app's read-only root filesystem; PostgreSQL has a writable root filesystem, so its binary archives still use `docker cp` without host-shell binary redirection.
+
+```sh
+printf '%s' 'Recorded stable incident UUID: '
+IFS= read -r BASELINE_INCIDENT_ID
+docker exec --interactive "$APP_CONTAINER" sh -eu -c '
+    umask 077
+    if [ -e /tmp/cutover-baseline.json ]; then
+        chmod 600 /tmp/cutover-baseline.json
+    fi
+    cat > /tmp/cutover-baseline.json
+' < "$WORK/source-baseline.txt"
+docker exec --interactive --env "BASELINE_INCIDENT_ID=$BASELINE_INCIDENT_ID" \
+    "$APP_CONTAINER" python - <<'PY'
+import json
+import os
+from pathlib import Path
+from urllib.error import HTTPError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+from uuid import UUID
+from time import sleep
+
+from app.domain.audit import AUDIT_INCIDENT_IDS_MAX
+
+base = "http://127.0.0.1:8000"
+operator = os.environ["CORRELIA_OPERATOR_API_TOKEN"]
+ingress = os.environ["CORRELIA_INGRESS_API_TOKEN"]
+saved = json.loads(Path("/tmp/cutover-baseline.json").read_text())
+incident_id = str(UUID(os.environ["BASELINE_INCIDENT_ID"]))
+expected = next(row for row in saved["incidents"] if row["id"] == incident_id)
+
+def request(path, token):
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    probe = Request(base + path, headers=headers)
+    while True:
+        try:
+            with urlopen(probe, timeout=5) as response:
+                return response.status, json.load(response)
+        except HTTPError as error:
+            if error.code != 429 or token != operator:
+                return error.code, None
+            retry_after = error.headers.get("Retry-After", "")
+            if not retry_after.isascii() or not retry_after.isdecimal() or int(retry_after) < 1:
+                raise RuntimeError("Expected a positive numeric Retry-After for operator GET") from error
+            sleep(int(retry_after))
+
+for path in ("/v1/readyz", f"/v1/incidents/{incident_id}", "/v1/incident-events"):
+    for token in (None, "cutover-invalid-operator", ingress):
+        assert request(path, token)[0] == 401
+assert request("/v1/readyz", operator)[0] == 200
+status, incident = request(f"/v1/incidents/{incident_id}", operator)
+assert status == 200 and incident["id"] == expected["id"]
+assert incident["status"] == expected["status"]
+assert incident["acknowledgement"]["acknowledged_by"] == expected["acknowledged_by"]
+# PostgreSQL JSON and HTTP use different timestamp renderings; compare instants.
+from datetime import datetime
+if expected["acknowledged_at"] is None:
+    assert incident["acknowledgement"]["acknowledged_at"] is None
+else:
+    assert datetime.fromisoformat(incident["acknowledgement"]["acknowledged_at"]) == \
+        datetime.fromisoformat(expected["acknowledged_at"])
+fields = ("id", "source_id", "fingerprint", "incident_ids", "incident_effect", "decision_summary")
+baseline_ids = {row["id"] for row in saved["audit"]}
+actual_audit = {}
+cursor = None
+while True:
+    query = {"limit": 200}
+    if cursor is not None:
+        query["cursor"] = cursor
+    status, page = request("/v1/incident-events?" + urlencode(query), operator)
+    assert status == 200
+    actual_audit.update({
+        row["id"]: {key: row[key] for key in fields}
+        for row in page["items"] if row["id"] in baseline_ids
+    })
+    cursor = page["next_cursor"]
+    if cursor is None:
+        break
+for audit in saved["audit"]:
+    expected_audit = {key: audit[key] for key in fields}
+    expected_audit["incident_ids"] = audit["incident_ids"][:AUDIT_INCIDENT_IDS_MAX]
+    assert actual_audit[audit["id"]] == expected_audit
+print("Restored incident/acknowledgement/audit and operator role boundaries verified")
+PY
+```
+
+The probe scans the audit endpoint once globally, using 200-row pages and `next_cursor`, retaining the baseline audit IDs and selected values; it must not accept a missing baseline row. The pre-startup SQL comparison verifies the complete persisted incident linkage. The HTTP comparison expects only its `AUDIT_INCIDENT_IDS_MAX`-bounded prefix and preserves the full saved decision-summary comparison, including `affected_incident_count` and `incident_ids_truncated`; a recovery linking more incidents than the API cap must still pass when restored correctly. Operator verification GETs honor a 429 response's positive numeric `Retry-After` by sleeping and retrying the same path/page without relaxing quotas. A missing or invalid header stops the probe; other errors are not retried. No raw payloads are needed. PostgreSQL JSON timestamps and HTTP timestamps can differ in spelling; compare timestamp **instants**, not their rendered strings.
+
+After the baseline matches and startup expiry changes are understood, prepare **one intended new monitoring event** in a protected `$WORK/accepted-event.json` file, with a new `source_id` and a payload that matches the configured rules. Then admit and read back its committed records:
+
+```sh
+test -s "$WORK/accepted-event.json"
+chmod 600 "$WORK/accepted-event.json"
+docker exec --interactive "$APP_CONTAINER" sh -eu -c '
+    umask 077
+    if [ -e /tmp/cutover-accepted-event.json ]; then
+        chmod 600 /tmp/cutover-accepted-event.json
+    fi
+    cat > /tmp/cutover-accepted-event.json
+' < "$WORK/accepted-event.json"
+docker exec --interactive "$APP_CONTAINER" python - <<'PY'
+import json
+import os
+from pathlib import Path
+from time import sleep
+from urllib.error import HTTPError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+
+base = "http://127.0.0.1:8000"
+operator = os.environ["CORRELIA_OPERATOR_API_TOKEN"]
+event = json.loads(Path("/tmp/cutover-accepted-event.json").read_text())
+saved = json.loads(Path("/tmp/cutover-baseline.json").read_text())
+assert event["source_id"] not in {row["source_id"] for row in saved["audit"]}
+def request(path, token, payload=None):
+    headers = {"Authorization": f"Bearer {token}"}
+    data = None
+    if payload is not None:
+        headers["Content-Type"] = "application/json"
+        data = json.dumps(payload).encode()
+    probe = Request(base + path, data=data, headers=headers)
+    while True:
+        try:
+            with urlopen(probe, timeout=5) as response:
+                assert response.status == 200
+                return json.load(response)
+        except HTTPError as error:
+            if error.code != 429 or data is not None or token != operator:
+                raise
+            retry_after = error.headers.get("Retry-After", "")
+            if not retry_after.isascii() or not retry_after.isdecimal() or int(retry_after) < 1:
+                raise RuntimeError("Expected a positive numeric Retry-After for operator GET") from error
+            sleep(int(retry_after))
+accepted = request("/v1/icinga2/events", os.environ["CORRELIA_INGRESS_API_TOKEN"], event)
+incident_id = accepted["incident_id"]
+assert incident_id is not None
+assert request(f"/v1/incidents/{incident_id}", operator)["id"] == incident_id
+page = request("/v1/incident-events?" + urlencode({"source_id": event["source_id"]}), operator)
+assert page["total"] == 1 and page["items"][0]["incident_ids"] == [incident_id]
+assert page["items"][0]["id"] not in {row["id"] for row in saved["audit"]}
+print("New accepted event has a committed incident and new audit identity")
+PY
+```
+
+The new-write probe uses the same 429 backoff only for operator verification GETs. It never retries the ingress POST or any other error.
+
+A healthy empty database, an accepted task or SMTP delivery is not migration proof. Keep the source and archive retained while making this acceptance decision.
+
+#### Recovery and the rollback boundary
+
+Retain the original source volume, recorded mount identity and protected archive through operator acceptance. If the source container is still present, keep all its writers stopped and inspect/query that exact container. To reopen a detached **recorded existing** source, first ensure no PostgreSQL process is using its volume. Stop the source container if present; if detaching it is necessary, `docker rm "$SOURCE_CONTAINER"` without `--volumes` retains the recorded volume.
+
+Create this recovery-only manifest in the protected `$WORK` directory; it is not the default persistent stack:
+
+```sh
+cat > "$WORK/source-recovery.yaml" <<'YAML'
+services:
+  recovered-postgres:
+    image: postgres:16.9-alpine
+    environment:
+      POSTGRES_USER: correlia
+      POSTGRES_DB: correlia
+    volumes:
+      - retained-source:/var/lib/postgresql/data
+    networks:
+      - recovery
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U correlia -d correlia"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+volumes:
+  retained-source:
+    external: true
+    name: ${SOURCE_VOLUME:?recorded exact source volume is required}
+networks:
+  recovery:
+    internal: true
+YAML
+export SOURCE_VOLUME
+docker volume inspect --format '{{.Name}}' "$SOURCE_VOLUME"
+docker compose --project-name "$SOURCE_PROJECT" --file "$WORK/source-recovery.yaml" \
+    up --detach --wait recovered-postgres
+```
+
+The exact **external Compose volume** fails if it is absent and does not create a replacement. Neither `docker run -v` nor `--mount type=volume` supplies that guarantee: Docker can auto-create a named volume. Missing or ambiguous identity means **stop without guessing**. Inspect the recovery container's actual mount, re-run the saved SQL baseline/inventory with the initialized source password, and compare before resuming any source app. Do not mount a running source cluster concurrently, prune volumes, or use a reset as recovery.
+
+The mutation-free rollback boundary ends at **destination application startup**, not when ingress resumes: Alembic can change the schema, and the worker's first asynchronous sweep can close restored overdue `OPEN` incidents immediately (`closed_at` plus `lifecycle.reason=expired`) without creating an audit event. Poll the separate overdue incident to observe that transition; do not let it invalidate a non-expiring baseline. Before destination startup, returning to the unchanged source can recover the saved application baseline. After startup, stop destination writers and review/reconcile schema changes, lifecycle expiry and all accepted writes before deciding how to return; merely repointing the DSN cannot promise lossless rollback.
+
+Do not automatically delete the operator's source or archive on success or failure. Keep them protected until acceptance and an adequate backup/recovery decision. The verification rehearsal deletes only its own synthetic, invocation-owned resources by recorded names after exercising these checks.
+
+Command semantics: [PG16 `pg_dump`](https://www.postgresql.org/docs/16/app-pgdump.html), [transactional `pg_restore`](https://www.postgresql.org/docs/16/app-pgrestore.html), [`CREATE DATABASE`/`template0`](https://www.postgresql.org/docs/16/sql-createdatabase.html), and [Compose external-volume absence behavior](https://docs.docker.com/reference/compose-file/volumes/#external). These references explain the procedure; documentation alone is not runtime migration evidence.
 
 ## Production authentication and route exposure
 

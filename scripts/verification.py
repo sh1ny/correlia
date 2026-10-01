@@ -8,9 +8,10 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from tempfile import gettempdir
 from uuid import uuid4
 
-from cleanup_verification import cleanup
+from cleanup_verification import acquire, cleanup_owned
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -64,19 +65,48 @@ def main() -> int:
             "CORRELIA_VERIFICATION_PROJECT", f"correlia-verify-{uuid4().hex}"
         )
         print(f"Verification project: {project}", flush=True)
+    invocation = uuid4().hex
+    receipt = Path(gettempdir()) / f"correlia-verification-{invocation}.json"
+    acquired = False
     result = 1
     try:
+        if project is not None:
+            # Never reuse an inherited receipt: each outer command is a new run.
+            acquire(project, invocation, receipt)
+            acquired = True
+            environment.update(
+                {
+                    "CORRELIA_VERIFICATION_INVOCATION": invocation,
+                    "CORRELIA_VERIFICATION_RECEIPT": str(receipt),
+                }
+            )
+            print(f"Verification invocation: {invocation}", flush=True)
+            print(f"Verification ownership receipt: {receipt}", flush=True)
+            github_env = environment.get("GITHUB_ENV")
+            if github_env:
+                with Path(github_env).open("a", encoding="utf-8") as exports:
+                    for name in (
+                        "CORRELIA_VERIFICATION_PROJECT",
+                        "CORRELIA_VERIFICATION_INVOCATION",
+                        "CORRELIA_VERIFICATION_RECEIPT",
+                    ):
+                        exports.write(f"{name}={environment[name]}\n")
         result = subprocess.run(
             command, cwd=ROOT, env=environment, check=False
         ).returncode
     except KeyboardInterrupt:
         result = 130
+    except (ValueError, RuntimeError) as error:
+        print(f"{args.task}: {error}", file=sys.stderr)
     except OSError:
         print(f"{args.task}: unable to launch required command", file=sys.stderr)
     finally:
-        if project is not None:
+        if acquired and project is not None:
             try:
-                cleanup(project)
+                if not cleanup_owned(project, invocation, receipt):
+                    raise RuntimeError(
+                        "verification invocation ownership does not match"
+                    )
             except OSError, RuntimeError, ValueError, subprocess.SubprocessError:
                 print("Verification resource cleanup failed", file=sys.stderr)
                 result = result or 1

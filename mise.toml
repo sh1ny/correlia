@@ -61,5 +61,9 @@ description = "Windows-compatible development checks; not full verification"
 depends = ["format:check", "lint", "typecheck", "audit", "test:portable"]
 
 [tasks."clean:verification"]
-description = "Remove only the identified verification project's Docker resources"
+description = "Deliberately remove an explicitly identified verification project's Docker resources"
 run = "python scripts/cleanup_verification.py"
+
+[tasks."clean:verification:owned"]
+description = "Automatically remove resources only with this invocation's receipt and Docker claim"
+run = "python scripts/cleanup_verification.py --owned"

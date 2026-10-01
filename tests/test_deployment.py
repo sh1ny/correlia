@@ -593,7 +593,49 @@ def _docker_compose_arguments(stack: dict[str, object], *arguments: str) -> list
     ]
 
 
-def _compose_cleanup(stack: dict[str, object]) -> None:
+def _postgres_storage_identity(
+    stack: dict[str, object], postgres_container: str
+) -> dict[str, object]:
+    """Prove the live PG16 mount is the production project's named volume."""
+    project = str(stack["project"])
+    expected_name = cleanup_verification.postgres_data_volume(project)
+    mounts = _docker_json(
+        ["inspect", "--format", "{{json .Mounts}}", postgres_container]
+    )
+    assert isinstance(mounts, list)
+    data_mounts = [
+        mount
+        for mount in mounts
+        if isinstance(mount, dict)
+        and mount.get("Destination") == "/var/lib/postgresql/data"
+    ]
+    assert len(data_mounts) == 1
+    mount = data_mounts[0]
+    assert mount["Type"] == "volume"
+    assert mount["Name"] == expected_name
+    labels = _docker_json(
+        ["volume", "inspect", "--format", "{{json .Labels}}", expected_name]
+    )
+    assert isinstance(labels, dict)
+    assert labels["com.docker.compose.project"] == project
+    assert labels["com.docker.compose.volume"] == "postgres-data"
+    return {
+        "name": expected_name,
+        "destination": "/var/lib/postgresql/data",
+        "project": project,
+        "logical_volume": "postgres-data",
+    }
+
+
+def _compose_cleanup(stack: dict[str, object], *, release: bool = False) -> None:
+    project = str(stack["project"])
+    invocation = str(stack.get("invocation", ""))
+    receipt = Path(str(stack.get("ownership_receipt", "")))
+    try:
+        if not cleanup_verification.has_ownership(project, invocation, receipt):
+            pytest.fail("Docker cleanup refused without matching invocation ownership")
+    except ValueError, RuntimeError:
+        pytest.fail("Docker cleanup refused without matching invocation ownership")
     failed = False
     try:
         result = _docker(
@@ -603,8 +645,11 @@ def _compose_cleanup(stack: dict[str, object]) -> None:
     except OSError, subprocess.TimeoutExpired:
         failed = True
     try:
-        cleanup_verification.cleanup(str(stack["project"]))
-    except RuntimeError:
+        if not cleanup_verification.cleanup_owned(
+            project, invocation, receipt, release=release and not failed
+        ):
+            failed = True
+    except OSError, ValueError, RuntimeError:
         failed = True
     if failed:
         pytest.fail("Docker cleanup failed without exposing its diagnostics")
@@ -748,18 +793,61 @@ def test_compose_cleanup_attempts_all_resource_removal_after_down_failure(
         "network": {"orphan-network"},
     }
     resources = {
-        "container": owned["container"] | {"developer-container"},
-        "volume": owned["volume"] | {"developer-volume"},
-        "network": owned["network"] | {"developer-network"},
+        "container": {"developer-container"},
+        "volume": {"developer-volume"},
+        "network": {"developer-network"},
     }
+    claims: dict[str, tuple[str, dict[str, str]]] = {}
 
     def fake_docker(
         arguments: list[str], **_kwargs: object
     ) -> subprocess.CompletedProcess[str]:
+        command = ["docker", *arguments]
         if arguments[0] == "compose":
-            return subprocess.CompletedProcess(["docker", *arguments], 1)
-        assert arguments[-1] == f"label=com.docker.compose.project={project}" or (
-            arguments[-1] in set().union(*owned.values())
+            if "config" in arguments:
+                return subprocess.CompletedProcess(
+                    command,
+                    0,
+                    stdout=json.dumps(yaml.safe_load(COMPOSE_PATH.read_text())),
+                )
+            return subprocess.CompletedProcess(command, 1)
+        if arguments[0] == "create":
+            name = arguments[arguments.index("--name") + 1]
+            if name in claims:
+                return subprocess.CompletedProcess(command, 1, stdout="")
+            identifier = uuid4().hex * 2
+            labels = dict(
+                arguments[index + 1].split("=", 1)
+                for index, argument in enumerate(arguments)
+                if argument == "--label"
+            )
+            claims[name] = identifier, labels
+            return subprocess.CompletedProcess(command, 0, stdout=identifier)
+        if arguments[:2] == ["container", "inspect"]:
+            claim = claims.get(arguments[-1])
+            if claim is None:
+                return subprocess.CompletedProcess(command, 1, stdout="")
+            identifier, labels = claim
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout=json.dumps(
+                    {
+                        "Id": identifier,
+                        "Name": f"/{arguments[-1]}",
+                        "Config": {"Labels": labels},
+                    }
+                ),
+            )
+        if arguments[:2] == ["rm", "--force"]:
+            for name, (identifier, _) in claims.items():
+                if arguments[-1] == identifier:
+                    del claims[name]
+                    return subprocess.CompletedProcess(command, 0)
+        assert (
+            arguments == ["volume", "ls", "--quiet"]
+            or arguments[-1] == f"label=com.docker.compose.project={project}"
+            or arguments[-1] in set().union(*owned.values())
         )
         listing = {
             ("ps", "--all"): "container",
@@ -768,10 +856,15 @@ def test_compose_cleanup_attempts_all_resource_removal_after_down_failure(
         }
         kind = listing.get(tuple(arguments[:2]))
         if kind:
+            names = (
+                resources[kind] & owned[kind]
+                if "--filter" in arguments
+                else resources[kind]
+            )
             return subprocess.CompletedProcess(
                 ["docker", *arguments],
                 0,
-                stdout="\n".join(sorted(resources[kind] & owned[kind])),
+                stdout="\n".join(sorted(names)),
             )
         removal = {
             ("rm", "--force"): "container",
@@ -784,20 +877,76 @@ def test_compose_cleanup_attempts_all_resource_removal_after_down_failure(
 
     monkeypatch.setitem(_compose_cleanup.__globals__, "_docker", fake_docker)
     monkeypatch.setattr(cleanup_verification, "_docker", fake_docker)
+    invocation = uuid4().hex
+    receipt = tmp_path / "ownership.json"
+    cleanup_verification.acquire(project, invocation, receipt)
+    for kind in resources:
+        resources[kind].update(owned[kind])
     stack = {
         "project": project,
+        "invocation": invocation,
+        "ownership_receipt": receipt,
         "env_file": tmp_path / ".env",
         "override_file": tmp_path / "override.yaml",
     }
 
     with pytest.raises(pytest.fail.Exception, match="Docker cleanup failed"):
-        _compose_cleanup(stack)
+        _compose_cleanup(stack, release=True)
+    assert cleanup_verification.has_ownership(project, invocation, receipt)
     assert resources == {
         "container": {"developer-container"},
         "volume": {"developer-volume"},
         "network": {"developer-network"},
     }
     cleanup_verification.cleanup(project)
+    assert not cleanup_verification.has_ownership(project, invocation, receipt)
+
+
+@pytest.mark.parametrize("receipt_state", ["missing", "project", "invocation", "claim"])
+def test_compose_cleanup_refuses_unowned_down(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, receipt_state: str
+) -> None:
+    def unexpected_docker(
+        arguments: list[str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        if receipt_state == "claim" and arguments[:2] == ["container", "inspect"]:
+            return subprocess.CompletedProcess(["docker", *arguments], 1, stdout="")
+        pytest.fail(
+            "unowned cleanup must not reach Docker Compose or resource deletion"
+        )
+
+    monkeypatch.setitem(_compose_cleanup.__globals__, "_docker", unexpected_docker)
+    monkeypatch.setattr(cleanup_verification, "_docker", unexpected_docker)
+    project = "correlia-verify-compose-gate"
+    invocation = uuid4().hex
+    receipt = tmp_path / "ownership.json"
+    if receipt_state != "missing":
+        receipt.write_text(
+            json.dumps(
+                {
+                    "project": (
+                        project
+                        if receipt_state != "project"
+                        else "correlia-verify-other"
+                    ),
+                    "invocation": (
+                        invocation if receipt_state != "invocation" else uuid4().hex
+                    ),
+                    "claim": "0" * 64,
+                }
+            ),
+            encoding="utf-8",
+        )
+    stack: dict[str, object] = {
+        "project": project,
+        "invocation": invocation,
+        "ownership_receipt": receipt,
+        "env_file": tmp_path / ".env",
+        "override_file": tmp_path / "override.yaml",
+    }
+
+    with pytest.raises(pytest.fail.Exception, match="without matching invocation"):
+        _compose_cleanup(stack)
 
 
 def test_verification_cleanup_reports_residuals_but_attempts_other_resources(
@@ -810,6 +959,8 @@ def test_verification_cleanup_reports_residuals_but_attempts_other_resources(
     }
 
     def fake_docker(arguments: list[str]) -> subprocess.CompletedProcess[str]:
+        if arguments[:2] == ["container", "inspect"]:
+            return subprocess.CompletedProcess(["docker", *arguments], 1, stdout="")
         kind = {
             ("ps", "--all"): "container",
             ("volume", "ls"): "volume",
@@ -865,13 +1016,27 @@ def docker_compose_stack(tmp_path: Path) -> Iterator[dict[str, object]]:
     if compose_version is None or compose_version.returncode != 0:
         pytest.skip("Docker Compose unavailable; cannot run real deployment smoke")
 
-    project = os.environ.setdefault(
+    project = os.environ.get(
         "CORRELIA_VERIFICATION_PROJECT", f"correlia-verify-{uuid4().hex}"
     )
+    invocation = os.environ.get("CORRELIA_VERIFICATION_INVOCATION")
+    receipt_path = os.environ.get("CORRELIA_VERIFICATION_RECEIPT")
+    owns_invocation = invocation is None and receipt_path is None
     try:
         cleanup_verification.validate_project(project)
-    except ValueError:
-        pytest.fail("invalid verification project identifier")
+        if invocation is not None or receipt_path is not None:
+            if not invocation or not receipt_path:
+                pytest.fail("incomplete verification invocation ownership")
+            receipt = Path(receipt_path)
+            if not cleanup_verification.has_ownership(project, invocation, receipt):
+                pytest.fail("missing or mismatched verification invocation ownership")
+        else:
+            invocation = uuid4().hex
+            receipt = tmp_path / "verification-ownership.json"
+            cleanup_verification.acquire(project, invocation, receipt)
+    except (ValueError, RuntimeError) as error:
+        # A rejected namespace has no receipt and must never reach a finalizer.
+        pytest.fail(str(error))
     suffix = uuid4().hex[:12]
     secrets = {
         "postgres_password": f"u7-postgres-{suffix}",
@@ -999,17 +1164,14 @@ def docker_compose_stack(tmp_path: Path) -> Iterator[dict[str, object]]:
                 f"      - {smoke_rules_path}:/app/smoke/rules.yaml:ro",
                 "  mailpit:",
                 "    ports: !reset []",
-                "  postgres:",
-                "    volumes:",
-                "      - verification-data:/var/lib/postgresql/data",
-                "volumes:",
-                "  verification-data: {}",
                 "",
             )
         )
     )
     stack: dict[str, object] = {
         "project": project,
+        "invocation": invocation,
+        "ownership_receipt": receipt,
         "env_file": env_file,
         "override_file": override_file,
         "report_path": report_path,
@@ -1023,13 +1185,21 @@ def docker_compose_stack(tmp_path: Path) -> Iterator[dict[str, object]]:
             environment=stack["environment"],  # type: ignore[arg-type]
             timeout=300,
         )
+        postgres_container = _require_docker_success(
+            _docker_compose_arguments(stack, "ps", "--quiet", "postgres")
+        ).stdout.strip()
+        if not postgres_container:
+            pytest.fail("Compose smoke did not create PostgreSQL")
+        storage = _postgres_storage_identity(stack, postgres_container)
+        stack["postgres_storage"] = storage
+        _publish_qualification_report("Production PostgreSQL storage", storage)
     except BaseException:
-        _compose_cleanup(stack)
+        _compose_cleanup(stack, release=owns_invocation)
         raise
     try:
         yield stack
     finally:
-        _compose_cleanup(stack)
+        _compose_cleanup(stack, release=owns_invocation)
 
 
 def _load_dotenv_example(path: Path) -> dict[str, str]:
@@ -1827,13 +1997,16 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
         path: _file_checksum(path) for path in CONFIG_DIRECTORY.glob("*.yaml")
     }
 
+    # Keep this acknowledged incident outside startup expiry sweeps for the
+    # entire finite smoke, without changing lifecycle policy or reseeding it.
+    persistence_event_time = datetime.now(timezone.utc) + timedelta(days=1)
     payload = {
         "source_id": "icinga2:service:dc1-app-web:http",
         "host": "dc1-app-web",
         "service": "http",
         "state": "CRITICAL",
         "state_type": "HARD",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": persistence_event_time.isoformat(),
         "ip_address": "192.0.2.10",
         "check_output": "HTTP 503",
         "tags": {"team.name": "platform", "topology.datacenter": "dc1"},
@@ -2696,6 +2869,333 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
     assert persisted_read["status"] == "OPEN"
     assert persisted_read["acknowledgement"] == acknowledgement
 
+    invocation = str(stack["invocation"])
+    ownership_receipt = stack["ownership_receipt"]
+    assert isinstance(ownership_receipt, Path)
+    production_storage = stack["postgres_storage"]
+    assert isinstance(production_storage, dict)
+    database_volume = str(production_storage["name"])
+
+    def volume_identity(name: str) -> dict[str, object]:
+        identity = _docker_json(
+            [
+                "volume",
+                "inspect",
+                "--format",
+                '{"name":{{json .Name}},"created_at":{{json .CreatedAt}},'
+                '"labels":{{json .Labels}}}',
+                name,
+            ]
+        )
+        assert isinstance(identity, dict)
+        assert identity["name"] == name
+        return identity
+
+    retained_volume = volume_identity(database_volume)
+
+    def postgres_json(query: str) -> object:
+        result = _require_docker_success(
+            [
+                "exec",
+                postgres_container,
+                "sh",
+                "-c",
+                'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 '
+                '-U "$POSTGRES_USER" -d "$POSTGRES_DB" -At '
+                '-v ON_ERROR_STOP=1 -c "$1"',
+                "sh",
+                query,
+            ]
+        )
+        try:
+            return json.loads(result.stdout)
+        except json.JSONDecodeError:
+            pytest.fail("persistence SQL probe returned invalid JSON")
+
+    def refresh_ready_services(operation: str) -> None:
+        nonlocal app_container, postgres_container, mailpit_container
+        containers: dict[str, str] = {}
+        for service in ("correlia", "postgres", "mailpit"):
+            container = _require_docker_success(
+                _docker_compose_arguments(stack, "ps", "--quiet", service)
+            ).stdout.strip()
+            if not container:
+                pytest.fail(f"{operation} did not recover {service}")
+            identity = _docker_json(["inspect", "--format", "{{json .Id}}", container])
+            assert isinstance(identity, str)
+            containers[service] = identity
+        app_container = containers["correlia"]
+        postgres_container = containers["postgres"]
+        mailpit_container = containers["mailpit"]
+        _wait_until(
+            f"PostgreSQL health after {operation}",
+            lambda: (
+                _docker_json(
+                    [
+                        "inspect",
+                        "--format",
+                        "{{json .State.Health.Status}}",
+                        postgres_container,
+                    ]
+                )
+                == "healthy"
+            ),
+            timeout=60,
+        )
+        status, ready_body = _wait_until(
+            f"authenticated database readiness after {operation}",
+            lambda: (
+                response
+                if (
+                    response := _container_http_response(
+                        app_container, f"{app_url}/v1/readyz", token=operator_token
+                    )
+                )[0]
+                == 200
+                else None
+            ),
+            timeout=60,
+        )
+        assert status == 200
+        readiness = json.loads(ready_body)
+        assert readiness["status"] == "ready"
+        assert readiness["checks"]["database"] == "ready"
+        status, health_body = _container_http_response(
+            app_container, f"{app_url}/v1/health"
+        )
+        assert status == 200
+        assert json.loads(health_body) == {"status": "ok"}
+
+    audit_summary_keys = (
+        "decision_kind",
+        "rule_name",
+        "group_key",
+        "incident_effect",
+        "counted_count",
+        "threshold_count",
+        "threshold_crossed",
+        "replay",
+        "first_threshold_transition",
+        "no_dispatch_reason",
+        "notification_intent",
+    )
+    sql_summary = ", ".join(
+        f"'{key}', decision_summary -> '{key}'" for key in audit_summary_keys
+    )
+
+    def persistence_baseline_read() -> dict[str, object]:
+        # Only authenticated GETs and SQL SELECTs belong in this proof segment.
+        status, detail_body = _container_http_response(
+            app_container,
+            f"{app_url}/v1/incidents/{incident_id}",
+            token=operator_token,
+        )
+        assert status == 200
+        detail = json.loads(detail_body)
+        selected_incident = {
+            key: detail[key]
+            for key in (
+                "id",
+                "status",
+                "acknowledgement",
+                "rule_name",
+                "group_key",
+                "event_count",
+                "threshold_crossed",
+                "start_time",
+                "last_update_time",
+                "closed_at",
+            )
+        }
+        assert selected_incident["id"] == incident_id
+        assert selected_incident["status"] == "OPEN"
+        assert selected_incident["acknowledgement"] == acknowledgement
+        status, audit_body = _container_http_response(
+            app_container,
+            f"{app_url}/v1/incident-events?source_id={payload['source_id']}",
+            token=operator_token,
+        )
+        assert status == 200
+        audit_page = json.loads(audit_body)
+        assert audit_page["total"] == 1
+        selected_audits = [
+            {
+                "id": str(UUID(item["id"])),
+                "source_id": item["source_id"],
+                "fingerprint": item["fingerprint"],
+                "incident_ids": item["incident_ids"],
+                "incident_effect": item["incident_effect"],
+                "decision_summary": {
+                    key: item["decision_summary"][key] for key in audit_summary_keys
+                },
+            }
+            for item in audit_page["items"]
+        ]
+        assert len(selected_audits) == 1
+        assert selected_audits[0]["source_id"] == payload["source_id"]
+        assert selected_audits[0]["incident_ids"] == [incident_id]
+        assert selected_audits[0]["fingerprint"] == ingestion["fingerprint"]
+        sql_state = postgres_json(
+            "SELECT json_build_object("
+            "'revision', (SELECT version_num FROM alembic_version), "
+            "'incident', (SELECT json_build_object("
+            "'id', id, 'status', status, 'acknowledged_at', acknowledged_at, "
+            "'acknowledged_by', acknowledged_by, 'event_count', event_count, "
+            "'threshold_crossed', threshold_crossed, 'start_time', start_time, "
+            "'last_update_time', last_update_time, 'closed_at', closed_at, "
+            "'window_state', window_state, 'decision_context', decision_context) "
+            f"FROM incidents WHERE id = '{incident_id}'::uuid), "
+            "'audits', (SELECT coalesce(jsonb_agg(jsonb_build_object("
+            "'id', id, 'source_id', source_id, 'fingerprint', fingerprint, "
+            "'incident_ids', incident_ids, 'incident_effect', incident_effect, "
+            f"'decision_summary', jsonb_build_object({sql_summary})) "
+            "ORDER BY id), '[]'::jsonb) FROM incident_events "
+            f"WHERE source_id = '{payload['source_id']}'))"
+        )
+        assert isinstance(sql_state, dict)
+        assert sql_state["revision"] == migration_revision
+        assert sql_state["audits"] == selected_audits
+        sql_incident = sql_state["incident"]
+        assert isinstance(sql_incident, dict)
+        assert sql_incident["id"] == incident_id
+        assert sql_incident["status"] == selected_incident["status"]
+        assert sql_incident["acknowledged_by"] == acknowledgement["acknowledged_by"]
+        assert datetime.fromisoformat(sql_incident["acknowledged_at"]) == (
+            datetime.fromisoformat(acknowledgement["acknowledged_at"])
+        )
+        assert datetime.fromisoformat(sql_incident["last_update_time"]) == (
+            persistence_event_time
+        )
+        return {
+            "incident": selected_incident,
+            "audits": selected_audits,
+            "sql": sql_state,
+        }
+
+    durable_baseline = persistence_baseline_read()
+    preservation_evidence: list[dict[str, object]] = []
+
+    def prove_preservation(
+        operation: str, previous_postgres: str, *, same_container: bool
+    ) -> None:
+        refresh_ready_services(operation)
+        assert (postgres_container == previous_postgres) is same_container
+        storage = _postgres_storage_identity(stack, postgres_container)
+        assert storage == production_storage
+        assert volume_identity(database_volume) == retained_volume
+        observed_baseline = persistence_baseline_read()
+        assert observed_baseline == durable_baseline
+        preservation_evidence.append(
+            {
+                "operation": operation,
+                "postgres_container_before": previous_postgres,
+                "postgres_container_after": postgres_container,
+                "app_container": app_container,
+                "mailpit_container": mailpit_container,
+                "storage": storage,
+                "volume_created_at": retained_volume["created_at"],
+                "postgres_health": "healthy",
+                "authenticated_database_ready": True,
+                "read_only_baseline": observed_baseline,
+            }
+        )
+
+    previous_postgres = postgres_container
+    _require_docker_success(
+        _docker_compose_arguments(stack, "stop", "--timeout", "1"),
+        environment=stack["environment"],  # type: ignore[arg-type]
+    )
+    for container in (app_container, postgres_container, mailpit_container):
+        assert (
+            _docker_json(["inspect", "--format", "{{json .State.Running}}", container])
+            is False
+        )
+    # Compose v2 has no start --wait flag; the preservation probe below waits
+    # for authenticated readiness before comparing the retained data.
+    _require_docker_success(
+        _docker_compose_arguments(stack, "start"),
+        environment=stack["environment"],  # type: ignore[arg-type]
+    )
+    prove_preservation("full stop/start", previous_postgres, same_container=True)
+
+    previous_postgres = postgres_container
+    _require_docker_success(
+        _docker_compose_arguments(stack, "down", "--remove-orphans"),
+        environment=stack["environment"],  # type: ignore[arg-type]
+    )
+    assert volume_identity(database_volume) == retained_volume
+    _require_docker_success(
+        _docker_compose_arguments(stack, "up", "--detach", "--no-build", "--wait"),
+        environment=stack["environment"],  # type: ignore[arg-type]
+    )
+    prove_preservation("ordinary down/up", previous_postgres, same_container=False)
+    preservation_evidence[-1]["volume_retained_while_down"] = True
+
+    previous_postgres = postgres_container
+    _require_docker_success(
+        _docker_compose_arguments(
+            stack,
+            "up",
+            "--detach",
+            "--no-build",
+            "--force-recreate",
+            "--no-deps",
+            "--wait",
+            "postgres",
+        ),
+        environment=stack["environment"],  # type: ignore[arg-type]
+    )
+    prove_preservation(
+        "PostgreSQL force recreation", previous_postgres, same_container=False
+    )
+
+    # This is a separate write after every preservation proof, never a reseed.
+    accepted_source_id = "u2-persistence-after-preservation"
+    accepted_write = post_threshold_event(
+        host="u2-persistence-after-preservation",
+        source_id=accepted_source_id,
+        event_time=persistence_event_time,
+    )
+    accepted_incident_id = str(UUID(str(accepted_write["incident_id"])))
+    assert accepted_incident_id != incident_id
+    status, accepted_audit_body = _container_http_response(
+        app_container,
+        f"{app_url}/v1/incident-events?source_id={accepted_source_id}",
+        token=operator_token,
+    )
+    assert status == 200
+    accepted_audit_page = json.loads(accepted_audit_body)
+    assert accepted_audit_page["total"] == 1
+    accepted_audit_id = str(UUID(accepted_audit_page["items"][0]["id"]))
+    accepted_sql = postgres_json(
+        "SELECT json_build_object("
+        "'incident_id', incidents.id, 'status', incidents.status, "
+        "'audit_id', incident_events.id, 'source_id', source_id, "
+        "'incident_ids', incident_ids, 'incident_effect', incident_effect) "
+        "FROM incidents JOIN incident_events "
+        "ON incident_events.incident_ids @> jsonb_build_array(incidents.id::text) "
+        f"WHERE incidents.id = '{accepted_incident_id}'::uuid "
+        f"AND source_id = '{accepted_source_id}'"
+    )
+    assert accepted_sql == {
+        "incident_id": accepted_incident_id,
+        "status": "OPEN",
+        "audit_id": accepted_audit_id,
+        "source_id": accepted_source_id,
+        "incident_ids": [accepted_incident_id],
+        "incident_effect": "inserted",
+    }
+    assert persistence_baseline_read() == durable_baseline
+    _publish_qualification_report(
+        "Local PostgreSQL preservation qualification",
+        {
+            "schema_version": 1,
+            "project": project,
+            "preservation_operations": preservation_evidence,
+            "separate_accepted_write": accepted_sql,
+        },
+    )
+
     # Reuse the built service and healthy migrated database, never a second stack.
     # Compose process overrides must defeat an intact, safe --env-file.
     env_file = stack["env_file"]
@@ -3039,6 +3539,151 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
         assert threshold_inspection[0]["State"]["ExitCode"] != 0
     finally:
         _require_docker_success(["rm", "--force", invalid_threshold_name])
+
+    # All original-data-dependent scenarios are complete. Acquire a distinct
+    # disposable namespace for the unrelated-project sentinel, not another stack.
+    sentinel_project = f"correlia-verify-{uuid4().hex}"
+    sentinel_invocation = uuid4().hex
+    sentinel_receipt = tmp_path / "persistence-sentinel-ownership.json"
+    sentinel_volume = cleanup_verification.postgres_data_volume(sentinel_project)
+    sentinel_marker = f"preserve-{uuid4().hex}"
+    cleanup_verification.acquire(
+        sentinel_project, sentinel_invocation, sentinel_receipt
+    )
+    try:
+        _require_docker_success(
+            [
+                "volume",
+                "create",
+                "--label",
+                f"com.docker.compose.project={sentinel_project}",
+                "--label",
+                "com.docker.compose.volume=postgres-data",
+                sentinel_volume,
+            ]
+        )
+        sentinel_identity = volume_identity(sentinel_volume)
+        _require_docker_success(
+            [
+                "run",
+                "--rm",
+                "--label",
+                f"com.docker.compose.project={sentinel_project}",
+                "--user",
+                "0",
+                "--volume",
+                f"{sentinel_volume}:/sentinel",
+                "--entrypoint",
+                "sh",
+                "correlia:local",
+                "-c",
+                'printf "%s" "$1" > /sentinel/persistence-sentinel',
+                "sh",
+                sentinel_marker,
+            ]
+        )
+
+        # Revalidate the exact original receipt before intentional data deletion.
+        assert stack["ownership_receipt"] == ownership_receipt
+        assert stack["invocation"] == invocation
+        assert cleanup_verification.has_ownership(
+            project, invocation, ownership_receipt
+        )
+        previous_postgres = postgres_container
+        _compose_cleanup(stack)
+        remaining_volumes = _require_docker_success(
+            ["volume", "ls", "--quiet"]
+        ).stdout.split()
+        assert database_volume not in remaining_volumes
+        assert sentinel_volume in remaining_volumes
+        assert volume_identity(sentinel_volume) == sentinel_identity
+
+        _require_docker_success(
+            _docker_compose_arguments(stack, "up", "--detach", "--no-build", "--wait"),
+            environment=stack["environment"],  # type: ignore[arg-type]
+        )
+        refresh_ready_services("owned destructive reset")
+        assert postgres_container != previous_postgres
+        fresh_storage = _postgres_storage_identity(stack, postgres_container)
+        assert fresh_storage == production_storage
+        fresh_sql = postgres_json(
+            "SELECT json_build_object("
+            "'revision', (SELECT version_num FROM alembic_version), "
+            "'incidents', (SELECT count(*) FROM incidents), "
+            "'audits', (SELECT count(*) FROM incident_events))"
+        )
+        assert fresh_sql == {
+            "revision": image_head,
+            "incidents": 0,
+            "audits": 0,
+        }
+        for erased_incident_id in (incident_id, accepted_incident_id):
+            status, _ = _container_http_response(
+                app_container,
+                f"{app_url}/v1/incidents/{erased_incident_id}",
+                token=operator_token,
+            )
+            assert status == 404
+        for path in (
+            "/v1/incidents",
+            "/v1/incident-events",
+            f"/v1/incident-events?source_id={payload['source_id']}",
+            f"/v1/incident-events?source_id={accepted_source_id}",
+        ):
+            status, empty_body = _container_http_response(
+                app_container, f"{app_url}{path}", token=operator_token
+            )
+            assert status == 200
+            empty_page = json.loads(empty_body)
+            assert empty_page["total"] == 0
+            assert empty_page["items"] == []
+
+        assert volume_identity(sentinel_volume) == sentinel_identity
+        retained_marker = _require_docker_success(
+            [
+                "run",
+                "--rm",
+                "--label",
+                f"com.docker.compose.project={sentinel_project}",
+                "--user",
+                "0",
+                "--volume",
+                f"{sentinel_volume}:/sentinel:ro",
+                "--entrypoint",
+                "cat",
+                "correlia:local",
+                "/sentinel/persistence-sentinel",
+            ]
+        ).stdout
+        assert retained_marker == sentinel_marker
+        _publish_qualification_report(
+            "Local PostgreSQL destructive reset qualification",
+            {
+                "schema_version": 1,
+                "operation": "owned down with volume deletion/fresh up",
+                "project": project,
+                "ownership_receipt_matched": True,
+                "postgres_container_before": previous_postgres,
+                "postgres_container_after": postgres_container,
+                "app_container": app_container,
+                "mailpit_container": mailpit_container,
+                "removed_volume": database_volume,
+                "volume_absent_before_fresh_startup": True,
+                "fresh_storage": fresh_storage,
+                "postgres_health": "healthy",
+                "authenticated_database_ready": True,
+                "erased_incident_ids": [incident_id, accepted_incident_id],
+                "erased_baseline_audits": durable_baseline["audits"],
+                "fresh_sql": fresh_sql,
+                "unrelated_project_sentinel": sentinel_identity,
+                "sentinel_content_unchanged": True,
+            },
+        )
+    finally:
+        if not cleanup_verification.cleanup_owned(
+            sentinel_project, sentinel_invocation, sentinel_receipt
+        ):
+            pytest.fail("sentinel cleanup refused without invocation ownership")
 
     assert _file_checksum(report_path) == report_checksum_before
     assert {
