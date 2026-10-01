@@ -749,8 +749,7 @@ async def test_list_incidents_offset_metadata_and_cursor_coexistence(
     assert default_body["limit"] == 2
     assert default_body["offset"] == 0
     assert all(
-        "active_objects" not in item["window_state"]
-        for item in default_body["items"]
+        "active_objects" not in item["window_state"] for item in default_body["items"]
     )
 
     assert offset_page.status_code == 200
