@@ -3134,6 +3134,7 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
             ("service-recovery", "cap-service-100", "OK"),
             ("service-problem", "cap-service-100", "CRITICAL"),
             ("host-recovery", None, "UP"),
+            ("service-problem-after-recovery", "cap-service-100", "CRITICAL"),
         ),
         start=200,
     ):
@@ -3190,6 +3191,61 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
                         "phase": phase,
                         "http_status": status,
                         "lifecycle_outcome": outcome,
+                        "postgres_counts": stored_counts,
+                    },
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
+
+    for operation, expected_status, expected_reason in (
+        ("ack", "OPEN", "acknowledged"),
+        ("close", "CLOSED", "manual_close"),
+        ("close", "CLOSED", "manual_close"),
+        ("ack", "CLOSED", "manual_close"),
+    ):
+        operator_payload = {"operator": "membership-smoke"}
+        if operation == "close":
+            operator_payload["reason"] = "Complete membership count smoke"
+        status, operator_body = _container_http_response(
+            app_container,
+            f"{app_url}/v1/incidents/{filter_incident_id}/{operation}",
+            token=operator_token,
+            payload=operator_payload,
+            method="POST",
+        )
+        assert status == 200
+        detail = json.loads(operator_body)
+        assert detail["status"] == expected_status
+        notes = detail["decision_context"]["notes"]
+        assert notes["lifecycle.reason"] == expected_reason
+        assert notes["lifecycle.previous_host_count"] == "101"
+        assert notes["lifecycle.previous_service_count"] == "101"
+        stored_counts = postgres_json(
+            "SELECT json_build_object("
+            "'status', status, "
+            "'active_count', jsonb_array_length(window_state -> 'active_objects'), "
+            "'previous_host_count', "
+            "decision_context -> 'notes' ->> 'lifecycle.previous_host_count', "
+            "'previous_service_count', "
+            "decision_context -> 'notes' ->> 'lifecycle.previous_service_count') "
+            f"FROM incidents WHERE id = '{filter_incident_id}'::uuid"
+        )
+        assert stored_counts == {
+            "status": expected_status,
+            "active_count": 101,
+            "previous_host_count": "101",
+            "previous_service_count": "101",
+        }
+        with capsys.disabled():
+            print(
+                "Complete administrative counts deployed HTTP/PostgreSQL (#65): "
+                + json.dumps(
+                    {
+                        "operation": operation,
+                        "http_status": status,
+                        "api_status": detail["status"],
+                        "reason": notes["lifecycle.reason"],
                         "postgres_counts": stored_counts,
                     },
                     sort_keys=True,

@@ -942,7 +942,7 @@ The authoritative active membership is stored in the existing `incidents.window_
 
 A service RECOVERY removes only the exact host/service object; a service with the same name on another host remains active. A host RECOVERY removes every active object for that host, including its host-only object and all its service objects. An OPEN incident becomes `RESOLVED` only when no active objects remain; otherwise it stays OPEN with reduced membership.
 
-Recovery `lifecycle_outcome.previous_host_count` and `previous_service_count` report the distinct active hosts and non-null services before removal, including members beyond the display caps. The persisted lifecycle decision-context notes record the same counts.
+Lifecycle previous-host/service counts use distinct active hosts and non-null services, including members beyond the display caps. Recovery `lifecycle_outcome.previous_host_count` and `previous_service_count` report membership before removal. Acknowledgement, manual close, and expiry record complete membership counts in their decision-context notes; acknowledgement/close write results, including no-ops on non-OPEN incidents, use the same count definition.
 
 The public `affected_hosts` and `affected_services` arrays are sorted display projections, each capped at 100 entries. They are not authoritative membership: objects outside those arrays still participate in recovery and prevent premature resolution. The incident list's `host` and `service` filters search complete `active_objects`, including members omitted from the display arrays. When both filters are supplied, each must match the incident, but they need not match the same object. This format does not change source identity or stale-event ordering.
 

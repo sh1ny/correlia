@@ -635,12 +635,22 @@ async def test_all_102_service_members_remain_recoverable_until_final_resolution
         ]
 
 
+@pytest.mark.parametrize(
+    ("hosts", "services"),
+    (
+        (("web-01",), ()),
+        (tuple(f"host-{index:03d}" for index in range(105)), ("http", "disk")),
+        (("web-01", "web-02"), tuple(f"svc-{index:03d}" for index in range(105))),
+    ),
+)
 async def test_ack_open_incident_is_idempotent_metadata(
     db_session: AsyncSession,
+    hosts: tuple[str, ...],
+    services: tuple[str, ...],
 ) -> None:
     from app.persistence.incidents import ack_open_incident
 
-    incident = await _seed_incident(db_session)
+    incident = await _seed_incident(db_session, hosts=hosts, services=services)
 
     first = await ack_open_incident(db_session, incident.id, operator="operator")
     await db_session.commit()
@@ -655,6 +665,14 @@ async def test_ack_open_incident_is_idempotent_metadata(
     assert first.incident.acknowledged_at is not None
     assert second.incident.status == IncidentStatus.OPEN.value
     assert second.incident.acknowledged_at == first.incident.acknowledged_at
+    for result in (first, second):
+        assert result.previous_host_count == len(hosts)
+        assert result.previous_service_count == len(services)
+    current = await db_session.get(Incident, incident.id, populate_existing=True)
+    assert current is not None
+    notes = _notes(current.decision_context)
+    assert notes["lifecycle.previous_host_count"] == str(len(hosts))
+    assert notes["lifecycle.previous_service_count"] == str(len(services))
     assert second.incident.acknowledged_by == "operator"
     count = (
         await db_session.execute(
@@ -667,12 +685,22 @@ async def test_ack_open_incident_is_idempotent_metadata(
     assert count == 1
 
 
+@pytest.mark.parametrize(
+    ("hosts", "services"),
+    (
+        (("web-01",), ()),
+        (tuple(f"host-{index:03d}" for index in range(105)), ("http", "disk")),
+        (("web-01", "web-02"), tuple(f"svc-{index:03d}" for index in range(105))),
+    ),
+)
 async def test_manual_close_is_idempotent_and_frees_open_slot(
     db_session: AsyncSession,
+    hosts: tuple[str, ...],
+    services: tuple[str, ...],
 ) -> None:
-    from app.persistence.incidents import close_open_incident
+    from app.persistence.incidents import ack_open_incident, close_open_incident
 
-    incident = await _seed_incident(db_session)
+    incident = await _seed_incident(db_session, hosts=hosts, services=services)
 
     first = await close_open_incident(
         db_session, incident.id, operator="operator", reason="maintenance"
@@ -680,6 +708,10 @@ async def test_manual_close_is_idempotent_and_frees_open_slot(
     await db_session.commit()
     second = await close_open_incident(
         db_session, incident.id, operator="operator", reason="maintenance"
+    )
+    await db_session.commit()
+    acknowledged_closed = await ack_open_incident(
+        db_session, incident.id, operator="operator"
     )
     await db_session.commit()
     replacement = await upsert_open_incident(
@@ -704,6 +736,18 @@ async def test_manual_close_is_idempotent_and_frees_open_slot(
     assert second is not None
     assert second.effect == "noop"
     assert second.incident.id == incident.id
+    assert acknowledged_closed is not None
+    assert acknowledged_closed.effect == "noop"
+    assert acknowledged_closed.incident.acknowledged_at is None
+    for result in (first, second, acknowledged_closed):
+        assert result.previous_host_count == len(hosts)
+        assert result.previous_service_count == len(services)
+    current = await db_session.get(Incident, incident.id, populate_existing=True)
+    assert current is not None
+    notes = _notes(current.decision_context)
+    assert notes["lifecycle.reason"] == "manual_close"
+    assert notes["lifecycle.previous_host_count"] == str(len(hosts))
+    assert notes["lifecycle.previous_service_count"] == str(len(services))
     assert second.incident.status == IncidentStatus.CLOSED.value
     assert replacement.id != incident.id
     assert replacement.status == IncidentStatus.OPEN.value

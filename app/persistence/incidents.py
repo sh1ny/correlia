@@ -225,6 +225,15 @@ def _active_objects_from_input(
     )
 
 
+def _active_object_counts(
+    active_objects: tuple[IncidentObject, ...],
+) -> tuple[int, int]:
+    return (
+        len({obj.host for obj in active_objects}),
+        len({obj.service for obj in active_objects if obj.service is not None}),
+    )
+
+
 def _affected_sets_from_objects(
     active_objects: tuple[IncidentObject, ...],
 ) -> tuple[list[str], list[str]]:
@@ -844,9 +853,8 @@ async def resolve_host_recovery(
     results: list[LifecycleWriteResult] = []
     for incident in candidates.scalars():
         active_objects = _window_state_from_json(incident.window_state).active_objects
-        previous_host_count = len({obj.host for obj in active_objects})
-        previous_service_count = len(
-            {obj.service for obj in active_objects if obj.service is not None}
+        previous_host_count, previous_service_count = _active_object_counts(
+            active_objects
         )
         new_active_objects = tuple(obj for obj in active_objects if obj.host != host)
         if len(new_active_objects) == len(active_objects):
@@ -919,9 +927,8 @@ async def resolve_service_recovery(
     results: list[LifecycleWriteResult] = []
     for incident in candidates.scalars():
         active_objects = _window_state_from_json(incident.window_state).active_objects
-        previous_host_count = len({obj.host for obj in active_objects})
-        previous_service_count = len(
-            {obj.service for obj in active_objects if obj.service is not None}
+        previous_host_count, previous_service_count = _active_object_counts(
+            active_objects
         )
         recovered_object = IncidentObject(host=host, service=service)
         if recovered_object not in active_objects:
@@ -996,16 +1003,20 @@ async def ack_open_incident(
         row = current.scalar_one_or_none()
         if row is None:
             return None
+        previous_host_count, previous_service_count = _active_object_counts(
+            _window_state_from_json(row.window_state).active_objects
+        )
         return LifecycleWriteResult(
             incident=row,
             effect="noop",
             transitioned_to=None,
-            previous_host_count=len(row.affected_hosts),
-            previous_service_count=len(row.affected_services),
+            previous_host_count=previous_host_count,
+            previous_service_count=previous_service_count,
             affected_object_removed=False,
         )
-    previous_host_count = len(incident.affected_hosts)
-    previous_service_count = len(incident.affected_services)
+    previous_host_count, previous_service_count = _active_object_counts(
+        _window_state_from_json(incident.window_state).active_objects
+    )
     decision_context = _lifecycle_context(
         incident,
         reason="acknowledged",
@@ -1057,16 +1068,20 @@ async def close_open_incident(
         row = current.scalar_one_or_none()
         if row is None:
             return None
+        previous_host_count, previous_service_count = _active_object_counts(
+            _window_state_from_json(row.window_state).active_objects
+        )
         return LifecycleWriteResult(
             incident=row,
             effect="noop",
             transitioned_to=None,
-            previous_host_count=len(row.affected_hosts),
-            previous_service_count=len(row.affected_services),
+            previous_host_count=previous_host_count,
+            previous_service_count=previous_service_count,
             affected_object_removed=False,
         )
-    previous_host_count = len(incident.affected_hosts)
-    previous_service_count = len(incident.affected_services)
+    previous_host_count, previous_service_count = _active_object_counts(
+        _window_state_from_json(incident.window_state).active_objects
+    )
     decision_context = _lifecycle_context(
         incident,
         reason="manual_close",
@@ -1124,8 +1139,9 @@ async def expire_stale_incidents(
     )
     expired: list[Incident] = []
     for incident, database_now in candidates.all():
-        previous_host_count = len(incident.affected_hosts)
-        previous_service_count = len(incident.affected_services)
+        previous_host_count, previous_service_count = _active_object_counts(
+            _window_state_from_json(incident.window_state).active_objects
+        )
         window_seconds = _window_seconds_from_incident(incident)
         decision_context = _lifecycle_context(
             incident,
