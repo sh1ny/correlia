@@ -3129,6 +3129,74 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
                 flush=True,
             )
 
+    for offset, (phase, service, state) in enumerate(
+        (
+            ("service-recovery", "cap-service-100", "OK"),
+            ("service-problem", "cap-service-100", "CRITICAL"),
+            ("host-recovery", None, "UP"),
+        ),
+        start=200,
+    ):
+        status, event_body = _container_http_response(
+            app_container,
+            f"{app_url}/v1/icinga2/events",
+            token=ingress_token,
+            payload={
+                "source_id": f"u29-filter-cap-{phase}",
+                "host": "cap-host-100",
+                "service": service,
+                "state": state,
+                "state_type": "HARD",
+                "timestamp": (membership_time + timedelta(seconds=offset)).isoformat(),
+                "check_output": "Complete recovery membership count deployment smoke",
+                "tags": {
+                    "smoke.membership": "mixed",
+                    "smoke.group": "filter-cap",
+                },
+            },
+            method="POST",
+        )
+        assert status == 200
+        event = json.loads(event_body)
+        assert event["state_accepted"] is True
+        if state == "CRITICAL":
+            assert event["incident_id"] == filter_incident_id
+            assert event["matched_rules"] == ["docker-smoke-mixed-membership"]
+            continue
+        assert event["event_type"] == "RECOVERY"
+        outcome = event["lifecycle_outcome"]
+        assert outcome["effect"] == "affected_set_shrunk"
+        assert outcome["previous_host_count"] == 101
+        assert outcome["previous_service_count"] == 101
+        stored_counts = postgres_json(
+            "SELECT json_build_object("
+            "'active_count', jsonb_array_length(window_state -> 'active_objects'), "
+            "'previous_host_count', "
+            "decision_context -> 'notes' ->> 'lifecycle.previous_host_count', "
+            "'previous_service_count', "
+            "decision_context -> 'notes' ->> 'lifecycle.previous_service_count') "
+            f"FROM incidents WHERE id = '{filter_incident_id}'::uuid"
+        )
+        assert stored_counts == {
+            "active_count": 100,
+            "previous_host_count": "101",
+            "previous_service_count": "101",
+        }
+        with capsys.disabled():
+            print(
+                "Complete recovery counts deployed HTTP/PostgreSQL (#65): "
+                + json.dumps(
+                    {
+                        "phase": phase,
+                        "http_status": status,
+                        "lifecycle_outcome": outcome,
+                        "postgres_counts": stored_counts,
+                    },
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
+
     def refresh_ready_services(operation: str) -> None:
         nonlocal app_container, postgres_container, mailpit_container
         containers: dict[str, str] = {}

@@ -843,9 +843,11 @@ async def resolve_host_recovery(
     )
     results: list[LifecycleWriteResult] = []
     for incident in candidates.scalars():
-        previous_host_count = len(incident.affected_hosts)
-        previous_service_count = len(incident.affected_services)
         active_objects = _window_state_from_json(incident.window_state).active_objects
+        previous_host_count = len({obj.host for obj in active_objects})
+        previous_service_count = len(
+            {obj.service for obj in active_objects if obj.service is not None}
+        )
         new_active_objects = tuple(obj for obj in active_objects if obj.host != host)
         if len(new_active_objects) == len(active_objects):
             continue
@@ -916,9 +918,11 @@ async def resolve_service_recovery(
     )
     results: list[LifecycleWriteResult] = []
     for incident in candidates.scalars():
-        previous_host_count = len(incident.affected_hosts)
-        previous_service_count = len(incident.affected_services)
         active_objects = _window_state_from_json(incident.window_state).active_objects
+        previous_host_count = len({obj.host for obj in active_objects})
+        previous_service_count = len(
+            {obj.service for obj in active_objects if obj.service is not None}
+        )
         recovered_object = IncidentObject(host=host, service=service)
         if recovered_object not in active_objects:
             continue

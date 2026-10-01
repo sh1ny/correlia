@@ -980,6 +980,11 @@ async def test_host_recovery_uses_full_membership_beyond_capped_display(
         assert current.window_state["active_objects"] == [
             {"host": host, "service": None} for host in remaining
         ]
+        assert results[0].previous_host_count == len(remaining) + 1
+        assert results[0].previous_service_count == 0
+        notes = current.decision_context["notes"]
+        assert notes["lifecycle.previous_host_count"] == str(len(remaining) + 1)
+        assert notes["lifecycle.previous_service_count"] == "0"
 
 
 async def test_service_recovery_uses_full_membership_beyond_capped_display(
@@ -1038,6 +1043,11 @@ async def test_service_recovery_uses_full_membership_beyond_capped_display(
         assert current.window_state["active_objects"] == [
             {"host": "db-1", "service": service} for service in remaining
         ]
+        assert results[0].previous_host_count == 1
+        assert results[0].previous_service_count == len(remaining) + 1
+        notes = current.decision_context["notes"]
+        assert notes["lifecycle.previous_host_count"] == "1"
+        assert notes["lifecycle.previous_service_count"] == str(len(remaining) + 1)
 
     final = await resolve_host_recovery(
         db_session,
@@ -1055,6 +1065,8 @@ async def test_service_recovery_uses_full_membership_beyond_capped_display(
     assert final[0].incident.affected_hosts == []
     assert final[0].incident.affected_services == []
     assert final[0].incident.window_state["active_objects"] == []
+    assert final[0].previous_host_count == 1
+    assert final[0].previous_service_count == len(services) - 2
 
 
 async def test_decision_context_persisted(db_session: AsyncSession) -> None:
