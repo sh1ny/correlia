@@ -331,6 +331,9 @@ async def test_list_incidents_filters_complete_membership_beyond_display_caps(
     params: dict[str, str],
     matches: bool,
 ) -> None:
+    from app.domain.incidents import IncidentListFilters
+    from app.persistence.incidents import list_incidents
+
     async with session_factory() as session:
         for index in range(101):
             incident = await _seed_incident(
@@ -378,6 +381,14 @@ async def test_list_incidents_filters_complete_membership_beyond_display_caps(
         [str(incident.id)] if matches else []
     )
     assert page["total"] == int(matches)
+    if matches:
+        assert "active_objects" not in page["items"][0]["window_state"]
+        async with session_factory() as session:
+            repository_page = await list_incidents(
+                session, IncidentListFilters(**params)
+            )
+        assert [item.id for item in repository_page.incidents] == [incident.id]
+        assert "active_objects" not in repository_page.incidents[0].window_state
 
 
 async def test_incident_detail_excludes_raw_payloads_and_secrets(
@@ -737,6 +748,10 @@ async def test_list_incidents_offset_metadata_and_cursor_coexistence(
     assert default_body["total"] == 3
     assert default_body["limit"] == 2
     assert default_body["offset"] == 0
+    assert all(
+        "active_objects" not in item["window_state"]
+        for item in default_body["items"]
+    )
 
     assert offset_page.status_code == 200
     offset_body = offset_page.json()
@@ -745,6 +760,7 @@ async def test_list_incidents_offset_metadata_and_cursor_coexistence(
     assert offset_body["total"] == 3
     assert offset_body["limit"] == 1
     assert offset_body["offset"] == 1
+    assert "active_objects" not in offset_body["items"][0]["window_state"]
 
     app = _app(session_factory)
     async for client in get_client(app):
@@ -758,6 +774,7 @@ async def test_list_incidents_offset_metadata_and_cursor_coexistence(
     assert [item["id"] for item in cursor_body["items"]] == [str(first.id)]
     assert cursor_body["offset"] == 0
     assert cursor_body["total"] == 3
+    assert "active_objects" not in cursor_body["items"][0]["window_state"]
 
 
 async def test_list_incidents_acknowledged_filter_is_derived_and_open_includes_acknowledged(

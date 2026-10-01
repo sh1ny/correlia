@@ -468,13 +468,24 @@ async def list_incidents(
             stmt = stmt.where(Incident.last_update_time >= filters.updated_since)
         return stmt
 
-    base_stmt = apply_filters(select(Incident))
+    base_stmt = apply_filters(
+        select(
+            *(
+                Incident.window_state.op("-")(text("'active_objects'")).label(
+                    "window_state"
+                )
+                if column.key == "window_state"
+                else column
+                for column in Incident.__table__.columns
+            )
+        )
+    )
     total = (
         await session.scalar(select(func.count()).select_from(base_stmt.subquery()))
         or 0
     )
 
-    page_stmt = apply_filters(select(Incident))
+    page_stmt = base_stmt
     if filters.cursor is not None:
         cursor = decode_incident_cursor(filters.cursor)
         page_stmt = page_stmt.where(
@@ -490,7 +501,7 @@ async def list_incidents(
             Incident.last_update_time.desc(), Incident.id.desc()
         ).limit(filters.limit + 1)
         result = await session.execute(page_stmt)
-        rows = tuple(result.scalars().all())
+        rows = tuple(_incident_from_mapping(row) for row in result.mappings())
         incidents = rows[: filters.limit]
         next_cursor = None
         if len(rows) > filters.limit:
@@ -506,7 +517,7 @@ async def list_incidents(
             .limit(filters.limit)
         )
         result = await session.execute(page_stmt)
-        incidents = tuple(result.scalars().all())
+        incidents = tuple(_incident_from_mapping(row) for row in result.mappings())
         next_cursor = None
         offset_value = filters.offset
     else:
@@ -514,7 +525,7 @@ async def list_incidents(
             Incident.last_update_time.desc(), Incident.id.desc()
         ).limit(filters.limit + 1)
         result = await session.execute(page_stmt)
-        rows = tuple(result.scalars().all())
+        rows = tuple(_incident_from_mapping(row) for row in result.mappings())
         incidents = rows[: filters.limit]
         next_cursor = None
         if len(rows) > filters.limit:

@@ -258,4 +258,3 @@ async def test_expiration_context_is_non_secret(
         "plugin_options",
     ):
         assert forbidden not in serialized
-

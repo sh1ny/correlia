@@ -3099,6 +3099,17 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
         "old_host_filter_matches": False,
         "old_service_filter_matches": False,
     }
+    status, complete_detail_body = _container_http_response(
+        app_container,
+        f"{app_url}/v1/incidents/{filter_incident_id}",
+        token=operator_token,
+    )
+    assert status == 200
+    complete_detail = json.loads(complete_detail_body)
+    assert len(complete_detail["window_state"]["active_objects"]) == 101
+    assert {"host": "cap-host-100", "service": "cap-service-100"} in (
+        complete_detail["window_state"]["active_objects"]
+    )
     for query in (
         "host=cap-host-100",
         "service=cap-service-100",
@@ -3112,6 +3123,7 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
         assert status == 200
         filtered_page = json.loads(filtered_body)
         assert [item["id"] for item in filtered_page["items"]] == [filter_incident_id]
+        assert "active_objects" not in filtered_page["items"][0]["window_state"]
         assert filtered_page["total"] == 1
         with capsys.disabled():
             print(
@@ -3123,6 +3135,10 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
                         "incident_ids": [item["id"] for item in filtered_page["items"]],
                         "total": filtered_page["total"],
                         "postgres_membership": stored_filter_membership,
+                        "list_includes_active_objects": False,
+                        "detail_active_count": len(
+                            complete_detail["window_state"]["active_objects"]
+                        ),
                     },
                     sort_keys=True,
                 ),

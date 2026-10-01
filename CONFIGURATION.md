@@ -946,6 +946,8 @@ Lifecycle previous-host/service counts use distinct active hosts and non-null se
 
 The public `affected_hosts` and `affected_services` arrays are sorted display projections, each capped at 100 entries. They are not authoritative membership: objects outside those arrays still participate in recovery and prevent premature resolution. The incident list's `host` and `service` filters search complete `active_objects`, including members omitted from the display arrays. When both filters are supplied, each must match the incident, but they need not match the same object. This format does not change source identity or stale-event ordering.
 
+`GET /v1/incidents` returns bounded window metadata without `window_state.active_objects`. PostgreSQL removes that membership field from the list projection before transferring rows to the application; list filters still search complete stored membership. Use the existing `GET /v1/incidents/{incident_id}` detail endpoint for the complete `active_objects` list. Detail and operator-mutation responses retain full membership; clients must not treat a collection item's window metadata as the stored membership state.
+
 Existing schema-1 incident state is not upgraded. For approved disposable predeployment data, follow the [one-time incident reset](#one-time-predeployment-incident-reset) before starting the new application.
 
 ## Topology configuration
