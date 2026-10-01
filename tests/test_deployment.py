@@ -1072,6 +1072,22 @@ def docker_compose_stack(tmp_path: Path) -> Iterator[dict[str, object]]:
             {
                 "rules": [
                     {
+                        "name": "docker-smoke-mixed-membership",
+                        "priority": -2,
+                        "match": {
+                            "severities": ["CRITICAL"],
+                            "host_pattern": "^(?:u29-|cap-host-)",
+                            "tags": {"smoke.membership": "mixed"},
+                        },
+                        "window": {
+                            "duration_seconds": 300,
+                            "group_by": ["smoke.group"],
+                            "trigger_threshold": 1,
+                        },
+                        "output_summary": "Mixed membership alert on {host}",
+                        "actions": [{"name": "create_incident", "plugin": "email-ops"}],
+                    },
+                    {
                         "name": "docker-smoke-restart-threshold",
                         "priority": -1,
                         "match": {
@@ -1680,6 +1696,7 @@ def test_environment_and_config_samples_construct_strict_runtime_configuration(
 def test_real_compose_smoke_proves_runtime_deployment_contract(
     docker_compose_stack: dict[str, object],
     tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Exercise the checked-in image and topology; the fixture always removes it."""
     stack = docker_compose_stack
@@ -2110,6 +2127,7 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
     )
     assert status == 200
     assert {rule["name"] for rule in json.loads(rules_body)["rules"]} == {
+        "docker-smoke-mixed-membership",
         "docker-smoke-restart-threshold",
         "docker-smoke-capacity-threshold",
         "docker-smoke-threshold",
@@ -2911,6 +2929,345 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
             return json.loads(result.stdout)
         except json.JSONDecodeError:
             pytest.fail("persistence SQL probe returned invalid JSON")
+
+    # Use the same deployed HTTP server and PostgreSQL lifetime, after metric
+    # qualification. A tag-only rule groups host-only and service problems.
+    membership_time = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(
+        minutes=10
+    )
+    for recovery_order in ("service-first", "host-first"):
+        host_only = f"u29-{recovery_order}-a"
+        service_host = f"u29-{recovery_order}-b"
+        host_object = {"host": host_only, "service": None}
+        service_object = {"host": service_host, "service": "http"}
+        recoveries = (
+            (
+                ("service-recovery", service_host, "http", "OK", [host_object]),
+                ("host-recovery", host_only, None, "UP", []),
+            )
+            if recovery_order == "service-first"
+            else (
+                ("host-recovery", host_only, None, "UP", [service_object]),
+                ("service-recovery", service_host, "http", "OK", []),
+            )
+        )
+        membership_incident_id: str | None = None
+        for offset, (phase, host, service, state, expected_objects) in enumerate(
+            (
+                ("host-problem", host_only, None, "DOWN", None),
+                (
+                    "mixed-problem",
+                    service_host,
+                    "http",
+                    "CRITICAL",
+                    [host_object, service_object],
+                ),
+                *recoveries,
+            )
+        ):
+            status, event_body = _container_http_response(
+                app_container,
+                f"{app_url}/v1/icinga2/events",
+                token=ingress_token,
+                payload={
+                    "source_id": f"u29-{recovery_order}-{offset}",
+                    "host": host,
+                    "service": service,
+                    "state": state,
+                    "state_type": "HARD",
+                    "timestamp": (
+                        membership_time + timedelta(seconds=offset)
+                    ).isoformat(),
+                    "check_output": "Mixed membership deployment smoke",
+                    "tags": {
+                        "smoke.membership": "mixed",
+                        "smoke.group": recovery_order,
+                    },
+                },
+                method="POST",
+            )
+            assert status == 200
+            event = json.loads(event_body)
+            assert event["state_accepted"] is True
+            if state in ("DOWN", "CRITICAL"):
+                assert event["event_type"] == "PROBLEM"
+                assert event["matched_rules"] == ["docker-smoke-mixed-membership"]
+                assert event["group_key"] == f"smoke.group={recovery_order}"
+                event_incident_id = str(UUID(str(event["incident_id"])))
+                if membership_incident_id is None:
+                    membership_incident_id = event_incident_id
+                assert event_incident_id == membership_incident_id
+            else:
+                assert event["event_type"] == "RECOVERY"
+            if expected_objects is None:
+                continue
+            assert membership_incident_id is not None
+            status, incident_body = _container_http_response(
+                app_container,
+                f"{app_url}/v1/incidents/{membership_incident_id}",
+                token=operator_token,
+            )
+            assert status == 200
+            detail = json.loads(incident_body)
+            stored = postgres_json(
+                "SELECT json_build_object("
+                "'status', status, 'active_objects', window_state -> 'active_objects') "
+                f"FROM incidents WHERE id = '{membership_incident_id}'::uuid"
+            )
+            assert isinstance(stored, dict)
+            with capsys.disabled():
+                print(
+                    "Mixed membership deployed HTTP/PostgreSQL (#29): "
+                    + json.dumps(
+                        {
+                            "recovery_order": recovery_order,
+                            "phase": phase,
+                            "http_status": status,
+                            "api_status": detail["status"],
+                            "postgres_status": stored["status"],
+                            "api_active_objects": detail["window_state"][
+                                "active_objects"
+                            ],
+                            "postgres_active_objects": stored["active_objects"],
+                        },
+                        sort_keys=True,
+                    ),
+                    flush=True,
+                )
+            expected_status = "OPEN" if expected_objects else "RESOLVED"
+            assert detail["status"] == expected_status
+            assert stored == {
+                "status": expected_status,
+                "active_objects": expected_objects,
+            }
+            assert detail["window_state"]["active_objects"] == expected_objects
+            assert detail["affected_hosts"] == sorted(
+                {str(item["host"]) for item in expected_objects}
+            )
+            assert detail["affected_services"] == sorted(
+                {
+                    str(item["service"])
+                    for item in expected_objects
+                    if item["service"] is not None
+                }
+            )
+
+    filter_incident_id: str | None = None
+    for index in range(101):
+        status, event_body = _container_http_response(
+            app_container,
+            f"{app_url}/v1/icinga2/events",
+            token=ingress_token,
+            payload={
+                "source_id": f"u29-filter-cap-{index}",
+                "host": f"cap-host-{index:03d}",
+                "service": f"cap-service-{index:03d}",
+                "state": "CRITICAL",
+                "state_type": "HARD",
+                "timestamp": (membership_time + timedelta(seconds=index)).isoformat(),
+                "check_output": "Complete membership filter deployment smoke",
+                "tags": {
+                    "smoke.membership": "mixed",
+                    "smoke.group": "filter-cap",
+                },
+            },
+            method="POST",
+        )
+        assert status == 200
+        event = json.loads(event_body)
+        assert event["state_accepted"] is True
+        assert event["matched_rules"] == ["docker-smoke-mixed-membership"]
+        event_incident_id = str(UUID(str(event["incident_id"])))
+        if filter_incident_id is None:
+            filter_incident_id = event_incident_id
+        assert event_incident_id == filter_incident_id
+
+    stored_filter_membership = postgres_json(
+        "SELECT json_build_object("
+        "'active_count', jsonb_array_length(window_state -> 'active_objects'), "
+        "'display_host_count', jsonb_array_length(affected_hosts), "
+        "'display_service_count', jsonb_array_length(affected_services), "
+        "'old_host_filter_matches', affected_hosts @> '[\"cap-host-100\"]'::jsonb, "
+        "'old_service_filter_matches', "
+        "affected_services @> '[\"cap-service-100\"]'::jsonb) "
+        f"FROM incidents WHERE id = '{filter_incident_id}'::uuid"
+    )
+    assert stored_filter_membership == {
+        "active_count": 101,
+        "display_host_count": 100,
+        "display_service_count": 100,
+        "old_host_filter_matches": False,
+        "old_service_filter_matches": False,
+    }
+    status, complete_detail_body = _container_http_response(
+        app_container,
+        f"{app_url}/v1/incidents/{filter_incident_id}",
+        token=operator_token,
+    )
+    assert status == 200
+    complete_detail = json.loads(complete_detail_body)
+    assert len(complete_detail["window_state"]["active_objects"]) == 101
+    assert {"host": "cap-host-100", "service": "cap-service-100"} in (
+        complete_detail["window_state"]["active_objects"]
+    )
+    for query in (
+        "host=cap-host-100",
+        "service=cap-service-100",
+        "host=cap-host-100&service=cap-service-000",
+    ):
+        status, filtered_body = _container_http_response(
+            app_container,
+            f"{app_url}/v1/incidents?{query}",
+            token=operator_token,
+        )
+        assert status == 200
+        filtered_page = json.loads(filtered_body)
+        assert [item["id"] for item in filtered_page["items"]] == [filter_incident_id]
+        assert "active_objects" not in filtered_page["items"][0]["window_state"]
+        assert filtered_page["total"] == 1
+        with capsys.disabled():
+            print(
+                "Complete membership filters deployed HTTP/PostgreSQL (#65): "
+                + json.dumps(
+                    {
+                        "query": query,
+                        "http_status": status,
+                        "incident_ids": [item["id"] for item in filtered_page["items"]],
+                        "total": filtered_page["total"],
+                        "postgres_membership": stored_filter_membership,
+                        "list_includes_active_objects": False,
+                        "detail_active_count": len(
+                            complete_detail["window_state"]["active_objects"]
+                        ),
+                    },
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
+
+    for offset, (phase, service, state) in enumerate(
+        (
+            ("service-recovery", "cap-service-100", "OK"),
+            ("service-problem", "cap-service-100", "CRITICAL"),
+            ("host-recovery", None, "UP"),
+            ("service-problem-after-recovery", "cap-service-100", "CRITICAL"),
+        ),
+        start=200,
+    ):
+        status, event_body = _container_http_response(
+            app_container,
+            f"{app_url}/v1/icinga2/events",
+            token=ingress_token,
+            payload={
+                "source_id": f"u29-filter-cap-{phase}",
+                "host": "cap-host-100",
+                "service": service,
+                "state": state,
+                "state_type": "HARD",
+                "timestamp": (membership_time + timedelta(seconds=offset)).isoformat(),
+                "check_output": "Complete recovery membership count deployment smoke",
+                "tags": {
+                    "smoke.membership": "mixed",
+                    "smoke.group": "filter-cap",
+                },
+            },
+            method="POST",
+        )
+        assert status == 200
+        event = json.loads(event_body)
+        assert event["state_accepted"] is True
+        if state == "CRITICAL":
+            assert event["incident_id"] == filter_incident_id
+            assert event["matched_rules"] == ["docker-smoke-mixed-membership"]
+            continue
+        assert event["event_type"] == "RECOVERY"
+        outcome = event["lifecycle_outcome"]
+        assert outcome["effect"] == "affected_set_shrunk"
+        assert outcome["previous_host_count"] == 101
+        assert outcome["previous_service_count"] == 101
+        stored_counts = postgres_json(
+            "SELECT json_build_object("
+            "'active_count', jsonb_array_length(window_state -> 'active_objects'), "
+            "'previous_host_count', "
+            "decision_context -> 'notes' ->> 'lifecycle.previous_host_count', "
+            "'previous_service_count', "
+            "decision_context -> 'notes' ->> 'lifecycle.previous_service_count') "
+            f"FROM incidents WHERE id = '{filter_incident_id}'::uuid"
+        )
+        assert stored_counts == {
+            "active_count": 100,
+            "previous_host_count": "101",
+            "previous_service_count": "101",
+        }
+        with capsys.disabled():
+            print(
+                "Complete recovery counts deployed HTTP/PostgreSQL (#65): "
+                + json.dumps(
+                    {
+                        "phase": phase,
+                        "http_status": status,
+                        "lifecycle_outcome": outcome,
+                        "postgres_counts": stored_counts,
+                    },
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
+
+    for operation, expected_status, expected_reason in (
+        ("ack", "OPEN", "acknowledged"),
+        ("close", "CLOSED", "manual_close"),
+        ("close", "CLOSED", "manual_close"),
+        ("ack", "CLOSED", "manual_close"),
+    ):
+        operator_payload = {"operator": "membership-smoke"}
+        if operation == "close":
+            operator_payload["reason"] = "Complete membership count smoke"
+        status, operator_body = _container_http_response(
+            app_container,
+            f"{app_url}/v1/incidents/{filter_incident_id}/{operation}",
+            token=operator_token,
+            payload=operator_payload,
+            method="POST",
+        )
+        assert status == 200
+        detail = json.loads(operator_body)
+        assert detail["status"] == expected_status
+        notes = detail["decision_context"]["notes"]
+        assert notes["lifecycle.reason"] == expected_reason
+        assert notes["lifecycle.previous_host_count"] == "101"
+        assert notes["lifecycle.previous_service_count"] == "101"
+        stored_counts = postgres_json(
+            "SELECT json_build_object("
+            "'status', status, "
+            "'active_count', jsonb_array_length(window_state -> 'active_objects'), "
+            "'previous_host_count', "
+            "decision_context -> 'notes' ->> 'lifecycle.previous_host_count', "
+            "'previous_service_count', "
+            "decision_context -> 'notes' ->> 'lifecycle.previous_service_count') "
+            f"FROM incidents WHERE id = '{filter_incident_id}'::uuid"
+        )
+        assert stored_counts == {
+            "status": expected_status,
+            "active_count": 101,
+            "previous_host_count": "101",
+            "previous_service_count": "101",
+        }
+        with capsys.disabled():
+            print(
+                "Complete administrative counts deployed HTTP/PostgreSQL (#65): "
+                + json.dumps(
+                    {
+                        "operation": operation,
+                        "http_status": status,
+                        "api_status": detail["status"],
+                        "reason": notes["lifecycle.reason"],
+                        "postgres_counts": stored_counts,
+                    },
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
 
     def refresh_ready_services(operation: str) -> None:
         nonlocal app_container, postgres_container, mailpit_container

@@ -29,7 +29,6 @@ class IncidentStatusFilter(StrEnum):
 
 BoundedString = Annotated[str, Field(min_length=1, max_length=256)]
 BoundedStringTuple = Annotated[tuple[BoundedString, ...], Field(max_length=20)]
-ServicePairTuple = Annotated[tuple[BoundedString, ...], Field(max_length=100)]
 WindowTimestampMap = Annotated[
     dict[BoundedString, datetime], Field(max_length=MAX_WINDOW_FINGERPRINTS)
 ]
@@ -148,10 +147,17 @@ class LifecycleOutcome(BaseModel):
         return self
 
 
+class IncidentObject(BaseModel):
+    model_config = ConfigDict(strict=True, frozen=True, extra="forbid")
+
+    host: BoundedString
+    service: BoundedString | None = None
+
+
 class IncidentWindowState(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     window_started_at: datetime
     window_ended_at: datetime
     window_seconds: int = Field(ge=1)
@@ -159,7 +165,7 @@ class IncidentWindowState(BaseModel):
     counted_fingerprint_timestamps: WindowTimestampMap = Field(default_factory=dict)
     counted_count: int = Field(ge=0)
     max_size: int = Field(ge=1, le=MAX_WINDOW_FINGERPRINTS)
-    active_service_pairs: ServicePairTuple = ()
+    active_objects: tuple[IncidentObject, ...]
 
     @field_validator("window_started_at", "window_ended_at", mode="after")
     @classmethod

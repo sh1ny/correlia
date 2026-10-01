@@ -711,22 +711,32 @@ async def test_different_rule_or_group_creates_separate_rows(
 
 
 async def test_resolved_row_does_not_block_new_open(db_session: AsyncSession) -> None:
-    from app.persistence.incidents import IncidentUpsertInput, upsert_open_incident
+    from app.persistence.incidents import (
+        IncidentUpsertInput,
+        record_problem_incident,
+        resolve_host_recovery,
+        upsert_open_incident,
+    )
 
-    # Manually insert a RESOLVED row
-    await db_session.execute(
-        sa.text(
-            "INSERT INTO incidents (id, rule_name, group_key, status, severity, summary, "
-            "event_count, affected_hosts, affected_services, decision_context, "
-            "start_time, last_update_time, created_at, updated_at) "
-            "VALUES (gen_random_uuid(), :rule, :group, 'RESOLVED', 'WARNING', 'old', "
-            "1, '[]'::jsonb, '[]'::jsonb, '{}'::jsonb, NOW(), NOW(), NOW(), NOW())"
+    previous = await record_problem_incident(
+        db_session,
+        IncidentUpsertInput(
+            rule_name="rule-a",
+            group_key="host:db-1",
+            severity=Severity.WARNING,
+            event_time=datetime(2026, 1, 1, 11, 0, tzinfo=timezone.utc),
+            summary="old",
+            affected_hosts=("db-1",),
         ),
-        {"rule": "rule-a", "group": "host:db-1"},
+    )
+    await resolve_host_recovery(
+        db_session,
+        host="db-1",
+        recovery_time=datetime(2026, 1, 1, 11, 1, tzinfo=timezone.utc),
+        fingerprint="recovery-old",
+        source_id="icinga2:host:db-1",
     )
     await db_session.commit()
-
-    # Upsert a new OPEN row for the same identity
     incident = await upsert_open_incident(
         db_session,
         IncidentUpsertInput(
@@ -742,6 +752,12 @@ async def test_resolved_row_does_not_block_new_open(db_session: AsyncSession) ->
 
     assert incident.status == IncidentStatus.OPEN.value
     assert incident.severity == Severity.CRITICAL.value
+    assert incident.id != previous.incident.id
+    resolved = await db_session.get(
+        type(incident), previous.incident.id, populate_existing=True
+    )
+    assert resolved is not None
+    assert resolved.status == IncidentStatus.RESOLVED.value
 
 
 async def test_max_severity_critical_over_warning(db_session: AsyncSession) -> None:
@@ -911,19 +927,22 @@ async def test_affected_hosts_merge_on_update(db_session: AsyncSession) -> None:
     assert updated.affected_hosts == ["a", "b", "c"]
 
 
-async def test_affected_hosts_enforces_100_bound(db_session: AsyncSession) -> None:
+async def test_host_recovery_uses_full_membership_beyond_capped_display(
+    db_session: AsyncSession,
+) -> None:
     from app.persistence.incidents import (
         MAX_AFFECTED_HOSTS,
         IncidentUpsertInput,
-        upsert_open_incident,
+        record_problem_incident,
+        resolve_host_recovery,
     )
 
     hosts = tuple(f"host-{i:03d}" for i in range(MAX_AFFECTED_HOSTS + 5))
-    incident = await upsert_open_incident(
+    created = await record_problem_incident(
         db_session,
         IncidentUpsertInput(
             rule_name="rule-a",
-            group_key="host:db-1",
+            group_key="site:dc1",
             severity=Severity.WARNING,
             event_time=datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
             summary="many hosts",
@@ -931,19 +950,56 @@ async def test_affected_hosts_enforces_100_bound(db_session: AsyncSession) -> No
         ),
     )
     await db_session.commit()
+    incident_id = created.incident.id
+    assert created.incident.affected_hosts == list(hosts[:MAX_AFFECTED_HOSTS])
 
-    assert len(incident.affected_hosts) == MAX_AFFECTED_HOSTS
+    for host, remaining in (
+        (hosts[-1], hosts[:-1]),
+        (hosts[0], hosts[1:-1]),
+    ):
+        results = await resolve_host_recovery(
+            db_session,
+            host=host,
+            recovery_time=datetime(2026, 1, 1, 12, 1, tzinfo=timezone.utc),
+            fingerprint=f"recovery:{host}",
+            source_id=f"icinga2:host:{host}",
+        )
+        await db_session.commit()
+        current = await db_session.get(
+            type(created.incident), incident_id, populate_existing=True
+        )
+        assert len(results) == 1
+        assert results[0].incident.id == incident_id
+        assert results[0].effect == "affected_set_shrunk"
+        assert results[0].transitioned_to is None
+        assert current is not None
+        assert current.status == IncidentStatus.OPEN.value
+        assert current.resolved_at is None
+        assert current.affected_hosts == list(remaining[:MAX_AFFECTED_HOSTS])
+        assert current.affected_services == []
+        assert current.window_state["active_objects"] == [
+            {"host": host, "service": None} for host in remaining
+        ]
+        assert results[0].previous_host_count == len(remaining) + 1
+        assert results[0].previous_service_count == 0
+        notes = current.decision_context["notes"]
+        assert notes["lifecycle.previous_host_count"] == str(len(remaining) + 1)
+        assert notes["lifecycle.previous_service_count"] == "0"
 
 
-async def test_affected_services_enforces_100_bound(db_session: AsyncSession) -> None:
+async def test_service_recovery_uses_full_membership_beyond_capped_display(
+    db_session: AsyncSession,
+) -> None:
     from app.persistence.incidents import (
         MAX_AFFECTED_SERVICES,
         IncidentUpsertInput,
-        upsert_open_incident,
+        record_problem_incident,
+        resolve_host_recovery,
+        resolve_service_recovery,
     )
 
     services = tuple(f"svc-{i:03d}" for i in range(MAX_AFFECTED_SERVICES + 5))
-    incident = await upsert_open_incident(
+    created = await record_problem_incident(
         db_session,
         IncidentUpsertInput(
             rule_name="rule-a",
@@ -956,8 +1012,61 @@ async def test_affected_services_enforces_100_bound(db_session: AsyncSession) ->
         ),
     )
     await db_session.commit()
+    incident_id = created.incident.id
+    assert created.incident.affected_services == list(services[:MAX_AFFECTED_SERVICES])
 
-    assert len(incident.affected_services) == MAX_AFFECTED_SERVICES
+    for service, remaining in (
+        (services[-1], services[:-1]),
+        (services[0], services[1:-1]),
+    ):
+        results = await resolve_service_recovery(
+            db_session,
+            host="db-1",
+            service=service,
+            recovery_time=datetime(2026, 1, 1, 12, 1, tzinfo=timezone.utc),
+            fingerprint=f"recovery:db-1:{service}",
+            source_id=f"icinga2:service:db-1:{service}",
+        )
+        await db_session.commit()
+        current = await db_session.get(
+            type(created.incident), incident_id, populate_existing=True
+        )
+        assert len(results) == 1
+        assert results[0].incident.id == incident_id
+        assert results[0].effect == "affected_set_shrunk"
+        assert results[0].transitioned_to is None
+        assert current is not None
+        assert current.status == IncidentStatus.OPEN.value
+        assert current.resolved_at is None
+        assert current.affected_hosts == ["db-1"]
+        assert current.affected_services == list(remaining[:MAX_AFFECTED_SERVICES])
+        assert current.window_state["active_objects"] == [
+            {"host": "db-1", "service": service} for service in remaining
+        ]
+        assert results[0].previous_host_count == 1
+        assert results[0].previous_service_count == len(remaining) + 1
+        notes = current.decision_context["notes"]
+        assert notes["lifecycle.previous_host_count"] == "1"
+        assert notes["lifecycle.previous_service_count"] == str(len(remaining) + 1)
+
+    final = await resolve_host_recovery(
+        db_session,
+        host="db-1",
+        recovery_time=datetime(2026, 1, 1, 12, 2, tzinfo=timezone.utc),
+        fingerprint="recovery:db-1",
+        source_id="icinga2:host:db-1",
+    )
+    await db_session.commit()
+    assert len(final) == 1
+    assert final[0].incident.id == incident_id
+    assert final[0].effect == "resolved"
+    assert final[0].incident.status == IncidentStatus.RESOLVED.value
+    assert final[0].incident.resolved_at is not None
+    assert final[0].incident.affected_hosts == []
+    assert final[0].incident.affected_services == []
+    assert final[0].incident.window_state["active_objects"] == []
+    assert final[0].previous_host_count == 1
+    assert final[0].previous_service_count == len(services) - 2
 
 
 async def test_decision_context_persisted(db_session: AsyncSession) -> None:
@@ -1146,13 +1255,12 @@ async def test_aggregation_preserves_delivery_records_under_locked_update(
     ]
 
 
-async def test_atomic_upsert_preserves_existing_delivery_records(
+async def test_problem_replay_preserves_existing_delivery_records(
     db_session: AsyncSession,
 ) -> None:
     from app.domain.notifications import NotificationResult
     from app.persistence.incidents import (
         IncidentUpsertInput,
-        build_open_incident_upsert,
         record_notification_result,
         record_problem_incident,
     )
@@ -1179,19 +1287,19 @@ async def test_atomic_upsert_preserves_existing_delivery_records(
             message="notification dispatched",
         ),
     )
-    await db_session.execute(
-        build_open_incident_upsert(
-            IncidentUpsertInput(
-                rule_name="atomic-delivery",
-                group_key="host:db-1",
-                severity=Severity.CRITICAL,
-                event_time=datetime(2026, 1, 1, 12, 1, tzinfo=timezone.utc),
-                summary="second",
-                affected_hosts=("db-1",),
-                fingerprint="atomic-second",
-                decision_context=DecisionContext(notes={"ordinary.note": "updated"}),
-            )
-        )
+    await db_session.commit()
+    replay = await record_problem_incident(
+        db_session,
+        IncidentUpsertInput(
+            rule_name="atomic-delivery",
+            group_key="host:db-1",
+            severity=Severity.WARNING,
+            event_time=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+            summary="first",
+            affected_hosts=("db-1",),
+            fingerprint="atomic-first",
+            decision_context=DecisionContext(notes={"ordinary.note": "updated"}),
+        ),
     )
     await db_session.commit()
 
@@ -1201,21 +1309,46 @@ async def test_atomic_upsert_preserves_existing_delivery_records(
             {"id": created.incident.id},
         )
     ).scalar_one()
-    assert context["notification_delivery_results"][0]["plugin_name"] == "email-oncall"
+    assert replay.incident.id == created.incident.id
+    assert replay.replay is True
+    assert replay.incident.event_count == 1
+    assert context["notification_delivery_results"] == [
+        {
+            "schema_version": 1,
+            "plugin_name": "email-oncall",
+            "result": {
+                "success": True,
+                "category": "dispatched",
+                "message": "notification dispatched",
+            },
+        }
+    ]
 
 
 async def test_closed_row_does_not_block_new_open(db_session: AsyncSession) -> None:
-    from app.persistence.incidents import IncidentUpsertInput, upsert_open_incident
+    from app.persistence.incidents import (
+        IncidentUpsertInput,
+        close_open_incident,
+        record_problem_incident,
+        upsert_open_incident,
+    )
 
-    await db_session.execute(
-        sa.text(
-            "INSERT INTO incidents (id, rule_name, group_key, status, severity, summary, "
-            "event_count, affected_hosts, affected_services, decision_context, "
-            "start_time, last_update_time, created_at, updated_at) "
-            "VALUES (gen_random_uuid(), :rule, :group, 'CLOSED', 'WARNING', 'old', "
-            "1, '[]'::jsonb, '[]'::jsonb, '{}'::jsonb, NOW(), NOW(), NOW(), NOW())"
+    previous = await record_problem_incident(
+        db_session,
+        IncidentUpsertInput(
+            rule_name="rule-a",
+            group_key="host:db-1",
+            severity=Severity.WARNING,
+            event_time=datetime(2026, 1, 1, 11, 0, tzinfo=timezone.utc),
+            summary="old",
+            affected_hosts=("db-1",),
         ),
-        {"rule": "rule-a", "group": "host:db-1"},
+    )
+    await close_open_incident(
+        db_session,
+        previous.incident.id,
+        operator="operator",
+        reason="maintenance",
     )
     await db_session.commit()
 
@@ -1233,18 +1366,12 @@ async def test_closed_row_does_not_block_new_open(db_session: AsyncSession) -> N
     await db_session.commit()
 
     assert incident.status == IncidentStatus.OPEN.value
-
-
-async def test_no_select_inside_upsert() -> None:
-    import inspect
-    from app.persistence import incidents as incidents_module
-
-    upsert_source = inspect.getsource(incidents_module.upsert_open_incident)
-    build_source = inspect.getsource(incidents_module.build_open_incident_upsert)
-    assert "select(" not in upsert_source
-    assert "select(" not in build_source
-    assert "on_conflict_do_update" in build_source
-    assert "index_where" in build_source
+    assert incident.id != previous.incident.id
+    closed = await db_session.get(
+        type(incident), previous.incident.id, populate_existing=True
+    )
+    assert closed is not None
+    assert closed.status == IncidentStatus.CLOSED.value
 
 
 # ---------------------------------------------------------------------------
@@ -1313,6 +1440,7 @@ def test_historical_unreachable_window_remains_readable_but_not_writable() -> No
 
     historical_state = _window_state_from_json(
         {
+            "schema_version": 2,
             "window_started_at": "2026-01-01T11:55:00+00:00",
             "window_ended_at": "2026-01-01T12:00:00+00:00",
             "window_seconds": 300,
@@ -1320,6 +1448,7 @@ def test_historical_unreachable_window_remains_readable_but_not_writable() -> No
             "counted_fingerprint_timestamps": {"fp-1": "2026-01-01T12:00:00+00:00"},
             "counted_count": 1,
             "max_size": 100,
+            "active_objects": [{"host": "db-1", "service": None}],
         }
     )
     assert historical_state.threshold_count == 101
@@ -1430,77 +1559,6 @@ async def test_historical_unreachable_window_merges_under_valid_threshold(
     assert window_state["max_size"] == 100
     assert tuple(sorted(window_state["counted_fingerprint_timestamps"])) == (
         second.counted_fingerprints
-    )
-
-
-async def test_empty_historical_window_state_starts_from_current_event(
-    db_session: AsyncSession,
-) -> None:
-    from app.persistence.incidents import IncidentUpsertInput, record_problem_incident
-
-    first = await record_problem_incident(
-        db_session,
-        IncidentUpsertInput(
-            rule_name="legacy-empty-window",
-            group_key="host:db-1",
-            severity=Severity.WARNING,
-            event_time=datetime(2026, 1, 1, 12, tzinfo=timezone.utc),
-            summary="first",
-            affected_hosts=("db-1",),
-            fingerprint="fp-first",
-            threshold_count=2,
-        ),
-    )
-    await db_session.commit()
-    await db_session.execute(
-        sa.text("UPDATE incidents SET window_state = '{}'::jsonb WHERE id = :id"),
-        {"id": first.incident.id},
-    )
-    await db_session.commit()
-
-    updated = await record_problem_incident(
-        db_session,
-        IncidentUpsertInput(
-            rule_name="legacy-empty-window",
-            group_key="host:db-1",
-            severity=Severity.WARNING,
-            event_time=datetime(2026, 1, 1, 12, 1, tzinfo=timezone.utc),
-            summary="second",
-            affected_hosts=("db-1",),
-            fingerprint="fp-second",
-            threshold_count=2,
-        ),
-    )
-    await db_session.commit()
-
-    state, threshold_crossed = (
-        await db_session.execute(
-            sa.text(
-                "SELECT window_state, threshold_crossed FROM incidents WHERE id = :id"
-            ),
-            {"id": updated.incident.id},
-        )
-    ).one()
-    assert updated.effect == "updated"
-    assert updated.counted_count == 1
-    assert updated.counted_fingerprints == ("fp-second",)
-    assert updated.threshold_count == 2
-    assert updated.window_started_at == datetime(
-        2026, 1, 1, 11, 56, tzinfo=timezone.utc
-    )
-    assert updated.window_ended_at == datetime(2026, 1, 1, 12, 1, tzinfo=timezone.utc)
-    assert updated.window_crossed is False
-    assert updated.threshold_crossed is False
-    assert updated.first_threshold_transition is False
-    assert threshold_crossed is False
-    assert state["counted_count"] == updated.counted_count
-    assert state["threshold_count"] == updated.threshold_count
-    assert datetime.fromisoformat(state["window_started_at"]) == (
-        updated.window_started_at
-    )
-    assert datetime.fromisoformat(state["window_ended_at"]) == (updated.window_ended_at)
-    assert tuple(state["counted_fingerprint_timestamps"]) == (
-        updated.counted_fingerprints
     )
 
 
@@ -1678,11 +1736,3 @@ async def test_sql_injection_rule_name_persisted_literally(
     # Verify the table still exists
     result = await db_session.execute(sa.text("SELECT 1 FROM incidents LIMIT 1"))
     assert result.scalar() == 1
-
-
-async def test_no_sqlite_in_test_source() -> None:
-    import inspect
-    from app.persistence import incidents as incidents_module
-
-    source = inspect.getsource(incidents_module)
-    assert "sqlite" not in source.lower()

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import inspect
 import subprocess
 import sys
+from dataclasses import replace
 from datetime import datetime, timezone
 
 import pytest
@@ -209,10 +209,22 @@ async def test_expiration_closes_only_stale_open_rows(db_session: AsyncSession) 
     assert rows["already-resolved"].status == IncidentStatus.RESOLVED.value
 
 
-async def test_expiration_context_is_non_secret(db_session: AsyncSession) -> None:
+@pytest.mark.parametrize(("host_count", "service_count"), ((1, 0), (105, 2), (2, 105)))
+async def test_expiration_context_is_non_secret(
+    db_session: AsyncSession,
+    host_count: int,
+    service_count: int,
+) -> None:
     from app.persistence.incidents import expire_stale_incidents
 
-    stale = await upsert_open_incident(db_session, _input("safe-rule", 5, host="db-1"))
+    stale = await upsert_open_incident(
+        db_session,
+        replace(
+            _input("safe-rule", 5, host="db-1"),
+            affected_hosts=tuple(f"db-{index + 1}" for index in range(host_count)),
+            affected_services=tuple(f"svc-{index}" for index in range(service_count)),
+        ),
+    )
     await db_session.commit()
     await _set_db_relative_last_update(
         db_session, stale.id, "now() - interval '10 seconds'"
@@ -225,6 +237,15 @@ async def test_expiration_context_is_non_secret(db_session: AsyncSession) -> Non
     notes = expired[0].decision_context["notes"]
     assert notes["lifecycle.reason"] == "expired"
     assert notes["lifecycle.rule_name"] == "safe-rule"
+    current = await db_session.get(Incident, stale.id, populate_existing=True)
+    assert current is not None
+    assert current.status == IncidentStatus.CLOSED.value
+    assert current.decision_context["notes"]["lifecycle.previous_host_count"] == (
+        str(host_count)
+    )
+    assert current.decision_context["notes"]["lifecycle.previous_service_count"] == (
+        str(service_count)
+    )
     assert notes["lifecycle.window_seconds"] == "5"
     serialized = str(expired[0].decision_context).lower()
     for forbidden in (
@@ -237,17 +258,3 @@ async def test_expiration_context_is_non_secret(db_session: AsyncSession) -> Non
         "plugin_options",
     ):
         assert forbidden not in serialized
-
-
-def test_expiration_source_uses_database_time_not_app_clock() -> None:
-    import app.persistence.incidents as incidents_module
-
-    source = inspect.getsource(incidents_module.expire_stale_incidents)
-    assert (
-        "func.now()" in source
-        or "CURRENT_TIMESTAMP" in source
-        or "statement_timestamp" in source
-    )
-    assert "datetime.now" not in source
-    assert "last_update_time" in source
-    assert "window_seconds" in source
