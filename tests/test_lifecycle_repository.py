@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import inspect
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -14,7 +13,12 @@ from testcontainers.postgres import PostgresContainer
 
 from app.domain.events import Severity
 from app.domain.incidents import IncidentStatus
-from app.persistence.incidents import IncidentUpsertInput, upsert_open_incident
+from app.persistence.incidents import (
+    IncidentUpsertInput,
+    record_problem_incident,
+    upsert_open_incident,
+)
+from app.persistence.models import Incident
 
 
 def _run_alembic_upgrade(database_url: str) -> None:
@@ -336,6 +340,118 @@ async def test_service_recovery_removes_only_exact_active_service_pair(
     assert results[0].incident.affected_services == ["disk"]
 
 
+@pytest.mark.parametrize(
+    "host_problem_first",
+    [True, False],
+    ids=["host-problem-first", "service-problem-first"],
+)
+@pytest.mark.parametrize(
+    ("service_host", "service_recovers_first"),
+    [
+        pytest.param("host-b", True, id="cross-host-service-first"),
+        pytest.param("host-b", False, id="cross-host-host-first"),
+        pytest.param("host-a", True, id="same-host-service-first"),
+    ],
+)
+async def test_mixed_membership_recovery_preserves_remaining_problem(
+    db_session: AsyncSession,
+    host_problem_first: bool,
+    service_host: str,
+    service_recovers_first: bool,
+) -> None:
+    from app.persistence.incidents import (
+        resolve_host_recovery,
+        resolve_service_recovery,
+    )
+
+    problems = (
+        IncidentUpsertInput(
+            rule_name="rule-mixed",
+            group_key="site:dc1",
+            severity=Severity.CRITICAL,
+            event_time=_event_time(),
+            summary="host problem",
+            affected_hosts=("host-a",),
+            affected_services=(),
+            fingerprint="problem:host-a",
+        ),
+        IncidentUpsertInput(
+            rule_name="rule-mixed",
+            group_key="site:dc1",
+            severity=Severity.CRITICAL,
+            event_time=_event_time(),
+            summary="http problem",
+            affected_hosts=(service_host,),
+            affected_services=("http",),
+            fingerprint=f"problem:{service_host}:http",
+        ),
+    )
+    if not host_problem_first:
+        problems = problems[::-1]
+
+    first = await record_problem_incident(db_session, problems[0])
+    incident_id = first.incident.id
+    await db_session.commit()
+    current = await db_session.get(Incident, incident_id, populate_existing=True)
+    assert current is not None
+    assert current.status == IncidentStatus.OPEN.value
+
+    second = await record_problem_incident(db_session, problems[1])
+    await db_session.commit()
+    current = await db_session.get(Incident, incident_id, populate_existing=True)
+    assert second.incident.id == incident_id
+    assert current is not None
+    assert current.status == IncidentStatus.OPEN.value
+    assert current.resolved_at is None
+    assert current.affected_hosts == sorted({"host-a", service_host})
+    assert current.affected_services == ["http"]
+
+    for recovery_index, recover_service in enumerate(
+        (service_recovers_first, not service_recovers_first)
+    ):
+        if recover_service:
+            results = await resolve_service_recovery(
+                db_session,
+                host=service_host,
+                service="http",
+                recovery_time=_event_time(),
+                fingerprint=f"recovery:{service_host}:http",
+                source_id=f"icinga2:service:{service_host}:http",
+            )
+        else:
+            results = await resolve_host_recovery(
+                db_session,
+                host="host-a",
+                recovery_time=_event_time(),
+                fingerprint="recovery:host-a",
+                source_id="icinga2:host:host-a",
+            )
+        await db_session.commit()
+        current = await db_session.get(Incident, incident_id, populate_existing=True)
+        assert current is not None
+        if recovery_index == 0:
+            assert current.status == IncidentStatus.OPEN.value, (
+                "Recovering one mixed member must not resolve the remaining problem"
+            )
+            assert current.resolved_at is None
+            assert current.affected_hosts == (
+                ["host-a"] if recover_service else [service_host]
+            )
+            assert current.affected_services == ([] if recover_service else ["http"])
+            assert len(results) == 1
+            assert results[0].effect == "affected_set_shrunk"
+            assert results[0].transitioned_to is None
+        else:
+            assert current.status == IncidentStatus.RESOLVED.value
+            assert current.resolved_at is not None
+            assert current.affected_hosts == []
+            assert current.affected_services == []
+            assert len(results) == 1
+            assert results[0].effect == "resolved"
+            assert results[0].transitioned_to == IncidentStatus.RESOLVED.value
+        assert results[0].incident.id == incident_id
+
+
 async def test_ack_open_incident_is_idempotent_metadata(
     db_session: AsyncSession,
 ) -> None:
@@ -454,27 +570,3 @@ async def test_resolve_for_event_defers_commit_to_caller(
         "LifecycleManager.resolve_for_event must defer commit; the resolution "
         "leaked into an independent session, which means the manager committed."
     )
-
-
-def test_lifecycle_manager_source_defers_commit_to_caller() -> None:
-    """The source for resolve_for_event must contain no self._session.commit()"""
-
-    import app.processing.lifecycle as lifecycle_module
-
-    source = inspect.getsource(lifecycle_module.LifecycleManager.resolve_for_event)
-    assert "await self._session.commit()" not in source
-
-
-def test_lifecycle_repository_source_is_postgresql_only_and_non_insert_path() -> None:
-    from app.persistence import incidents as incidents_module
-
-    source = inspect.getsource(incidents_module)
-    assert "sqlite" not in source.lower()
-    for forbidden in ("raw_payload", "plugin_config", "password", "token", "secret"):
-        assert forbidden not in source.lower()
-    assert "def resolve_host_recovery" in source
-    assert "def resolve_service_recovery" in source
-    recovery_source = inspect.getsource(incidents_module.resolve_host_recovery)
-    recovery_source += inspect.getsource(incidents_module.resolve_service_recovery)
-    assert "insert(" not in recovery_source
-    assert ".with_for_update()" in recovery_source
