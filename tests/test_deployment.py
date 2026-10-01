@@ -1076,7 +1076,7 @@ def docker_compose_stack(tmp_path: Path) -> Iterator[dict[str, object]]:
                         "priority": -2,
                         "match": {
                             "severities": ["CRITICAL"],
-                            "host_pattern": "^u29-",
+                            "host_pattern": "^(?:u29-|cap-host-)",
                             "tags": {"smoke.membership": "mixed"},
                         },
                         "window": {
