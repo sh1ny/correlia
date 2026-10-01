@@ -3052,6 +3052,83 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
                 }
             )
 
+    filter_incident_id: str | None = None
+    for index in range(101):
+        status, event_body = _container_http_response(
+            app_container,
+            f"{app_url}/v1/icinga2/events",
+            token=ingress_token,
+            payload={
+                "source_id": f"u29-filter-cap-{index}",
+                "host": f"cap-host-{index:03d}",
+                "service": f"cap-service-{index:03d}",
+                "state": "CRITICAL",
+                "state_type": "HARD",
+                "timestamp": (membership_time + timedelta(seconds=index)).isoformat(),
+                "check_output": "Complete membership filter deployment smoke",
+                "tags": {
+                    "smoke.membership": "mixed",
+                    "smoke.group": "filter-cap",
+                },
+            },
+            method="POST",
+        )
+        assert status == 200
+        event = json.loads(event_body)
+        assert event["state_accepted"] is True
+        assert event["matched_rules"] == ["docker-smoke-mixed-membership"]
+        event_incident_id = str(UUID(str(event["incident_id"])))
+        if filter_incident_id is None:
+            filter_incident_id = event_incident_id
+        assert event_incident_id == filter_incident_id
+
+    stored_filter_membership = postgres_json(
+        "SELECT json_build_object("
+        "'active_count', jsonb_array_length(window_state -> 'active_objects'), "
+        "'display_host_count', jsonb_array_length(affected_hosts), "
+        "'display_service_count', jsonb_array_length(affected_services), "
+        "'old_host_filter_matches', affected_hosts @> '[\"cap-host-100\"]'::jsonb, "
+        "'old_service_filter_matches', "
+        "affected_services @> '[\"cap-service-100\"]'::jsonb) "
+        f"FROM incidents WHERE id = '{filter_incident_id}'::uuid"
+    )
+    assert stored_filter_membership == {
+        "active_count": 101,
+        "display_host_count": 100,
+        "display_service_count": 100,
+        "old_host_filter_matches": False,
+        "old_service_filter_matches": False,
+    }
+    for query in (
+        "host=cap-host-100",
+        "service=cap-service-100",
+        "host=cap-host-100&service=cap-service-000",
+    ):
+        status, filtered_body = _container_http_response(
+            app_container,
+            f"{app_url}/v1/incidents?{query}",
+            token=operator_token,
+        )
+        assert status == 200
+        filtered_page = json.loads(filtered_body)
+        assert [item["id"] for item in filtered_page["items"]] == [filter_incident_id]
+        assert filtered_page["total"] == 1
+        with capsys.disabled():
+            print(
+                "Complete membership filters deployed HTTP/PostgreSQL (#65): "
+                + json.dumps(
+                    {
+                        "query": query,
+                        "http_status": status,
+                        "incident_ids": [item["id"] for item in filtered_page["items"]],
+                        "total": filtered_page["total"],
+                        "postgres_membership": stored_filter_membership,
+                    },
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
+
     def refresh_ready_services(operation: str) -> None:
         nonlocal app_container, postgres_container, mailpit_container
         containers: dict[str, str] = {}

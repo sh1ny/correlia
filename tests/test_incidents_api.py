@@ -316,6 +316,70 @@ async def test_list_incidents_filters_and_cursor_pagination(
     assert older.json()["items"] == []
 
 
+@pytest.mark.parametrize(
+    ("params", "matches"),
+    (
+        ({"host": "cap-host-100"}, True),
+        ({"service": "cap-service-100"}, True),
+        ({"host": "cap-host-100", "service": "cap-service-000"}, True),
+        ({"host": "cap-host-missing"}, False),
+        ({"service": "cap-service-missing"}, False),
+    ),
+)
+async def test_list_incidents_filters_complete_membership_beyond_display_caps(
+    session_factory: async_sessionmaker[AsyncSession],
+    params: dict[str, str],
+    matches: bool,
+) -> None:
+    async with session_factory() as session:
+        for index in range(101):
+            incident = await _seed_incident(
+                session,
+                rule_name="membership-cap",
+                group_key="all-members",
+                host=f"cap-host-{index:03d}",
+                service=f"cap-service-{index:03d}",
+                severity=Severity.CRITICAL,
+                event_time=_event_time(index),
+            )
+        await _seed_incident(
+            session,
+            rule_name="unrelated",
+            group_key="other-members",
+            host="other-host",
+            service="other-service",
+            severity=Severity.CRITICAL,
+            event_time=_event_time(102),
+        )
+
+    app = _app(session_factory, settings=_production_settings())
+    async for client in get_client(app):
+        detail = await client.get(
+            f"/v1/incidents/{incident.id}", headers=OPERATOR_HEADERS
+        )
+        response = await client.get(
+            "/v1/incidents", params=params, headers=OPERATOR_HEADERS
+        )
+
+    assert detail.status_code == 200
+    membership = detail.json()
+    assert membership["affected_hosts"] == [
+        f"cap-host-{index:03d}" for index in range(100)
+    ]
+    assert membership["affected_services"] == [
+        f"cap-service-{index:03d}" for index in range(100)
+    ]
+    assert {"host": "cap-host-100", "service": "cap-service-100"} in (
+        membership["window_state"]["active_objects"]
+    )
+    assert response.status_code == 200
+    page = response.json()
+    assert [item["id"] for item in page["items"]] == (
+        [str(incident.id)] if matches else []
+    )
+    assert page["total"] == int(matches)
+
+
 async def test_incident_detail_excludes_raw_payloads_and_secrets(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:

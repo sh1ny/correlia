@@ -444,9 +444,17 @@ async def list_incidents(
         if filters.rule_name is not None:
             stmt = stmt.where(Incident.rule_name == filters.rule_name)
         if filters.host is not None:
-            stmt = stmt.where(Incident.affected_hosts.contains([filters.host]))
+            stmt = stmt.where(
+                Incident.window_state["active_objects"].contains(
+                    [{"host": filters.host}]
+                )
+            )
         if filters.service is not None:
-            stmt = stmt.where(Incident.affected_services.contains([filters.service]))
+            stmt = stmt.where(
+                Incident.window_state["active_objects"].contains(
+                    [{"service": filters.service}]
+                )
+            )
         if filters.updated_since is not None:
             stmt = stmt.where(Incident.last_update_time >= filters.updated_since)
         return stmt
