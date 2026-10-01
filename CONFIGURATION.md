@@ -246,6 +246,24 @@ dc up --detach --wait
 
 This is local persistence, **not a backup or production durability guarantee**. It does not protect against volume deletion, corruption, Docker-host/disk loss or restore mistakes, and supplies no replication or backup schedule. A per-database logical archive also needs a separate roles/settings/grants inventory. Keep protected backups off the Docker host and test recovery according to your operating requirements. Intentional verification deletion belongs only to the isolated `correlia-verify-...` projects described under [Interrupted-run cleanup](#interrupted-run-cleanup), never to an operator stack.
 
+### One-time predeployment incident reset
+
+The incident membership format described under [Incident recovery and membership](#incident-recovery-and-membership) is a fresh predeployment format. There is no schema-1 upgrade or backfill, and startup does not clear old data. Before starting the new application against an existing disposable database, clear **both** `incidents` and `incident_events`; clearing only incidents leaves audit history referring to discarded incidents.
+
+**This destroys all incident, acknowledgement and event-audit history in the selected database. Use it only for explicitly approved, disposable predeployment data, never a live deployment or data that must be preserved.**
+
+Stop monitoring ingress and every application writer first. Reuse the existing `dc()` function with the identified project's original `PROJECT`, manifest and protected `.env`; do not select a new project or initialize a new volume. Privately confirm that its running `postgres` service and initialized database are the ones used by the application's `DATABASE_URL`. The following scoped reset is for the default existing role/database `correlia`; it prompts for that database's current password:
+
+```sh
+dc stop correlia &&
+dc exec --user postgres postgres psql --no-psqlrc \
+    --host=127.0.0.1 --username=correlia --dbname=correlia --password \
+    --set=ON_ERROR_STOP=1 \
+    --command='BEGIN; TRUNCATE TABLE public.incident_events, public.incidents; COMMIT;'
+```
+
+For a nondefault installation, use its identified existing database and role rather than these defaults. Start the intended new application only after the reset succeeds, then resume ingress. This retains the database schema, `alembic_version` and PostgreSQL volume; do not use `down --volumes`, volume removal or prune for this reset. It is an operator action, not automatic startup cleanup or a database-schema migration.
+
 ### Preserve an older anonymous-volume database
 
 Do this **before** starting Correlia against the new named mount. The container entrypoint runs `alembic upgrade head` before HTTP startup, and the lifecycle worker sweeps immediately at startup. An empty destination must not receive either action before restore and verification.
@@ -917,6 +935,16 @@ Porting notes:
 - VDE `actions: ["email-ops"]` becomes action objects with `name: create_incident` and `plugin: <action-name>`.
 - Correlia requires every rule to have at least one action today. VDE's service-tracker rule with `actions: []` will not load without a no-op output plugin or a schema change.
 - Correlia does not currently support VDE's `min_hosts` or `is_dc_level` rule fields directly.
+
+### Incident recovery and membership
+
+The authoritative active membership is stored in the existing `incidents.window_state` JSONB column with `schema_version: 2`. Its `active_objects` list contains structured objects of the form `{"host": "host-name", "service": null}` for a host-only problem or `{"host": "host-name", "service": "service-name"}` for a service problem. Membership is complete and uncapped, independent of the threshold window's bounded fingerprint history.
+
+A service RECOVERY removes only the exact host/service object; a service with the same name on another host remains active. A host RECOVERY removes every active object for that host, including its host-only object and all its service objects. An OPEN incident becomes `RESOLVED` only when no active objects remain; otherwise it stays OPEN with reduced membership.
+
+The public `affected_hosts` and `affected_services` arrays are sorted display projections, each capped at 100 entries. They are not authoritative recovery membership: objects outside those arrays still participate in recovery and prevent premature resolution. This format does not change source identity or stale-event ordering.
+
+Existing schema-1 incident state is not upgraded. For approved disposable predeployment data, follow the [one-time incident reset](#one-time-predeployment-incident-reset) before starting the new application.
 
 ## Topology configuration
 
