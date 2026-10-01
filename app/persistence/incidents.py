@@ -9,8 +9,8 @@ from datetime import datetime, timedelta
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
-from sqlalchemy import Integer, and_, case, func, literal, or_, select, text, update
-from sqlalchemy.dialects.postgresql import JSONB, insert
+from sqlalchemy import Integer, and_, func, or_, select, text, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.events import Severity
@@ -18,6 +18,7 @@ from app.domain.incidents import (
     MAX_WINDOW_FINGERPRINTS,
     DecisionContext,
     IncidentListFilters,
+    IncidentObject,
     IncidentStatus,
     IncidentStatusFilter,
     IncidentWindowState,
@@ -28,8 +29,6 @@ from app.persistence.models import Incident
 
 MAX_AFFECTED_HOSTS = 100
 MAX_AFFECTED_SERVICES = 100
-MAX_ACTIVE_SERVICE_PAIRS = 100
-SERVICE_PAIR_SEPARATOR = "\x1f"
 
 
 _SAFE_NOTIFICATION_MESSAGES = frozenset(
@@ -47,16 +46,6 @@ _SAFE_NOTIFICATION_MESSAGES = frozenset(
 IncidentEffect = Literal["inserted", "updated"]
 
 
-def _severity_rank_expr(column: Any) -> Any:
-    return case(
-        (column == "OK", 0),
-        (column == "WARNING", 1),
-        (column == "UNKNOWN", 2),
-        (column == "CRITICAL", 3),
-        else_=0,
-    )
-
-
 def _severity_rank(value: str) -> int:
     return {
         "OK": 0,
@@ -70,59 +59,6 @@ def _max_severity(existing: str, incoming: Severity) -> str:
     if _severity_rank(incoming.value) > _severity_rank(existing):
         return incoming.value
     return existing
-
-
-def _bounded_sorted_union(
-    existing: list[str], incoming: tuple[str, ...], max_items: int
-) -> list[str]:
-    return sorted({*existing, *incoming})[:max_items]
-
-
-def _service_pair_key(host: str, service: str) -> str:
-    return f"{host}{SERVICE_PAIR_SEPARATOR}{service}"
-
-
-def _service_pair_parts(pair: str) -> tuple[str, str] | None:
-    host, separator, service = pair.partition(SERVICE_PAIR_SEPARATOR)
-    if not separator or not host or not service:
-        return None
-    return host, service
-
-
-def _service_pair_keys(
-    hosts: tuple[str, ...], services: tuple[str, ...]
-) -> tuple[str, ...]:
-    if not services:
-        return ()
-    return tuple(
-        sorted(
-            {_service_pair_key(host, service) for host in hosts for service in services}
-        )[:MAX_ACTIVE_SERVICE_PAIRS]
-    )
-
-
-def _jsonb_sorted_union(
-    existing_column: Any, excluded_name: str, max_items: int
-) -> Any:
-    existing_elems = select(
-        func.jsonb_array_elements_text(existing_column).label("elem")
-    ).subquery("e1")
-
-    excluded_elems = select(
-        func.jsonb_array_elements_text(text(f"excluded.{excluded_name}")).label("elem")
-    ).subquery("e2")
-
-    combined = (
-        select(existing_elems.c.elem).union(select(excluded_elems.c.elem)).subquery("u")
-    )
-
-    ordered_limited = (
-        select(combined.c.elem).order_by(combined.c.elem).limit(max_items).subquery("o")
-    )
-
-    agg = select(func.jsonb_agg(ordered_limited.c.elem)).select_from(ordered_limited)
-
-    return func.coalesce(agg.scalar_subquery(), literal("[]").cast(JSONB))
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,15 +103,11 @@ class IncidentUpsertInput:
         for h in hosts:
             if not h or not h.strip():
                 raise ValueError("affected_hosts must not contain empty strings")
-        if len(hosts) > MAX_AFFECTED_HOSTS:
-            hosts = hosts[:MAX_AFFECTED_HOSTS]
 
         services = tuple(sorted(set(self.affected_services)))
         for s in services:
             if not s or not s.strip():
                 raise ValueError("affected_services must not contain empty strings")
-        if len(services) > MAX_AFFECTED_SERVICES:
-            services = services[:MAX_AFFECTED_SERVICES]
 
         object.__setattr__(self, "affected_hosts", hosts)
         object.__setattr__(self, "affected_services", services)
@@ -264,35 +196,43 @@ def _window_state_dump(state: IncidentWindowState) -> dict[str, Any]:
 
 
 def _window_state_from_json(data: dict[str, Any]) -> IncidentWindowState:
-    timestamps = {
-        str(fingerprint): _parse_timestamp(timestamp)
-        for fingerprint, timestamp in data.get(
-            "counted_fingerprint_timestamps", {}
-        ).items()
-    }
-    active_service_pairs = tuple(
-        str(pair) for pair in data.get("active_service_pairs", ())
-    )
-    return IncidentWindowState(
-        window_started_at=_parse_timestamp(data["window_started_at"]),
-        window_ended_at=_parse_timestamp(data["window_ended_at"]),
-        window_seconds=int(data["window_seconds"]),
-        threshold_count=int(data["threshold_count"]),
-        counted_fingerprint_timestamps=timestamps,
-        counted_count=int(data["counted_count"]),
-        max_size=int(data["max_size"]),
-        active_service_pairs=active_service_pairs,
+    return IncidentWindowState.model_validate(
+        {
+            **data,
+            "schema_version": data["schema_version"],
+            "window_started_at": _parse_timestamp(data["window_started_at"]),
+            "window_ended_at": _parse_timestamp(data["window_ended_at"]),
+            "counted_fingerprint_timestamps": {
+                fingerprint: _parse_timestamp(timestamp)
+                for fingerprint, timestamp in data.get(
+                    "counted_fingerprint_timestamps", {}
+                ).items()
+            },
+            "active_objects": tuple(
+                IncidentObject.model_validate(obj) for obj in data["active_objects"]
+            ),
+        }
     )
 
 
-def _active_service_pairs_from_incident(incident: Incident) -> tuple[str, ...]:
-    if incident.window_state:
-        pairs = _window_state_from_json(incident.window_state).active_service_pairs
-        if pairs:
-            return pairs
-    return _service_pair_keys(
-        tuple(incident.affected_hosts),
-        tuple(incident.affected_services),
+def _active_objects_from_input(
+    input: IncidentUpsertInput,
+) -> tuple[IncidentObject, ...]:
+    return tuple(
+        IncidentObject(host=host, service=service)
+        for host in input.affected_hosts
+        for service in (input.affected_services or (None,))
+    )
+
+
+def _affected_sets_from_objects(
+    active_objects: tuple[IncidentObject, ...],
+) -> tuple[list[str], list[str]]:
+    hosts = {obj.host for obj in active_objects}
+    services = {obj.service for obj in active_objects if obj.service is not None}
+    return (
+        sorted(hosts)[:MAX_AFFECTED_HOSTS],
+        sorted(services)[:MAX_AFFECTED_SERVICES],
     )
 
 
@@ -308,10 +248,7 @@ def _initial_window_state(input: IncidentUpsertInput) -> IncidentWindowState:
         counted_fingerprint_timestamps={fingerprint: input.event_time},
         counted_count=1,
         max_size=input.max_window_fingerprints,
-        active_service_pairs=_service_pair_keys(
-            input.affected_hosts,
-            input.affected_services,
-        ),
+        active_objects=_active_objects_from_input(input),
     )
 
 
@@ -321,14 +258,15 @@ def _next_window_state(
 ) -> tuple[IncidentWindowState, bool, bool, bool]:
     window_end = max(existing.last_update_time, input.event_time)
     window_start = window_end - timedelta(seconds=input.window_seconds)
-    existing_state = existing.window_state or {}
-    raw_timestamps = existing_state.get("counted_fingerprint_timestamps", {})
+    existing_state = _window_state_from_json(existing.window_state)
 
     retained: dict[str, datetime] = {}
-    for fingerprint, timestamp_value in raw_timestamps.items():
-        timestamp = _parse_timestamp(timestamp_value)
+    for (
+        retained_fingerprint,
+        timestamp,
+    ) in existing_state.counted_fingerprint_timestamps.items():
         if window_start <= timestamp <= window_end:
-            retained[str(fingerprint)] = timestamp
+            retained[retained_fingerprint] = timestamp
 
     inside_window = window_start <= input.event_time <= window_end
     fingerprint = input.fingerprint
@@ -345,13 +283,14 @@ def _next_window_state(
         retained = dict(newest)
 
     retained = dict(sorted(retained.items()))
-    active_service_pairs = tuple(
+    active_objects = tuple(
         sorted(
             {
-                *_active_service_pairs_from_incident(existing),
-                *_service_pair_keys(input.affected_hosts, input.affected_services),
-            }
-        )[:MAX_ACTIVE_SERVICE_PAIRS]
+                *existing_state.active_objects,
+                *_active_objects_from_input(input),
+            },
+            key=lambda obj: (obj.host, obj.service or ""),
+        )
     )
     state = IncidentWindowState(
         window_started_at=window_start,
@@ -361,7 +300,7 @@ def _next_window_state(
         counted_fingerprint_timestamps=retained,
         counted_count=len(retained),
         max_size=input.max_window_fingerprints,
-        active_service_pairs=active_service_pairs,
+        active_objects=active_objects,
     )
     return state, replay, inside_window, counted
 
@@ -583,82 +522,6 @@ async def get_incident_by_id(
     return result.scalar_one_or_none()
 
 
-def build_open_incident_upsert(input: IncidentUpsertInput) -> Any:
-    decision_data = _decision_context_dump(input)
-    initial_state = _initial_window_state(input)
-    threshold_crossed = initial_state.counted_count >= input.threshold_count
-
-    stmt: Any = insert(Incident).values(
-        id=uuid4(),
-        rule_name=input.rule_name,
-        group_key=input.group_key,
-        status=IncidentStatus.OPEN.value,
-        severity=input.severity.value,
-        summary=input.summary,
-        event_count=1,
-        affected_hosts=list(input.affected_hosts),
-        affected_services=list(input.affected_services),
-        decision_context=decision_data,
-        window_state=_window_state_dump(initial_state),
-        threshold_crossed=threshold_crossed,
-        notified_at=None,
-        start_time=input.event_time,
-        last_update_time=input.event_time,
-    )
-
-    excluded_severity = stmt.excluded.severity
-    existing_severity = Incident.severity
-
-    new_severity = case(
-        (
-            _severity_rank_expr(excluded_severity)
-            > _severity_rank_expr(existing_severity),
-            excluded_severity,
-        ),
-        else_=existing_severity,
-    )
-
-    new_hosts = _jsonb_sorted_union(
-        Incident.affected_hosts,
-        "affected_hosts",
-        MAX_AFFECTED_HOSTS,
-    )
-
-    new_services = _jsonb_sorted_union(
-        Incident.affected_services,
-        "affected_services",
-        MAX_AFFECTED_SERVICES,
-    )
-    stmt = stmt.on_conflict_do_update(
-        index_elements=[Incident.rule_name, Incident.group_key],
-        index_where=text(f"status = '{IncidentStatus.OPEN.value}'"),
-        set_={
-            Incident.event_count: Incident.event_count + 1,
-            Incident.last_update_time: func.greatest(
-                Incident.last_update_time, stmt.excluded.last_update_time
-            ),
-            Incident.severity: new_severity,
-            Incident.summary: stmt.excluded.summary,
-            Incident.affected_hosts: new_hosts,
-            Incident.affected_services: new_services,
-            Incident.decision_context: Incident.decision_context.op("||")(
-                stmt.excluded.decision_context
-            ),
-            Incident.window_state: stmt.excluded.window_state,
-            Incident.threshold_crossed: case(
-                (
-                    Incident.threshold_crossed.is_(False),
-                    stmt.excluded.threshold_crossed,
-                ),
-                else_=Incident.threshold_crossed,
-            ),
-            Incident.updated_at: func.now(),
-        },
-    ).returning(*Incident.__table__.columns)
-
-    return stmt
-
-
 async def upsert_open_incident(
     session: AsyncSession, input: IncidentUpsertInput
 ) -> Incident:
@@ -707,6 +570,9 @@ async def record_problem_incident(
     window_crossed = window_state.counted_count >= window_state.threshold_count
     threshold_crossed = existing.threshold_crossed or window_crossed
     first_threshold_transition = not existing.threshold_crossed and threshold_crossed
+    affected_hosts, affected_services = _affected_sets_from_objects(
+        window_state.active_objects
+    )
 
     updated_result = await session.execute(
         update(Incident)
@@ -716,16 +582,8 @@ async def record_problem_incident(
             last_update_time=func.greatest(Incident.last_update_time, input.event_time),
             severity=_max_severity(existing.severity, input.severity),
             summary=input.summary if counted else existing.summary,
-            affected_hosts=_bounded_sorted_union(
-                existing.affected_hosts,
-                input.affected_hosts,
-                MAX_AFFECTED_HOSTS,
-            ),
-            affected_services=_bounded_sorted_union(
-                existing.affected_services,
-                input.affected_services,
-                MAX_AFFECTED_SERVICES,
-            ),
+            affected_hosts=affected_hosts,
+            affected_services=affected_services,
             decision_context=_preserve_notification_delivery_results(
                 dict(existing.decision_context or {}), _decision_context_dump(input)
             ),
@@ -759,6 +617,9 @@ async def _insert_problem_incident(
     decision_data = _decision_context_dump(input)
     initial_state = _initial_window_state(input)
     threshold_crossed = initial_state.counted_count >= input.threshold_count
+    affected_hosts, affected_services = _affected_sets_from_objects(
+        initial_state.active_objects
+    )
     stmt: Any = (
         insert(Incident)
         .values(
@@ -769,8 +630,8 @@ async def _insert_problem_incident(
             severity=input.severity.value,
             summary=input.summary,
             event_count=1,
-            affected_hosts=list(input.affected_hosts),
-            affected_services=list(input.affected_services),
+            affected_hosts=affected_hosts,
+            affected_services=affected_services,
             decision_context=decision_data,
             window_state=_window_state_dump(initial_state),
             threshold_crossed=threshold_crossed,
@@ -889,53 +750,39 @@ def _lifecycle_context(
     return DecisionContext.model_validate(candidate).model_dump(mode="json")
 
 
-def _window_state_with_active_pairs(
+def _window_state_with_active_objects(
     incident: Incident,
-    active_service_pairs: tuple[str, ...],
+    active_objects: tuple[IncidentObject, ...],
 ) -> dict[str, Any]:
     state = _window_state_from_json(incident.window_state)
     return _window_state_dump(
         state.model_copy(
-            update={"active_service_pairs": tuple(sorted(active_service_pairs))}
+            update={
+                "active_objects": tuple(
+                    sorted(
+                        active_objects, key=lambda obj: (obj.host, obj.service or "")
+                    )
+                )
+            }
         )
     )
-
-
-def _affected_sets_from_service_pairs(
-    active_service_pairs: tuple[str, ...],
-) -> tuple[list[str], list[str]]:
-    hosts: set[str] = set()
-    services: set[str] = set()
-    for pair in active_service_pairs:
-        parts = _service_pair_parts(pair)
-        if parts is None:
-            continue
-        host, service = parts
-        hosts.add(host)
-        services.add(service)
-    return sorted(hosts), sorted(services)
 
 
 async def _shrink_affected_sets(
     session: AsyncSession,
     incident: Incident,
     *,
-    new_hosts: list[str],
-    new_services: list[str],
+    active_objects: tuple[IncidentObject, ...],
     decision_context: dict[str, Any],
-    active_service_pairs: tuple[str, ...] | None = None,
 ) -> Incident:
+    new_hosts, new_services = _affected_sets_from_objects(active_objects)
     update_values: dict[str, Any] = {
         "affected_hosts": new_hosts,
         "affected_services": new_services,
         "decision_context": decision_context,
+        "window_state": _window_state_with_active_objects(incident, active_objects),
         "updated_at": func.now(),
     }
-    if active_service_pairs is not None:
-        update_values["window_state"] = _window_state_with_active_pairs(
-            incident,
-            active_service_pairs,
-        )
     result = await session.execute(
         update(Incident)
         .where(Incident.id == incident.id)
@@ -952,7 +799,7 @@ async def _resolve_to_resolved(
     *,
     decision_context: dict[str, Any],
 ) -> Incident:
-    window_state = _window_state_with_active_pairs(incident, ())
+    window_state = _window_state_with_active_objects(incident, ())
     target = validate_incident_transition(IncidentStatus.OPEN, IncidentStatus.RESOLVED)
     result = await session.execute(
         update(Incident)
@@ -983,31 +830,17 @@ async def resolve_host_recovery(
     candidates = await session.execute(
         select(Incident)
         .where(Incident.status == IncidentStatus.OPEN.value)
-        .where(Incident.affected_hosts.contains([host]))
+        .where(Incident.window_state["active_objects"].contains([{"host": host}]))
         .with_for_update()
     )
     results: list[LifecycleWriteResult] = []
     for incident in candidates.scalars():
         previous_host_count = len(incident.affected_hosts)
         previous_service_count = len(incident.affected_services)
-        active_service_pairs = _active_service_pairs_from_incident(incident)
-        if active_service_pairs:
-            new_active_service_pairs = tuple(
-                pair
-                for pair in active_service_pairs
-                if (parts := _service_pair_parts(pair)) is not None and parts[0] != host
-            )
-            if len(new_active_service_pairs) == len(active_service_pairs):
-                continue
-            new_hosts, new_services = _affected_sets_from_service_pairs(
-                new_active_service_pairs
-            )
-        else:
-            new_active_service_pairs = None
-            new_hosts = sorted(item for item in incident.affected_hosts if item != host)
-            new_services = list(incident.affected_services)
-            if len(new_hosts) == previous_host_count:
-                continue
+        active_objects = _window_state_from_json(incident.window_state).active_objects
+        new_active_objects = tuple(obj for obj in active_objects if obj.host != host)
+        if len(new_active_objects) == len(active_objects):
+            continue
         decision_context = _lifecycle_context(
             incident,
             reason="source_recovery",
@@ -1018,7 +851,7 @@ async def resolve_host_recovery(
             previous_host_count=previous_host_count,
             previous_service_count=previous_service_count,
         )
-        if not new_hosts and not new_services:
+        if not new_active_objects:
             updated = await _resolve_to_resolved(
                 session,
                 incident,
@@ -1038,10 +871,8 @@ async def resolve_host_recovery(
         updated = await _shrink_affected_sets(
             session,
             incident,
-            new_hosts=new_hosts,
-            new_services=new_services,
+            active_objects=new_active_objects,
             decision_context=decision_context,
-            active_service_pairs=new_active_service_pairs,
         )
         results.append(
             LifecycleWriteResult(
@@ -1068,23 +899,23 @@ async def resolve_service_recovery(
     candidates = await session.execute(
         select(Incident)
         .where(Incident.status == IncidentStatus.OPEN.value)
-        .where(Incident.affected_hosts.contains([host]))
-        .where(Incident.affected_services.contains([service]))
+        .where(
+            Incident.window_state["active_objects"].contains(
+                [{"host": host, "service": service}]
+            )
+        )
         .with_for_update()
     )
     results: list[LifecycleWriteResult] = []
     for incident in candidates.scalars():
         previous_host_count = len(incident.affected_hosts)
         previous_service_count = len(incident.affected_services)
-        active_service_pairs = _active_service_pairs_from_incident(incident)
-        recovered_pair = _service_pair_key(host, service)
-        if recovered_pair not in active_service_pairs:
+        active_objects = _window_state_from_json(incident.window_state).active_objects
+        recovered_object = IncidentObject(host=host, service=service)
+        if recovered_object not in active_objects:
             continue
-        new_active_service_pairs = tuple(
-            pair for pair in active_service_pairs if pair != recovered_pair
-        )
-        new_hosts, new_services = _affected_sets_from_service_pairs(
-            new_active_service_pairs
+        new_active_objects = tuple(
+            obj for obj in active_objects if obj != recovered_object
         )
         decision_context = _lifecycle_context(
             incident,
@@ -1097,7 +928,7 @@ async def resolve_service_recovery(
             previous_host_count=previous_host_count,
             previous_service_count=previous_service_count,
         )
-        if not new_hosts and not new_services:
+        if not new_active_objects:
             updated = await _resolve_to_resolved(
                 session,
                 incident,
@@ -1117,10 +948,8 @@ async def resolve_service_recovery(
         updated = await _shrink_affected_sets(
             session,
             incident,
-            new_hosts=new_hosts,
-            new_services=new_services,
+            active_objects=new_active_objects,
             decision_context=decision_context,
-            active_service_pairs=new_active_service_pairs,
         )
         results.append(
             LifecycleWriteResult(

@@ -1,7 +1,7 @@
 from pathlib import Path
 import json
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
 
@@ -167,7 +167,17 @@ def _incident(incident_id: UUID) -> Incident:
         affected_hosts=[],
         affected_services=[],
         decision_context={},
-        window_state={"window_seconds": 300},
+        window_state={
+            "schema_version": 2,
+            "window_started_at": (now - timedelta(seconds=300)).isoformat(),
+            "window_ended_at": now.isoformat(),
+            "window_seconds": 300,
+            "threshold_count": 1,
+            "counted_fingerprint_timestamps": {"fp-secret-value": now.isoformat()},
+            "counted_count": 1,
+            "max_size": 100,
+            "active_objects": [],
+        },
         threshold_crossed=True,
         notified_at=None,
         start_time=now,

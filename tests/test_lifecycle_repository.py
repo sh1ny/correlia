@@ -452,6 +452,189 @@ async def test_mixed_membership_recovery_preserves_remaining_problem(
         assert results[0].incident.id == incident_id
 
 
+@pytest.mark.parametrize(
+    "host_problem_first",
+    [True, False],
+    ids=["host-problem-first", "service-problem-first"],
+)
+async def test_host_recovery_cascades_same_host_members_but_preserves_other_host(
+    db_session: AsyncSession,
+    host_problem_first: bool,
+) -> None:
+    from app.persistence.incidents import (
+        resolve_host_recovery,
+        resolve_service_recovery,
+    )
+
+    problems = (
+        IncidentUpsertInput(
+            rule_name="rule-host-cascade",
+            group_key="site:dc1",
+            severity=Severity.CRITICAL,
+            event_time=_event_time(),
+            summary="host problem",
+            affected_hosts=("host-a",),
+            fingerprint="problem:host-a",
+        ),
+        IncidentUpsertInput(
+            rule_name="rule-host-cascade",
+            group_key="site:dc1",
+            severity=Severity.CRITICAL,
+            event_time=_event_time(),
+            summary="service problems",
+            affected_hosts=("host-a",),
+            affected_services=("disk", "http"),
+            fingerprint="problem:host-a:services",
+        ),
+    )
+    if not host_problem_first:
+        problems = problems[::-1]
+    first = await record_problem_incident(db_session, problems[0])
+    await record_problem_incident(db_session, problems[1])
+    other = await record_problem_incident(
+        db_session,
+        IncidentUpsertInput(
+            rule_name="rule-host-cascade",
+            group_key="site:dc1",
+            severity=Severity.CRITICAL,
+            event_time=_event_time(),
+            summary="other host service problem",
+            affected_hosts=("host-b",),
+            affected_services=("postgres",),
+            fingerprint="problem:host-b:postgres",
+        ),
+    )
+    await db_session.commit()
+    incident_id = first.incident.id
+    assert other.incident.id == incident_id
+    current = await db_session.get(Incident, incident_id, populate_existing=True)
+    assert current is not None
+    assert current.affected_hosts == ["host-a", "host-b"]
+    assert current.affected_services == ["disk", "http", "postgres"]
+
+    results = await resolve_host_recovery(
+        db_session,
+        host="host-a",
+        recovery_time=_event_time(),
+        fingerprint="recovery:host-a",
+        source_id="icinga2:host:host-a",
+    )
+    await db_session.commit()
+    current = await db_session.get(Incident, incident_id, populate_existing=True)
+    assert len(results) == 1
+    assert results[0].incident.id == incident_id
+    assert results[0].effect == "affected_set_shrunk"
+    assert results[0].transitioned_to is None
+    assert current is not None
+    assert current.status == IncidentStatus.OPEN.value
+    assert current.resolved_at is None
+    assert current.affected_hosts == ["host-b"]
+    assert current.affected_services == ["postgres"]
+    assert current.window_state["active_objects"] == [
+        {"host": "host-b", "service": "postgres"}
+    ]
+
+    assert (
+        await resolve_service_recovery(
+            db_session,
+            host="host-a",
+            service="http",
+            recovery_time=_event_time(),
+            fingerprint="recovery:host-a:http",
+            source_id="icinga2:service:host-a:http",
+        )
+        == ()
+    )
+    final = await resolve_host_recovery(
+        db_session,
+        host="host-b",
+        recovery_time=_event_time(),
+        fingerprint="recovery:host-b",
+        source_id="icinga2:host:host-b",
+    )
+    await db_session.commit()
+    current = await db_session.get(Incident, incident_id, populate_existing=True)
+    assert len(final) == 1
+    assert final[0].incident.id == incident_id
+    assert final[0].effect == "resolved"
+    assert final[0].transitioned_to == IncidentStatus.RESOLVED.value
+    assert current is not None
+    assert current.status == IncidentStatus.RESOLVED.value
+    assert current.resolved_at is not None
+    assert current.affected_hosts == []
+    assert current.affected_services == []
+    assert current.window_state["active_objects"] == []
+
+
+async def test_all_102_service_members_remain_recoverable_until_final_resolution(
+    db_session: AsyncSession,
+) -> None:
+    from app.persistence.incidents import resolve_service_recovery
+
+    hosts = ("host-a", "host-b")
+    services = tuple(f"service-{index:03d}" for index in range(51))
+    incident_id = None
+    for host in hosts:
+        written = await record_problem_incident(
+            db_session,
+            IncidentUpsertInput(
+                rule_name="rule-membership-capacity",
+                group_key="site:dc1",
+                severity=Severity.CRITICAL,
+                event_time=_event_time(),
+                summary="many service problems",
+                affected_hosts=(host,),
+                affected_services=services,
+                fingerprint=f"problem:{host}:services",
+            ),
+        )
+        await db_session.commit()
+        if incident_id is None:
+            incident_id = written.incident.id
+        assert written.incident.id == incident_id
+
+    pairs = tuple((host, service) for host in hosts for service in services)
+    remaining = set(pairs)
+    current = await db_session.get(Incident, incident_id, populate_existing=True)
+    assert current is not None
+    assert current.status == IncidentStatus.OPEN.value
+    assert current.window_state["active_objects"] == [
+        {"host": host, "service": service} for host, service in pairs
+    ]
+
+    # Recover the last sorted pair first, beyond the former 100-pair cutoff.
+    for host, service in (pairs[-1], *pairs[:-1]):
+        results = await resolve_service_recovery(
+            db_session,
+            host=host,
+            service=service,
+            recovery_time=_event_time(),
+            fingerprint=f"recovery:{host}:{service}",
+            source_id=f"icinga2:service:{host}:{service}",
+        )
+        await db_session.commit()
+        remaining.remove((host, service))
+        current = await db_session.get(Incident, incident_id, populate_existing=True)
+        assert len(results) == 1, f"Lost active service member {host}/{service}"
+        assert results[0].incident.id == incident_id
+        assert results[0].effect == ("affected_set_shrunk" if remaining else "resolved")
+        assert results[0].transitioned_to == (
+            None if remaining else IncidentStatus.RESOLVED.value
+        )
+        assert current is not None
+        assert current.status == (
+            IncidentStatus.OPEN.value if remaining else IncidentStatus.RESOLVED.value
+        )
+        assert (current.resolved_at is None) is bool(remaining)
+        assert current.affected_hosts == sorted({host for host, _ in remaining})
+        assert current.affected_services == sorted(
+            {service for _, service in remaining}
+        )
+        assert current.window_state["active_objects"] == [
+            {"host": host, "service": service} for host, service in sorted(remaining)
+        ]
+
+
 async def test_ack_open_incident_is_idempotent_metadata(
     db_session: AsyncSession,
 ) -> None:

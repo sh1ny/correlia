@@ -1072,6 +1072,21 @@ def docker_compose_stack(tmp_path: Path) -> Iterator[dict[str, object]]:
             {
                 "rules": [
                     {
+                        "name": "docker-smoke-mixed-membership",
+                        "priority": -2,
+                        "match": {
+                            "severities": ["CRITICAL"],
+                            "tags": {"smoke.membership": "mixed"},
+                        },
+                        "window": {
+                            "duration_seconds": 300,
+                            "group_by": ["smoke.group"],
+                            "trigger_threshold": 1,
+                        },
+                        "output_summary": "Mixed membership alert on {host}",
+                        "actions": [{"name": "create_incident", "plugin": "email-ops"}],
+                    },
+                    {
                         "name": "docker-smoke-restart-threshold",
                         "priority": -1,
                         "match": {
@@ -1680,6 +1695,7 @@ def test_environment_and_config_samples_construct_strict_runtime_configuration(
 def test_real_compose_smoke_proves_runtime_deployment_contract(
     docker_compose_stack: dict[str, object],
     tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Exercise the checked-in image and topology; the fixture always removes it."""
     stack = docker_compose_stack
@@ -2110,6 +2126,7 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
     )
     assert status == 200
     assert {rule["name"] for rule in json.loads(rules_body)["rules"]} == {
+        "docker-smoke-mixed-membership",
         "docker-smoke-restart-threshold",
         "docker-smoke-capacity-threshold",
         "docker-smoke-threshold",
@@ -2911,6 +2928,128 @@ def test_real_compose_smoke_proves_runtime_deployment_contract(
             return json.loads(result.stdout)
         except json.JSONDecodeError:
             pytest.fail("persistence SQL probe returned invalid JSON")
+
+    # Use the same deployed HTTP server and PostgreSQL lifetime, after metric
+    # qualification. A tag-only rule groups host-only and service problems.
+    membership_time = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(
+        minutes=10
+    )
+    for recovery_order in ("service-first", "host-first"):
+        host_only = f"u29-{recovery_order}-a"
+        service_host = f"u29-{recovery_order}-b"
+        host_object = {"host": host_only, "service": None}
+        service_object = {"host": service_host, "service": "http"}
+        recoveries = (
+            (
+                ("service-recovery", service_host, "http", "OK", [host_object]),
+                ("host-recovery", host_only, None, "UP", []),
+            )
+            if recovery_order == "service-first"
+            else (
+                ("host-recovery", host_only, None, "UP", [service_object]),
+                ("service-recovery", service_host, "http", "OK", []),
+            )
+        )
+        membership_incident_id: str | None = None
+        for offset, (phase, host, service, state, expected_objects) in enumerate(
+            (
+                ("host-problem", host_only, None, "DOWN", None),
+                (
+                    "mixed-problem",
+                    service_host,
+                    "http",
+                    "CRITICAL",
+                    [host_object, service_object],
+                ),
+                *recoveries,
+            )
+        ):
+            status, event_body = _container_http_response(
+                app_container,
+                f"{app_url}/v1/icinga2/events",
+                token=ingress_token,
+                payload={
+                    "source_id": f"u29-{recovery_order}-{offset}",
+                    "host": host,
+                    "service": service,
+                    "state": state,
+                    "state_type": "HARD",
+                    "timestamp": (
+                        membership_time + timedelta(seconds=offset)
+                    ).isoformat(),
+                    "check_output": "Mixed membership deployment smoke",
+                    "tags": {
+                        "smoke.membership": "mixed",
+                        "smoke.group": recovery_order,
+                    },
+                },
+                method="POST",
+            )
+            assert status == 200
+            event = json.loads(event_body)
+            assert event["state_accepted"] is True
+            if state in ("DOWN", "CRITICAL"):
+                assert event["event_type"] == "PROBLEM"
+                assert event["matched_rules"] == ["docker-smoke-mixed-membership"]
+                assert event["group_key"] == f"smoke.group={recovery_order}"
+                event_incident_id = str(UUID(str(event["incident_id"])))
+                if membership_incident_id is None:
+                    membership_incident_id = event_incident_id
+                assert event_incident_id == membership_incident_id
+            else:
+                assert event["event_type"] == "RECOVERY"
+            if expected_objects is None:
+                continue
+            assert membership_incident_id is not None
+            status, incident_body = _container_http_response(
+                app_container,
+                f"{app_url}/v1/incidents/{membership_incident_id}",
+                token=operator_token,
+            )
+            assert status == 200
+            detail = json.loads(incident_body)
+            stored = postgres_json(
+                "SELECT json_build_object("
+                "'status', status, 'active_objects', window_state -> 'active_objects') "
+                f"FROM incidents WHERE id = '{membership_incident_id}'::uuid"
+            )
+            assert isinstance(stored, dict)
+            with capsys.disabled():
+                print(
+                    "Mixed membership deployed HTTP/PostgreSQL (#29): "
+                    + json.dumps(
+                        {
+                            "recovery_order": recovery_order,
+                            "phase": phase,
+                            "http_status": status,
+                            "api_status": detail["status"],
+                            "postgres_status": stored["status"],
+                            "api_active_objects": detail["window_state"][
+                                "active_objects"
+                            ],
+                            "postgres_active_objects": stored["active_objects"],
+                        },
+                        sort_keys=True,
+                    ),
+                    flush=True,
+                )
+            expected_status = "OPEN" if expected_objects else "RESOLVED"
+            assert detail["status"] == expected_status
+            assert stored == {
+                "status": expected_status,
+                "active_objects": expected_objects,
+            }
+            assert detail["window_state"]["active_objects"] == expected_objects
+            assert detail["affected_hosts"] == sorted(
+                {str(item["host"]) for item in expected_objects}
+            )
+            assert detail["affected_services"] == sorted(
+                {
+                    str(item["service"])
+                    for item in expected_objects
+                    if item["service"] is not None
+                }
+            )
 
     def refresh_ready_services(operation: str) -> None:
         nonlocal app_container, postgres_container, mailpit_container

@@ -8,8 +8,10 @@ from app.domain.incidents import (
     DecisionContext,
     IncidentAckRequest,
     IncidentCloseRequest,
+    IncidentObject,
     IncidentStatus,
     IncidentStatusFilter,
+    IncidentWindowState,
     LifecycleOutcome,
     is_terminal_status,
     validate_incident_transition,
@@ -89,6 +91,51 @@ def test_open_is_not_terminal() -> None:
     assert not is_terminal_status(IncidentStatus.OPEN)
     assert is_terminal_status(IncidentStatus.RESOLVED)
     assert is_terminal_status(IncidentStatus.CLOSED)
+
+
+def test_window_state_requires_authoritative_membership() -> None:
+    with pytest.raises(ValidationError, match="active_objects"):
+        IncidentWindowState.model_validate(
+            {
+                "schema_version": 2,
+                "window_started_at": datetime(2026, 6, 8, 11, 55, tzinfo=UTC),
+                "window_ended_at": datetime(2026, 6, 8, 12, 0, tzinfo=UTC),
+                "window_seconds": 300,
+                "threshold_count": 1,
+                "counted_count": 0,
+                "max_size": 100,
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        {"host": ""},
+        {"host": "x" * 257},
+        {"host": None},
+        {"host": 1},
+        {"host": "host-a", "service": ""},
+        {"host": "host-a", "service": "x" * 257},
+        {"host": "host-a", "service": 1},
+        {"host": "host-a", "unknown": "value"},
+    ],
+)
+def test_incident_object_rejects_invalid_or_ambiguous_identity(
+    payload: dict[str, object],
+) -> None:
+    with pytest.raises(ValidationError):
+        IncidentObject.model_validate(payload)
+
+
+def test_incident_object_accepts_bounded_identity_without_allowing_mutation() -> None:
+    member = IncidentObject(host="h" * 256, service="s" * 256)
+
+    assert member.host == "h" * 256
+    assert member.service == "s" * 256
+    with pytest.raises(ValidationError, match="frozen"):
+        member.service = None
 
 
 def test_decision_context_accepts_compact_allowed_facts() -> None:
