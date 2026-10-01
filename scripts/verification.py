@@ -104,8 +104,9 @@ def main() -> int:
         if acquired and project is not None:
             try:
                 if not cleanup_owned(project, invocation, receipt):
-                    raise RuntimeError("verification ownership receipt does not match")
-                receipt.unlink(missing_ok=True)
+                    raise RuntimeError(
+                        "verification invocation ownership does not match"
+                    )
             except OSError, RuntimeError, ValueError, subprocess.SubprocessError:
                 print("Verification resource cleanup failed", file=sys.stderr)
                 result = result or 1

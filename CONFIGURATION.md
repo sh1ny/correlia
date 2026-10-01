@@ -156,7 +156,7 @@ This runs the same quality/audit checks and a portable pytest subset. It require
 | `check:portable` | Portable development checks |
 | `run` | Local reload-enabled FastAPI factory startup |
 | `clean:verification` | Deliberately delete the explicitly identified verification project's resources |
-| `clean:verification:owned` | Automatic cleanup authorized by the current invocation's ownership receipt |
+| `clean:verification:owned` | Automatic cleanup authorized by the current invocation's receipt and Docker namespace claim |
 
 Use `mise run test:deployment` for focused deployment work, not as another step after `ci`. Focused debugging may use `mise exec -- uv run --locked --no-sync pytest <test-path>` after setup; that invocation is not the required gate.
 
@@ -170,7 +170,13 @@ Resolve findings through a reviewed dependency update or removal and an intentio
 
 ### Interrupted-run cleanup
 
-Before creating resources, verification acquires a fresh `correlia-verify-...` namespace and a run-local receipt bound to both its project and invocation. An existing project resource or an existing physical PostgreSQL volume name, even without matching labels, rejects acquisition. A rejected run has no cleanup authority. The fixture, task wrapper and workflow's `clean:verification:owned` finalizer require that matching receipt before automatic deletion; a plausible project name alone is not ownership.
+Before inspecting or creating project resources, verification atomically claims the `correlia-verify-...` namespace with a stopped Docker container named `<project>-verification-owner`. Docker container names are exclusive on one daemon, so concurrent invocations using the same project cannot both acquire it, even from different processes, checkouts or machines. The marker uses the PostgreSQL image from `compose.yaml`, resolved through Compose without credential interpolation; a tmpfs overrides the image's data volume, so the marker creates no persistent database volume. Its verification labels are separate from Compose's project labels so `compose down --remove-orphans` cannot release the claim.
+
+Only the winner inspects the namespace and records a local receipt bound to its project, invocation and immutable marker container ID. Existing project resources or an existing physical PostgreSQL volume name, even without matching labels, still reject acquisition. Rejection removes only the marker that invocation successfully created, never a winner's or replacement marker. If container creation has an ambiguous outcome, no receipt is accepted and any surviving marker requires deliberate manual cleanup.
+
+The fixture, task wrapper and workflow's `clean:verification:owned` finalizer require both the matching receipt and that exact live claim before automatic deletion. Missing, stale or replaced claims grant no cleanup authority; loss of ownership after child success fails the verification command. Nested fixture cleanups and destructive-reset rehearsals retain the claim while the invocation is active. Final cleanup releases the marker by immutable ID and removes its receipt only after all owned resources are gone. Failed resource cleanup or marker release retains the claim and prevents concurrent reuse.
+
+This boundary coordinates verification invocations sharing the same Docker daemon; do not switch Docker contexts during a run. It is not a lock across different daemons, nor can it prevent an operator or other non-cooperating process from deleting the marker or creating foreign resources after inspection. Stop such writers before running verification or authorizing manual deletion.
 
 The smoke prints its project identifier before startup. If automatic cleanup was interrupted, an operator can deliberately delete an identified **disposable verification project** by passing its printed identifier:
 
@@ -178,7 +184,7 @@ The smoke prints its project identifier before startup. If automatic cleanup was
 mise run clean:verification correlia-verify-<printed-suffix>
 ```
 
-This manual command is an explicit deletion authorization, not receipt-gated automatic recovery: it removes containers, volumes and networks labeled for that verification project, including its auxiliary containers. Missing/invalid identifiers and failed cleanup return non-zero. Confirm the printed identifier belongs to the intended disposable run; never substitute a local operator stack or another run's project. Repeating it is safe after those resources are gone. Anonymous volumes without project labels are not discovered or deleted by this command; a rehearsal removes only its own separately recorded anonymous volume. Hard termination or host loss may prevent finalizers from running; ephemeral hosted runners bound that risk, not a guarantee of crash-atomic teardown.
+This manual command is an explicit deletion authorization, not receipt-gated automatic recovery: it removes containers, volumes and networks labeled for that verification project, including its auxiliary containers, then releases its recognized namespace claim only if resource cleanup succeeded. Missing/invalid identifiers and failed cleanup return non-zero. Confirm the printed identifier belongs to the intended disposable run; never substitute a local operator stack or another run's project. Repeating it is safe after those resources are gone. Anonymous volumes without project labels are not discovered or deleted by this command; a rehearsal removes only its own separately recorded anonymous volume. Hard termination or host loss may prevent finalizers from running; ephemeral hosted runners bound that risk, not a guarantee of crash-atomic teardown.
 
 ### Local factory startup
 

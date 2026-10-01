@@ -627,7 +627,7 @@ def _postgres_storage_identity(
     }
 
 
-def _compose_cleanup(stack: dict[str, object]) -> None:
+def _compose_cleanup(stack: dict[str, object], *, release: bool = False) -> None:
     project = str(stack["project"])
     invocation = str(stack.get("invocation", ""))
     receipt = Path(str(stack.get("ownership_receipt", "")))
@@ -645,9 +645,11 @@ def _compose_cleanup(stack: dict[str, object]) -> None:
     except OSError, subprocess.TimeoutExpired:
         failed = True
     try:
-        if not cleanup_verification.cleanup_owned(project, invocation, receipt):
+        if not cleanup_verification.cleanup_owned(
+            project, invocation, receipt, release=release and not failed
+        ):
             failed = True
-    except ValueError, RuntimeError:
+    except OSError, ValueError, RuntimeError:
         failed = True
     if failed:
         pytest.fail("Docker cleanup failed without exposing its diagnostics")
@@ -795,12 +797,53 @@ def test_compose_cleanup_attempts_all_resource_removal_after_down_failure(
         "volume": {"developer-volume"},
         "network": {"developer-network"},
     }
+    claims: dict[str, tuple[str, dict[str, str]]] = {}
 
     def fake_docker(
         arguments: list[str], **_kwargs: object
     ) -> subprocess.CompletedProcess[str]:
+        command = ["docker", *arguments]
         if arguments[0] == "compose":
-            return subprocess.CompletedProcess(["docker", *arguments], 1)
+            if "config" in arguments:
+                return subprocess.CompletedProcess(
+                    command,
+                    0,
+                    stdout=json.dumps(yaml.safe_load(COMPOSE_PATH.read_text())),
+                )
+            return subprocess.CompletedProcess(command, 1)
+        if arguments[0] == "create":
+            name = arguments[arguments.index("--name") + 1]
+            if name in claims:
+                return subprocess.CompletedProcess(command, 1, stdout="")
+            identifier = uuid4().hex * 2
+            labels = dict(
+                arguments[index + 1].split("=", 1)
+                for index, argument in enumerate(arguments)
+                if argument == "--label"
+            )
+            claims[name] = identifier, labels
+            return subprocess.CompletedProcess(command, 0, stdout=identifier)
+        if arguments[:2] == ["container", "inspect"]:
+            claim = claims.get(arguments[-1])
+            if claim is None:
+                return subprocess.CompletedProcess(command, 1, stdout="")
+            identifier, labels = claim
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout=json.dumps(
+                    {
+                        "Id": identifier,
+                        "Name": f"/{arguments[-1]}",
+                        "Config": {"Labels": labels},
+                    }
+                ),
+            )
+        if arguments[:2] == ["rm", "--force"]:
+            for name, (identifier, _) in claims.items():
+                if arguments[-1] == identifier:
+                    del claims[name]
+                    return subprocess.CompletedProcess(command, 0)
         assert (
             arguments == ["volume", "ls", "--quiet"]
             or arguments[-1] == f"label=com.docker.compose.project={project}"
@@ -848,23 +891,29 @@ def test_compose_cleanup_attempts_all_resource_removal_after_down_failure(
     }
 
     with pytest.raises(pytest.fail.Exception, match="Docker cleanup failed"):
-        _compose_cleanup(stack)
+        _compose_cleanup(stack, release=True)
+    assert cleanup_verification.has_ownership(project, invocation, receipt)
     assert resources == {
         "container": {"developer-container"},
         "volume": {"developer-volume"},
         "network": {"developer-network"},
     }
     cleanup_verification.cleanup(project)
+    assert not cleanup_verification.has_ownership(project, invocation, receipt)
 
 
-@pytest.mark.parametrize("receipt_state", ["missing", "project", "invocation"])
+@pytest.mark.parametrize("receipt_state", ["missing", "project", "invocation", "claim"])
 def test_compose_cleanup_refuses_unowned_down(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, receipt_state: str
 ) -> None:
     def unexpected_docker(
-        _arguments: list[str], **_kwargs: object
+        arguments: list[str], **_kwargs: object
     ) -> subprocess.CompletedProcess[str]:
-        pytest.fail("unowned cleanup must not reach Docker Compose or Docker")
+        if receipt_state == "claim" and arguments[:2] == ["container", "inspect"]:
+            return subprocess.CompletedProcess(["docker", *arguments], 1, stdout="")
+        pytest.fail(
+            "unowned cleanup must not reach Docker Compose or resource deletion"
+        )
 
     monkeypatch.setitem(_compose_cleanup.__globals__, "_docker", unexpected_docker)
     monkeypatch.setattr(cleanup_verification, "_docker", unexpected_docker)
@@ -883,6 +932,7 @@ def test_compose_cleanup_refuses_unowned_down(
                     "invocation": (
                         invocation if receipt_state != "invocation" else uuid4().hex
                     ),
+                    "claim": "0" * 64,
                 }
             ),
             encoding="utf-8",
@@ -909,6 +959,8 @@ def test_verification_cleanup_reports_residuals_but_attempts_other_resources(
     }
 
     def fake_docker(arguments: list[str]) -> subprocess.CompletedProcess[str]:
+        if arguments[:2] == ["container", "inspect"]:
+            return subprocess.CompletedProcess(["docker", *arguments], 1, stdout="")
         kind = {
             ("ps", "--all"): "container",
             ("volume", "ls"): "volume",
@@ -969,6 +1021,7 @@ def docker_compose_stack(tmp_path: Path) -> Iterator[dict[str, object]]:
     )
     invocation = os.environ.get("CORRELIA_VERIFICATION_INVOCATION")
     receipt_path = os.environ.get("CORRELIA_VERIFICATION_RECEIPT")
+    owns_invocation = invocation is None and receipt_path is None
     try:
         cleanup_verification.validate_project(project)
         if invocation is not None or receipt_path is not None:
@@ -1141,12 +1194,12 @@ def docker_compose_stack(tmp_path: Path) -> Iterator[dict[str, object]]:
         stack["postgres_storage"] = storage
         _publish_qualification_report("Production PostgreSQL storage", storage)
     except BaseException:
-        _compose_cleanup(stack)
+        _compose_cleanup(stack, release=owns_invocation)
         raise
     try:
         yield stack
     finally:
-        _compose_cleanup(stack)
+        _compose_cleanup(stack, release=owns_invocation)
 
 
 def _load_dotenv_example(path: Path) -> dict[str, str]:

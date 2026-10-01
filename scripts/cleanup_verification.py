@@ -49,58 +49,201 @@ def postgres_data_volume(project: str) -> str:
     return f"{project}_postgres-data"
 
 
+def _claim_name(project: str) -> str:
+    return f"{project}-verification-owner"
+
+
+def _claim_image() -> str:
+    # Task wrappers also run before uv sync, so require no Python dependencies.
+    result = _docker(
+        [
+            "compose",
+            "--file",
+            str(Path(__file__).resolve().parents[1] / "compose.yaml"),
+            "config",
+            "--no-interpolate",
+            "--format",
+            "json",
+        ]
+    )
+    if result is None or result.returncode != 0:
+        raise RuntimeError("unable to read verification ownership image")
+    try:
+        image = json.loads(result.stdout)["services"]["postgres"]["image"]
+    except (ValueError, KeyError, TypeError) as error:
+        raise RuntimeError("unable to read verification ownership image") from error
+    if not isinstance(image, str) or not image.strip():
+        raise RuntimeError("compose.yaml must define a nonempty PostgreSQL image")
+    return image
+
+
+def _claim_identity(project: str) -> tuple[str, str] | None:
+    result = _docker(
+        ["container", "inspect", "--format", "{{json .}}", _claim_name(project)]
+    )
+    if result is None:
+        raise RuntimeError("Docker verification ownership inspection failed")
+    if result.returncode != 0:
+        return None
+    try:
+        recorded = json.loads(result.stdout)
+    except ValueError as error:
+        raise RuntimeError("Docker verification ownership inspection failed") from error
+    if not isinstance(recorded, dict):
+        return None
+    identifier = recorded.get("Id")
+    config = recorded.get("Config")
+    if (
+        not isinstance(identifier, str)
+        or re.fullmatch(r"[a-f0-9]{64}", identifier) is None
+        or recorded.get("Name") != f"/{_claim_name(project)}"
+        or not isinstance(config, dict)
+    ):
+        return None
+    labels = config.get("Labels")
+    if not isinstance(labels, dict):
+        return None
+    invocation = labels.get("correlia.verification.invocation")
+    if (
+        labels.get("correlia.verification.project") != project
+        or not isinstance(invocation, str)
+        or re.fullmatch(r"[a-f0-9]{32}", invocation) is None
+    ):
+        return None
+    return identifier, invocation
+
+
+def _release_claim(identifier: str) -> None:
+    # Never remove by name: a replacement can belong to another invocation.
+    result = _docker(["rm", "--force", identifier])
+    if result is None or result.returncode != 0:
+        raise RuntimeError("Docker verification ownership release failed")
+
+
 def acquire(project: str, invocation: str, receipt: Path) -> None:
-    """Claim a fresh namespace before any resource creation, never adopt a run."""
+    """Exclusively claim the daemon namespace before inspecting or creating data."""
     validate_project(project)
     _validate_invocation(invocation)
     if receipt.exists():
         raise RuntimeError("verification ownership receipt already exists")
-    label = f"label=com.docker.compose.project={project}"
-    for listing, _ in _RESOURCES:
-        result = _docker([*listing, "--filter", label])
-        if result is None or result.returncode != 0:
-            raise RuntimeError("Docker verification acquisition inspection failed")
-        if result.stdout.strip():
-            raise RuntimeError("verification namespace is already occupied")
-
-    # Labels alone cannot detect a foreign or unlabeled volume Compose would reuse.
-    volumes = _docker(["volume", "ls", "--quiet"])
-    if volumes is None or volumes.returncode != 0:
-        raise RuntimeError("Docker verification acquisition inspection failed")
-    if postgres_data_volume(project) in volumes.stdout.split():
-        raise RuntimeError("verification database volume already exists")
+    claim = _docker(
+        [
+            "create",
+            "--quiet",
+            "--name",
+            _claim_name(project),
+            "--label",
+            f"correlia.verification.project={project}",
+            "--label",
+            f"correlia.verification.invocation={invocation}",
+            "--network",
+            "none",
+            "--read-only",
+            # Override the PG16 image VOLUME so the stopped marker creates no data.
+            "--tmpfs",
+            "/var/lib/postgresql/data",
+            "--entrypoint",
+            "/bin/true",
+            _claim_image(),
+        ]
+    )
+    if claim is None or claim.returncode != 0:
+        # A failed/ambiguous create never authorizes removing the named container.
+        raise RuntimeError("Docker verification namespace claim failed")
+    identifier = claim.stdout.strip()
+    if re.fullmatch(r"[a-f0-9]{64}", identifier) is None:
+        raise RuntimeError("Docker verification namespace claim failed")
     try:
-        with receipt.open("x", encoding="utf-8") as ownership:
-            json.dump({"project": project, "invocation": invocation}, ownership)
-    except OSError as error:
-        raise RuntimeError("unable to record verification ownership") from error
+        label = f"label=com.docker.compose.project={project}"
+        for listing, _ in _RESOURCES:
+            result = _docker([*listing, "--filter", label])
+            if result is None or result.returncode != 0:
+                raise RuntimeError("Docker verification acquisition inspection failed")
+            if result.stdout.strip():
+                raise RuntimeError("verification namespace is already occupied")
+
+        # Labels cannot detect a foreign or unlabeled volume Compose would reuse.
+        volumes = _docker(["volume", "ls", "--quiet"])
+        if volumes is None or volumes.returncode != 0:
+            raise RuntimeError("Docker verification acquisition inspection failed")
+        if postgres_data_volume(project) in volumes.stdout.split():
+            raise RuntimeError("verification database volume already exists")
+        if _claim_identity(project) != (identifier, invocation):
+            raise RuntimeError("verification ownership claim does not match")
+        try:
+            with receipt.open("x", encoding="utf-8") as ownership:
+                json.dump(
+                    {
+                        "project": project,
+                        "invocation": invocation,
+                        "claim": identifier,
+                    },
+                    ownership,
+                )
+        except OSError as error:
+            raise RuntimeError("unable to record verification ownership") from error
+    except RuntimeError:
+        # Rejected acquisition may remove only the marker it actually created.
+        _release_claim(identifier)
+        raise
 
 
-def has_ownership(project: str, invocation: str, receipt: Path) -> bool:
-    """A project identifier by itself never authorizes automatic deletion."""
+def _owned_claim(project: str, invocation: str, receipt: Path) -> str | None:
     validate_project(project)
     _validate_invocation(invocation)
     try:
         recorded = json.loads(receipt.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return False
+        return None
     except (OSError, ValueError) as error:
         raise RuntimeError("unable to read verification ownership receipt") from error
-    return recorded == {"project": project, "invocation": invocation}
+    if (
+        not isinstance(recorded, dict)
+        or recorded.get("project") != project
+        or recorded.get("invocation") != invocation
+    ):
+        return None
+    identifier = recorded.get("claim")
+    if (
+        not isinstance(identifier, str)
+        or re.fullmatch(r"[a-f0-9]{64}", identifier) is None
+        or _claim_identity(project) != (identifier, invocation)
+    ):
+        return None
+    return identifier
 
 
-def cleanup_owned(project: str, invocation: str, receipt: Path) -> bool:
-    """Use the same ownership boundary for fixture, task and workflow finalizers."""
-    if not has_ownership(project, invocation, receipt):
+def has_ownership(project: str, invocation: str, receipt: Path) -> bool:
+    """Require both a local receipt and its exact daemon-visible invocation claim."""
+    return _owned_claim(project, invocation, receipt) is not None
+
+
+def cleanup_owned(
+    project: str, invocation: str, receipt: Path, *, release: bool = True
+) -> bool:
+    """Keep the claim on failure, or while a nested fixture still needs the project."""
+    identifier = _owned_claim(project, invocation, receipt)
+    if identifier is None:
         return False
-    cleanup(project)
+    _cleanup_resources(project)
+    if _claim_identity(project) != (identifier, invocation):
+        raise RuntimeError("verification ownership claim does not match")
+    if release:
+        _release_claim(identifier)
+        receipt.unlink(missing_ok=True)
     return True
 
 
 def cleanup(project: str) -> None:
-    """Remove labeled containers, volumes and networks; fail on any incomplete step."""
+    """Deliberately remove a project's resources, releasing its claim only on success."""
     validate_project(project)
+    claim = _claim_identity(project)
+    _cleanup_resources(project)
+    if claim is not None:
+        _release_claim(claim[0])
 
+
+def _cleanup_resources(project: str) -> None:
     label = f"label=com.docker.compose.project={project}"
     failed = False
     for listing, removal in _RESOURCES:
@@ -127,7 +270,7 @@ def main() -> None:
     parser.add_argument(
         "--owned",
         action="store_true",
-        help="require this invocation's ownership receipt",
+        help="require this invocation's receipt and Docker ownership claim",
     )
     parser.add_argument(
         "--invocation", default=os.getenv("CORRELIA_VERIFICATION_INVOCATION")
@@ -141,10 +284,8 @@ def main() -> None:
                 print("No verification ownership receipt; skipping automatic cleanup")
                 return
             receipt = Path(arguments.receipt)
-            if cleanup_owned(project, arguments.invocation, receipt):
-                receipt.unlink(missing_ok=True)
-            else:
-                print("No matching verification ownership receipt; skipping cleanup")
+            if not cleanup_owned(project, arguments.invocation, receipt):
+                print("No matching verification ownership; skipping cleanup")
         else:
             cleanup(arguments.project)
     except (OSError, ValueError, RuntimeError) as error:
