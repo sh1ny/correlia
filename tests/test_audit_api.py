@@ -1345,3 +1345,40 @@ async def test_ingress_recovery_persists_full_ids_with_bounded_summary(
             == audit_event.incident_ids[:AUDIT_INCIDENT_IDS_MAX]
         )
         assert audit_event.decision_summary["incident_ids_truncated"] is True
+        assert (
+            audit_event.decision_summary["affected_incident_count"]
+            == AUDIT_INCIDENT_IDS_MAX + 1
+        )
+
+        operator_headers = {"Authorization": f"Bearer {OPERATOR_TOKEN}"}
+        audit_response = await client.get(
+            "/v1/incident-events",
+            params={"incident_id": audit_event.incident_ids[-1]},
+            headers=operator_headers,
+        )
+        assert audit_response.status_code == 200
+        audit_page = audit_response.json()
+        assert audit_page["total"] == 1
+        assert [
+            {
+                key: item[key]
+                for key in (
+                    "id",
+                    "source_id",
+                    "fingerprint",
+                    "incident_ids",
+                    "incident_effect",
+                    "decision_summary",
+                )
+            }
+            for item in audit_page["items"]
+        ] == [
+            {
+                "id": str(audit_event.id),
+                "source_id": audit_event.source_id,
+                "fingerprint": audit_event.fingerprint,
+                "incident_ids": audit_event.incident_ids[:AUDIT_INCIDENT_IDS_MAX],
+                "incident_effect": audit_event.incident_effect,
+                "decision_summary": audit_event.decision_summary,
+            }
+        ]

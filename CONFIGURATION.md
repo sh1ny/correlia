@@ -597,6 +597,8 @@ from urllib.request import Request, urlopen
 from uuid import UUID
 from time import sleep
 
+from app.domain.audit import AUDIT_INCIDENT_IDS_MAX
+
 base = "http://127.0.0.1:8000"
 operator = os.environ["CORRELIA_OPERATOR_API_TOKEN"]
 ingress = os.environ["CORRELIA_INGRESS_API_TOKEN"]
@@ -652,12 +654,14 @@ while True:
     if cursor is None:
         break
 for audit in saved["audit"]:
-    assert actual_audit[audit["id"]] == {key: audit[key] for key in fields}
+    expected_audit = {key: audit[key] for key in fields}
+    expected_audit["incident_ids"] = audit["incident_ids"][:AUDIT_INCIDENT_IDS_MAX]
+    assert actual_audit[audit["id"]] == expected_audit
 print("Restored incident/acknowledgement/audit and operator role boundaries verified")
 PY
 ```
 
-The probe scans the audit endpoint once globally, using 200-row pages and `next_cursor`, retaining the baseline audit IDs and selected values; it must not accept a missing baseline row. Operator verification GETs honor a 429 response's positive numeric `Retry-After` by sleeping and retrying the same path/page without relaxing quotas. A missing or invalid header stops the probe; other errors are not retried. No raw payloads are needed. PostgreSQL JSON timestamps and HTTP timestamps can differ in spelling; compare timestamp **instants**, not their rendered strings.
+The probe scans the audit endpoint once globally, using 200-row pages and `next_cursor`, retaining the baseline audit IDs and selected values; it must not accept a missing baseline row. The pre-startup SQL comparison verifies the complete persisted incident linkage. The HTTP comparison expects only its `AUDIT_INCIDENT_IDS_MAX`-bounded prefix and preserves the full saved decision-summary comparison, including `affected_incident_count` and `incident_ids_truncated`; a recovery linking more incidents than the API cap must still pass when restored correctly. Operator verification GETs honor a 429 response's positive numeric `Retry-After` by sleeping and retrying the same path/page without relaxing quotas. A missing or invalid header stops the probe; other errors are not retried. No raw payloads are needed. PostgreSQL JSON timestamps and HTTP timestamps can differ in spelling; compare timestamp **instants**, not their rendered strings.
 
 After the baseline matches and startup expiry changes are understood, prepare **one intended new monitoring event** in a protected `$WORK/accepted-event.json` file, with a new `source_id` and a payload that matches the configured rules. Then admit and read back its committed records:
 
