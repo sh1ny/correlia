@@ -54,6 +54,76 @@ artifacts:
       openspec/specwright.yaml, default openspec/roadmap.md), name the
       milestone this change serves and the exit criteria it advances in Why.
 
+      Decision mode. Before you write proposal.md, resolve the mode for this
+      change. Read `decision_making` from the code repo's
+      openspec/specwright.yaml: `autonomous`, `important` or `all`; unset
+      means `autonomous`, and no decision is put to the user for it.
+
+      If `decision_making` is anything else (an unknown value such as
+      `ask`), stop before any decision is written. Name the value you found
+      and the three valid values: `autonomous`, `important`, `all`.
+
+      An instruction from the user when the change starts, naming a mode or
+      saying how much to be asked ("ask me everything for this one"), sets
+      the mode for this change only. It does not change
+      openspec/specwright.yaml. An instruction given mid-planning applies
+      from then on; decisions already written stay unless the user asks to
+      revisit them. Once proposal.md exists,
+      update the `DECISION_MAKING:` and `Source:` lines there in the same
+      turn the override is given, so later sessions, review fix rounds and
+      apply read the mode in force.
+
+      Record the mode in force in a `## Decision Making` section of
+      proposal.md, the first artifact written: a `DECISION_MAKING: <mode>`
+      line, a `Source:` line (`setting`, or `user` with the user's quoted
+      words), then the scope decisions of this change as `S1`, `S2`... each
+      with Choice, Rejected, Reversal cost, Important and Chosen by.
+
+      Classify each scope or non-goal decision before asking: `Important:
+      yes` when any one of four criteria is met, naming the criterion: high
+      reversal cost; binds future changes (contract, data format, config
+      key, boundary); changes behaviour or settings users see; chosen on
+      weak evidence. Otherwise `Important: no`. The design step uses the
+      same four criteria. `Chosen by: user` when the user chose or stated
+      it, in any mode, else `agent`.
+
+      Asking. The questions are asked before the artifact that holds the
+      decision is written: scope and non-goal choices before proposal.md is
+      written (the proposal is written as soon as they are answered), design
+      decisions before design.md is written. In `important` mode ask the
+      user about each important decision before it is written, and in
+      `all` mode about every decision; each question has a recommended
+      option. The other decisions are taken by the agent and recorded
+      `Chosen by: agent`. In `autonomous` mode nothing is asked.
+
+      Put the questions in batches of at most 4, or fewer when the usable
+      ask tool takes fewer questions per call. More decisions: more batches;
+      every decision is still asked.
+
+      Each question offers 2 to 4 options, cut to the ask tool's option
+      limit by dropping the weakest alternatives. Always keep the
+      recommended option marked, and a way to discuss: the tool's free-text
+      answer when it has one, else a discuss option.
+
+      Put each batch through the harness's own ask tool when it is usable in
+      the current session and mode, so the user picks rather than types.
+      Plain text is the fallback only: when no ask tool is usable (the
+      harness has none, or the session or mode does not allow it), print the
+      batch as plain text with lettered options, the recommended one marked
+      and a discuss option, and wait for the answer before writing the
+      decisions.
+
+      A decision under discussion is not written until the user settles it
+      with a choice, recorded `Chosen by: user`. If the user hands it back
+      ("you decide"), take the recommended option and record
+      `Chosen by: agent`, with a note that the user handed it back.
+
+      Later sessions of the change, review fix rounds and apply read the mode
+      from the `DECISION_MAKING:` line in proposal.md, not from the
+      conversation. A proposal with no mode line (planned before this
+      existed) uses the setting; do not rewrite or edit an artifact for the
+      missing line.
+
       Keep it concise (1-2 pages). Focus on the "why" not the "how" -
       implementation details belong in design.md.
 
@@ -228,6 +298,46 @@ artifacts:
         sequencing, integration pattern - not cosmetically), why it lost, and
         its reversal cost (low/medium/high). High reversal cost on weak
         evidence is a risk: name the evidence that would settle it.
+
+        Each Decisions entry also records `Important: yes|no` and
+        `Chosen by: agent|user`. Important is yes when any one of four
+        criteria is met, and the entry names the criterion: high reversal
+        cost; binds future changes (contract, data format, config key,
+        boundary); changes behaviour or settings users see; chosen on weak
+        evidence. Otherwise it is no. A config key decision is therefore
+        always `Important: yes`.
+
+        Chosen by is `user` when the user chose or stated the decision, in
+        any mode, else `agent`. A choice the user stated before planning began
+        (in the conversation, or in the issue they approved) is recorded
+        `Chosen by: user` without asking again; it is not a question.
+
+        Asking: put the decisions to the user before design.md is written,
+        by the same asking rule as the proposal step. In `important` mode
+        ask about each important decision, in `all` mode about every
+        decision, each with a recommended option and 2 to 4 options, cut to
+        the ask tool's option limit by dropping the weakest, keeping the
+        recommended one and a way to discuss (the tool's free-text answer,
+        else a discuss option). Batches of at most 4, fewer when the tool
+        takes fewer; more decisions: more batches, every decision asked.
+        Use the harness's own ask tool when it is usable, so the user picks;
+        plain text with lettered options is the fallback only, when no ask
+        tool is usable (the harness has none, or the session or mode does
+        not allow it), then wait for the answer. The other decisions are
+        `Chosen by: agent`. A decision under discussion is not written until
+        the user settles it, `Chosen by: user`; "you decide" takes the
+        recommended option, `Chosen by: agent`, with a note that the user
+        handed it back.
+
+        Wording of a message, the order of tasks and the layout of a test are
+        not decisions: they get no Decisions entry.
+
+        Decision summary: after the last decision, write a `### Decision
+        summary` table with columns #, Decision, Choice, Rejected, Reversal
+        cost, Important, Chosen by. It has one row per decision: one row per
+        scope decision from proposal.md (S1...) and per design decision
+        (D1...). Whenever an entry is added, removed or changed, update the
+        table in the same edit, so the rows match the entries one to one.
       - Diagrams (FULL): at least one mermaid diagram per applying trigger
         among T1-T4 (component graph, state machine, sequence, data flow).
         Token cost is not a reason to omit one.
@@ -378,6 +488,20 @@ artifacts:
       anyway: record it with `CHANGES_APPLIED: n/a`, the user's words and the
       open findings. A deferral or waiver is never recorded as USER_OVERRIDE.
 
+      Required Changes and decisions: before applying a Required Change that
+      reverses a `Chosen by: user` decision, put it to the user, in any mode
+      (autonomous included), with options and a recommended one. Until the user
+      answers, that decision's entry and its summary row stay unchanged. A
+      Required Change that touches only `Chosen by: agent` decisions is
+      applied per the change's decision mode (the `DECISION_MAKING:` line in
+      proposal.md, else the setting): in autonomous mode without asking, in
+      `important` and `all` mode put to the user as the mode requires. Each
+      applied change updates the Decisions entry and the summary table. The
+      same holds for a fix round
+      after `REVISE` or any other verdict: a decision added or changed
+      while addressing review findings follows the decision mode, and a
+      `Chosen by: user` decision goes to the user first, in any mode.
+
       Two more verdicts exist only on the user's word; reviewers never produce
       them (`review-run.sh` refuses both):
       - `VERDICT: DEFERRED`: only when the user declared a FULL-tier change a
@@ -439,6 +563,10 @@ artifacts:
 
       If design.md lists new or superseding ADRs, the first task group
       writes those ADR files.
+
+      At the end of planning, before apply, show the user the Decision
+      summary table from design.md. In `autonomous` mode planning does not
+      wait for an answer to it: show it and continue, with no question.
 
       **IMPORTANT: Follow the template below for tracked tasks.** The apply phase parses
       checkbox format to track progress. A box holding only `x` counts as done,
@@ -538,6 +666,13 @@ apply:
       around it. Amend the artifact and re-run the review step, whatever the
       tier (the old verdict is void; LIGHT re-checks its triage and may become
       FULL), commit the amendments, update tasks and the test map, then
-      resume.
+      resume. A replacement decision follows the change's recorded mode (the
+      `DECISION_MAKING:` line in proposal.md, else the setting): in `all` mode,
+      or in `important` mode when it is important, put it to the user before
+      amending the design; otherwise the agent takes it without asking. In
+      autonomous mode an amended `Chosen by: agent` decision keeps
+      `Chosen by: agent`. Either way update the Decisions entry and the
+      summary table. A `Chosen by: user` decision is always put to the user,
+      in any mode, and stays as it is until they answer.
     - Do not claim a task complete without a fresh run of its verification.
     Pause if you hit blockers or need clarification.

@@ -2,7 +2,7 @@
 name: specwright-debug
 description: "Root-cause debugging discipline: reproduce, trace, test hypotheses, fix test-first. Use for unexplained failures, not for the deliberate red step of test-first work. Triggers: a bug report, an issue link, an unexpected test or CI failure, an error or crash, 'debug this', 'why does X happen', 'fix this bug', or specwright-pr watch handing off a CI failure."
 metadata:
-  version: 0.16.0
+  version: 0.17.0
 ---
 
 # Specwright Debug

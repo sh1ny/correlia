@@ -22,13 +22,22 @@ TIER: <VALUE>
 
 ## Decisions
 
-<!-- Repeat per decision. -->
+<!-- Repeat per decision (D1, D2...), each before the Decision summary. -->
 
 ### D1: <!-- decision -->
 
 - **Choice:** <!-- what -->
 - **Rejected:** <!-- structurally different alternative --> because <!-- why it lost -->
 - **Reversal cost:** <!-- low | medium | high --> <!-- if high on weak evidence: what evidence would settle it -->
+- **Important:** <!-- yes | no --> <!-- if yes: the criterion met (high reversal cost | binds future changes | changes what users see | weak evidence) -->
+- **Chosen by:** <!-- agent | user (user when the user chose or stated it, in any mode) -->
+
+### Decision summary
+
+<!-- Goes after the last decision. One row per scope decision (S1...) from proposal.md and per design decision (D1...). Update in the same edit as any entry. -->
+
+| # | Decision | Choice | Rejected | Reversal cost | Important | Chosen by |
+|---|---|---|---|---|---|---|
 
 <!-- ===== LIGHT tier ends here. Delete everything below for LIGHT. ===== -->
 

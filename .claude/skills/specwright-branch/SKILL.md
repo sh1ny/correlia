@@ -2,7 +2,7 @@
 name: specwright-branch
 description: "MANDATORY gate when a new OpenSpec change starts: /opsx:new, /opsx:propose, /opsx:ff, openspec-new-change, openspec-propose, openspec-ff-change, `openspec new change`, or the user asks to start/propose a change. Runs BEFORE any change file exists: checks the repo is on a clean main branch, then creates <prefix>/<change-name>."
 metadata:
-  version: 0.16.0
+  version: 0.17.0
 user-invocable: false
 allowed-tools: Bash(git *) Bash(openspec *) Bash(bash *)
 ---

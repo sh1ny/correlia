@@ -87,8 +87,8 @@ directly from `.claude/skills/<name>/SKILL.md`.
 
 ## Specwright notes
 
-- Installed: Specwright 0.16.0 (`openspec/.specwright/VERSION`); update to **0.17.0** (the
-  `decision_making` setting) before the first `/specwright-roadmap next`.
+- Installed: Specwright 0.17.0 (`openspec/.specwright/VERSION`), which provides the
+  `decision_making` setting.
 - **specwright#140 workaround:** `.claude/agents/specwright-implementer*.md` add `ToolSearch, mcp__dart__*`
   to `tools:` so implementers can use the Dart MCP. **Every Specwright update overwrites this; re-apply it
   after each update.** OMP implementers fall back to the mise tasks.

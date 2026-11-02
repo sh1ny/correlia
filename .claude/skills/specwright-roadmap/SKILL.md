@@ -2,7 +2,7 @@
 name: specwright-roadmap
 description: "Project-level planning above OpenSpec changes: strategy, architecture baseline (foundational ADRs) and a milestone roadmap. Modes: init (turn a big project idea or brief into strategy, architecture and roadmap), next (start the next change of the current milestone, or offer close at its end), close (verify a milestone's exit criteria and plan the next one), status, pack <name> (set up an enabled, installed pack: ask its questions, write its documents). Triggers: 'set up the <name> pack', a project idea too big for one change, 'plan this project', 'create a roadmap', 'what's next on the roadmap', 'next change/milestone', 'close the milestone', 'roadmap status', or specwright-finish offering next/close."
 metadata:
-  version: 0.16.0
+  version: 0.17.0
 ---
 
 # Specwright Roadmap

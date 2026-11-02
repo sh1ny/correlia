@@ -2,7 +2,7 @@
 name: specwright-pr
 description: "GitHub pull request workflow for Specwright projects, in three modes. ship: push the branch and open or update its PR with a good description, then request review. feedback: fetch all unresolved review threads and comments, judge them, fix, reply and resolve. watch: wait for CI and reviews in the background and handle what arrives until the PR is ready to merge. Triggers: 'open a PR', 'ship this', 'push and create PR', 'address/resolve PR comments', 'handle review feedback', 'babysit/watch the PR', 'fix CI on the PR', or the specwright-commit/specwright-finish skills handing off in pr mode."
 metadata:
-  version: 0.16.0
+  version: 0.17.0
 ---
 
 # Specwright PR

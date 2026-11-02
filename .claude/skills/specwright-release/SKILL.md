@@ -2,7 +2,7 @@
 name: specwright-release
 description: "Opt-in release tagging for Specwright projects (release.enabled): bumps the version files as a tracked task in a change, and after the change is on main publishes the annotated tag and the GitHub release through scripts/release.sh. Backfills an older untagged version on request. Triggers: 'release', 'tag', 'publish v0.5.0', 'backfill a tag', or specwright-finish, specwright-pr watch and specwright-roadmap close offering a release."
 metadata:
-  version: 0.16.0
+  version: 0.17.0
 ---
 
 # Specwright Release
