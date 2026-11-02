@@ -85,8 +85,8 @@ flowchart LR
 
 | State | Sole writer | Lifetime | Invalidation / rebuild | Authoritative copy |
 |---|---|---|---|---|
-| `raw_inbox` | Webhook routes, pull sources (insert); pipeline (state) | `done` rows: retention window (default 7 d). `pending`/`failed` or dead-letter-referenced rows never expire (ADR 0005) | Pipeline replay with the pinned config version | Postgres |
-| `events` (canonical) | Pipeline normalize/enrich stage | Retention (default 30 d), partitioned; kept while referenced by a pending or dead-lettered outbox row | Evidence, not state. Re-derivable from `raw_inbox` while that is retained | Postgres |
+| `raw_inbox` | Webhook routes, pull sources (insert); pipeline (state) | `done` rows: retention window (configurable, default 30 d). `pending`/`failed` or dead-letter-referenced rows never expire (ADR 0005) | Pipeline replay with the pinned config version | Postgres |
+| `events` (canonical) | Pipeline normalize/enrich stage | Retention (configurable, default 90 d), partitioned; kept while referenced by a pending or dead-lettered outbox row | Evidence, not state. Re-derivable from `raw_inbox` while that is retained | Postgres |
 | `alerts` (state per fingerprint, with ordering fence) | `StateMutationService` | Firing: indefinite. Resolved: kept as tombstone at least the lateness horizon (default 7 d) | **Authoritative, never rebuilt** from events (ADR 0007) | Postgres |
 | `incidents`, `incident_alerts`, `threshold_contributions`, `incident_transitions` | `StateMutationService` only (pipeline, operator actions, expiry/reminder jobs, merge/split all call it) | Indefinite (archival policy later) | Not rebuilt; the activity ledger explains every change | Postgres |
 | `activity` ledger (also the change feed, cursor `(txid, id)`) | `StateMutationService`, endpoints | Indefinite (feed retention configurable; older cursors get `cursor_expired`) | Append-only | Postgres |
@@ -136,7 +136,7 @@ flowchart LR
 | Ingest dedup | Window 10 min (configurable) | Older retries are new deliveries; event ids still dedupe them downstream (ADR 0012) | n/a | `duplicate` counter |
 | Outbox per output | Max attempts with exponential backoff | Moved to `outbox_dead` | Attempt record with error class | Console output health; dead-letter replay |
 | Plugin process | Start timeout, health interval, crash budget | Circuit open: plugin `degraded` | Restart with backoff | Console plugin status; activity entry |
-| Tables over time | Retention per table (raw `done` 7 d, events 30 d, delivered outbox 7 d), only terminal rows (ADR 0005) | Partitions dropped only when they hold no unfinished row; otherwise eligible rows deleted | Partition job failure alarm | Health endpoint + console system page |
+| Tables over time | Retention per table, configurable (defaults: raw `done` 30 d, events 90 d, delivered outbox 7 d), only terminal rows (ADR 0005) | Partitions dropped only when they hold no unfinished row; otherwise eligible rows deleted | Partition job failure alarm | Health endpoint + console system page |
 
 ## Correctness invariants (legacy defects and hazards)
 

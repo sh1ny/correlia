@@ -336,7 +336,8 @@ state.
   - retention settings in the console;
   - backup and restore guide with a tested drill (UPG-2);
   - migration tests on populated databases (UPG-1).
-- **Identity:** generic OIDC provider (D13); session hardening; API key rotation.
+- **Identity:** generic OIDC provider (D13), with automated tests against Keycloak and Authentik
+  containers (Entra ID best-effort); session hardening; API key rotation.
 - **Observability:** OpenTelemetry traces and metrics for the pipeline, relays and plugins; Prometheus
   metrics endpoint; structured logs; Correlia monitors itself (heartbeat alerts).
 - **Packaging:** container image; docker compose; systemd unit for a single binary; Helm chart (D12);
