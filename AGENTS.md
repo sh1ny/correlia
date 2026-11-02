@@ -53,7 +53,7 @@ These instructions are shared by every harness (Claude Code, Codex, OMP). Keep t
 ## Testing
 
 - Server and integration tests run on **Linux through WSL** (Ubuntu 24.04); the repository stays on Windows.
-  The M0 change `bootstrap-workspace` adds `mise run test:wsl` and documents the runner. Until then there
+  The M1 change `bootstrap-workspace` adds `mise run test:wsl` and documents the runner. Until then there
   are no tests.
 - Tiers (tags): fast unit tests (no database, the default loop); `db` tests (embedded Postgres through
   `withServerpod`); `e2e` tests (HTTP ingress through to outputs); `plugin` tests (spawn real plugin
