@@ -1,6 +1,6 @@
 # 0003. Flutter web for the operator console
 
-- Status: proposed
+- Status: accepted (2026-11-03)
 - Date: 2026-11-03
 - Supersedes: none
 

@@ -1,6 +1,6 @@
 # 0007. State model: authoritative alert state, relational incidents, one mutation protocol and a lossless change feed
 
-- Status: proposed
+- Status: accepted (2026-11-03)
 - Date: 2026-11-03
 - Supersedes: none
 
@@ -56,6 +56,8 @@ therefore does not protect incidents.
   5 minutes). The original is kept. Operational expiry, windows and reminders use observed time.
 - **Lateness horizon** (default 7 days): an event whose effective source time is older than the horizon is
   stored, marked `late`, and changes no state.
+- **Future limit** (default 24 hours): an event whose source time is further ahead of its observed time is
+  quarantined as `future_dated` and changes no state (ADR 0012).
 - **Tombstones:** resolved alert rows are kept at least as long as the lateness horizon, so a delayed or
   replayed event always meets its fence.
 
@@ -84,10 +86,13 @@ No other code writes those tables.
   - operator actions, expiry and reminders: the target incidents' stored group keys;
   - merge and split: the groups of every incident involved.
 
-  It takes those group locks in ascending order, then reads membership and the alert's active memberships
-  under them. If the alert has gained a membership in a group it did not lock (a concurrent join through
-  another rule), the transaction rolls back and restarts with the larger set (bounded by the retry policy
-  below). Then it locks alert rows and incident rows in hierarchy order.
+  It takes those group locks in ascending order and reads membership under them. Then it locks the
+  affected alert rows (for incident-wide operations: every member alert), and **after** holding the alert
+  locks it re-reads each locked alert's active memberships. Every group found there must already be in the
+  lock set. If one is not (a join committed between discovery and the alert lock), the transaction rolls
+  back and restarts with the larger set, bounded by the retry policy below. A writer never takes a group
+  lock while it holds an alert or incident lock. Once validated, no other writer can add a membership to a
+  locked alert, because that needs the alert lock too. Incident rows are locked last.
 - **Opening an incident:** under the group lock, read the open incident for the key and insert one if
   there is none. The partial unique index is a backstop: a violation is a protocol bug, retried and
   counted (B2).

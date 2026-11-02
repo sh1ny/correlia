@@ -269,7 +269,9 @@ state.
   syncs back to the incident; links shown in the console.
 - **Two-way sync:** Icinga2 ack/downtime, PagerDuty ack/resolve, Slack/Mattermost interactive buttons.
 - **Runbooks:** links and inline markdown per rule or label; no code execution.
-- **Approval gate:** an optional human approval step for actions marked sensitive.
+- **Declared actions and approval:** plugins declare their actions in the manifest, marked read-only or
+  state-changing. Only declared actions can be called. State-changing actions need a human approval when
+  they are proposed by automation that reads untrusted alert text (and always when AI is added later).
 
 **Exit criteria:**
 - [agent] Workflows survive a worker restart mid-run; each action has contract tests.

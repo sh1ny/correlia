@@ -17,7 +17,7 @@ changes in a spec amendment.
 | ORD-2 | Recovery at t2 is processed, then a stale problem at t1 arrives | The alert stays resolved; no incident is reopened or created | M1 |
 | ORD-3 | Problem and recovery with equal source time | Tie broken by observed time, then event id (strategy assumption 5); the outcome is deterministic across replays | M1 |
 | ORD-4 | Event with source time in the future beyond the skew limit | Accepted; source time is clamped for operational expiry and the clamp is recorded; correlation windows are not stretched (legacy 6.2) | M2 |
-| ORD-5 | The same observation delivered again: (a) a sender retry inside the dedup window; (b) re-batched in another webhook; (c) a retry of a firing observation after a recovery with the same source time, after the transport dedup window expired | (a) deduplicated at ingest; (b) and (c) `duplicate_observation` with no state, contribution or notification effect; the alert stays resolved in (c) | M1 |
+| ORD-5 | The same observation delivered again: (a) a sender retry inside the dedup window; (b) re-batched in another webhook; (c) a retry of a firing observation after a recovery with the same source time, after the transport dedup window expired; (d) a firing observation with source time 1 h in the future, then a recovery, then a retry of the firing after its observation key expired; (e) source time 3 days in the future; (f) generic mapping without a native id: firing with source time 1 h ahead, then a recovery, then a retry of the firing after the transport dedup window | (a) deduplicated at ingest; (b) and (c) `duplicate_observation` with no state, contribution or notification effect; the alert stays resolved in (c) and (d) (the retry is `late`); (e) quarantined as `future_dated`, no state effect; (f) same event id (reported source time), `duplicate_observation`, the alert stays resolved | M1 |
 | ORD-6 | A firing event older than the lateness horizon arrives after the alert resolved and its events expired | Stored as `late`; the tombstone fence holds; no alert or incident change | M2 |
 
 ## Identity and bounds
@@ -44,7 +44,7 @@ changes in a spec amendment.
 | COR-6 | 10,000 alerts for one group in 60 s (hot group) | One incident; no lost membership; no deadlock; serialization retries visible in metrics | M3 (correctness), M10 (latency target) |
 | COR-7 | Manual close while alerts are still firing | Policy from open decision D6; tested both ways once chosen | M3 |
 | COR-8 | Re-acknowledge by another user (legacy B10) | Ownership transfers; the ledger keeps both actions with their actors and times | M4 |
-| COR-9 | Merge, split or expiry races a concurrent join of a new alert through another rule | Discover-lock-revalidate restarts the writer; membership ends consistent; no lost join | M3 |
+| COR-9 | Merge, split, expiry or a recovery races a concurrent join of the same alert through another rule, including a join committed between the writer's group-lock membership check and its alert-row lock | The post-alert-lock revalidation finds the new group, rolls back and restarts with it; the recovery leaves no active membership behind; no lost join | M3 |
 
 ## Durability and delivery
 
@@ -78,6 +78,9 @@ changes in a spec amendment.
 | RUL-1 | Rule priority, tag and topology examples from the docs (legacy acceptance 9) | Executable examples: the simulator produces the documented decisions | M2 |
 | RUL-2 | A rule references a field missing from the event | Visible in the simulator as "no match: field missing"; never a silent fallback | M2 |
 | RUL-3 | A regex rule with catastrophic backtracking | Timed out; skipped and counted; the event continues | M2 |
+| RUL-6 | The same rule corpus evaluated in memory and as SQL over stored events (missing fields, nulls, case, severity order, wildcards in values) | Identical results in both evaluators | M2 |
+| RUL-7 | A rule that times out on every event: (a) its fallback is valid; (b) its fallback is a previous rule version that references an output removed from the current registry | Skipped and counted against the pinned version, with a self-alert; ingestion continues. (a) A new configuration version disabling or replacing the rule is validated and activated atomically on all workers. (b) The fallback is rejected by validation and does not activate. In both, existing raw-row pins are unchanged | M2 |
+| RUL-8 | A generic mapping with neither an observation id nor a source time field | Activation fails with a validation error | M2 |
 | RUL-4 | Activating a new rule set version | Atomic: every worker switches at a version boundary; rollback restores the previous version | M2 |
 | RUL-5 | A provisioned (YAML) rule edited in the UI | Refused: provisioned rules are read-only in the UI | M4 |
 

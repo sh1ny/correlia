@@ -1,6 +1,6 @@
 # 0011. The NATS output is the first external plugin, written in Go
 
-- Status: proposed
+- Status: accepted (2026-11-03)
 - Date: 2026-11-03
 - Supersedes: none
 

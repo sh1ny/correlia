@@ -1,6 +1,6 @@
 # 0009. Identity and access: Serverpod auth for people, scoped tokens for machines
 
-- Status: proposed
+- Status: accepted (2026-11-03)
 - Date: 2026-11-03
 - Supersedes: none
 

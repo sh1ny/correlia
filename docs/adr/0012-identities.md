@@ -1,6 +1,6 @@
 # 0012. Four identities: source, transport delivery, observation and alert
 
-- Status: proposed
+- Status: accepted (2026-11-03)
 - Date: 2026-11-03
 - Supersedes: none
 
@@ -48,7 +48,11 @@ fixed Correlia namespace UUID.
   - Icinga2 check result execution time;
   - Alertmanager (status, `startsAt`, `endsAt`);
   - a declared id field in a generic mapping.
-- Otherwise the observation key is (status, severity, effective source time).
+- Otherwise the observation key is (status, severity, **reported source time**): the timestamp exactly as
+  the source sent it, never the clamped effective time, so it cannot change between deliveries.
+- **Every source has delivery-independent evidence.** Each built-in decoder has a native key or a source
+  time. A generic mapping must declare an observation id field or a source time field; activation of a
+  mapping without either fails validation (ADR 0008). There is no arrival-time fallback.
 - It does not depend on how a sender batched alerts into one webhook. Re-batched or reordered webhooks give
   the same event ids.
 - Two observations with the same fingerprint, status, severity and source time are the same observation, by
@@ -62,10 +66,18 @@ fixed Correlia namespace UUID.
   counted as `duplicate_observation`, its original ordering evidence stays, and it has **no** state,
   contribution or notification effect. This holds for sender retries after the transport dedup window,
   re-batched webhooks and pipeline replays.
-- **Dedup retention** is the lateness horizon plus the skew allowance (default 7 d + 5 min), measured from
-  first seen. A retry arriving after its key expired has an effective source time older than the lateness
-  horizon, so it is `late` and changes no state (ADR 0007). Together the two rules mean an observation
-  takes effect at most once.
+- **Far-future observations are quarantined.** An observation whose source time is more than the future
+  limit (default 24 h) ahead of its observed time is stored with status `future_dated`, shown in the
+  console and counted, and has no state effect. It gets no observation key.
+- **Dedup retention uses stable evidence only.** A key is kept until `max(first seen, source time)` plus
+  the lateness horizon plus the skew allowance (default 7 d + 5 min). Both inputs are fixed on first
+  application; a redelivery cannot advance them. The future limit bounds the retention at first seen +
+  24 h + 7 d + 5 min.
+- **Why at most once:** a retry R arriving after its key expired has R later than the source time + horizon
+  + skew. Its effective source time is `min(source time, R + skew)`, which is the source time, so it is older
+  than the lateness horizon: `late`, no state effect (ADR 0007). Before expiry the key itself blocks it. A
+  quarantined observation was never applied, so applying it later (once its source time is within the
+  future limit) is its first and only application.
 
 ### 4. Alert identity (the fingerprint)
 - SHA-256 of the canonical encoding of (tenant, namespace, source kind, identity fields).

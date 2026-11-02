@@ -1,6 +1,6 @@
 # 0004. Canonical event: CloudEvents envelope with a versioned Correlia payload
 
-- Status: proposed
+- Status: accepted (2026-11-03)
 - Date: 2026-11-03
 - Supersedes: none
 

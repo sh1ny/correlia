@@ -1,6 +1,6 @@
 # 0001. Serverpod 4.1 modular monolith with process roles
 
-- Status: proposed
+- Status: accepted (2026-11-03)
 - Date: 2026-11-03
 - Supersedes: none
 

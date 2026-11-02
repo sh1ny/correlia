@@ -130,7 +130,7 @@ flowchart LR
 | Correlation group size | Unbounded membership, relational; display capped | n/a | Group lock serializes writers; deadlock/lock-timeout retries (5) then batch split, then pipeline failure | Metrics: lock waits, retries, hot groups |
 | Ingest storage | DB-size watermark (default 85 % of the disk budget) | 429/503 + `Retry-After`; pull sources pause | Accepted work is never dropped | Console banner; health `/readyz` degraded |
 | Output storage | Per output: 500k rows / 1 GiB, pending and dead-lettered combined | Output `overflowing`; policy `discard_new` (default, counted in the ledger) or `block_ingest` (opt-in) | Others unaffected under `discard_new` | Self-alert; console output health; counter |
-| Observation dedup | `observation_keys` kept for lateness horizon + skew (7 d + 5 min) | Pruned by retention; later retries are `late` | n/a | `duplicate_observation` counter |
+| Observation dedup | `observation_keys` kept until max(first seen, source time) + 7 d + 5 min; source time at most 24 h ahead | Pruned by retention; later retries are `late`; far-future observations quarantined `future_dated` | n/a | `duplicate_observation` and `future_dated` counters |
 | Dead letters | Retention 14 d (configurable) | Expired without replay: discarded, count written to the ledger | n/a | Ledger entry; console dead-letter view |
 | Change feed | Watermark lag bounded by the transaction timeout | Feed waits for the watermark; wake-up pushed when it advances; 10 s safety pull | `cursor_expired` beyond feed retention, client re-snapshots | Metric: feed lag |
 | Ingest dedup | Window 10 min (configurable) | Older retries are new deliveries; event ids still dedupe them downstream (ADR 0012) | n/a | `duplicate` counter |
@@ -168,7 +168,19 @@ not only a future test. Scenario ids refer to `docs/plan/acceptance-scenarios.md
 
 ## In-force ADRs
 
-Accepted ADRs only. The proposed ADRs 0001-0012 are listed here once the baseline review passes.
+Accepted ADRs only.
 
 | ADR | Decision | Supersedes |
 |---|---|---|
+| [0001](../docs/adr/0001-serverpod-modular-monolith.md) | Serverpod 4.1 modular monolith; one binary with api/worker/all roles | none |
+| [0002](../docs/adr/0002-postgresql-everywhere.md) | PostgreSQL in every run mode; embedded Postgres for development and tests | none |
+| [0003](../docs/adr/0003-flutter-web-console.md) | Flutter web console | none |
+| [0004](../docs/adr/0004-canonical-event-format.md) | Canonical event: CloudEvents envelope + `correlia.event.v1` protobuf; one bounds contract | none |
+| [0005](../docs/adr/0005-durable-staged-pipeline.md) | Durable staged pipeline, transactional outboxes, retention by state, storage budgets, replay vs reprocess | none |
+| [0006](../docs/adr/0006-plugin-architecture.md) | Hybrid plugins: built-ins in process, external over go-plugin-compatible gRPC; spike gate | none |
+| [0007](../docs/adr/0007-alert-and-incident-state-model.md) | Authoritative alert state with ordering fences; one StateMutationService lock protocol; `(txid, id)` change feed | none |
+| [0008](../docs/adr/0008-rule-language.md) | Matcher rule tree with in-memory and SQL evaluators, field catalog, atomic config versions; CEL later | none |
+| [0009](../docs/adr/0009-identity-and-access.md) | Serverpod auth (invite-only) for people, scoped tokens for machines; redaction | none |
+| [0010](../docs/adr/0010-testing-strategy.md) | Tests on Linux through WSL with embedded Postgres, in tiers | none |
+| [0011](../docs/adr/0011-nats-output-as-go-plugin.md) | NATS output as the first external plugin, in Go | none |
+| [0012](../docs/adr/0012-identities.md) | Four identities (source, delivery, observation, alert); durable observation dedup | none |

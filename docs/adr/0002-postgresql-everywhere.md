@@ -1,6 +1,6 @@
 # 0002. PostgreSQL in every run mode; embedded Postgres for development and tests
 
-- Status: proposed
+- Status: accepted (2026-11-03)
 - Date: 2026-11-03
 - Supersedes: none
 
