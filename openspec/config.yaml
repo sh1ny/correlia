@@ -1,0 +1,15 @@
+schema: specwright
+
+context: |
+  Correlia is an event/alert aggregator and correlator, rebuilt from scratch: Dart, Serverpod 4.1 (correlia_server, correlia_client), Flutter web console (correlia_flutter), PostgreSQL in EVERY run mode. Local dev and tests use Serverpod's embedded Postgres (`dataPath`); there is no SQLite (Serverpod requires one backend in all run modes). Strategy, architecture and roadmap: openspec/strategy.md, openspec/architecture.md, openspec/roadmap.md; ADRs in docs/adr.
+  Toolchain is pinned in mise.toml. Always run `mise run <task>`, never a bare dart/flutter/serverpod from PATH. Server and integration tests run on Linux through WSL (`mise run test:wsl`); the repository stays on Windows.
+  Dart/Flutter work follows the "Dart and Flutter code" section of AGENTS.md. The orchestrator loads the skills it names before writing specs, design or tasks for Dart code, and puts that section, or its path, plus the skill names for the task group into every specwright-implementer and specwright-reviewer packet.
+  The Python implementation lives on the local branch `legacy/python` as a read-only reference; never merge or cherry-pick it. Its invariants and known defects are in docs/research/legacy-audit.md: port invariants, not code, and every legacy defect named there needs an acceptance scenario proving the rebuild does not repeat it.
+  Third-party products are clean-room references only: never copy their code, schemas or templates. Research about other projects is local-only and never committed.
+  Every inbound integration converts to the canonical versioned event (docs/research/plugin-architecture.md); no integration-specific fields leak past the normalization stage.
+  MANDATORY: Invoke the 'specwright-branch' skill immediately when a new OpenSpec change is started (/opsx:new, /opsx:propose, /opsx:ff, openspec-new-change, openspec-propose, openspec-ff-change) — BEFORE 'openspec new change' runs or any change file is created.
+  MANDATORY: Invoke the 'specwright-commit' skill immediately when the OpenSpec apply phase begins (/opsx:apply, openspec-apply-change, 'openspec instructions apply').
+  MANDATORY: Before archiving a change (/opsx:archive, /opsx:bulk-archive, openspec-archive-change, 'openspec archive'), read its review.md. If it has a whole line `VERDICT: DEFERRED`, do not archive that change: move nothing, sync no spec, and name its `Deferred to:` targets. In a bulk archive, skip that change and archive the rest.
+  MANDATORY: Invoke the 'specwright-finish' skill immediately after the OpenSpec archive workflow completes (/opsx:archive, openspec-archive-change, 'openspec archive').
+  Project-level planning (strategy, architecture baseline, milestone roadmap) is handled by the 'specwright-roadmap' skill; paths are under project: in openspec/specwright.yaml.
+  Specwright settings (finish mode, GitHub identity, review requests, cross-model design review, pre-push validation) live in openspec/specwright.yaml.

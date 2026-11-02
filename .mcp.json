@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "dart": {
+      "type": "stdio",
+      "command": "mise",
+      "args": [
+        "exec",
+        "--",
+        "powershell.exe",
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "$ErrorActionPreference = 'Stop'; $flutterSdk = mise where flutter; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; $flutterSdk = $flutterSdk.Trim(); $dartSdk = Join-Path $flutterSdk 'bin/cache/dart-sdk'; $env:DART_DATA_HOME = Join-Path (Get-Location) '.dart_tool/dart-data'; & (Join-Path $dartSdk 'bin/dart.exe') mcp-server --dart-sdk $dartSdk --flutter-sdk $flutterSdk; exit $LASTEXITCODE"
+      ]
+    }
+  }
+}

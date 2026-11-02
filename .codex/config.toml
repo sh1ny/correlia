@@ -1,0 +1,10 @@
+# Project-scoped Codex config (loaded for trusted projects).
+# Dart MCP server from the mise-pinned Flutter SDK. --force-roots-fallback is
+# needed because Codex does not send MCP roots.
+# The Serverpod MCP server (`serverpod mcp-server`) is added by the M0 change
+# `bootstrap-workspace`, once serverpod_cli is installed.
+
+[mcp_servers.dart]
+command = "mise"
+args = ["exec", "--", "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference = 'Stop'; $flutterSdk = (mise where flutter).Trim(); $dartSdk = Join-Path $flutterSdk 'bin/cache/dart-sdk'; $env:DART_DATA_HOME = Join-Path (Get-Location) '.dart_tool/dart-data'; & (Join-Path $dartSdk 'bin/dart.exe') mcp-server --dart-sdk $dartSdk --flutter-sdk $flutterSdk --force-roots-fallback; exit $LASTEXITCODE"]
+startup_timeout_sec = 120

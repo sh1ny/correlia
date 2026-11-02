@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Specwright pre-ship review findings",
+  "description": "The output of a pre-ship review. Rule the script enforces beyond this schema: spec_class must be clarification or behaviour_change (not null) when category is spec.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "findings"],
+  "properties": {
+    "summary": {
+      "type": "string",
+      "description": "One or two sentences on the state of the change."
+    },
+    "findings": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "priority", "category", "file", "line", "title", "body", "spec_class"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "A short id unique within this review, for example F1."
+          },
+          "priority": {
+            "type": "string",
+            "enum": ["P0", "P1", "P2", "P3"]
+          },
+          "category": {
+            "type": "string",
+            "enum": ["code", "spec", "test", "docs"]
+          },
+          "file": {
+            "type": "string",
+            "description": "Path of the file the finding is about, relative to the repository."
+          },
+          "line": {
+            "type": ["integer", "null"],
+            "description": "Line number in the new version of the file, or null."
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string",
+            "description": "What is wrong, why it matters, and what would fix it."
+          },
+          "spec_class": {
+            "type": ["string", "null"],
+            "enum": ["clarification", "behaviour_change", null],
+            "description": "Required (not null) when category is spec: clarification or behaviour_change. Null for every other category."
+          }
+        }
+      }
+    }
+  }
+}

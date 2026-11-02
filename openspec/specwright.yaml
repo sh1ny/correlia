@@ -1,0 +1,206 @@
+# Specwright settings. Read by the specwright-* skills; OpenSpec ignores this file.
+
+# Decision making for changes (Specwright 0.17.0+, PR #183):
+#   autonomous - the agent decides, summary table at the end
+#   important  - asks only high-impact decisions
+#   all        - asks every scope/design decision
+# Owner, 2026-11-02: every `/specwright-roadmap next` must present ALL decisions.
+# Roadmap init/close is not governed by this key (see sh1ny/specwright#184).
+decision_making: all
+
+# How a change finishes after archive:
+#   local - merge the feature branch into main with --no-ff, no push
+#   pr    - archive on the branch, push to the PR; GitHub merges
+# Owner, 2026-11-02: nothing is pushed until the owner says so (origin's push URL
+# is disabled). Switch to `pr` when the GitHub workflow is enabled.
+finish: local
+
+# Main branch. Omit to detect (main, else master).
+# main_branch: main
+
+github:
+  # Account for push, PR creation, replies and thread resolution.
+  # Empty = the active gh account, resolved once when a run starts and fenced
+  # for the whole run (as.sh), so a later gh auth switch cannot redirect it.
+  # Set it if you switch gh accounts between sessions.
+  login: "KintsugiBot"
+  # Comment posted once on each new PR to request a review. Empty = none.
+  review_request:
+    body: ""
+    login: ""
+    # true = post it again after each fix round the agent pushes, for
+    # reviewers that only run when tagged (for example Codex). At most once
+    # per head.
+    after_fixes: false
+
+review:
+  # Design and pre-ship reviews prefer a reviewer CLI other than the harness
+  # you run in (routes below). false = always use the fresh-context
+  # specwright-reviewer agent instead.
+  cross_model: true
+  # Reviewer CLIs tried in order; the current harness is skipped, and the
+  # first one installed (OMP: whose model resolves) runs the review.
+  order: [codex, claude, omp]
+  # Model per route. Omit = the CLI's default; OMP takes a role (@slow) or a
+  # provider/id, and defaults to @default.
+  # models:
+  #   claude: opus
+  #   omp: "@slow"
+  # Thinking level per route: codex reasoning effort, claude --effort, omp
+  # --thinking (only with a provider/id model).
+  # thinking:
+  #   codex: high
+  # A review still running after this is stopped and counts as failed (s/m/h).
+  timeout: 20m
+  # Pre-ship input bound, code and store diff together. Over it, no review
+  # starts until you raise it or set preship: false.
+  max_diff_kb: 1024
+  # true = review the finished change before its first PR or a local merge;
+  # ship and the local merge wait for a pass. false = no pre-ship review.
+  preship: true
+
+# Commits during apply (specwright-commit):
+#   task  - one commit per task (the default)
+#   group - one commit per task group, with a Specwright-Task trailer per task
+commit_granularity: group
+
+project:
+  # Project-level files used by specwright-roadmap. Point these at existing
+  # documents instead of duplicating them.
+  strategy: openspec/strategy.md
+  architecture: openspec/architecture.md   # system shape + index of in-force ADRs
+  roadmap: openspec/roadmap.md
+  adr_dir: docs/adr
+
+pr:
+  # Command that must pass before every push. Empty = none.
+  validate: "mise run check"
+  # address-review-feedback commits allowed per PR.
+  max_fix_rounds: 2
+  # At the limit every finding is still answered. ask = reply "waiting on
+  # owner" and stop (the user decides), issues = file each new actionable
+  # finding as an issue, reply with the link and resolve, stop = like ask,
+  # without offering more rounds.
+  after_limit: ask
+  # true = put a thumbs up (finding right) or down (wrong) on every finding
+  # answered, alongside the one reply.
+  react: false
+  # How often watch polls GitHub (s/m/h). Each poll spends GraphQL points
+  # from the account's hourly budget, shared with every tool using it.
+  poll_interval: 5m
+  # false = after the archive commit, watch posts no new review requests when
+  # that commit only archives the change; reviews of the head before it carry
+  # over. true = re-request review on the archive head too (0.1.13 behaviour).
+  review_after_archive: false
+  # Reviewers keyed by login (without [bot]). role: required | advisory,
+  # timeout: wait per head (default 20m), request: comment that triggers a
+  # reviewer that only runs when tagged. Replaces github.review_request.
+  # A reviewer counts as reported on the head by its review of the head
+  # commit, else by anything it posts after the push. report: (optional)
+  # says how a bot signals a finished review instead; any of sha_pattern,
+  # check, marker replaces the default for that reviewer:
+  #   sha_pattern - regex; its first group is the reviewed commit (7-40 hex)
+  #   check       - exact name of the check run the bot finishes
+  #   marker      - literal text in a comment the bot edits when done
+  #   ignore      - regex; comments and reviews it matches never count
+  # Write patterns in single quotes so backslashes stay as written.
+  # reviewers:
+  #   tagged-bot: { role: required, request: "@tagged-bot review" }
+  #   sha-bot:
+  #     role: required
+  #     report:
+  #       sha_pattern: 'Reviewed commit:\*\* `([0-9a-f]{7,40})`'
+  #   check-bot:
+  #     role: advisory
+  #     timeout: 15m
+  #     report:
+  #       check: 'Bot Code Review'
+  #   marker-bot:
+  #     role: advisory
+  #     report:
+  #       marker: '<!-- bot-walkthrough -->'
+  #       ignore: 'Reviewing this PR|Code review in progress'
+  reviewers:
+    chatgpt-codex-connector: { role: required, request: "@codex review" }
+  # Quiet window before a PR counts as ready (1m to 1h; default 5m).
+  # settle: 5m
+  # Account that posts the requests. Default: review_request.login, else
+  # github.login.
+  request_as: sh1ny
+  # Who merges a ready PR. user = you merge on GitHub; watch reports ready
+  # and stops. agent = with finish: pr, watch archives the change without
+  # asking, merges the PR at the head it reported ready and cleans up (ADR
+  # 0009). Agent mode needs a required reviewer in reviewers (store:
+  # planning_store.reviewers), else it reports ready and merges nothing.
+  # GitHub records the run login as the merger.
+  merge: user
+  # Agent merge method: merge | squash | rebase. A method the repository
+  # disallows is refused and reported; no other method is tried.
+  merge_method: merge
+  # Agent mode only: delete the merged PR's remote branch in cleanup, only
+  # while it is still at the merged head and no open PR is based on it.
+  delete_branch: true
+
+# Cheap tier. Off by default. true = apply sends every task
+# group of a TIER: LIGHT change to specwright-implementer-light, a pinned copy
+# of the implementer on the cheaper model (Claude Code: haiku, OMP: pi/smol).
+# FULL changes, reviews, watch and the orchestrator never change.
+# Backend for this repository's branch state and version-control writes:
+# git (default) | jj | gitbutler. Selection is explicit and never inferred from .jj/
+# or .git/gitbutler/. gitbutler is for this (code) repository only and needs
+# finish: pr; a repo GitButler already manages must set it, the git backend
+# refuses to write there. Git on Windows with core.autocrlf=true can make
+# GitButler checkouts conflict on line endings.
+vcs: git
+
+cheap_tier:
+  enabled: false
+
+# Store-backed changes only (planning in an OpenSpec store, a separate git
+# repo): settings for the store side. Every other setting is shared with the
+# code repo, and each key below falls back to the code repo's value.
+# planning_store:
+#   # Store main branch. Omit to detect (main, else master) in the store.
+#   # Backend for this repository's branch state and version-control writes:
+#   # git (default) | jj (gitbutler is not supported for a store). Independent of the code repository's vcs setting.
+#   vcs: git
+#   main_branch: main
+#   # Account for the store's pushes, PRs and replies. Default: github.login.
+#   login: ""
+#   # Command that must pass before every store push. It runs in <root.path>
+#   # (the store's OpenSpec root). pr.validate never runs in the store.
+#   validate: "openspec validate --all --strict"
+#   # Reviewers on the store PR. Default: pr.reviewers; {} = none.
+#   reviewers: {}
+
+# Releases (specwright-release). Opt-in: nothing is tagged unless enabled.
+# Refused with pr.merge_method: rebase (a rebase merge replays the bump as
+# its own commit, so the tag would miss the rest of the change).
+# Tags are never moved, deleted or forced.
+release:
+  # true = a change's last task bumps the version files, and publish tags the
+  # merged main commit with an annotated tag after the change is on main.
+  enabled: false
+  # true = finish and watch publish without asking (never after a local merge).
+  # false = they ask first.
+  auto: false
+  # true = also create the GitHub release from the tag's message.
+  github_release: true
+  # Tag name; {version} is the version read from the primary file.
+  tag: "v{version}"
+  # Path or glob -> regex with exactly one capture group (the version). The
+  # first key is the primary file. Every file must match exactly once and all
+  # must agree. Keep the regexes single-quoted.
+  version_files:
+    VERSION: '^(\d+\.\d+\.\d+)$'
+    # package.json: '^  "version": "(\d+\.\d+\.\d+)",$'
+
+# Packs (opt-in bundles of skills, config lines and documents). Keyed by pack
+# name; documents.<id> optionally overrides a document's path. Packs need
+# in-repo skills directories (a user-level install is refused). See
+# packs/README.md.
+# packs:
+#   gamedev:
+#     documents:
+#       gdd: docs/game/gdd.md
+#   ui-prototyping: {}
