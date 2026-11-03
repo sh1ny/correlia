@@ -7,7 +7,7 @@
 # `bootstrap-workspace`; ADR 0014: everything runs natively on Linux).
 # The Serverpod CLI is not a mise tool: it is the pinned dev dependency `serverpod_cli: 4.1.0` of
 # `correlia_server`, run as `dart run serverpod_cli`.
-# Test tasks arrive with group 3 of `bootstrap-workspace`; `check` is rewritten in group 4.
+# `check` is rewritten in group 4 of `bootstrap-workspace`.
 
 [tools]
 flutter = "3.47.9"
@@ -41,6 +41,16 @@ dir = "correlia_server"
 description = "Start the Correlia server"
 run = "dart run bin/main.dart"
 dir = "correlia_server"
+depends = ["setup"]
+
+[tasks.test]
+description = "Run the fast tests; arguments go to dart test (`mise run test -- --tags db` selects a tier)"
+run = "dart run tool/bin/tool.dart test"
+depends = ["setup"]
+
+[tasks."test:all"]
+description = "Run every tier except load (fast, db, e2e, plugin)"
+run = "dart run tool/bin/tool.dart test --all"
 depends = ["setup"]
 
 [tasks.check]

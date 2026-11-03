@@ -26,12 +26,12 @@ Paths are relative to the repository root. `correlia_server/test/{unit,db,e2e}` 
 | workspace-tooling → Tasks run on plain Linux | Windows tool on PATH | tool/test/doctor_test.dart | `a Windows dart earlier on PATH does not win over the pinned one` | green |
 | workspace-tooling → Check gate | Clean workspace | n/a: the gate itself; `mise run check` on a clean clone, captured in task 9.2 | — | n/a |
 | workspace-tooling → Check gate | Analysis issue | tool/test/check_test.dart | `an analysis warning fails the analyze step naming file and issue` | red |
-| workspace-tooling → Test tier selection | Default run | tool/test/test_command_test.dart | `no arguments runs only fast tests` | red |
-| workspace-tooling → Test tier selection | Select the db tier | tool/test/test_command_test.dart | `--tags db runs every db test and nothing untagged` | red |
-| workspace-tooling → Test tier selection | Reporting arguments only | tool/test/test_command_test.dart | `--reporter expanded runs only fast tests` | red |
-| workspace-tooling → Test tier selection | Load asked for by name | tool/test/test_command_test.dart | `--tags load runs only load tests` | red |
-| workspace-tooling → Test tier selection | All tiers except load | tool/test/test_command_test.dart | `test:all runs fast db e2e plugin and no load` | red |
-| workspace-tooling → Test tier selection | Unknown tag | tool/test/test_command_test.dart | `--tags dbb exits non-zero` | red |
+| workspace-tooling → Test tier selection | Default run | tool/test/test_command_test.dart | `no arguments runs only fast tests` | green |
+| workspace-tooling → Test tier selection | Select the db tier | tool/test/test_command_test.dart | `--tags db runs every db test and nothing untagged` | green |
+| workspace-tooling → Test tier selection | Reporting arguments only | tool/test/test_command_test.dart | `--reporter expanded runs only fast tests` | green |
+| workspace-tooling → Test tier selection | Load asked for by name | tool/test/test_command_test.dart | `--tags load runs only load tests` | green |
+| workspace-tooling → Test tier selection | All tiers except load | tool/test/test_command_test.dart | `test:all runs fast db e2e plugin and no load` | green |
+| workspace-tooling → Test tier selection | Unknown tag | tool/test/test_command_test.dart | `--tags dbb exits non-zero` | green |
 | workspace-tooling → Tests use only their own PostgreSQL | Another PostgreSQL-like listener is present | correlia_server/test/db/postgres_isolation_test.dart | `a decoy listener and socket get no connection and keep running` | red |
 | workspace-tooling → Tests use only their own PostgreSQL | Database identity | correlia_server/test/db/postgres_isolation_test.dart | `data_directory and unix_socket_directories lie inside the cluster root` | red |
 | workspace-tooling → Tests use only their own PostgreSQL | Clusters started side by side | correlia_server/test/e2e/cluster_roots_e2e_test.dart | `each cluster has its own stable root, deleted after its server stopped` | red |
@@ -80,12 +80,12 @@ Paths are relative to the repository root. `correlia_server/test/{unit,db,e2e}` 
 
 ## 3. Test tier selection
 
-- [ ] 3.1 Write failing `tool/test/test_command_test.dart`: unit tests of argument building (no arguments →
+- [x] 3.1 Write failing `tool/test/test_command_test.dart`: unit tests of argument building (no arguments →
   `-P fast`; arguments selecting no tag → `-P fast -x load` plus them; `--tags db`/`-t db` → `-x load` plus
   them; `--tags load` → them only; `all` → `-x load`) and real runs of `dart test --reporter json` over a
   fixture package `tool/test/fixtures/tiers/` with one test per tier, asserting which ran, plus `--tags dbb`
   exiting non-zero. Verify they fail because the `test` command does not exist.
-- [ ] 3.2 `correlia_server/dart_test.yaml` declares tags `db`, `e2e`, `plugin`, `load` and the `fast` preset
+- [x] 3.2 `correlia_server/dart_test.yaml` declares tags `db`, `e2e`, `plugin`, `load` and the `fast` preset
   (D4); implement `tool test` and the mise tasks `test` and `test:all`. Add a minimal db smoke test
   `correlia_server/test/db/database_smoke_test.dart` (tag `db`, `withServerpod`, runs `SELECT 1`), because the
   template's only db test went with the greeting example (owner, 2026-11-03). Verify the 3.1 tests pass, flip

@@ -5,6 +5,7 @@ import 'package:args/command_runner.dart';
 import 'doctor.dart';
 import 'pins.dart';
 import 'setup.dart';
+import 'test_command.dart';
 import 'toolchain.dart';
 
 /// Builds the `tool` command runner for the repository at [repoRoot].
@@ -29,6 +30,13 @@ CommandRunner<int> buildRunner({
         ),
         generatePassword: generateSecurePassword,
         out: out,
+        err: err,
+      ),
+    )
+    ..addCommand(
+      TestCommand(
+        packageDirectory: Directory('${repoRoot.path}/correlia_server'),
+        launch: launchDartTest,
         err: err,
       ),
     );
