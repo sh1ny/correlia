@@ -2,10 +2,10 @@
 
 ## Metadata
 
-- **Round:** 5
-- **Prior round:** Round 4, APPROVE_WITH_CHANGES: M1–M5 accepted; M6 partially applied because replacement startup lacked an ownership handoff.
+- **Round:** 6
+- **Prior round:** Round 5, APPROVE_WITH_CHANGES; M1–M6 applied, CHANGES_APPLIED: yes.
 - **Reviewer:** Fresh-context, read-only Codex reviewer.
-- **Reviewed:** Proposal, design, both delta specs, round-4 review and author rebuttals; AGENTS.md; architecture and constraining ADRs 0001, 0002, 0003 and 0014; M1 roadmap and milestone plan; mise.toml, MCP configs and .gitignore; requested convention skills; cited Serverpod argument parsing, startup, shutdown, task-manager and health sources; embedded-Postgres configuration, stale-lock repair, process-identity and attached-supervisor sources; relevant scratch-template configuration and entry point. No files modified or runtime tests executed.
+- **Reviewed:** Proposal, design, both delta specs, tasks and round-5 review; AGENTS.md; ADRs 0002 and 0014; amendment commit db0cffd; requested Serverpod 4.1.0 sources and supporting process-identity, binary-resolution and shutdown sources; PostgreSQL 16 `pg_ctl` source; current test command, command tests, tier configuration, database smoke test and mise tasks; Serverpod testing and Dart CLI skills. No files modified or runtime tests executed.
 
 This verdict covers only the contents reviewed. Editing proposal, specs or design afterward, other than applying Required Changes or editing only the proposal’s Release Notes section, voids it.
 
@@ -13,15 +13,27 @@ This verdict covers only the contents reviewed. Editing proposal, specs or desig
 
 ### Critical (blocking)
 
-None.
+**C1 — A data-directory argument does not establish ownership of the process being stopped.**
+
+D4 authorizes shutdown whenever `.serverpod/test/pgdata/postmaster.pid` exists. PostgreSQL’s `get_pgpid()` reads its first integer; `do_stop()` then calls `kill(pid, sig)` without checking the live process’s executable, data directory or start time. With `-m fast`, that signal is SIGINT. `-D` selects the pidfile, not a verified process identity. [PostgreSQL 16 source](https://github.com/postgres/postgres/blob/REL_16_STABLE/src/bin/pg_ctl/pg_ctl.c)
+
+Concrete failure: an abruptly terminated cluster leaves `postmaster.pid`; its PID is subsequently recycled to another same-user process, potentially Hindsight’s postmaster. A later **fast-only** `tool test` never starts Serverpod or invokes stale-lock repair, but its unconditional post-run cleanup reads that stale file and signals the unrelated process. Reporting a failed stop afterward cannot undo the signal.
+
+Serverpod’s existing recovery has an additional boundary that the amendment omits: `stale_lock_repair.dart` requires matching native and supervisor pidfiles and `isPostmasterOrphan()`, which checks the live process against the recorded executable and data directory.
+
+The proposed fake-stopper test, ordinary decoy sockets and task 9.4’s surviving port-5432 listener do not exercise recycled-PID rejection. The amendment therefore does not yet satisfy the spec’s prohibition on signalling another PostgreSQL.
 
 ### Moderate
 
-None outstanding. The round-4 ownership-handoff finding is addressed in the design and its acceptance scenario.
+None.
+
+Concurrent runs on one clone are explicitly unsupported. Nevertheless, the proposed cleanup can stop another run’s active shared cluster; any ownership correction must ensure an overlapping invocation fails or waits before cluster access and cannot clean up the current owner’s cluster.
 
 ### Suggestions
 
 None.
+
+The remaining amendment is feasible: `integration` exclusion and an executable-call-aware tier-tag guard can enforce the intended fast loop. The pinned bundle contains `pg_ctl`; resolution must follow Serverpod’s cache overrides and bundle/platform selection. Awaiting the completed test subprocess avoids racing that run’s ordinary shared-cluster consumers. The separate kill-test and e2e roots remain outside D4 cleanup.
 
 ## Verdict
 
@@ -29,36 +41,20 @@ VERDICT: APPROVE_WITH_CHANGES
 
 ## Required Changes
 
-1. **M1 — Applied and re-checked.** D7 retains one runtime-owned callback, sequential reverse-order stopping, continuation after individual failures and combined error propagation. The shutdown scenarios assert these behaviors. Serverpod’s task-manager and shutdown implementations support the chosen ordering.
+1. **C1:** Amend D4, State & Ownership and the Mechanism Ledger to require verified live cluster identity before any stop signal, with safe refusal when identity is missing, mismatched or ambiguous. Specify protection against PID reuse between verification and signalling; mere pidfile existence, `kill(pid, 0)` or `pg_ctl -D` is insufficient. Define exclusive ownership spanning test startup through cleanup so another invocation cannot attach during shutdown or stop an active owner’s cluster.
 
-2. **M2 — Applied and re-checked.** D8 and the ownership table use separate cluster roots with sibling `pgdata` and `run` directories. The specs assert database and socket confinement, side-by-side isolation and deletion after shutdown.
+2. Extend task 3.2 and the workspace-tooling acceptance scenarios to cover a stale pidfile referencing a live unrelated process, missing/mismatched ownership metadata, and overlapping invocations. Assert that the unrelated process receives **no signal**, including after a fast-only run. Use disposable controlled processes, never Hindsight. Retain successful cleanup, failed-test exit preservation, stop-failure reporting and isolation from kill-test/e2e roots. Include these checks in the evidence collected by task 9.4.
 
-3. **M3 — Applied and re-checked.** D17 adds Correlia’s startup indicator; D16 waits on `/startupz`. The gated-subsystem scenario asserts that startup remains unhealthy until subsystem startup completes. This corrects Serverpod’s early built-in startup indication.
-
-4. **M4 — Applied and re-checked.** D4 applies the fast preset when arguments select no tag and excludes load unless explicitly selected. The reporting-only and explicit-load scenarios preserve those distinctions.
-
-5. **M5 — Applied and re-checked.** D5 specifies an independent temporary workspace, copied lockfile, offline dependency resolution and exclusion of checkout package configuration. The clean-clone scenario asserts successful comparison without changing the checkout.
-
-6. **M6 — Applied and re-checked.** D8, D16, State & Ownership, Failure & Visibility and the Mechanism Ledger now specify a child-held root lock acquired before Serverpod construction and retained until process exit. Replacement startup waits for ownership release; timeout fails visibly before cluster access. Abrupt child death releases the lock and leaves recovery to Serverpod’s existing data-directory mechanism.
-
-   The new “Re-run while the previous server is still stopping” scenario asserts waiting, successful handoff and safe deadline failure. Repeated interruption, child termination, bounded root count and untouched-decoy assertions remain present.
-
-CHANGES_APPLIED: yes
+CHANGES_APPLIED: no
 
 ## Rebuttals
 
-- **M1:** Fixed in D7, the shutdown sequence, failure handling and process-roles shutdown scenarios. The owner’s `shutdownTasks` choice remains unchanged. **Accepted by reviewer.**
-
-- **M2:** Fixed through sibling-directory cluster roots, identity assertions and side-by-side isolation scenarios. **Accepted by reviewer.**
-
-- **M3:** Fixed through D17’s additional startup indicator, D16’s readiness wait and the gated-subsystem scenario. **Accepted by reviewer.**
-
-- **M4:** Fixed through D4’s argument-sensitive fast preset and load exclusion, with reporting-only and explicit-load scenarios. **Accepted by reviewer.**
-
-- **M5:** Fixed through D5’s self-contained temporary generation workspace and unchanged-checkout assertions. **Accepted by reviewer.**
-
-- **M6:** Stable per-test roots, conditional teardown deletion and next-run Serverpod recovery address abandoned-root accumulation. **Accepted by reviewer.**
-
-- **M6 (round 3 follow-up):** Test-only stdin-EOF shutdown addresses a harness dying while its child remains alive. The mode guard and retained interruption assertions cover the intended boundary. **Accepted by reviewer.**
-
-- **M6 (round 4 follow-up):** The child-held kernel lock supplies the missing ownership handoff. Acquisition precedes Serverpod construction, release follows process exit, and timeout prohibits cluster access. The controlled shutdown-overlap scenario now tests the previously uncovered race. **Accepted by reviewer.**
+- **M1:** Fixed in D7, shutdown sequencing, failure handling and process-roles scenarios. **Previously accepted by reviewer; carried forward.**
+- **M2:** Fixed through sibling-directory cluster roots, identity assertions and side-by-side isolation scenarios. **Previously accepted by reviewer; carried forward.**
+- **M3:** Fixed through D17’s startup indicator, D16’s readiness wait and gated-subsystem scenario. **Previously accepted by reviewer; carried forward.**
+- **M4:** Fixed through argument-sensitive fast selection and load exclusion. **Previously accepted by reviewer; carried forward.**
+- **M5:** Fixed through the independent temporary generation workspace and unchanged-checkout assertions. **Previously accepted by reviewer; carried forward.**
+- **M6:** Stable roots, conditional teardown deletion and next-run recovery address abandoned-root accumulation. **Previously accepted by reviewer; carried forward.**
+- **M6 (round 3 follow-up):** Test-only stdin-EOF shutdown addresses an orphaned child server. **Previously accepted by reviewer; carried forward.**
+- **M6 (round 4 follow-up):** Child-held root locking supplies ownership handoff for kill-test/e2e children. **Previously accepted by reviewer; carried forward.**
+- **C1:** Open; no rebuttal or correction reviewed.

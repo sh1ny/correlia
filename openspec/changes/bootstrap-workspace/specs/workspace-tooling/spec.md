@@ -112,6 +112,20 @@ or reuse any other PostgreSQL server on the machine.
   passes once the previous child has exited, and, if the previous child is still running at the replacement's
   deadline, exits non-zero naming the cluster root, with the previous child's cluster untouched
 
+#### Scenario: Stale pidfile naming an unrelated process
+- **WHEN** the shared test cluster's root holds a `postmaster.pid` naming a live process that is not that
+  cluster's postmaster, and a fast-only test run and then a `db` test run are made
+- **THEN** that process receives no signal from either run and is still running afterwards
+
+#### Scenario: Overlapping test runs
+- **WHEN** a test run that uses the shared test cluster starts while another such run on the same clone holds it
+- **THEN** the second run waits until the first has released the cluster, and at its deadline exits non-zero
+  naming the cluster root, without starting, attaching to or stopping the first run's cluster
+
+#### Scenario: No cluster left after a run
+- **WHEN** a test run that used the shared test cluster finishes, passing or failing
+- **THEN** no PostgreSQL process of that cluster root remains, and the run's exit status is the tests' status
+
 ### Requirement: Recovery after a killed test run
 A test run whose process was killed with SIGKILL SHALL NOT stop the next run: the next run SHALL recover the
 leftover cluster, identified by its data directory and never by process name, and its tests SHALL pass.
