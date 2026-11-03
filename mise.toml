@@ -7,8 +7,7 @@
 # `bootstrap-workspace`; ADR 0014: everything runs natively on Linux).
 # The Serverpod CLI is not a mise tool: it is the pinned dev dependency `serverpod_cli: 4.1.0` of
 # `correlia_server`, run as `dart run serverpod_cli`.
-# Until the analyze/test/format tasks land (later groups of `bootstrap-workspace`) only the planning
-# tasks below exist.
+# Test tasks arrive with group 3 of `bootstrap-workspace`; `check` is rewritten in group 4.
 
 [tools]
 flutter = "3.47.9"
@@ -17,9 +16,37 @@ go = "1.27.3"
 buf = "1.75.0"
 "npm:@fission-ai/openspec" = "1.16.0"
 
+[tasks.doctor]
+description = "Check every pinned tool is the Linux copy at its pinned version"
+run = "dart run tool/bin/tool.dart doctor"
+
+[tasks.setup]
+description = "Create the local passwords file when missing (never overwrites it)"
+run = "dart run tool/bin/tool.dart setup"
+
+[tasks.analyze]
+description = "dart analyze --fatal-infos over the workspace, flutter analyze for the console"
+run = "dart analyze --fatal-infos && flutter analyze --fatal-infos correlia_flutter"
+
+[tasks.format]
+description = "Format all Dart code in the workspace"
+run = "dart format ."
+
+[tasks.generate]
+description = "Run the Serverpod code generator in correlia_server"
+run = "dart run serverpod_cli generate"
+dir = "correlia_server"
+
+[tasks.run]
+description = "Start the Correlia server"
+run = "dart run bin/main.dart"
+dir = "correlia_server"
+depends = ["setup"]
+
 [tasks.check]
 description = "Pre-push gate (pr.validate). Today: OpenSpec validation only; M1 adds analyze + fast tests"
 run = "openspec validate --all --strict"
+depends = ["setup"]
 
 [tasks."spec:validate"]
 description = "Validate every OpenSpec spec and change"

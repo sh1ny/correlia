@@ -20,10 +20,10 @@ Paths are relative to the repository root. `correlia_server/test/{unit,db,e2e}` 
 | process-roles → Health endpoints in every role | Database unreachable | correlia_server/test/e2e/health_e2e_test.dart | `readyz 503 and livez 200 when the database stops` | red |
 | process-roles → Graceful shutdown | SIGTERM | correlia_server/test/unit/role_runtime_test.dart; correlia_server/test/e2e/shutdown_e2e_test.dart | `stops subsystems one at a time in reverse start order`; `SIGTERM stops subsystems before the pool closes and exits 0` | red |
 | process-roles → Graceful shutdown | Subsystem fails to stop | correlia_server/test/unit/role_runtime_test.dart; correlia_server/test/db/shutdown_order_test.dart | `a failing stop is logged, the rest still stop, a combined error is rethrown`; `a failing stop callback makes Serverpod report a failed shutdown` | red |
-| workspace-tooling → Pinned Linux toolchain | Tools resolve on Linux | tool/test/doctor_test.dart | `reports a Linux path and the pinned version for every tool` | red |
-| workspace-tooling → Pinned Linux toolchain | Wrong Serverpod CLI version | tool/test/doctor_test.dart | `a wrong serverpod_cli version fails naming tool, pinned and found` | red |
-| workspace-tooling → Tasks run on plain Linux | Task definitions | tool/test/task_definitions_test.dart | `mise.toml and tool sources have no Windows or WSL references` | red |
-| workspace-tooling → Tasks run on plain Linux | Windows tool on PATH | tool/test/doctor_test.dart | `a Windows dart earlier on PATH does not win over the pinned one` | red |
+| workspace-tooling → Pinned Linux toolchain | Tools resolve on Linux | tool/test/doctor_test.dart | `reports a Linux path and the pinned version for every tool` | green |
+| workspace-tooling → Pinned Linux toolchain | Wrong Serverpod CLI version | tool/test/doctor_test.dart | `a wrong serverpod_cli version fails naming tool, pinned and found` | green |
+| workspace-tooling → Tasks run on plain Linux | Task definitions | tool/test/task_definitions_test.dart | `mise.toml and tool sources have no Windows or WSL references` | green |
+| workspace-tooling → Tasks run on plain Linux | Windows tool on PATH | tool/test/doctor_test.dart | `a Windows dart earlier on PATH does not win over the pinned one` | green |
 | workspace-tooling → Check gate | Clean workspace | n/a: the gate itself; `mise run check` on a clean clone, captured in task 9.2 | — | n/a |
 | workspace-tooling → Check gate | Analysis issue | tool/test/check_test.dart | `an analysis warning fails the analyze step naming file and issue` | red |
 | workspace-tooling → Test tier selection | Default run | tool/test/test_command_test.dart | `no arguments runs only fast tests` | red |
@@ -38,8 +38,8 @@ Paths are relative to the repository root. `correlia_server/test/{unit,db,e2e}` 
 | workspace-tooling → Tests use only their own PostgreSQL | Interrupted end-to-end run | correlia_server/test/e2e/interrupted_run_e2e_test.dart | `killing only the harness twice leaves no child, no cluster process, no extra root` | red |
 | workspace-tooling → Tests use only their own PostgreSQL | Re-run while the previous server is still stopping | correlia_server/test/e2e/root_handoff_e2e_test.dart | `a replacement waits for the root lock, then starts; at its deadline fails naming the root` | red |
 | workspace-tooling → Recovery after a killed test run | Test server killed | correlia_server/test/db/kill_recovery_test.dart | `after SIGKILL the next run in the same root passes and leaves no postmaster` | red |
-| workspace-tooling → Local passwords on a fresh clone | Fresh clone | tool/test/setup_test.dart (unit); fresh clone in task 9.3 | `creates development and test sections when the file is missing` | red |
-| workspace-tooling → Local passwords on a fresh clone | Existing file without a test section | tool/test/setup_test.dart | `a file without a test section fails naming file and section, unchanged` | red |
+| workspace-tooling → Local passwords on a fresh clone | Fresh clone | tool/test/setup_test.dart (unit); fresh clone in task 9.3 | `creates development and test sections when the file is missing` | green |
+| workspace-tooling → Local passwords on a fresh clone | Existing file without a test section | tool/test/setup_test.dart | `a file without a test section fails naming file and section, unchanged` | green |
 | workspace-tooling → Code generation is current | Stale generated code | tool/test/generated_test.dart | `a stale generated file fails naming it` | red |
 | workspace-tooling → Code generation is current | Current generated code on a clean clone | tool/test/generated_test.dart; fresh clone in task 9.3 | `current code passes and the checkout is unchanged` | red |
 
@@ -63,17 +63,17 @@ Paths are relative to the repository root. `correlia_server/test/{unit,db,e2e}` 
 
 ## 2. Tool package: doctor, setup and tasks
 
-- [ ] 2.1 Write failing tests `tool/test/doctor_test.dart` (tool resolver injected; Linux paths and pinned
+- [x] 2.1 Write failing tests `tool/test/doctor_test.dart` (tool resolver injected; Linux paths and pinned
   versions; wrong `serverpod_cli` version names tool, pinned and found; a fake Windows `dart` placed earlier
   on PATH loses to the pinned one, run through `mise exec`) and `tool/test/task_definitions_test.dart` (scans
   `mise.toml` and `tool/` for `/mnt/`, `wslpath`, `.exe`, `cmd.exe`). Verify they fail because `doctor` does
   not exist yet.
-- [ ] 2.2 Implement `tool doctor`; verify the 2.1 tests pass and flip their four rows green.
-- [ ] 2.3 Write failing `tool/test/setup_test.dart` (missing file → random `development` and `test` passwords
+- [x] 2.2 Implement `tool doctor`; verify the 2.1 tests pass and flip their four rows green.
+- [x] 2.3 Write failing `tool/test/setup_test.dart` (missing file → random `development` and `test` passwords
   written; existing file never overwritten; a file without `test` → non-zero exit naming file and section,
   bytes unchanged). Implement `tool setup` (D13); verify the tests pass and flip the two setup rows green
   (the fresh-clone half of "Fresh clone" is task 9.3).
-- [ ] 2.4 mise tasks `doctor`, `setup`, `analyze` (`dart analyze --fatal-infos` over the workspace and
+- [x] 2.4 mise tasks `doctor`, `setup`, `analyze` (`dart analyze --fatal-infos` over the workspace and
   `flutter analyze` for the console), `format` and `generate` (`dart run serverpod_cli generate` in
   `correlia_server`), each `run` one line; `test`, `test:all`, `check` and `run` depend on `setup`. Verify:
   `mise tasks` lists them; the task-definitions test still passes.
