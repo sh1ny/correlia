@@ -41,6 +41,11 @@ Facts read from the Serverpod 4.1.0 sources and a scratch `serverpod create` (no
   `serverpod_embedded_postgres/lib/src/supervisor/stale_lock_repair.dart:1-30`:
   on start, stale pidfiles in the data directory are removed and an orphan postmaster of that data directory
   is stopped (`pg_ctl stop`, else SIGTERM/SIGKILL on the PID read from that directory's `postmaster.pid`).
+- `serverpod_database/lib/src/adapters/postgres/embedded_postgres_resolver.dart:61-67`: Serverpod starts its
+  embedded Postgres with `detach: false` and `repairStaleLocks: true`, with no setting to change either.
+  `serverpod_embedded_postgres/lib/src/supervisor/supervisor.dart:163-176`: with `detach: false` the
+  supervisor watches SIGINT and SIGTERM itself, stops Postgres and calls `exit(130)` or `exit(143)`. That runs
+  alongside Serverpod's own handler (found during apply, 2026-11-03).
 - `serverpod/lib/src/server/tasks/task_manager.dart:59-77`: `executeTasks` starts every registered shutdown
   callback and awaits them together, so callbacks registered separately run concurrently, in no order.
 - `serverpod/lib/src/server/serverpod.dart:74,773`: `isStartupComplete` is `_startedTime != null`, and `start()`
@@ -155,8 +160,27 @@ Facts read from the Serverpod 4.1.0 sources and a scratch `serverpod create` (no
   test with two fake subsystems pins completion order and continuation after a failure; a db/e2e test pins
   that the stop runs before the pool closes, since the API is marked experimental. Mechanism corrected after
   review round 1 (M1); the owner's choice of `shutdownTasks` stands.
+  **Embedded Postgres and SIGTERM (found during apply, 2026-11-03):** when Serverpod starts the embedded
+  Postgres itself (a `dataPath`), it always does so with `detach: false`. The supervisor then hooks SIGINT and
+  SIGTERM, stops Postgres and calls `exit(143)` (Context). That races `pod.shutdown()` and cuts it short. So
+  a process using the Serverpod-managed embedded database (development, and every test child with a
+  `dataPath`) never exits 0 on SIGTERM. A process whose database is not supervised in-process, as in
+  production, keeps the D7 guarantee. The owner chose to keep the spec unchanged and prove the SIGTERM
+  scenario against a database the child does not supervise. `shutdown_e2e_test.dart` starts its own cluster
+  through `serverpod_embedded_postgres` (`EmbeddedPostgres.startOrAttach` with `detach: true` and
+  `repairStaleLocks: false`) in the stable root `correlia_server/.serverpod/test-external/`. Its child server
+  connects through `SERVERPOD_DATABASE_*` settings, with no data path, so no supervisor hook exists, and the
+  test asserts ordered shutdown and exit 0 on SIGTERM. That cluster follows the shared test cluster's rule
+  (D4): it lingers after the run, and the next run attaches to it (identity checked by the library, no
+  signal). Nothing in Correlia or its tests stops it, and repair, which signals, is never enabled for it. If
+  the root can be neither started nor attached, the test fails naming the root. If Serverpod offers no way
+  to clear the test config's `dataPath` from the environment, that is drift: stop and report. Other test
+  children, which use `dataPath`, stop gracefully through stdin end-of-file (D16), which runs the same
+  `pod.shutdown()`.
 - **Rejected:** An own SIGTERM handler that stops subsystems and then calls `pod.shutdown()`: it races
-  Serverpod's handler, which exits the process itself.
+  Serverpod's handler, which exits the process itself. Narrowing the spec's SIGTERM guarantee to external
+  databases (owner, 2026-11-03). Stopping the SIGTERM test's cluster from the test through the library, which
+  signals by PID like the path blocked in review round 7 (C1a) (owner, 2026-11-03).
 - **Reversal cost:** low
 - **Important:** yes (binds future changes: how worker loops stop).
 - **Chosen by:** user
@@ -175,7 +199,10 @@ Facts read from the Serverpod 4.1.0 sources and a scratch `serverpod create` (no
   root only after the child process has exited and the root's `pgdata/postmaster.pid` is gone; otherwise it
   leaves the root for the next run's recovery and fails the test. The db identity test asserts both
   `data_directory` and `unix_socket_directories` lie inside the root. Layout corrected after review round 1
-  (M2); stable e2e roots chosen by the owner after review round 2 (M6).
+  (M2); stable e2e roots chosen by the owner after review round 2 (M6). The kill test stops its second child
+  through stdin end-of-file (D16) and asserts exit 0. SIGTERM would end that child through the embedded
+  supervisor's `exit(143)` (D7), which the owner accepted during apply (2026-11-03). One further root,
+  `.serverpod/test-external/`, holds the SIGTERM test's unsupervised cluster, which lingers and is reused (D7).
 - **Rejected:** Using the shared `.serverpod/test/pgdata`, which would break db tests running in parallel.
   Per-run e2e roots with a sweep of abandoned roots: an own cleanup mechanism, which S8 rejected.
 - **Reversal cost:** low
@@ -313,8 +340,8 @@ Facts read from the Serverpod 4.1.0 sources and a scratch `serverpod create` (no
 | D4 | Fast tier | `fast` preset when no tag is selected (also excludes `integration`); `-x load` unless `load` is named; the shared test cluster is left running, never signalled by Correlia | Directory split; plain pass-through | low | yes | user |
 | D5 | Generated code | Committed + staleness check in a self-contained temp workspace | Gitignored; in-place generate + git diff | low | yes | user |
 | D6 | `check` | Validate, doctor, analyze, format, generated, fast + widget tests | + db; static only | low | yes | user |
-| D7 | Shutdown | One `experimental.shutdownTasks` callback stopping subsystems in reverse order, pinned by tests | Own signal handler | low | yes | user |
-| D8 | Test cluster roots | Own stable root per cluster (kill test, each e2e test), recovered by Serverpod | Shared test cluster; per-run roots + sweep | low | no | user |
+| D7 | Shutdown | One `experimental.shutdownTasks` callback stopping subsystems in reverse order, pinned by tests; SIGTERM proven against an unsupervised (detached, lingering) cluster | Own signal handler; narrowing the spec to external databases | low | yes | user |
+| D8 | Test cluster roots | Own stable root per cluster (kill test, each e2e test, the SIGTERM test's external cluster), recovered by Serverpod or reattached | Shared test cluster; per-run roots + sweep | low | no | user |
 | D9 | OMP MCP | Shared `.mcp.json`, verified | Own `.omp/mcp.json` | low | no | user |
 | D10 | Console under test | Fixture dir via test-only env | Real build per e2e | low | no | user |
 | D11 | Worker listeners | API port for health; no console/ingress | Separate health port | low | yes | user |
@@ -358,7 +385,7 @@ stateDiagram-v2
   Starting --> Failed: subsystem or Serverpod start error (exit 1)
   Starting --> Running: pod.start() done, subsystems started, stop callback registered (startupz 200)
   Running --> Stopping: SIGTERM / SIGINT
-  Stopping --> Stopped: all stop tasks ok (exit 0 on SIGTERM)
+  Stopping --> Stopped: all stop tasks ok (exit 0 on SIGTERM; 143 when Serverpod supervises an embedded Postgres, D7)
   Stopping --> Stopped_with_error: a stop task raised (exit 1)
   Failed --> [*]
   Stopped --> [*]
@@ -387,7 +414,7 @@ sequenceDiagram
   R->>S: stop each, one at a time, reverse order (log a failure, continue)
   R-->>P: rethrow combined error if any stop failed
   P->>P: internal services, DB pool close
-  P-->>M: exit 0 (1 if a task raised)
+  P-->>M: exit 0 (1 if a task raised; with a Serverpod-supervised embedded Postgres its supervisor exits 143 first, D7)
 ```
 
 ## State & Ownership (FULL)
@@ -398,6 +425,7 @@ sequenceDiagram
 | Subsystem registry | `RoleRuntime` | process | built at startup from the static list | in-memory list |
 | `config/passwords.yaml` (dev/test) | `tool setup` (creates only) | per clone | delete the file and rerun `setup` | the file |
 | Test cluster root `.serverpod/test/` (`pgdata`, `run`) | Serverpod's embedded Postgres supervisor; its postmaster outlives a test run and is reused by the next (D4); Correlia never signals it | until deleted | Serverpod repairs stale locks on start; delete the directory to rebuild | the directory |
+| SIGTERM test's external cluster root `.serverpod/test-external/` (`pgdata`, `run`) | `shutdown_e2e_test.dart`, through `serverpod_embedded_postgres` with `detach: true`, `repairStaleLocks: false`; its postmaster lingers and the next run attaches (D7); nothing signals it | until deleted | the library attaches after an identity check; a root it can neither start nor attach fails the test naming the root; delete the directory to rebuild | the directory |
 | Kill-test and e2e cluster roots `.serverpod/test-kill/`, `.serverpod/test-e2e/<test-id>/` (each `pgdata` + `run`; stable per test) | the test that sets `SERVERPOD_DATABASE_DATA_PATH` to `<root>/pgdata`; while running, the one child server holding `<root>/owner.lock` (it exits when the harness's stdin pipe closes; the kernel releases the lock at its exit) | until the test's teardown, or the next run of that test after a kill | teardown deletes the root once the child exited and `postmaster.pid` is gone; after a kill, Serverpod's recovery repairs it on the next run | the root |
 | Startup state (subsystems started, stop callback registered) | `RoleRuntime` | process | none | the startup indicator |
 | Generated code | `serverpod_cli generate` | committed | regenerate; `tool generated` detects drift | the generator output |
@@ -454,6 +482,7 @@ sequenceDiagram
 | Reject Serverpod `--role` ≠ monolith | yes | `maintenance` exits after future calls, `serverless` skips them: a role mismatch nobody notices | — |
 | Subsystem registry + one sequential `shutdownTasks` callback | yes | Every later worker loop needs ordered stop before the pool closes; retrofitting is expensive (shared interface) | — |
 | Correlia stops the shared test cluster after a run | no | Any Correlia stop (pidfile `pg_ctl`, Dart child handle) can signal a reused PID (review rounds 6-7, C1); the lingering postmaster is reused by the next run (D4) | A race-free stop that Serverpod itself provides |
+| Unsupervised external cluster for the SIGTERM e2e test | yes | Serverpod's embedded supervisor exits 143 on SIGTERM, so the graceful SIGTERM path is provable only against a database the child does not supervise (D7) | — |
 | Fast preset excludes `integration` + `withServerpod` tier-tag test | yes | A db test without a tier tag would run in the fast loop and fail there for lack of a database (D4) | — |
 | Own embedded-Postgres cleanup | no | Serverpod repairs by data directory already (S8); the kill test proves it | The kill test failing on a Serverpod upgrade |
 | Port-conflict retry in the e2e harness | no | Ports come from binding 0 then releasing; a collision fails the test visibly | Flaky e2e failures from port reuse |
@@ -479,6 +508,10 @@ sequenceDiagram
   only on our data directories; the kill test, and a test with a decoy listener (a plain Dart socket on a
   loopback port and a `.s.PGSQL.<port>` socket outside the data dir), show nothing else is contacted or
   signalled. No test connects to, or inspects, a real PostgreSQL other than its own (Hindsight's included).
+- [In development (`dataPath` set), SIGTERM exits 143 through Serverpod's embedded supervisor, before the
+  subsystems have stopped] → this is Serverpod 4.1 behaviour, outside Correlia's control (D7). The spec's
+  SIGTERM scenario is proven against an unsupervised database, as in production. Development stops are
+  rough until Serverpod changes this.
 - [The test-only `CORRELIA_TEST_CONSOLE_DIR` leaks into production] → it is read only in run mode `test`; a
   unit test pins that.
 - [`CORRELIA_EXIT_ON_STDIN_CLOSE` or `CORRELIA_TEST_ROOT_LOCK` set in production, where stdin may be

@@ -55,8 +55,9 @@ of consequences outside the touched files (the template's Dockerfile and Serverp
 
 ## Decision Making
 
-DECISION_MAKING: all
-- **Source:** setting
+DECISION_MAKING: autonomous
+- **Source:** user, 2026-11-04, during apply: "maybe change the setting to autonomous, because i won't be able
+  to sit here and answer". Decisions taken before this stay as recorded (`all` mode, mostly `Chosen by: user`).
 
 ### S1: Template scope
 

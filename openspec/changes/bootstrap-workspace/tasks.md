@@ -149,8 +149,8 @@ Paths are relative to the repository root. `correlia_server/test/{unit,db,e2e}` 
   (in-process Serverpod with a gated fake subsystem: `/startupz` 503 until released, then 200),
   `shutdown_order_test.dart` (stop callback runs before the pool closes; a failing stop reports a failed
   shutdown, run with `exitProcess: false`) and `kill_recovery_test.dart` (child server in
-  `.serverpod/test-kill/` killed with SIGKILL, rerun passes, no process whose command line names that data
-  directory remains). Verify they fail for the right reason.
+  `.serverpod/test-kill/` killed with SIGKILL, rerun passes and stops through stdin end-of-file with exit 0
+  (D8, amended), no process whose command line names that data directory remains). Verify they fail for the right reason.
 - [ ] 7.2 Make them pass (fixture setup, test config for the cluster roots of D8); flip their four rows green.
   Verify with `mise run test -- --tags db`, which must report these tests and no untagged one.
 
@@ -159,9 +159,13 @@ Paths are relative to the repository root. `correlia_server/test/{unit,db,e2e}` 
 - [ ] 8.1 Harness in `correlia_server/test/support/`: spawn the real entry point with `SERVERPOD_*` ports and
   `<root>/pgdata`, `CORRELIA_EXIT_ON_STDIN_CLOSE=1`, `CORRELIA_TEST_ROOT_LOCK=<root>/owner.lock`; keep its
   stdin open; capture the last 200 output lines; poll `/startupz` against an injected deadline (60 s default);
-  stop with SIGTERM and an injected 30 s deadline, then SIGKILL; delete the root only after exit with no
-  `postmaster.pid`. Settle the open question on port discovery here and note it in design.md Open Questions.
-- [ ] 8.2 Write failing `roles_e2e_test.dart`, `health_e2e_test.dart`, `shutdown_e2e_test.dart`,
+  stop by closing stdin (graceful, D16) with an injected 30 s deadline, then SIGKILL; delete the root only
+  after exit with no `postmaster.pid`. Add the unsupervised external cluster for the SIGTERM test (D7):
+  `serverpod_embedded_postgres` with `detach: true`, `repairStaleLocks: false`, root
+  `.serverpod/test-external/`, never stopped, and a child configured for it through `SERVERPOD_DATABASE_*`
+  with no data path. Settle the open question on port discovery here and note it in design.md Open Questions.
+- [ ] 8.2 Write failing `roles_e2e_test.dart`, `health_e2e_test.dart`, `shutdown_e2e_test.dart` (SIGTERM
+  against the external cluster of 8.1: subsystems stop before the pool closes, exit 0),
   `cluster_roots_e2e_test.dart`, `interrupted_run_e2e_test.dart` (kill only the harness process, run as its own
   subprocess, twice, then complete) and `root_handoff_e2e_test.dart` (previous child held in shutdown by a
   test-mode gate, replacement started at once; waits, then starts; with a short deadline, fails naming the
@@ -182,7 +186,8 @@ Paths are relative to the repository root. `correlia_server/test/{unit,db,e2e}` 
 - [ ] 9.4 [evidence] Linux-only and Postgres-safety checks: `mise exec -- which dart flutter go buf openspec`
   output; processes whose command line names this repository's `.serverpod/` roots, listed before and after
   `test:all` (selected by data-directory path, never by process name; none left after except the shared test
-  cluster `.serverpod/test/`, which Serverpod keeps for reuse, D4); and `ss -ltn` showing `127.0.0.1:5432`
+  cluster `.serverpod/test/`, which Serverpod keeps for reuse, D4, and the SIGTERM test's external cluster
+  `.serverpod/test-external/`, which lingers for reuse, D7); and `ss -ltn` showing `127.0.0.1:5432`
   still listening after the run (no connection made to it, no signal sent) →
   evidence/linux-and-postgres.txt
 
