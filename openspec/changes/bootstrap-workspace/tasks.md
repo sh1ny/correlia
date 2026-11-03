@@ -16,10 +16,10 @@ Paths are relative to the repository root. `correlia_server/test/{unit,db,e2e}` 
 | process-roles → Subsystems per role | worker role | correlia_server/test/e2e/roles_e2e_test.dart | `worker role answers 404 for the console` | red |
 | process-roles → Subsystems per role | Subsystem fails to start | correlia_server/test/unit/role_runtime_test.dart | `a failing start names the subsystem and maps to a non-zero exit` | green |
 | process-roles → Health endpoints in every role | Healthy server | correlia_server/test/e2e/health_e2e_test.dart | `livez readyz startupz answer 200 in each role` | red |
-| process-roles → Health endpoints in every role | Subsystem still starting | correlia_server/test/db/startup_gate_test.dart | `startupz stays 503 until the gated subsystem has started` | red |
+| process-roles → Health endpoints in every role | Subsystem still starting | correlia_server/test/db/startup_gate_test.dart | `startupz stays 503 until the gated subsystem has started` | green |
 | process-roles → Health endpoints in every role | Database unreachable | correlia_server/test/e2e/health_e2e_test.dart | `readyz 503 and livez 200 when the database stops` | red |
 | process-roles → Graceful shutdown | SIGTERM | correlia_server/test/unit/role_runtime_test.dart; correlia_server/test/e2e/shutdown_e2e_test.dart | `stops subsystems one at a time in reverse start order`; `SIGTERM stops subsystems before the pool closes and exits 0` | red |
-| process-roles → Graceful shutdown | Subsystem fails to stop | correlia_server/test/unit/role_runtime_test.dart; correlia_server/test/db/shutdown_order_test.dart | `a failing stop is logged, the rest still stop, a combined error is rethrown`; `a failing stop callback makes Serverpod report a failed shutdown` | red |
+| process-roles → Graceful shutdown | Subsystem fails to stop | correlia_server/test/unit/role_runtime_test.dart; correlia_server/test/db/shutdown_order_test.dart | `a failing stop is logged, the rest still stop, a combined error is rethrown`; `a failing stop callback makes Serverpod report a failed shutdown` | green |
 | workspace-tooling → Pinned Linux toolchain | Tools resolve on Linux | tool/test/doctor_test.dart | `reports a Linux path and the pinned version for every tool` | green |
 | workspace-tooling → Pinned Linux toolchain | Wrong Serverpod CLI version | tool/test/doctor_test.dart | `a wrong serverpod_cli version fails naming tool, pinned and found` | green |
 | workspace-tooling → Tasks run on plain Linux | Task definitions | tool/test/task_definitions_test.dart | `mise.toml and tool sources have no Windows or WSL references` | green |
@@ -32,12 +32,12 @@ Paths are relative to the repository root. `correlia_server/test/{unit,db,e2e}` 
 | workspace-tooling → Test tier selection | Load asked for by name | tool/test/test_command_test.dart | `--tags load runs only load tests` | green |
 | workspace-tooling → Test tier selection | All tiers except load | tool/test/test_command_test.dart | `test:all runs fast db e2e plugin and no load` | green |
 | workspace-tooling → Test tier selection | Unknown tag | tool/test/test_command_test.dart | `--tags dbb exits non-zero` | green |
-| workspace-tooling → Tests use only their own PostgreSQL | Another PostgreSQL-like listener is present | correlia_server/test/db/postgres_isolation_test.dart | `a decoy listener and socket get no connection and keep running` | red |
-| workspace-tooling → Tests use only their own PostgreSQL | Database identity | correlia_server/test/db/postgres_isolation_test.dart | `data_directory and unix_socket_directories lie inside the cluster root` | red |
+| workspace-tooling → Tests use only their own PostgreSQL | Another PostgreSQL-like listener is present | correlia_server/test/db/postgres_isolation_test.dart | `a decoy listener and socket get no connection and keep running` | green |
+| workspace-tooling → Tests use only their own PostgreSQL | Database identity | correlia_server/test/db/postgres_isolation_test.dart | `data_directory and unix_socket_directories lie inside the cluster root` | green |
 | workspace-tooling → Tests use only their own PostgreSQL | Clusters started side by side | correlia_server/test/e2e/cluster_roots_e2e_test.dart | `each cluster has its own stable root, deleted after its server stopped` | red |
 | workspace-tooling → Tests use only their own PostgreSQL | Interrupted end-to-end run | correlia_server/test/e2e/interrupted_run_e2e_test.dart | `killing only the harness twice leaves no child, no cluster process, no extra root` | red |
 | workspace-tooling → Tests use only their own PostgreSQL | Re-run while the previous server is still stopping | correlia_server/test/e2e/root_handoff_e2e_test.dart | `a replacement waits for the root lock, then starts; at its deadline fails naming the root` | red |
-| workspace-tooling → Recovery after a killed test run | Test server killed | correlia_server/test/db/kill_recovery_test.dart | `after SIGKILL the next run in the same root passes and leaves no postmaster` | red |
+| workspace-tooling → Recovery after a killed test run | Test server killed | correlia_server/test/db/kill_recovery_test.dart | `after SIGKILL the next run in the same root passes and leaves no postmaster` | green |
 | workspace-tooling → Local passwords on a fresh clone | Fresh clone | tool/test/setup_test.dart (unit); fresh clone in task 9.3 | `creates development and test sections when the file is missing` | green |
 | workspace-tooling → Local passwords on a fresh clone | Existing file without a test section | tool/test/setup_test.dart | `a file without a test section fails naming file and section, unchanged` | green |
 | workspace-tooling → Code generation is current | Stale generated code | tool/test/generated_test.dart | `a stale generated file fails naming it` | green |
@@ -143,7 +143,7 @@ Paths are relative to the repository root. `correlia_server/test/{unit,db,e2e}` 
 
 ## 7. Database tier
 
-- [ ] 7.1 Write failing `correlia_server/test/db/postgres_isolation_test.dart` (decoy: a Dart `ServerSocket` on a
+- [x] 7.1 Write failing `correlia_server/test/db/postgres_isolation_test.dart` (decoy: a Dart `ServerSocket` on a
   loopback port and a Unix socket `.s.PGSQL.<port>` in a temp dir outside the root, both recording accepts;
   `SHOW data_directory` and `SHOW unix_socket_directories` inside `.serverpod/test/`), `startup_gate_test.dart`
   (in-process Serverpod with a gated fake subsystem: `/startupz` 503 until released, then 200),
@@ -151,7 +151,7 @@ Paths are relative to the repository root. `correlia_server/test/{unit,db,e2e}` 
   shutdown, run with `exitProcess: false`) and `kill_recovery_test.dart` (child server in
   `.serverpod/test-kill/` killed with SIGKILL, rerun passes and stops through stdin end-of-file with exit 0
   (D8, amended), no process whose command line names that data directory remains). Verify they fail for the right reason.
-- [ ] 7.2 Make them pass (fixture setup, test config for the cluster roots of D8); flip their four rows green.
+- [x] 7.2 Make them pass (fixture setup, test config for the cluster roots of D8); flip their four rows green.
   Verify with `mise run test -- --tags db`, which must report these tests and no untagged one.
 
 ## 8. End-to-end tier
