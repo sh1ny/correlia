@@ -59,7 +59,13 @@ final class ProcessOptions extends ProcessOptionsResult {
   final String runMode;
 
   /// The arguments to hand to Serverpod: the command line without
-  /// `--process-role`, otherwise unchanged.
+  /// `--process-role`, preceded by `--role monolith` when it names no
+  /// Serverpod role.
+  ///
+  /// Serverpod takes its role from the command line first, then from
+  /// `SERVERPOD_SERVER_ROLE`, then from the config file. Passing it on the
+  /// command line every time keeps the other two from switching Serverpod to
+  /// `maintenance` or `serverless` behind this parser's back.
   final List<String> serverpodArgs;
 
   static const String _roleOption = 'process-role';
@@ -124,10 +130,13 @@ final class ProcessOptions extends ProcessOptionsResult {
       );
     }
 
+    final forwarded = _withoutRoleOption(args);
     return ProcessOptions._(
       role: role,
       runMode: runMode,
-      serverpodArgs: _withoutRoleOption(args),
+      serverpodArgs: results.wasParsed('role')
+          ? forwarded
+          : ['--role', 'monolith', ...forwarded],
     );
   }
 

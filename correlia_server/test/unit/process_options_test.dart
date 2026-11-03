@@ -2,6 +2,9 @@ import 'dart:io';
 import 'dart:isolate';
 
 import 'package:correlia_server/src/runtime/process_options.dart';
+import 'package:serverpod/serverpod.dart' show ServerpodConfig;
+// ignore: implementation_imports
+import 'package:serverpod/src/server/command_line_args.dart';
 import 'package:test/test.dart';
 
 ProcessOptions _parsed(List<String> args, {Map<String, String>? env}) {
@@ -55,7 +58,12 @@ void main() {
       final options = _parsed(['--mode', 'production', '--process-role=api']);
       expect(options.role, ProcessRole.api);
       expect(options.runMode, 'production');
-      expect(options.serverpodArgs, ['--mode', 'production']);
+      expect(options.serverpodArgs, [
+        '--role',
+        'monolith',
+        '--mode',
+        'production',
+      ]);
     });
 
     test('Serverpod options pass through unchanged and in order', () {
@@ -112,10 +120,53 @@ void main() {
       }
     });
 
+    test('Serverpod runs as monolith whatever SERVERPOD_SERVER_ROLE or the '
+        'config file says', () {
+      final overrides = <(Map<String, String>, Map<String, String>)>[
+        (const {'SERVERPOD_SERVER_ROLE': 'maintenance'}, const {}),
+        (const {'SERVERPOD_SERVER_ROLE': 'serverless'}, const {}),
+        (const {}, const {'role': 'maintenance'}),
+        (const {}, const {'role': 'serverless'}),
+      ];
+      for (final args in [
+        <String>[],
+        ['--process-role=worker'],
+        ['--role=monolith'],
+        ['-r', 'monolith'],
+      ]) {
+        final options = _parsed(args);
+        for (final (environment, configFile) in overrides) {
+          final config = ServerpodConfig.loadFromMap(
+            'development',
+            null,
+            const {},
+            configFile,
+            environment: environment,
+            commandLineArgs: CommandLineArgs(options.serverpodArgs).toMap(),
+          );
+          expect(
+            config.role.name,
+            'monolith',
+            reason: '$args with $environment and $configFile',
+          );
+        }
+      }
+    });
+
+    test('an explicit --role is not repeated', () {
+      expect(_parsed(['--role=monolith']).serverpodArgs, ['--role=monolith']);
+      expect(_parsed(['-r', 'monolith']).serverpodArgs, ['-r', 'monolith']);
+    });
+
     test('--process-role after -- is left alone', () {
       final options = _parsed(['--', '--process-role=api']);
       expect(options.role, ProcessRole.all);
-      expect(options.serverpodArgs, ['--', '--process-role=api']);
+      expect(options.serverpodArgs, [
+        '--role',
+        'monolith',
+        '--',
+        '--process-role=api',
+      ]);
     });
   });
 
