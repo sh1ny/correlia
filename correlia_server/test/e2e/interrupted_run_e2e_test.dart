@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../support/child_server.dart';
+import '../support/decoy.dart';
 
 /// How long to wait for a child to notice that its harness died and exit.
 const _exitDeadline = Duration(seconds: 60);
@@ -101,9 +102,22 @@ Future<void> _waitForChildExit(int pid, String pgdata) async {
 void main() {
   test(
     'killing only the harness twice leaves no child, no cluster process, '
-    'no extra root',
+    'no extra root, and leaves an outside decoy untouched',
     () async {
       final serverDir = Directory.current;
+      final decoyDir = await Directory.systemTemp.createTemp('correlia-decoy-');
+      final decoy = await Decoy.start(decoyDir);
+      addTearDown(() async {
+        await decoy.stop();
+        await decoyDir.delete(recursive: true);
+      });
+      expect(p.isWithin(serverDir.path, decoyDir.path), isFalse);
+      Future<void> expectDecoyUntouched(String when) async {
+        expect(await decoy.ping(), 0, reason: '$when: accepted connections');
+        expect(decoy.exited, isFalse, reason: '$when: the decoy runs');
+        expect(File(decoy.socketPath).existsSync(), isTrue, reason: when);
+      }
+
       final root = E2eRoot(serverDir, 'interrupted-run');
       final e2eRoots = Directory(p.dirname(root.dir.path));
       List<String> rootsOfThisTest() => e2eRoots.existsSync()
@@ -135,6 +149,7 @@ void main() {
           ['interrupted-run'],
           reason: 'attempt $attempt: the stable root is left, and only it',
         );
+        await expectDecoyUntouched('after killed attempt $attempt');
       }
 
       // The third run completes: graceful stop, root deleted.
@@ -151,6 +166,7 @@ void main() {
       expect(_isServerRunning(complete.childPid), isFalse);
       expect(processesNaming(root.pgdata), isEmpty);
       expect(rootsOfThisTest(), isEmpty);
+      await expectDecoyUntouched('after the completed run');
     },
     timeout: const Timeout(Duration(minutes: 6)),
   );

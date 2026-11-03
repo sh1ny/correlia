@@ -1,61 +1,13 @@
 @Tags(['db'])
 library;
 
-import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../integration/test_tools/serverpod_test_tools.dart';
-
-/// The decoy listener process and what it reports.
-final class _Decoy {
-  _Decoy(this.process, this.tcpPort, this.socketPath, this._lines);
-
-  final Process process;
-  final int tcpPort;
-  final String socketPath;
-  final StreamIterator<String> _lines;
-  bool exited = false;
-
-  /// Asks the decoy how many connections it has accepted; proves it runs.
-  Future<int> ping() async {
-    process.stdin.writeln('ping');
-    while (await _lines.moveNext()) {
-      if (_lines.current.startsWith('PONG ')) {
-        return int.parse(_lines.current.substring(5));
-      }
-    }
-    throw StateError('the decoy closed its output');
-  }
-}
-
-Future<_Decoy> _startDecoy(Directory dir) async {
-  final process = await Process.start(Platform.resolvedExecutable, [
-    p.join(Directory.current.path, 'test', 'support', 'decoy_listener.dart'),
-    dir.path,
-  ]);
-  final lines = StreamIterator(
-    process.stdout.transform(utf8.decoder).transform(const LineSplitter()),
-  );
-  unawaited(process.stderr.drain<void>());
-  while (await lines.moveNext().timeout(const Duration(seconds: 60))) {
-    if (lines.current.startsWith('READY ')) {
-      final port = int.parse(lines.current.substring(6));
-      final decoy = _Decoy(
-        process,
-        port,
-        p.join(dir.path, '.s.PGSQL.$port'),
-        lines,
-      );
-      unawaited(process.exitCode.then((_) => decoy.exited = true));
-      return decoy;
-    }
-  }
-  throw StateError('the decoy never became ready');
-}
+import '../support/decoy.dart';
 
 /// [path] made absolute against [base], with symbolic links resolved.
 String _canonical(String path, {String? base}) => Directory(
@@ -67,15 +19,14 @@ void main() {
     p.join(Directory.current.path, '.serverpod', 'test'),
   );
   late Directory decoyDir;
-  late _Decoy decoy;
+  late Decoy decoy;
 
   setUpAll(() async {
     decoyDir = await Directory.systemTemp.createTemp('correlia-decoy-');
-    decoy = await _startDecoy(decoyDir);
+    decoy = await Decoy.start(decoyDir);
   });
   tearDownAll(() async {
-    decoy.process.kill(ProcessSignal.sigterm);
-    await decoy.process.exitCode;
+    await decoy.stop();
     await decoyDir.delete(recursive: true);
   });
 
