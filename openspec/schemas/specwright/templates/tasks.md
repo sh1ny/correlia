@@ -16,3 +16,5 @@
 ## 2. <!-- Task Group Name -->
 
 - [ ] 2.1 <!-- Task description and how to verify it -->
+
+<!-- Markers right after the id, lowercase. A check only the user can make: `- [ ] 2.2 [user] What the user checks`; only the user ticks it. Evidence to capture: `- [ ] 2.3 [evidence] What to capture → evidence/<file>`; one path under the change folder, ticked only when the file is present, non-empty and committed with the task. -->

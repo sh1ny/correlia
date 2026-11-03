@@ -90,8 +90,13 @@ directly from `.claude/skills/<name>/SKILL.md`.
 
 ## Specwright notes
 
-- Installed: Specwright 0.17.0 (`openspec/.specwright/VERSION`), which provides the
+- Installed: Specwright 0.18.0 (`openspec/.specwright/VERSION`), which provides the
   `decision_making` setting.
+- OpenSpec 1.16.0 (Specwright's pin) is pinned in `mise.toml`; run it only as `mise exec -- openspec`
+  (a Linux path under `~/.local/share/mise`), never a Windows `openspec` reached through WSL interop.
+- tasks.md markers (0.18.0): `[user]` is a check only the owner makes and ticks; agents never tick or
+  delegate it, and verify, archive and merge wait for that tick. `[evidence] … → evidence/<file>` is
+  ticked only once that file is present, non-empty and committed with the task.
 - **specwright#140 workaround:** `.claude/agents/specwright-implementer*.md` add `ToolSearch, mcp__dart__*`
   to `tools:` so implementers can use the Dart MCP. **Every Specwright update overwrites this; re-apply it
   after each update.** OMP implementers fall back to the mise tasks.

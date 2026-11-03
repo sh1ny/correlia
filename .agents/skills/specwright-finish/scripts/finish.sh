@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Decisions for finishing a change that were prose before: how to undo an archive of a DEFERRED change. The script only READS
+# Decisions for finishing a change that were prose before: how to undo an archive of a DEFERRED change (or of one waiting on the user). The script only READS
 # the repo (rev-parse, status, log, show, diff-tree, ls-tree, ls-files, cat-file). It never checks out, moves, restores or
 # commits; the user runs the scripts it prints. Every run prints ONE JSON document.
 #
@@ -19,12 +19,13 @@
 #                       <P>/changes/<dated name>/ is the one the archive moved). Main specs include nested capabilities
 #                       (<P>/specs/<area>/<id>/spec.md).
 #                       JSON: ok, mode (uncommitted|committed), archive_commit (A, null when uncommitted), branch, head,
-#                       members [{name, archived_name, deferred}], main_specs {modified[], created[]} (a spec deleted on the
+#                       members [{name, archived_name, deferred, waiting_on_user}] (waiting_on_user: the ids of the member's unticked
+#                       `[user]` tasks in its archived tasks.md), main_specs {modified[], created[]} (a spec deleted on the
 #                       branch after the archive is left deleted, with a warning), amended[] (main specs whose working copy
 #                       differs from A's synced content), carried_edits[] (archive-copy files with edits
 #                       that are not committed or differ from the change directory), backup_dir
 #                       (<git-dir>/specwright-undo/<archived>/), script, after_rerun (for a bulk archive, a script that
-#                       archives the non-deferred members again and merges back amendments to the main specs they sync;
+#                       archives the members that are neither deferred nor waiting on the user again and merges back amendments to the main specs they sync;
 #                       null otherwise), warnings[].
 #                       `script` and `after_rerun` are bash texts that begin with `set -euo pipefail`: save each to a file and
 #                       run it with `bash <file>`. `script` guards the branch, HEAD and index first (a resume from another
@@ -76,6 +77,14 @@ VCS_SH = os.path.normpath(os.path.join(os.environ["FIN_DIR"], "..", "..", "specw
 BASH = os.environ.get("FIN_BASH") or "bash"
 DATE_RX = re.compile(r"^\d{4}-\d{2}-\d{2}-")
 DEFERRED_RX = re.compile(r"(?m)^VERDICT: DEFERRED[ \t]*\r?$")
+# an unticked user task, read as task-cover.sh reads it: `- [<box>] X.Y [user] ...`, the box done only when it holds x
+USER_TASK_RX = re.compile(r"(?m)^[ \t]*-[ \t]+\[([^\]\r\n]*)\][ \t]+(\d+\.\d+)[ \t]+\[user\](?=[ \t]|\r?$)")
+
+
+def waiting_on_user(tasks):
+    """Ids of the unticked `[user]` tasks in a tasks.md text (bytes or None), in file order."""
+    text = (tasks or b"").decode("utf-8", "replace")
+    return [m.group(2) for m in USER_TASK_RX.finditer(text) if m.group(1).strip() not in ("x", "X")]
 
 
 class Stop(Exception):
@@ -274,7 +283,8 @@ def cmd_undo(d, a):
         for dname, nm in order:
             mdir = join(P, "changes", "archive", dname)
             rv = wd_bytes(join(mdir, "review.md")) or b""
-            members.append({"name": nm, "archived_name": dname, "deferred": bool(DEFERRED_RX.search(rv.decode("utf-8", "replace"))), "dir": mdir})
+            members.append({"name": nm, "archived_name": dname, "deferred": bool(DEFERRED_RX.search(rv.decode("utf-8", "replace"))),
+                            "waiting_on_user": waiting_on_user(wd_bytes(join(mdir, "tasks.md"))), "dir": mdir})
         if cb != branch:
             warnings.append(f"The archive is uncommitted, so the plan guards the current branch {cb or '(detached)'}, not {branch}.")
         if staged():
@@ -377,7 +387,12 @@ def cmd_undo(d, a):
             mdir = join(P, "changes", "archive", dn)
             nm = change if dn == archived else dn if dn in moved else DATE_RX.sub("", dn)  # a dated name is archived as it is
             rv = blob(T, join(mdir, "review.md")) or b""
-            members.append({"name": nm, "archived_name": dn, "deferred": bool(DEFERRED_RX.search(rv.decode("utf-8", "replace"))), "dir": mdir})
+            # on the current branch the undo moves the working-tree folder back, so its tasks.md is the one rerun reads
+            tk = wd_bytes(join(mdir, "tasks.md")) if branch == cb else None
+            if tk is None:
+                tk = blob(T, join(mdir, "tasks.md"))
+            members.append({"name": nm, "archived_name": dn, "deferred": bool(DEFERRED_RX.search(rv.decode("utf-8", "replace"))),
+                            "waiting_on_user": waiting_on_user(tk), "dir": mdir})
         unique_members([(m["archived_name"], m["name"]) for m in members])
         for m in members:
             tgt = join(P, "changes", m["name"])
@@ -532,7 +547,8 @@ def cmd_undo(d, a):
 
     # ---- after_rerun -------------------------------------------------------------------------------------------
     after = None
-    rerun = [m for m in members if not m["deferred"]]  # every bulk member but the deferred ones, the named one included
+    # every bulk member but the deferred ones and those waiting on the user, the named one included
+    rerun = [m for m in members if not m["deferred"] and not m["waiting_on_user"]]
     merge, left, redelete = [], list(amended) if mode == "committed" else [], []
     if mode == "committed" and rerun:
         synced_by_rerun = set()
@@ -572,7 +588,8 @@ def cmd_undo(d, a):
                         f"are saved in {backup_dir}/amended/ and never merged automatically; review them by hand.")
 
     return {"ok": True, "mode": mode, "archive_commit": A, "branch": plan_branch, "head": T,
-            "members": [{"name": m["name"], "archived_name": m["archived_name"], "deferred": m["deferred"]} for m in members],
+            "members": [{"name": m["name"], "archived_name": m["archived_name"], "deferred": m["deferred"],
+                         "waiting_on_user": m["waiting_on_user"]} for m in members],
             "main_specs": {"modified": main_mod, "created": main_new}, "amended": amended,
             "carried_edits": carried, "backup_dir": backup_dir, "script": script, "after_rerun": after, "warnings": warnings}
 

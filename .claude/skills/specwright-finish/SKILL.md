@@ -2,7 +2,7 @@
 name: specwright-finish
 description: "MANDATORY after the OpenSpec archive workflow completes: /opsx:archive, /opsx:bulk-archive, openspec-archive-change, `openspec archive`, or the user asks to archive/finish a change. Commits the archive move, then merges locally (finish: local) or pushes to the PR (finish: pr). Also handles 'the PR was merged' cleanup."
 metadata:
-  version: 0.17.0
+  version: 0.18.0
 user-invocable: false
 allowed-tools: Bash(git *) Bash(openspec *) Bash(bash *)
 ---
@@ -64,6 +64,7 @@ Report `Nothing to finish - archive is on <main>` only when every repo is done; 
    - exit 0 → show its `script`, its `after_rerun` when not null, and every `warnings` line. Tell the user to save each script to a file and run it with `bash <file>`: `script` first, then, for a bulk archive, `after_rerun`, which archives the other members again and merges the saved main-spec amendments back; then finish again. Run neither script yourself. The undo of a committed archive is one new commit on `<branch>` (an uncommitted one makes none), never a revert, a reset or a force-push. A bulk archive is undone as a whole and archived again without the deferred change, never restoring only the deferred change's files;
    - exit 1 → show its `error` and `message`, and stop;
    - exit 2 → a usage error in this call: fix the call and run it again.
+   **User-task check**, in this step for each archived change: `bash <specwright-commit>/scripts/task-cover.sh --repo <planning repo toplevel> --range <main>..<branch> --tasks <P>/changes/archive/<archived-name>/tasks.md --change <change-name>` (`<specwright-commit>` being that skill's folder; not in the working tree: add `--rev <branch>`). A non-empty `waiting_on_user` → stop the same way: no commit, no merge, no push; name those tasks, tell the user the archive waits on them, and show the same undo plan as the DEFERRED stop (run it once, handle its exit codes alike). A script failure (exit 1-3) also stops: show its message, and archive nothing further.
 1. **Branch:** `[vcs] state --branch <prefix>/<change-name>` gives `branch` and `on_main` (on GitButler the change branch counts as not main while it is applied). If the branch's change name differs from the archived change, confirm with the user. On main:
    - No archive changes left uncommitted (the archive already reached main) → **Resume**; report `Nothing to finish - archive is on <main>` only when it finds every repo done.
    - Otherwise (the PR merged before archive ran; normally `specwright-pr` **watch** archives on the PR branch first) → offer `[vcs] branch-create --branch chore/archive-<change-name>`; the uncommitted archive carries over. Continue from step 2 on that branch, or stop if the user declines. Never commit on main.

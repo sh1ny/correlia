@@ -53,6 +53,9 @@ artifacts:
       If the project has a roadmap (`project.roadmap` in
       openspec/specwright.yaml, default openspec/roadmap.md), name the
       milestone this change serves and the exit criteria it advances in Why.
+      When it advances a user-verified exit criterion of that milestone, say
+      in Why how this change checks it: a `[user]` task in tasks.md, or that
+      the criterion is judged at the milestone close and why.
 
       Decision mode. Before you write proposal.md, resolve the mode for this
       change. Read `decision_making` from the code repo's
@@ -468,6 +471,8 @@ artifacts:
       - Over-engineering: mechanisms that fail the mechanism-ledger test
       - Specs: requirements without a failure scenario; THENs that are not
         assertable
+      - Test map: a testable scenario mapped to a user task is a finding;
+        only a scenario a person alone can judge maps to one
       Report only findings with a concrete consequence; drop theoretical
       concerns with no evidence. Severity: Critical (blocking), Moderate,
       Suggestion.
@@ -558,8 +563,24 @@ artifacts:
       the real boundary the scenario crosses (platform, IPC/isolate, storage,
       UI interaction) over mocks of it. A scenario that cannot be tested in
       code maps to a mechanical check (analyzer, schema validation, script)
-      marked `n/a` with a reason - never prose sign-off. Unmapped scenarios
-      are a defect. Extra tests are welcome and need no row.
+      marked `n/a` with a reason - never prose sign-off. A scenario only a
+      person can judge maps to the user task that checks it, with state
+      `user`: the row names the user task id and turns `green` when its user
+      task is ticked. A testable scenario never maps to a user task.
+      Unmapped scenarios are a defect. Extra tests are welcome and need no row.
+
+      MARKERS. A task only the user can check starts with `[user]` right
+      after its id: `- [ ] 4.3 [user] <what the user checks>`. A task that
+      captures evidence starts with `[evidence]` and names one file:
+      `- [ ] 4.2 [evidence] <what to capture> → evidence/<file>`. Write the
+      marker lowercase and first after the id; anywhere else it is plain
+      text. An evidence file lives under the change's `evidence/` folder: tick
+      the task only when the file is present, non-empty and committed with
+      the task.
+
+      EXIT CRITERIA. When the proposal names a user-verified exit criterion
+      of its milestone, add a `[user]` task that checks it for this change,
+      or the proposal says the criterion is judged at milestone close and why.
 
       If design.md lists new or superseding ADRs, the first task group
       writes those ADR files.
@@ -652,6 +673,13 @@ apply:
     available, use `specwright-implementer` and say so once. With the tier
     off, or for a FULL change, keep `specwright-implementer` and this rule:
     small groups (one or two trivial edits) you may implement directly.
+
+    USER TASKS. A task marked `[user]` is the user's. Never tick, implement
+    or dispatch a `[user]` task, to a `specwright-implementer` or any other
+    worker. Skip each `[user]` task, go on with the next agent task, and
+    list every unticked one as waiting on the user. When the user reports a
+    result in chat, leave the box unticked and ask them to tick it in
+    `tasks.md`; the agent never writes the `x`.
 
     - Write each new or changed behavior's failing test first and confirm it
       fails for the right reason; then implement; then flip its test map row

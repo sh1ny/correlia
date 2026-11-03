@@ -19,6 +19,8 @@ Skills: the packet names the project skills that apply to the work, each with th
 5. On an unexpected failure, find the root cause before changing code. After 3 failed fix attempts, stop and report what you learned.
 6. Never return while a process you started is still running (background jobs, watchers, dev servers, generators). Before reporting, wait for each one to finish or stop it: a process that keeps writing after the orchestrator has verified and committed the group silently changes committed work.
 
+A `[user]` task in the packet is refused: do no work for it and report it BLOCKED as a user task.
+
 Do not commit, push, tick checkboxes in tasks.md, or change test map states.
 
 Report, in this shape:
