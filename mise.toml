@@ -7,7 +7,6 @@
 # `bootstrap-workspace`; ADR 0014: everything runs natively on Linux).
 # The Serverpod CLI is not a mise tool: it is the pinned dev dependency `serverpod_cli: 4.1.0` of
 # `correlia_server`, run as `dart run serverpod_cli`.
-# `check` is rewritten in group 4 of `bootstrap-workspace`.
 
 [tools]
 flutter = "3.47.9"
@@ -54,8 +53,18 @@ run = "dart run tool/bin/tool.dart test --all"
 depends = ["setup"]
 
 [tasks.check]
-description = "Pre-push gate (pr.validate). Today: OpenSpec validation only; M1 adds analyze + fast tests"
-run = "openspec validate --all --strict"
+description = "Pre-push gate: OpenSpec, doctor, analysis, format, generated code, fast tests (stops at the first failure)"
+run = [
+  "openspec validate --all --strict",
+  "dart run tool/bin/tool.dart doctor",
+  "dart analyze --fatal-infos",
+  "flutter analyze --fatal-infos correlia_flutter",
+  "dart format --output=none --set-exit-if-changed .",
+  "dart run tool/bin/tool.dart generated",
+  "dart run tool/bin/tool.dart test",
+  "cd tool && dart test",
+  "cd correlia_flutter && flutter test",
+]
 depends = ["setup"]
 
 [tasks."spec:validate"]

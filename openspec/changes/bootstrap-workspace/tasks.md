@@ -25,7 +25,7 @@ Paths are relative to the repository root. `correlia_server/test/{unit,db,e2e}` 
 | workspace-tooling → Tasks run on plain Linux | Task definitions | tool/test/task_definitions_test.dart | `mise.toml and tool sources have no Windows or WSL references` | green |
 | workspace-tooling → Tasks run on plain Linux | Windows tool on PATH | tool/test/doctor_test.dart | `a Windows dart earlier on PATH does not win over the pinned one` | green |
 | workspace-tooling → Check gate | Clean workspace | n/a: the gate itself; `mise run check` on a clean clone, captured in task 9.2 | — | n/a |
-| workspace-tooling → Check gate | Analysis issue | tool/test/check_test.dart | `an analysis warning fails the analyze step naming file and issue` | red |
+| workspace-tooling → Check gate | Analysis issue | tool/test/check_test.dart | `an analysis warning fails the analyze step naming file and issue` | green |
 | workspace-tooling → Test tier selection | Default run | tool/test/test_command_test.dart | `no arguments runs only fast tests` | green |
 | workspace-tooling → Test tier selection | Select the db tier | tool/test/test_command_test.dart | `--tags db runs every db test and nothing untagged` | green |
 | workspace-tooling → Test tier selection | Reporting arguments only | tool/test/test_command_test.dart | `--reporter expanded runs only fast tests` | green |
@@ -40,8 +40,8 @@ Paths are relative to the repository root. `correlia_server/test/{unit,db,e2e}` 
 | workspace-tooling → Recovery after a killed test run | Test server killed | correlia_server/test/db/kill_recovery_test.dart | `after SIGKILL the next run in the same root passes and leaves no postmaster` | red |
 | workspace-tooling → Local passwords on a fresh clone | Fresh clone | tool/test/setup_test.dart (unit); fresh clone in task 9.3 | `creates development and test sections when the file is missing` | green |
 | workspace-tooling → Local passwords on a fresh clone | Existing file without a test section | tool/test/setup_test.dart | `a file without a test section fails naming file and section, unchanged` | green |
-| workspace-tooling → Code generation is current | Stale generated code | tool/test/generated_test.dart | `a stale generated file fails naming it` | red |
-| workspace-tooling → Code generation is current | Current generated code on a clean clone | tool/test/generated_test.dart; fresh clone in task 9.3 | `current code passes and the checkout is unchanged` | red |
+| workspace-tooling → Code generation is current | Stale generated code | tool/test/generated_test.dart | `a stale generated file fails naming it` | green |
+| workspace-tooling → Code generation is current | Current generated code on a clean clone | tool/test/generated_test.dart; fresh clone in task 9.3 | `current code passes and the checkout is unchanged` | green |
 
 ## 1. Workspace scaffold and pinned toolchain
 
@@ -98,14 +98,14 @@ Paths are relative to the repository root. `correlia_server/test/{unit,db,e2e}` 
 
 ## 4. Generated-code check
 
-- [ ] 4.1 Write failing `tool/test/generated_test.dart` against a temporary copy of the repository: current
+- [x] 4.1 Write failing `tool/test/generated_test.dart` against a temporary copy of the repository: current
   code passes and the copy's `git status` is unchanged; a deliberately edited generated file fails naming it.
   Verify they fail because `generated` does not exist.
-- [ ] 4.2 Implement `tool generated` per D5 (self-contained temporary workspace: own root manifest listing
+- [x] 4.2 Implement `tool generated` per D5 (self-contained temporary workspace: own root manifest listing
   server and client, copied `pubspec.lock`, generator inputs without `.dart_tool`, `build` or package config,
   `dart pub get --offline`, pinned generator, diff). Verify the 4.1 tests pass and flip the two generation
   rows green (the clean-clone half is task 9.3).
-- [ ] 4.3 Write failing `tool/test/check_test.dart` (a fixture package with an unused local fails the analyze
+- [x] 4.3 Write failing `tool/test/check_test.dart` (a fixture package with an unused local fails the analyze
   step naming file and lint), then set `check` per D6 in order: `openspec validate --all --strict`, `doctor`,
   `analyze`, `dart format --output=none --set-exit-if-changed .`, `generated`, fast tests of server and tool,
   `flutter test` for the console. Verify the test passes, its row is green, and `mise run check` exits 0.

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 
 import 'doctor.dart';
+import 'generated_command.dart';
 import 'pins.dart';
 import 'setup.dart';
 import 'test_command.dart';
@@ -29,6 +30,15 @@ CommandRunner<int> buildRunner({
           '${repoRoot.path}/correlia_server/config/passwords.yaml',
         ),
         generatePassword: generateSecurePassword,
+        out: out,
+        err: err,
+      ),
+    )
+    ..addCommand(
+      GeneratedCommand(
+        repoRoot: repoRoot,
+        launch: runProcess,
+        dartExecutable: Platform.resolvedExecutable,
         out: out,
         err: err,
       ),
