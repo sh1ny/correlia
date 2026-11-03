@@ -13,7 +13,12 @@ import 'package:serverpod_test/serverpod_test.dart'
 /// Nothing here starts, stops or signals a PostgreSQL process; the cluster
 /// keeps running after the test, as it does after any `db` test (design D4).
 final class SharedClusterDatabase {
-  SharedClusterDatabase._(this._database, this.socketDir, this.port);
+  SharedClusterDatabase._(
+    this._database,
+    this.socketDir,
+    this.port,
+    this._serverDir,
+  );
 
   /// Creates a database named for this process on the shared test cluster of
   /// [serverDir] (the directory of `config/test.yaml`).
@@ -40,6 +45,7 @@ final class SharedClusterDatabase {
       database,
       socketDir.absolute.path,
       _socketPort(socketDir),
+      serverDir.absolute.path,
     );
   }
 
@@ -63,6 +69,10 @@ final class SharedClusterDatabase {
 
   final EphemeralTestDatabase _database;
 
+  /// The child's working directory, which a relative socket path resolves
+  /// against.
+  final String _serverDir;
+
   /// The database's name.
   String get name => _database.name;
 
@@ -80,9 +90,15 @@ final class SharedClusterDatabase {
 
   /// The `SERVERPOD_DATABASE_*` variables that point a child at this database
   /// over the Unix socket, with the child's own embedded Postgres off.
+  ///
+  /// The host is [socketHostFor] the child's working directory, so a checkout
+  /// under a long path still fits the socket path limit.
   Map<String, String> get environment => {
     'SERVERPOD_DATABASE_DATA_PATH': '',
-    'SERVERPOD_DATABASE_HOST': socketPath,
+    'SERVERPOD_DATABASE_HOST': socketHostFor(
+      socketPath,
+      workingDirectory: _serverDir,
+    ),
     'SERVERPOD_DATABASE_IS_UNIX_SOCKET': 'true',
     'SERVERPOD_DATABASE_PORT': '$port',
     'SERVERPOD_DATABASE_NAME': name,
@@ -91,4 +107,14 @@ final class SharedClusterDatabase {
   /// Drops the database, closing any connection to it (`WITH (FORCE)`).
   /// Does nothing if it is already gone.
   Future<void> drop() => _database.drop();
+}
+
+/// The shorter of [socketPath] and its path relative to [workingDirectory].
+///
+/// A Unix socket path must fit `sun_path` (108 bytes on Linux), so a checkout
+/// under a long path cannot reach its socket by absolute path. Serverpod's
+/// embedded Postgres connects the same way (`shortestPath`).
+String socketHostFor(String socketPath, {required String workingDirectory}) {
+  final relative = p.relative(socketPath, from: workingDirectory);
+  return relative.length < socketPath.length ? relative : socketPath;
 }
