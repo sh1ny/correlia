@@ -9,6 +9,8 @@ final class TestModeSwitches {
     this.exitOnStdinClose = false,
     this.rootLock,
     this.rootLockTimeout,
+    this.stopProbe = false,
+    this.stopGate,
   });
 
   /// Reads the switches from [environment] if [runMode] is `test`.
@@ -27,6 +29,8 @@ final class TestModeSwitches {
       rootLockTimeout: timeoutSeconds == null
           ? null
           : Duration(seconds: timeoutSeconds),
+      stopProbe: environment['CORRELIA_TEST_STOP_PROBE'] == '1',
+      stopGate: environment['CORRELIA_TEST_STOP_GATE'],
     );
   }
 
@@ -42,6 +46,13 @@ final class TestModeSwitches {
   /// `CORRELIA_TEST_ROOT_LOCK_TIMEOUT`, in whole seconds: how long to wait
   /// for [rootLock] (the harness's readiness deadline).
   final Duration? rootLockTimeout;
+
+  /// `CORRELIA_TEST_STOP_PROBE=1`: on stop, run a database query and log it.
+  final bool stopProbe;
+
+  /// `CORRELIA_TEST_STOP_GATE`: a file whose exclusive lock, held by the
+  /// test, keeps the server in shutdown until the test releases it.
+  final String? stopGate;
 }
 
 /// Runs [onEof] once when [stdin] ends, which is how a child learns that its

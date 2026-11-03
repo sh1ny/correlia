@@ -530,5 +530,8 @@ sequenceDiagram
 
 ## Open Questions
 
-- e2e child ports: bind port 0 and release, or parse Serverpod's startup log for the bound port. Either fits
-  the harness in `test/support/`; settled during apply.
+- e2e child ports: settled during apply (task 8.1): the harness binds port 0 and releases it, then passes the
+  number to the child in `SERVERPOD_*_SERVER_PORT`. Parsing the child's log for the bound port was rejected: the
+  API port is needed to poll `/startupz` before any log line exists, and it would tie the harness to Serverpod's
+  log format. The release-to-bind window is the accepted risk of the port-conflict retry ledger row: a collision
+  fails the test visibly.

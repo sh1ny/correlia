@@ -9,6 +9,8 @@ const _env = {
   'CORRELIA_EXIT_ON_STDIN_CLOSE': '1',
   'CORRELIA_TEST_ROOT_LOCK': '/tmp/root/owner.lock',
   'CORRELIA_TEST_ROOT_LOCK_TIMEOUT': '30',
+  'CORRELIA_TEST_STOP_PROBE': '1',
+  'CORRELIA_TEST_STOP_GATE': '/tmp/root/stop.gate',
 };
 
 void main() {
@@ -19,6 +21,8 @@ void main() {
         expect(switches.consoleDir, isNull);
         expect(switches.exitOnStdinClose, isFalse);
         expect(switches.rootLock, isNull);
+        expect(switches.stopProbe, isFalse);
+        expect(switches.stopGate, isNull);
       });
     }
 
@@ -28,6 +32,15 @@ void main() {
       expect(switches.exitOnStdinClose, isTrue);
       expect(switches.rootLock, '/tmp/root/owner.lock');
       expect(switches.rootLockTimeout, const Duration(seconds: 30));
+      expect(switches.stopProbe, isTrue);
+      expect(switches.stopGate, '/tmp/root/stop.gate');
+    });
+
+    test('stop probe needs the value 1', () {
+      final switches = TestModeSwitches.fromEnvironment('test', {
+        'CORRELIA_TEST_STOP_PROBE': 'true',
+      });
+      expect(switches.stopProbe, isFalse);
     });
 
     test('exit on stdin close needs the value 1', () {

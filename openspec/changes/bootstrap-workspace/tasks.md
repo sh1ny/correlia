@@ -7,18 +7,18 @@ Paths are relative to the repository root. `correlia_server/test/{unit,db,e2e}` 
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| process-roles → Role selection at startup | Role set explicitly | correlia_server/test/e2e/roles_e2e_test.dart | `worker role is logged as worker` | red |
-| process-roles → Role selection at startup | No role set | correlia_server/test/e2e/roles_e2e_test.dart | `no role runs as all and logs all` | red |
-| process-roles → Role selection at startup | Unknown role | correlia_server/test/e2e/roles_e2e_test.dart | `unknown role exits non-zero before any listener or cluster` | red |
+| process-roles → Role selection at startup | Role set explicitly | correlia_server/test/e2e/roles_e2e_test.dart | `worker role is logged as worker` | green |
+| process-roles → Role selection at startup | No role set | correlia_server/test/e2e/roles_e2e_test.dart | `no role runs as all and logs all` | green |
+| process-roles → Role selection at startup | Unknown role | correlia_server/test/e2e/roles_e2e_test.dart | `unknown role exits non-zero before any listener or cluster` | green |
 | process-roles → Role selection keeps the other startup options | Production mode with a role | correlia_server/test/unit/process_options_test.dart | `production mode and api role both survive parsing` | green |
-| process-roles → Role selection keeps the other startup options | Startup options rejected as a whole | correlia_server/test/e2e/roles_e2e_test.dart | `unrecognised option exits non-zero naming it` | red |
-| process-roles → Subsystems per role | api role | correlia_server/test/e2e/roles_e2e_test.dart | `api role serves the console and starts no background subsystem` | red |
-| process-roles → Subsystems per role | worker role | correlia_server/test/e2e/roles_e2e_test.dart | `worker role answers 404 for the console` | red |
+| process-roles → Role selection keeps the other startup options | Startup options rejected as a whole | correlia_server/test/e2e/roles_e2e_test.dart | `unrecognised option exits non-zero naming it` | green |
+| process-roles → Subsystems per role | api role | correlia_server/test/e2e/roles_e2e_test.dart | `api role serves the console and starts no background subsystem` | green |
+| process-roles → Subsystems per role | worker role | correlia_server/test/e2e/roles_e2e_test.dart | `worker role answers 404 for the console` | green |
 | process-roles → Subsystems per role | Subsystem fails to start | correlia_server/test/unit/role_runtime_test.dart | `a failing start names the subsystem and maps to a non-zero exit` | green |
-| process-roles → Health endpoints in every role | Healthy server | correlia_server/test/e2e/health_e2e_test.dart | `livez readyz startupz answer 200 in each role` | red |
+| process-roles → Health endpoints in every role | Healthy server | correlia_server/test/e2e/health_e2e_test.dart | `livez readyz startupz answer 200 in each role` | green |
 | process-roles → Health endpoints in every role | Subsystem still starting | correlia_server/test/db/startup_gate_test.dart | `startupz stays 503 until the gated subsystem has started` | green |
-| process-roles → Health endpoints in every role | Database unreachable | correlia_server/test/e2e/health_e2e_test.dart | `readyz 503 and livez 200 when the database stops` | red |
-| process-roles → Graceful shutdown | SIGTERM | correlia_server/test/unit/role_runtime_test.dart; correlia_server/test/e2e/shutdown_e2e_test.dart | `stops subsystems one at a time in reverse start order`; `SIGTERM stops subsystems before the pool closes and exits 0` | red |
+| process-roles → Health endpoints in every role | Database unreachable | correlia_server/test/e2e/health_e2e_test.dart | `readyz 503 and livez 200 when the database stops` | green |
+| process-roles → Graceful shutdown | SIGTERM | correlia_server/test/unit/role_runtime_test.dart; correlia_server/test/e2e/shutdown_e2e_test.dart | `stops subsystems one at a time in reverse start order`; `SIGTERM stops subsystems before the pool closes and exits 0` | green |
 | process-roles → Graceful shutdown | Subsystem fails to stop | correlia_server/test/unit/role_runtime_test.dart; correlia_server/test/db/shutdown_order_test.dart | `a failing stop is logged, the rest still stop, a combined error is rethrown`; `a failing stop callback makes Serverpod report a failed shutdown` | green |
 | workspace-tooling → Pinned Linux toolchain | Tools resolve on Linux | tool/test/doctor_test.dart | `reports a Linux path and the pinned version for every tool` | green |
 | workspace-tooling → Pinned Linux toolchain | Wrong Serverpod CLI version | tool/test/doctor_test.dart | `a wrong serverpod_cli version fails naming tool, pinned and found` | green |
@@ -34,9 +34,9 @@ Paths are relative to the repository root. `correlia_server/test/{unit,db,e2e}` 
 | workspace-tooling → Test tier selection | Unknown tag | tool/test/test_command_test.dart | `--tags dbb exits non-zero` | green |
 | workspace-tooling → Tests use only their own PostgreSQL | Another PostgreSQL-like listener is present | correlia_server/test/db/postgres_isolation_test.dart | `a decoy listener and socket get no connection and keep running` | green |
 | workspace-tooling → Tests use only their own PostgreSQL | Database identity | correlia_server/test/db/postgres_isolation_test.dart | `data_directory and unix_socket_directories lie inside the cluster root` | green |
-| workspace-tooling → Tests use only their own PostgreSQL | Clusters started side by side | correlia_server/test/e2e/cluster_roots_e2e_test.dart | `each cluster has its own stable root, deleted after its server stopped` | red |
-| workspace-tooling → Tests use only their own PostgreSQL | Interrupted end-to-end run | correlia_server/test/e2e/interrupted_run_e2e_test.dart | `killing only the harness twice leaves no child, no cluster process, no extra root` | red |
-| workspace-tooling → Tests use only their own PostgreSQL | Re-run while the previous server is still stopping | correlia_server/test/e2e/root_handoff_e2e_test.dart | `a replacement waits for the root lock, then starts; at its deadline fails naming the root` | red |
+| workspace-tooling → Tests use only their own PostgreSQL | Clusters started side by side | correlia_server/test/e2e/cluster_roots_e2e_test.dart | `each cluster has its own stable root, deleted after its server stopped` | green |
+| workspace-tooling → Tests use only their own PostgreSQL | Interrupted end-to-end run | correlia_server/test/e2e/interrupted_run_e2e_test.dart | `killing only the harness twice leaves no child, no cluster process, no extra root` | green |
+| workspace-tooling → Tests use only their own PostgreSQL | Re-run while the previous server is still stopping | correlia_server/test/e2e/root_handoff_e2e_test.dart | `a replacement waits for the root lock, then starts; at its deadline fails naming the root` | green |
 | workspace-tooling → Recovery after a killed test run | Test server killed | correlia_server/test/db/kill_recovery_test.dart | `after SIGKILL the next run in the same root passes and leaves no postmaster` | green |
 | workspace-tooling → Local passwords on a fresh clone | Fresh clone | tool/test/setup_test.dart (unit); fresh clone in task 9.3 | `creates development and test sections when the file is missing` | green |
 | workspace-tooling → Local passwords on a fresh clone | Existing file without a test section | tool/test/setup_test.dart | `a file without a test section fails naming file and section, unchanged` | green |
@@ -156,7 +156,7 @@ Paths are relative to the repository root. `correlia_server/test/{unit,db,e2e}` 
 
 ## 8. End-to-end tier
 
-- [ ] 8.1 Harness in `correlia_server/test/support/`: spawn the real entry point with `SERVERPOD_*` ports and
+- [x] 8.1 Harness in `correlia_server/test/support/`: spawn the real entry point with `SERVERPOD_*` ports and
   `<root>/pgdata`, `CORRELIA_EXIT_ON_STDIN_CLOSE=1`, `CORRELIA_TEST_ROOT_LOCK=<root>/owner.lock`; keep its
   stdin open; capture the last 200 output lines; poll `/startupz` against an injected deadline (60 s default);
   stop by closing stdin (graceful, D16) with an injected 30 s deadline, then SIGKILL; delete the root only
@@ -164,13 +164,13 @@ Paths are relative to the repository root. `correlia_server/test/{unit,db,e2e}` 
   database on the shared test cluster through `EphemeralTestDatabase`, the child started with
   `SERVERPOD_DATABASE_DATA_PATH` empty and `SERVERPOD_DATABASE_*` pointing at that cluster's socket in
   `.serverpod/test/run`, the database dropped after the child exited. Settle the open question on port discovery here and note it in design.md Open Questions.
-- [ ] 8.2 Write failing `roles_e2e_test.dart`, `health_e2e_test.dart`, `shutdown_e2e_test.dart` (SIGTERM
+- [x] 8.2 Write failing `roles_e2e_test.dart`, `health_e2e_test.dart`, `shutdown_e2e_test.dart` (SIGTERM
   to the child without a data path of 8.1: subsystems stop before the pool closes, exit 0),
   `cluster_roots_e2e_test.dart`, `interrupted_run_e2e_test.dart` (kill only the harness process, run as its own
   subprocess, twice, then complete) and `root_handoff_e2e_test.dart` (previous child held in shutdown by a
   test-mode gate, replacement started at once; waits, then starts; with a short deadline, fails naming the
   root). Verify they fail for the right reason.
-- [ ] 8.3 Make them pass; flip the remaining e2e rows green. Verify with `mise run test -- --tags e2e`.
+- [x] 8.3 Make them pass; flip the remaining e2e rows green. Verify with `mise run test -- --tags e2e`.
 
 ## 9. Agent configs, docs and integration checks
 
