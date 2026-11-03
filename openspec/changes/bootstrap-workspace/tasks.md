@@ -178,12 +178,12 @@ Paths are relative to the repository root. `correlia_server/test/{unit,db,e2e}` 
   `.mcp.json` and `.codex/config.toml`; check OMP lists it from `.mcp.json` and write `.omp/mcp.json` only if
   it does not (D9). Update AGENTS.md's Testing section (tasks now exist: `mise run test`, `test:all`, tiers,
   cluster roots) and the `.codex/config.toml` comment. Verify: Claude's `/mcp` and OMP both show `serverpod`.
-- [x] 9.2 [evidence] `mise run check` and `mise run test:all` pass in this checkout, with the db and e2e tests
+- [x] 9.2 [evidence] (→ evidence/check-and-test-all.txt) `mise run check` and `mise run test:all` pass in this checkout, with the db and e2e tests
   reported by name → evidence/check-and-test-all.txt
-- [x] 9.3 [evidence] Fresh-clone check: `git clone` this branch into the scratchpad, then `mise install`,
+- [x] 9.3 [evidence] (→ evidence/fresh-clone.txt) Fresh-clone check: `git clone` this branch into the scratchpad, then `mise install`,
   `mise run test -- --tags db` (passwords file created, not in `git status`), `mise run check`, `mise run
   test:all`, and `git status --porcelain` empty at the end → evidence/fresh-clone.txt
-- [x] 9.4 [evidence] Linux-only and Postgres-safety checks: `mise exec -- which dart flutter go buf openspec`
+- [x] 9.4 [evidence] (→ evidence/linux-and-postgres.txt) Linux-only and Postgres-safety checks: `mise exec -- which dart flutter go buf openspec`
   output; processes whose command line names this repository's `.serverpod/` roots, listed before and after
   `test:all` (selected by data-directory path, never by process name; none left after except the shared test
   cluster `.serverpod/test/`, which Serverpod keeps for reuse, D4); and `ss -ltn` showing `127.0.0.1:5432`
