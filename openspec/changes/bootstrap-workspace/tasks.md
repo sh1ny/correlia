@@ -133,10 +133,10 @@ Paths are relative to the repository root. `correlia_server/test/{unit,db,e2e}` 
 
 ## 6. Console subsystem and placeholder console
 
-- [ ] 6.1 Placeholder Flutter web page in `correlia_flutter` with a failing widget test
+- [x] 6.1 Placeholder Flutter web page in `correlia_flutter` with a failing widget test
   `correlia_flutter/test/placeholder_page_test.dart` (renders the product name and "console coming in M2" or
   similar), then the page; verify `mise exec -- flutter test` in `correlia_flutter` passes.
-- [ ] 6.2 `ConsoleSubsystem` (roles `api`, `all`) serving `web/app`, or `CORRELIA_TEST_CONSOLE_DIR` in test
+- [x] 6.2 `ConsoleSubsystem` (roles `api`, `all`) serving `web/app`, or `CORRELIA_TEST_CONSOLE_DIR` in test
   mode (D10); 503 page naming `mise run build:web` plus a startup warning when `index.html` is missing (D15);
   mise task `build:web`. Fast test `correlia_server/test/unit/console_subsystem_test.dart` for the 503 page and
   the test-mode directory. Verify it passes and `mise run build:web` produces `correlia_server/web/app/index.html`.

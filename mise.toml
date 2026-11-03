@@ -52,6 +52,11 @@ description = "Run every tier except load (fast, db, e2e, plugin)"
 run = "dart run tool/bin/tool.dart test --all"
 depends = ["setup"]
 
+[tasks."build:web"]
+description = "Build the Flutter console into correlia_server/web/app (served by the api role)"
+run = "flutter build web --base-href / --output ../correlia_server/web/app"
+dir = "correlia_flutter"
+
 [tasks.check]
 description = "Pre-push gate: OpenSpec, doctor, analysis, format, generated code, fast tests (stops at the first failure)"
 run = [

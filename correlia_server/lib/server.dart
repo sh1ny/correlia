@@ -3,11 +3,11 @@ import 'dart:io';
 
 import 'src/generated/serverpod.dart';
 import 'src/runtime/process_options.dart';
+import 'src/runtime/console_subsystem.dart';
 import 'src/runtime/registry.dart';
 import 'src/runtime/role_runtime.dart';
 import 'src/runtime/serverpod_adapter.dart';
 import 'src/runtime/startup_state.dart';
-import 'src/runtime/template_web_subsystem.dart';
 import 'src/runtime/test_mode_switches.dart';
 
 /// How long to wait for the root lock when the harness gave no deadline.
@@ -60,7 +60,7 @@ Future<void> run(List<String> args) async {
     role: options.role,
     registry: [
       ...buildSubsystemRegistry(),
-      TemplateWebSubsystem(pod.config.apiServer),
+      ConsoleSubsystem.forRunMode(options.runMode, environment, log: log),
     ],
     port: ServerpodAdapter(pod),
     startup: startup,

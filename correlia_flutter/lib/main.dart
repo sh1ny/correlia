@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
 
-import 'client.dart';
+import 'placeholder_page.dart';
 
-Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await initializeClient();
+void main() {
   runApp(const CorreliaApp());
 }
 
@@ -32,7 +30,7 @@ class CorreliaApp extends StatelessWidget {
       theme: _buildTheme(Brightness.light),
       darkTheme: _buildTheme(Brightness.dark),
       themeMode: ThemeMode.system,
-      home: const Scaffold(body: Center(child: Text('Correlia'))),
+      home: const PlaceholderPage(),
     );
   }
 }
