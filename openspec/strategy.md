@@ -43,8 +43,9 @@ storms rather than for breadth of shallow integrations.
   once the burst ends, and yields one incident per correlation group.
 - **Noise reduction:** the console shows the deduplication and correlation ratio per source. On the
   owner's real Icinga2 + Alertmanager traffic, operators work incidents, not alerts.
-- **Integration reach at 1.0:** P0 and P1 integrations (docs/plan/integrations.md) work end to end, each
-  with a mapping table, fixtures from real payloads and a setup guide.
+- **Integration reach at 1.0:** the P0 integrations (docs/plan/integrations.md) work end to end, each with a
+  mapping table, fixtures from real payloads and a setup guide. P1 integrations meet the same definition of
+  done, but ship in milestones or 1.x point releases and do not hold back 1.0 (owner, 2026-11-03, D27).
 
 ## Tracks
 - **Ingest and normalization:** sources, decoders, the canonical event, enrichment.
@@ -61,12 +62,12 @@ is a candidate question.
 2. There is no legacy data to migrate. The Python version's database is disposable, and no consumer needs
    its `/v1` or Vigilo-compatible API (legacy audit, owner questions 1 and 9).
 3. Monitored-object identity is scoped per source instance by default. An operator can declare sources
-   that share a namespace (legacy question 2; ADR 0012).
+   that share a namespace (legacy question 2; ADR 0019).
 4. The threshold policy is selectable per correlation rule: distinct active alerts (default), distinct
    hosts, or event count (legacy question 3).
 5. Ordering authority is effective source time (source time clamped to observed time + 5 min skew), then
    observed time, then event id, per alert. An older event never overrides a newer state. Events older than
-   a 7-day lateness horizon are kept as evidence but change no state (legacy question 4; ADR 0007).
+   a 7-day lateness horizon are kept as evidence but change no state (legacy question 4; ADR 0017).
 6. Notifications fire on incident open, on escalation and on resolve, with reminders while unacknowledged.
    They are delivered at least once, and duplicates are possible and documented (legacy question 5).
 7. Acknowledgement means "someone owns it": it records an owner, can be removed or transferred, and never

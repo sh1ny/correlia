@@ -51,18 +51,20 @@ runs on embedded Postgres, developed and tested inside WSL (ADR 0014).
   - `raw_inbox` insert, then 202.
 - **Pipeline v0:**
   - decode, normalize and route stages with claims;
-  - per-fingerprint ordering;
+  - no processing order: the alert ordering fence (ADR 0017) is the only ordering;
   - dead-letter rows (no UI yet).
 - **Alert state v0:**
   - firing/resolved per fingerprint with ordering fencing (ORD-1..3, ORD-5);
   - the activity ledger rows.
 - **Outbox and relay:** one outbox per output; retry with backoff; attempts recorded.
 - **Plugin host v0:**
-  - spawn, magic-cookie handshake, gRPC over TCP loopback with AutoMTLS;
+  - spawn, magic-cookie handshake, gRPC over a Unix socket with AutoMTLS (stock go-plugin's Linux
+    transport; the owner confirms it in `plugin-host-spike`, D24);
   - `GetMetadata`, `Configure`, `CheckHealth`;
   - a batched output stream with credit windows;
   - restart with backoff; status rows.
 - **output-nats (Go):**
+  - stock `plugin.Serve()` wrapped with a stdin watcher that exits on stdin close (ADR 0018);
   - JetStream publish with `Nats-Msg-Id`;
   - the subject scheme;
   - structured CloudEvents JSON.
@@ -70,7 +72,7 @@ runs on embedded Postgres, developed and tested inside WSL (ADR 0014).
   - a Flutter web alert list fed by a Serverpod stream;
   - served by the api role;
   - no auth yet: dev mode only, bound to localhost.
-- **Scenarios:** ORD-1, ORD-2, ORD-3, ORD-5, ID-4, ID-6, ID-7, DUR-1, DUR-2, DUR-3, DUR-8, UI-3, SEC-1, SEC-5, UPG-3.
+- **Scenarios:** ORD-1, ORD-2, ORD-3, ORD-5, ID-4, ID-6, ID-7 (b, c), DUR-1, DUR-2, DUR-3, DUR-8, UI-3, SEC-1, SEC-5, UPG-3.
 
 **Exit criteria:**
 - [agent] `mise run check` and every test tier except `load` pass from a clean clone in WSL.
@@ -363,11 +365,14 @@ state.
 
 ## 1.0 release
 
-1.0 means:
-- every P0 and P1 integration;
+1.0 means (owner, 2026-11-03, D27):
+- every P0 integration;
+- a public API, canonical event and plugin protocol declared stable under semver;
 - every acceptance scenario green;
-- documented upgrade and restore;
-- a public API, canonical event and plugin protocol declared stable under semver.
+- documented upgrade and restore.
+
+P1 integrations and the plugin SDKs are not 1.0 blockers. Each ships when it meets the definition of done
+in `integrations.md`, in the milestones above or in 1.x point releases after 1.0.
 
 From 1.0 on, breaking changes to `correlia.event.v1`, `correlia.plugin.v1` or `/api/v1/` need a new major
 version.

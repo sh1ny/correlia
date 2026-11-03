@@ -26,7 +26,7 @@ M1 retires the riskiest assumptions:
   SEC-5 and UPG-3 pass as named tests. (agent)
 - A kill -9 of the worker during a 1,000-alert burst loses nothing. Every accepted alert is either
   published to NATS or dead-lettered with its reason. (agent)
-- The plugin spike gate of ADR 0015 passes on Linux, or the owner has decided a fallback. (agent,
+- The plugin spike gate of ADR 0020 passes on Linux, or the owner has decided a fallback. (agent,
   then user if a fallback is needed)
 - The owner points a real Alertmanager at a dev instance and sees the alerts in the console and on a NATS
   subscriber. (user)
@@ -42,13 +42,14 @@ M1 retires the riskiest assumptions:
 2. `canonical-event-v1`:
    - the `correlia.event.v1` protobuf with buf lint/breaking gates, JSON Schema export and Dart codegen;
    - the CloudEvents envelope;
-   - a canonical-encoding and identity library (ADR 0012) with collision and re-batching tests.
+   - a canonical-encoding and identity library (ADR 0019) with collision and re-batching tests.
 3. `plugin-host-spike`: a Dart host against a stock go-plugin Go test plugin, proving the four pass criteria
-   of the ADR 0015 spike gate. A failed criterion stops for an owner decision.
+   of the ADR 0020 spike gate. A failed criterion stops for an owner decision.
 4. `alertmanager-ingest-pipeline`:
    - source instances with per-instance tokens and log redaction;
    - `/hooks/alertmanager/<instance>` and the raw inbox with transport dedup;
-   - lane claims; decode/normalize/route with config pinning; durable observation dedup; pipeline failures;
+   - claims (no processing order; the ordering fence orders state); decode/normalize/route with config
+     pinning; durable observation dedup; pipeline failures;
    - the transactional outbox and a relay with a built-in webhook-out output.
 5. `alert-state-and-live-console`:
    - `StateMutationService` for alert state with ordering fences, lateness and skew;
@@ -109,6 +110,8 @@ fit the canonical event and identity model.
   - backup and restore; OIDC; OpenTelemetry;
   - packaging (image, compose, systemd, Helm);
   - a security review, docs and the licence.
-- 1.0 - Stable release: event format, plugin protocol and `/api/v1/` declared stable under semver.
+- 1.0 - Stable release (owner, 2026-11-03, D27): the P0 integrations; event format, plugin protocol and
+  `/api/v1/` declared stable under semver; every acceptance scenario green; documented upgrade and restore.
+  P1 integrations and the plugin SDKs ship in the milestones above or in 1.x point releases.
 
 ## Done
