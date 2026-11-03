@@ -2,10 +2,10 @@
 
 ## Metadata
 
-- **Round:** 6
-- **Prior round:** Round 5, APPROVE_WITH_CHANGES; M1–M6 applied, CHANGES_APPLIED: yes.
+- **Round:** 7
+- **Prior round:** Round 6, APPROVE_WITH_CHANGES; C1 critical, CHANGES_APPLIED: no.
 - **Reviewer:** Fresh-context, read-only Codex reviewer.
-- **Reviewed:** Proposal, design, both delta specs, tasks and round-5 review; AGENTS.md; ADRs 0002 and 0014; amendment commit db0cffd; requested Serverpod 4.1.0 sources and supporting process-identity, binary-resolution and shutdown sources; PostgreSQL 16 `pg_ctl` source; current test command, command tests, tier configuration, database smoke test and mise tasks; Serverpod testing and Dart CLI skills. No files modified or runtime tests executed.
+- **Reviewed:** Commit 5f0f675 diff first; proposal, design, both delta specs, tasks and round-6 review; AGENTS.md; ADRs 0002 and 0014; all requested Serverpod 4.1.0 sources plus `pg_ctl.dart`; current test command, tier configuration and mise tasks; pinned Dart SDK process patch and upstream Linux process implementation. No files modified or runtime tests executed.
 
 This verdict covers only the contents reviewed. Editing proposal, specs or design afterward, other than applying Required Changes or editing only the proposal’s Release Notes section, voids it.
 
@@ -13,27 +13,38 @@ This verdict covers only the contents reviewed. Editing proposal, specs or desig
 
 ### Critical (blocking)
 
-**C1 — A data-directory argument does not establish ownership of the process being stopped.**
+**C1a — The child `Process` object does not establish the claimed PID-reuse protection.**
 
-D4 authorizes shutdown whenever `.serverpod/test/pgdata/postmaster.pid` exists. PostgreSQL’s `get_pgpid()` reads its first integer; `do_stop()` then calls `kill(pid, sig)` without checking the live process’s executable, data directory or start time. With `-m fast`, that signal is SIGINT. `-D` selects the pidfile, not a verified process identity. [PostgreSQL 16 source](https://github.com/postgres/postgres/blob/REL_16_STABLE/src/bin/pg_ctl/pg_ctl.c)
+Serverpod’s `Supervisor.start` launches `postgres -D …` directly with `ProcessStartMode.normal`; there is no intermediate process. However, D4’s assertion that it remains an “unreaped child” until shutdown is unsupported.
 
-Concrete failure: an abruptly terminated cluster leaves `postmaster.pid`; its PID is subsequently recycled to another same-user process, potentially Hindsight’s postmaster. A later **fast-only** `tool test` never starts Serverpod or invokes stale-lock repair, but its unconditional post-run cleanup reads that stale file and signals the unrelated process. Reporting a failed stop afterward cannot undo the signal.
+The pinned SDK’s `process_patch.dart` implements `Process.kill` as an `_ended` check followed by `_killPid(pid, signal)`. `_ended` becomes true when the Dart event loop receives the exit notification. Dart’s upstream Linux implementation reaps children on a separate thread before delivering that notification, and its kill operation uses the numeric PID. Thus, absence of the Dart completion does not prove that the PID remains reserved. [Dart Linux process implementation](https://github.com/dart-lang/sdk/blob/main/runtime/bin/process_linux.cc)
 
-Serverpod’s existing recovery has an additional boundary that the amendment omits: `stale_lock_repair.dart` requires matching native and supervisor pidfiles and `isPostmasterOrphan()`, which checks the live process against the recorded executable and data directory.
+Concrete failure: the postmaster exits, the runtime reaps it, its PID is reused, and shutdown runs before the exit notification is processed. `Supervisor.stop` can then signal the replacement process. The fetched native source is upstream `main`, not the unavailable pinned revision; the pinned Dart patch itself provides no atomic identity guarantee. The amendment therefore has not demonstrated the protection explicitly required by round 6.
 
-The proposed fake-stopper test, ordinary decoy sockets and task 9.4’s surviving port-5432 listener do not exercise recycled-PID rejection. The amendment therefore does not yet satisfy the spec’s prohibition on signalling another PostgreSQL.
+**C1b — Enabled stale-lock repair retains the pidfile-based signalling path and contradicts live-cluster refusal.**
+
+In `embedded_postgres_impl.dart`, stale-lock repair runs **before** the live-`postmaster.pid` rejection. In `stale_lock_repair.dart:72–92`, matching pidfiles plus `isPostmasterOrphan` lead to `pg_ctl stop -m immediate`, followed by PID-based SIGTERM/SIGKILL if the numeric PID remains alive.
+
+Consequences:
+
+- A live postmaster left by a killed owner is stopped and restarted, contrary to D4’s explicit “fail … and signals nothing.”
+- Identity verification and signalling remain separate operations. In particular, after awaiting `pg_ctl`, the fallback checks only PID liveness; a recycled unrelated PID can receive a signal.
+
+A separate preflight could reject live or ambiguous state without sending a terminating signal, but D4 does not specify that boundary before repair. Its blanket claim that no path signals a process found through a pidfile is false for the selected configuration.
 
 ### Moderate
 
-None.
+**M7 — The new tests do not exercise the remaining ownership failures.**
 
-Concurrent runs on one clone are explicitly unsupported. Nevertheless, the proposed cleanup can stop another run’s active shared cluster; any ownership correction must ensure an overlapping invocation fails or waits before cluster access and cannot clean up the current owner’s cluster.
+The stale-pidfile scenario with a spawned `sleep` checks an already-foreign PID. It does not exercise a verified postmaster exiting between verification and signalling, missing/mismatched supervisor metadata explicitly requested in round 6, or an existing live orphan encountered before startup.
+
+Consequently, all three new scenarios can pass while C1a and C1b remain. Also, D4’s refusal of a surviving shared postmaster conflicts with the existing unconditional requirement that a killed test run’s successor recover and pass.
 
 ### Suggestions
 
 None.
 
-The remaining amendment is feasible: `integration` exclusion and an executable-call-aware tier-tag guard can enforce the intended fast loop. The pinned bundle contains `pg_ctl`; resolution must follow Serverpod’s cache overrides and bundle/platform selection. Awaiting the completed test subprocess avoids racing that run’s ordinary shared-cluster consumers. The separate kill-test and e2e roots remain outside D4 cleanup.
+The proposed outer lock spans startup, tests and cleanup and therefore addresses overlapping cooperating `tool test` invocations. Serverpod’s attachment path is also supported: while the owner remains alive, stale repair leaves its postmaster alone; `startOrAttach` returns `launched: false`, the resolver exposes no stop callback, and ephemeral-test teardown drops its database without stopping the shared cluster.
 
 ## Verdict
 
@@ -41,20 +52,20 @@ VERDICT: APPROVE_WITH_CHANGES
 
 ## Required Changes
 
-1. **C1:** Amend D4, State & Ownership and the Mechanism Ledger to require verified live cluster identity before any stop signal, with safe refusal when identity is missing, mismatched or ambiguous. Specify protection against PID reuse between verification and signalling; mere pidfile existence, `kill(pid, 0)` or `pg_ctl -D` is insufficient. Define exclusive ownership spanning test startup through cleanup so another invocation cannot attach during shutdown or stop an active owner’s cluster.
+1. **C1a:** Correct D4’s unreaped-child claim. Specify and substantiate a shutdown mechanism that binds signals to the owned process despite concurrent exit and reaping. A Dart `Process` object, completion check or repeated identity check alone is insufficient. Update State & Ownership and the Mechanism Ledger consistently.
 
-2. Extend task 3.2 and the workspace-tooling acceptance scenarios to cover a stale pidfile referencing a live unrelated process, missing/mismatched ownership metadata, and overlapping invocations. Assert that the unrelated process receives **no signal**, including after a fast-only run. Use disposable controlled processes, never Hindsight. Retain successful cleanup, failed-test exit preservation, stop-failure reporting and isolation from kill-test/e2e roots. Include these checks in the evidence collected by task 9.4.
+2. **C1b:** Specify the non-signalling preflight before any potentially signalling recovery. Define refusal for live, foreign, missing or ambiguous ownership state. Ensure enabled recovery cannot bypass that refusal or reintroduce a verification-to-signal PID-reuse race.
+
+3. **M7:** Extend the acceptance scenarios, task 3.2, test map and task 9.4 evidence to cover live-cluster refusal, missing/mismatched metadata and controlled exit/reuse races at the shutdown and recovery boundaries. Use disposable processes or deterministic injected boundaries only. Reconcile the killed-run recovery requirement with the chosen live-orphan policy.
 
 CHANGES_APPLIED: no
 
 ## Rebuttals
 
-- **M1:** Fixed in D7, shutdown sequencing, failure handling and process-roles scenarios. **Previously accepted by reviewer; carried forward.**
-- **M2:** Fixed through sibling-directory cluster roots, identity assertions and side-by-side isolation scenarios. **Previously accepted by reviewer; carried forward.**
-- **M3:** Fixed through D17’s startup indicator, D16’s readiness wait and gated-subsystem scenario. **Previously accepted by reviewer; carried forward.**
-- **M4:** Fixed through argument-sensitive fast selection and load exclusion. **Previously accepted by reviewer; carried forward.**
-- **M5:** Fixed through the independent temporary generation workspace and unchanged-checkout assertions. **Previously accepted by reviewer; carried forward.**
-- **M6:** Stable roots, conditional teardown deletion and next-run recovery address abandoned-root accumulation. **Previously accepted by reviewer; carried forward.**
-- **M6 (round 3 follow-up):** Test-only stdin-EOF shutdown addresses an orphaned child server. **Previously accepted by reviewer; carried forward.**
-- **M6 (round 4 follow-up):** Child-held root locking supplies ownership handoff for kill-test/e2e children. **Previously accepted by reviewer; carried forward.**
-- **C1:** Open; no rebuttal or correction reviewed.
+- **M1:** Shutdown sequencing and failure handling. **Previously accepted by reviewer; carried forward.**
+- **M2:** Separate cluster roots, identity assertions and isolation. **Previously accepted by reviewer; carried forward.**
+- **M3:** Correlia startup indicator and readiness gate. **Previously accepted by reviewer; carried forward.**
+- **M4:** Argument-sensitive fast selection and load exclusion. **Previously accepted by reviewer; carried forward.**
+- **M5:** Independent temporary generation workspace. **Previously accepted by reviewer; carried forward.**
+- **M6:** Stable roots, conditional deletion, stdin-EOF shutdown and child-held ownership handoff. **Previously accepted by reviewer; carried forward.**
+- **C1:** **Not accepted by reviewer.** The amendment fixes unconditional fast-run cleanup and adds useful outer ownership locking, but the claimed child-handle safety is unproven and enabled stale-lock repair still signals pidfile-derived PIDs. The added scenarios do not cover those remaining paths.

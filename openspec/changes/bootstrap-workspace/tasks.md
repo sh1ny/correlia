@@ -37,9 +37,6 @@ Paths are relative to the repository root. `correlia_server/test/{unit,db,e2e}` 
 | workspace-tooling → Tests use only their own PostgreSQL | Clusters started side by side | correlia_server/test/e2e/cluster_roots_e2e_test.dart | `each cluster has its own stable root, deleted after its server stopped` | red |
 | workspace-tooling → Tests use only their own PostgreSQL | Interrupted end-to-end run | correlia_server/test/e2e/interrupted_run_e2e_test.dart | `killing only the harness twice leaves no child, no cluster process, no extra root` | red |
 | workspace-tooling → Tests use only their own PostgreSQL | Re-run while the previous server is still stopping | correlia_server/test/e2e/root_handoff_e2e_test.dart | `a replacement waits for the root lock, then starts; at its deadline fails naming the root` | red |
-| workspace-tooling → Tests use only their own PostgreSQL | Stale pidfile naming an unrelated process | tool/test/shared_cluster_test.dart | `a stale pidfile naming an unrelated process gets no signal from a fast or a db run` | red |
-| workspace-tooling → Tests use only their own PostgreSQL | Overlapping test runs | tool/test/shared_cluster_test.dart | `an overlapping run waits on the root lock and fails at its deadline naming the root` | red |
-| workspace-tooling → Tests use only their own PostgreSQL | No cluster left after a run | tool/test/shared_cluster_test.dart | `no postmaster of the shared root remains after a passing or a failing run` | red |
 | workspace-tooling → Recovery after a killed test run | Test server killed | correlia_server/test/db/kill_recovery_test.dart | `after SIGKILL the next run in the same root passes and leaves no postmaster` | red |
 | workspace-tooling → Local passwords on a fresh clone | Fresh clone | tool/test/setup_test.dart (unit); fresh clone in task 9.3 | `creates development and test sections when the file is missing` | green |
 | workspace-tooling → Local passwords on a fresh clone | Existing file without a test section | tool/test/setup_test.dart | `a file without a test section fails naming file and section, unchanged` | green |
@@ -95,14 +92,8 @@ Paths are relative to the repository root. `correlia_server/test/{unit,db,e2e}` 
   the six tier rows green, and check by hand that `mise run test -- --tags db` runs the smoke test (output
   shows it). Amended during apply (owner, 2026-11-03; D4): `dart_test.yaml` also declares `integration` and
   the `fast` preset excludes it; a fast tool test asserts every `withServerpod` call under
-  `correlia_server/test/` passes a tier tag; `tool test` owns the shared cluster `.serverpod/test/` for runs
-  selecting `db`, `e2e`, `plugin` or `--all` (D4 as amended after review round 6): root lock, cluster started as
-  its own child, stopped through that child handle, never a pidfile-based signal; a live cluster found at start
-  fails the run naming the root. Tests (disposable processes only, never Hindsight): a stale `postmaster.pid`
-  naming a live unrelated process (a spawned `sleep`) → that process gets no signal and is still running, after
-  a fast-only run and after a db run; an overlapping run waits on the lock and fails at a short deadline naming
-  the root; a failing test keeps its exit status; a failed stop fails the run naming the root; the kill-test and
-  e2e roots are never touched. By hand: no postmaster of that root after `mise run test -- --tags db`. Group 5 is applied before group 4,
+  `correlia_server/test/` passes a tier tag. The shared cluster `.serverpod/test/` is left running after a run
+  and never signalled by Correlia (D4 as amended after review rounds 6-7). Group 5 is applied before group 4,
   so fast server tests exist before `check` runs them.
 
 ## 4. Generated-code check
@@ -190,9 +181,9 @@ Paths are relative to the repository root. `correlia_server/test/{unit,db,e2e}` 
   test:all`, and `git status --porcelain` empty at the end → evidence/fresh-clone.txt
 - [ ] 9.4 [evidence] Linux-only and Postgres-safety checks: `mise exec -- which dart flutter go buf openspec`
   output; processes whose command line names this repository's `.serverpod/` roots, listed before and after
-  `test:all` (selected by data-directory path, never by process name; none left after); and `ss -ltn` showing
-  `127.0.0.1:5432` still listening after the run (no connection made to it, no signal sent); and the
-  `tool/test/shared_cluster_test.dart` run (stale pidfile, overlapping runs, no cluster left) →
+  `test:all` (selected by data-directory path, never by process name; none left after except the shared test
+  cluster `.serverpod/test/`, which Serverpod keeps for reuse, D4); and `ss -ltn` showing `127.0.0.1:5432`
+  still listening after the run (no connection made to it, no signal sent) →
   evidence/linux-and-postgres.txt
 
 ## Workflow follow-up
