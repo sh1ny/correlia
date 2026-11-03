@@ -30,6 +30,8 @@ These instructions are shared by every harness (Claude Code, Codex, OMP). Keep t
   plugins are standalone executables in any language, launched by Correlia and spoken to over gRPC (a
   go-plugin-style handshake). See ADRs.
 - No Testcontainers: tests use the embedded Postgres.
+- **Platform: Linux first** (owner, 2026-11-03; ADR 0014). Windows is not a target: no Windows development
+  path, tooling or scripts. CI, once GitHub is enabled, runs on Linux first. Tasks must not assume WSL.
 
 ## Rules
 
@@ -53,7 +55,7 @@ These instructions are shared by every harness (Claude Code, Codex, OMP). Keep t
 ## Testing
 
 - The repository, the toolchain and every test live in **WSL Ubuntu 24.04**, on the Linux filesystem
-  (`~/Development/dart/correlia`, ADR 0013). Tests run natively with `mise run test`; there is no sync runner.
+  (`~/Development/dart/correlia`, ADR 0014). Tests run natively with `mise run test`; there is no sync runner.
   The M1 change `bootstrap-workspace` adds the test tasks. Until then there are no tests.
 - **Never touch another Postgres.** The owner's Hindsight server runs PostgreSQL in this distro on
   `127.0.0.1:5432` (socket in `/tmp`). Tests and tasks use only their own embedded Postgres; never connect

@@ -2,10 +2,10 @@
 
 ## Metadata
 
-- **Round:** 6
-- **Prior round:** Round 5 APPROVE_WITH_CHANGES (CHANGES_APPLIED: no; 3 required edits to ADR 0008 and RUL-7). Author applied them, listed under Rebuttals.
+- **Round:** 8
+- **Prior round:** Round 7 APPROVE_WITH_CHANGES required one ADR-index correction; verified applied. Round 6 approved the baseline covering ADRs 0001–0012; this amendment also reviews 0013’s decisions as restated in 0014.
 - **Reviewer:** cross-model CLI (Codex)
-- **Reviewed:** `openspec/strategy.md`, `openspec/architecture.md`, ADRs 0001–0012, and round 5’s `openspec/architecture-review.md`. Supporting evidence: requested research, planning and configuration documents, and eight named project skills. Read-only review; no runtime verification. Official Serverpod 4.1 documentation confirms [embedded PostgreSQL](https://docs.serverpod.dev/concepts/data-and-the-database/database/embedded-postgres), [custom HTTP routes](https://docs.serverpod.dev/concepts/web-server/routing), and [durable, at-least-once scheduling](https://docs.serverpod.dev/concepts/scheduling/overview).
+- **Reviewed:** Proposed ADRs 0014 and 0015; unchanged ADRs 0013, 0006 and 0011; `openspec/strategy.md`, `openspec/architecture.md`, `openspec/roadmap.md`, `docs/plan/milestones.md`, `docs/plan/open-decisions.md`, `docs/plan/integrations.md`, `AGENTS.md`, `openspec/config.yaml`, `mise.toml`; full repository `git diff`; `docs/research/plugin-architecture.md`; current and saved round 7 reviews; and `git show HEAD:openspec/architecture-review.md`. Read-only review; no runtime verification.
 
 ## Findings
 
@@ -15,32 +15,25 @@ None.
 
 ### Moderate
 
-None open. Round 5 M1 is resolved.
+None open. Round 7 M1 is resolved.
 
 ### Suggestions
 
-None.
+- The amendment faithfully records the owner’s Linux-first decision and identifies task portability as an agent proposal. CI timing matches the owner’s choices: the first change after GitHub enablement, with no M1 CI work.
+- ADR 0015 preserves 0006’s substantive contracts except for the platform amendment and authorized D24 deferral. Accepted ADR files remain unchanged, including 0011’s historical reference to 0006. Remaining Windows-target statements belong to historical or pending-supersession material.
+- Linux orphan cleanup remains a spike obligation: process-group membership alone cannot guarantee cleanup after host `SIGKILL`. The explicit kill test against a stock Go plugin and owner-controlled failure gate adequately contain this risk.
+- M1 changes and exit criteria remain consistent. Tasks must run on ordinary Linux without WSL-specific dependencies; runtime portability remains to be demonstrated during implementation. No additional T1–T6 regression was identified.
 
 ## Verdict
 
-VERDICT: APPROVE
-
-The revised baseline adequately covers T1–T6 and the legacy correctness hazards for starting the walking skeleton. ADRs identify concrete rejected alternatives and reversal costs. Plugin interoperability remains subject to an explicit, measurable spike gate.
+VERDICT: APPROVE_WITH_CHANGES
 
 ## Required Changes
 
-None outstanding. All three round 5 edits were verified:
+1. **Applied and verified:** Correct `openspec/architecture.md`’s index by listing proposed 0014 → 0013 and 0015 → 0006 in an explicitly pending amendment section, removing 0010 from the in-force table, and recording 0010 → 0013 separately as historical succession. Accepted ADR files remain unchanged. Moving 0014 and 0015 into force remains conditional on owner acceptance.
 
-1. ADR 0008 requires a new immutable configuration version, complete registry validation and atomic activation at worker batch boundaries. Invalid fallback cannot activate; skip-and-count and self-alerting continue.
-2. Existing raw-row pins remain unchanged. Failures are recorded against the pinned version; replacement requires explicit reprocessing.
-3. RUL-7 covers valid fallback and a previous rule referencing a removed output, requiring rejection of the invalid fallback, consistent worker activation and preservation of existing pins.
-
-CHANGES_APPLIED: n/a
+CHANGES_APPLIED: yes
 
 ## Rebuttals
 
-- **Round 5 M1 — resolved.** Automatic fallback now follows the configuration publication and validation contract without changing pinned work.
-- **Round 4 C1 — remains resolved.** Fallback observation identity uses reported source time, independently of arrival-dependent clamping. Generic mappings must supply delivery-independent identity evidence.
-- **Round 3 C1 — remains resolved.** Stable dedup retention, lateness rejection and far-future quarantine prevent the reported retry resurrection.
-- **Round 3 M1 — remains resolved.** Membership is revalidated after acquiring alert locks; newly discovered groups require rollback and restart in the prescribed lock order.
-- **ADR 0008 evaluator revision — remains adequate.** The typed condition tree, field catalog, bound SQL parameters and conformance suite provide sufficient baseline contracts. No new finding with a concrete correctness, safety or first-milestone consequence was identified.
+- **Round 7 M1 — accepted by reviewer as resolved.** The revised index correctly distinguishes accepted, pending and superseded ADRs. No required edits remain outstanding.

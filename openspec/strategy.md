@@ -23,6 +23,8 @@ storms rather than for breadth of shallow integrations.
 
 ## Boundaries
 - Self-hosted only. No SaaS and no telemetry by default.
+- Linux is the supported platform (owner, 2026-11-03; ADR 0014). Windows is not a target; if it is ever
+  added, it is added as a CI job.
 - PostgreSQL 16+ is the only database, in every mode. Embedded Postgres for development and tests.
 - Single tenant in 1.0. The tenant is in the event format, fixed to `default`.
 - Not a metrics, log or trace store. It never evaluates time series; it reacts to alerts and can query

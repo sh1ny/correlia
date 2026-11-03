@@ -12,7 +12,7 @@ backlog is in `docs/plan/integrations.md`, the named acceptance scenarios in
 
 **Outcome:** An Alertmanager webhook becomes a canonical event and updates alert state with ordering fences.
 It is published to NATS by an external Go plugin and appears live in a minimal Flutter web alert list.
-Everything runs on embedded Postgres, developed and tested inside WSL (ADR 0013).
+Everything runs on embedded Postgres, developed and tested inside WSL (ADR 0014).
 
 M1 retires the riskiest assumptions:
 - Serverpod 4.1 with embedded Postgres in tiered tests on Linux;
@@ -26,7 +26,7 @@ M1 retires the riskiest assumptions:
   SEC-5 and UPG-3 pass as named tests. (agent)
 - A kill -9 of the worker during a 1,000-alert burst loses nothing. Every accepted alert is either
   published to NATS or dead-lettered with its reason. (agent)
-- The plugin spike gate of ADR 0006 passes on Windows and Linux, or the owner has decided a fallback. (agent,
+- The plugin spike gate of ADR 0015 passes on Linux, or the owner has decided a fallback. (agent,
   then user if a fallback is needed)
 - The owner points a real Alertmanager at a dev instance and sees the alerts in the console and on a NATS
   subscriber. (user)
@@ -35,7 +35,7 @@ M1 retires the riskiest assumptions:
 1. `bootstrap-workspace`:
    - `serverpod create` layout (server, client, flutter);
    - mise tasks `check`, `test`, `generate`, `analyze`, `proto`;
-   - embedded Postgres test tiers with cleanup (ADR 0013);
+   - embedded Postgres test tiers with cleanup (ADR 0014);
    - `api`/`worker`/`all` roles and health endpoints;
    - the Serverpod MCP in the agent configs;
    - Go and buf toolchains.
@@ -44,7 +44,7 @@ M1 retires the riskiest assumptions:
    - the CloudEvents envelope;
    - a canonical-encoding and identity library (ADR 0012) with collision and re-batching tests.
 3. `plugin-host-spike`: a Dart host against a stock go-plugin Go test plugin, proving the four pass criteria
-   of the ADR 0006 spike gate. A failed criterion stops for an owner decision.
+   of the ADR 0015 spike gate. A failed criterion stops for an owner decision.
 4. `alertmanager-ingest-pipeline`:
    - source instances with per-instance tokens and log redaction;
    - `/hooks/alertmanager/<instance>` and the raw inbox with transport dedup;

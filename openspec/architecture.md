@@ -102,7 +102,7 @@ flowchart LR
 - **Canonical event** `correlia.event.v1` (ADR 0004): `proto/correlia/event/v1/*.proto` is the source of
   truth. JSON Schema is generated. `buf breaking` gates every change. CloudEvents `type` carries the
   major version and `dataschema` the minor.
-- **Plugin protocol** `correlia.plugin.v1` (ADR 0006): `proto/correlia/plugin/v1/*.proto`. The handshake is
+- **Plugin protocol** `correlia.plugin.v1` (ADR 0015): `proto/correlia/plugin/v1/*.proto`. The handshake is
   compatible with go-plugin. The protocol version is negotiated at the handshake.
 - **Inbound formats:** one mapping spec per integration (`openspec/specs/integration-<name>/`), with fixture
   payloads captured from real systems.
@@ -177,11 +177,18 @@ Accepted ADRs only.
 | [0003](../docs/adr/0003-flutter-web-console.md) | Flutter web console | none |
 | [0004](../docs/adr/0004-canonical-event-format.md) | Canonical event: CloudEvents envelope + `correlia.event.v1` protobuf; one bounds contract | none |
 | [0005](../docs/adr/0005-durable-staged-pipeline.md) | Durable staged pipeline, transactional outboxes, retention by state, storage budgets, replay vs reprocess | none |
-| [0006](../docs/adr/0006-plugin-architecture.md) | Hybrid plugins: built-ins in process, external over go-plugin-compatible gRPC; spike gate | none |
+| [0015](../docs/adr/0015-plugin-architecture-linux.md) | Hybrid plugins: built-ins in process, external over go-plugin-compatible gRPC; spike gate on Linux | [0006](../docs/adr/0006-plugin-architecture.md) |
 | [0007](../docs/adr/0007-alert-and-incident-state-model.md) | Authoritative alert state with ordering fences; one StateMutationService lock protocol; `(txid, id)` change feed | none |
 | [0008](../docs/adr/0008-rule-language.md) | Matcher rule tree with in-memory and SQL evaluators, field catalog, atomic config versions; CEL later | none |
 | [0009](../docs/adr/0009-identity-and-access.md) | Serverpod auth (invite-only) for people, scoped tokens for machines; redaction | none |
-| [0010](../docs/adr/0010-testing-strategy.md) | Tests on Linux through WSL with embedded Postgres, in tiers | [0013](../docs/adr/0013-develop-and-test-in-wsl.md) |
 | [0011](../docs/adr/0011-nats-output-as-go-plugin.md) | NATS output as the first external plugin, in Go | none |
 | [0012](../docs/adr/0012-identities.md) | Four identities (source, delivery, observation, alert); durable observation dedup | none |
-| [0013](../docs/adr/0013-develop-and-test-in-wsl.md) | Repository, toolchain and tests live in WSL; embedded Postgres in tiers; never touch another Postgres | none |
+| [0014](../docs/adr/0014-linux-first-platform.md) | Linux-first platform (owner, 2026-11-03): develop and test in WSL, CI on Linux, Windows not a target; embedded Postgres in tiers; never touch another Postgres | [0013](../docs/adr/0013-develop-and-test-in-wsl.md) |
+
+### Superseded ADRs
+
+| ADR | Superseded by |
+|---|---|
+| [0006](../docs/adr/0006-plugin-architecture.md) | [0015](../docs/adr/0015-plugin-architecture-linux.md) |
+| [0010](../docs/adr/0010-testing-strategy.md) | [0013](../docs/adr/0013-develop-and-test-in-wsl.md) |
+| [0013](../docs/adr/0013-develop-and-test-in-wsl.md) | [0014](../docs/adr/0014-linux-first-platform.md) |
