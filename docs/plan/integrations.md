@@ -5,7 +5,7 @@ targets in self-hosted operations, and the plugin capabilities each needs.
 
 ## How integrations are built
 
-Every integration is a **plugin** behind the Correlia plugin interface (ADR 0006). It runs either built in
+Every integration is a **plugin** behind the Correlia plugin interface (ADR 0015). It runs either built in
 (Dart, in-process) or as an external process over gRPC. One plugin declares one or more **capabilities**
 in its manifest, and each capability has its own config schema, required secrets and health check:
 

@@ -6,7 +6,8 @@ one changes the strategy, an ADR (through a superseding ADR) or a milestone; the
 where.
 
 Status: all answered by the owner on 2026-11-03. Every default was confirmed except D11 and D13, which were
-changed (the Owner answer column records the change). D18 is done.
+changed (the Owner answer column records the change). D18 is done. D23 (platform) was added and answered
+by the owner on 2026-11-03; D24 is open until the `plugin-host-spike` change.
 
 | Id | Question | Assumed default | Why | Affects | Needed by | Owner answer (2026-11-03) |
 |---|---|---|---|---|---|---|
@@ -26,9 +27,11 @@ changed (the Owner answer column records the change). D18 is done.
 | D14 | Is a Go toolchain acceptable in the build? | Yes, for external first-party plugins (NATS, Kafka, Kubernetes, syslog, SNMP, CloudWatch) | Mature client libraries; reference plugin for authors | ADR 0011 | M1 | Confirmed |
 | D15 | Rule language for 1.0 | Declarative matcher (field paths, operators, regex with timeouts) only; CEL after 1.0 | Dart `cel` 0.6.1 is not mature enough | ADR 0008 | M2 | Confirmed |
 | D16 | Plugin SDKs at 1.0 | Go SDK (wraps stock go-plugin) and Python SDK; plugin lockfile with checksums | Any-language promise needs at least two SDKs | M8 | M8 | Confirmed |
-| D17 | When to re-enable push and create the GitHub repo? | When the owner decides; until then `finish: local` and the push URL is disabled | Owner instruction: no commits on the remote | Specwright `finish`, CI | Any time | Confirmed: stay local until the owner says |
+| D17 | When to re-enable push and create the GitHub repo? | When the owner decides; until then `finish: local` and the push URL is disabled | Owner instruction: no commits on the remote | Specwright `finish`, CI | Any time | Confirmed: stay local until the owner says. CI, when it comes, is Linux first (D23) |
 | D18 | Upgrade Specwright to 0.17.0 (`decision_making: all`) before the first `next`? | Yes, as soon as v0.17.0 is tagged; then re-apply the #140 tools edit | Owner wants every decision presented at `next` | Specwright install | Before M1 starts | Done (f4576d8) |
 | D19 | Console language(s) | English only for 1.0, with Flutter localization scaffolding in place | Cheap to keep the door open | M4 | M4 | Confirmed |
 | D21 | Who can sign in? | Invite-only; optional allowed email domain joins as viewer; first admin via one-time bootstrap token | Email OTP alone proves only mailbox control | ADR 0009 | M4 | Confirmed |
 | D22 | Storage budgets | Ingest backpressure at 85 % of the disk budget; per-output budget 500k rows / 1 GiB for pending + dead letters combined, overflow policy `discard_new` by default (`block_ingest` opt-in); dead letters kept 14 d | Never drop accepted work; isolate a failed output | ADR 0005 | M2 | Confirmed |
+| D23 | Which platforms are supported, and where do development and CI run? | None (the owner decided directly) | - | ADR 0014 (supersedes 0013), ADR 0015 (supersedes 0006), roadmap M1 exit criteria, strategy | M1 | **Owner, 2026-11-03:** "We run it entirely on WSL, and the supported platform is Linux first. If we want Windows, add it on CI. Linux should be CI first also." That is: Linux is the supported platform and the first (for now only) CI target; Windows is not a target now and, if ever added, comes in as a CI job; no Windows development path |
+| D24 | Plugin transport on Linux: TCP loopback (as `milestones.md` M1 says) or a Unix socket (stock go-plugin's Linux transport)? | Leave to the spike | Stock go-plugin uses a Unix socket on Linux and TCP only on Windows; the plan says TCP loopback | ADR 0015, M1 plugin host | `plugin-host-spike` | Open: the owner chose (2026-11-03) to decide it in the `plugin-host-spike` change |
 | D20 | Multi-tenancy | Single tenant in 1.0; the `tenant` field is fixed to `default` | Keeps 1.0 small without closing the door | ADR 0009 | After 1.0 | Confirmed |

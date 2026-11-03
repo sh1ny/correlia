@@ -18,7 +18,7 @@ commands) or **[user]** (the owner checks).
 
 **Outcome:** An Alertmanager webhook arrives. It becomes a canonical event, updates alert state, is
 published to NATS by an external Go plugin, and shows up live in a minimal Flutter web alert list. Everything
-runs on embedded Postgres, developed and tested inside WSL (ADR 0013).
+runs on embedded Postgres, developed and tested inside WSL (ADR 0014).
 
 **Retires the riskiest assumptions:**
 - Serverpod 4.1 with embedded Postgres in dev/test, tiered tests on Linux.
@@ -35,7 +35,7 @@ runs on embedded Postgres, developed and tested inside WSL (ADR 0013).
   - Go and buf toolchains via mise;
   - `dart analyze` clean with strict lints.
 - **Test tiers:** `mise run test` runs `dart test` by tag on Linux and cleans up its embedded Postgres without
-  touching any other Postgres on the machine (ADR 0013).
+  touching any other Postgres on the machine (ADR 0014).
 - **Roles:** `role=api|worker|all` in one binary (ADR 0001); health endpoints `/livez`, `/readyz`, `/startupz`.
 - **Canonical event v1:**
   - `proto/correlia/event/v1`: identity, time fields (source, observed, ingested), observer and resource
