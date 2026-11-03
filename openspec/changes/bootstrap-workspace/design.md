@@ -100,6 +100,15 @@ Facts read from the Serverpod 4.1.0 sources and a scratch `serverpod create` (no
   `-- --reporter expanded` runs the fast tests, `-- --tags db` runs exactly the db tests, and `-- --tags load`
   runs the load tests. `test:all` runs `dart test -x load`. Amended after review round 1 (M4) by the owner:
   arguments no longer pass through with nothing added.
+  **Amended during apply (owner, 2026-11-03):** `serverpod_test`'s `withServerpod` tags its group
+  `integration` unless `testGroupTagsOverride` names a tier, so `dart_test.yaml` also declares `integration`
+  and the `fast` preset excludes it; a fast test asserts that every `withServerpod` call under
+  `correlia_server/test/` passes a tier tag. And `serverpod_test` caches the shared test cluster's postmaster
+  for the process and never stops it, so it outlives every `db` run: after `dart test` returns, `tool test`
+  stops the shared cluster `.serverpod/test/` when its `pgdata/postmaster.pid` exists, with the pinned
+  embedded Postgres's own `pg_ctl stop -m fast -D <root>/pgdata`. The cluster is selected by data directory,
+  never by process name, and the test run's exit status is kept (a failed stop also fails the run, naming
+  the root).
 - **Rejected:** Selecting fast tests by directory (`test/unit/`): the tier would depend on a file's location
   instead of its tag. Passing arguments through with nothing added: `-- --reporter expanded` would run every tier, `load`
   included.
@@ -299,7 +308,7 @@ Facts read from the Serverpod 4.1.0 sources and a scratch `serverpod create` (no
 | D1 | Role input | `--process-role`, strict pre-parse | Env only; both | medium | yes | user |
 | D2 | CLI pin | `serverpod_cli` dev dependency | Repo-local activate; global install | low | yes | user |
 | D3 | Task logic | Dart `tool` package | Inline mise shell | low | no | user |
-| D4 | Fast tier | `fast` preset when no tag is selected; `-x load` unless `load` is named | Directory split; plain pass-through | low | yes | user |
+| D4 | Fast tier | `fast` preset when no tag is selected (also excludes `integration`); `-x load` unless `load` is named; `tool test` stops the shared test cluster after the run | Directory split; plain pass-through | low | yes | user |
 | D5 | Generated code | Committed + staleness check in a self-contained temp workspace | Gitignored; in-place generate + git diff | low | yes | user |
 | D6 | `check` | Validate, doctor, analyze, format, generated, fast + widget tests | + db; static only | low | yes | user |
 | D7 | Shutdown | One `experimental.shutdownTasks` callback stopping subsystems in reverse order, pinned by tests | Own signal handler | low | yes | user |
@@ -386,7 +395,7 @@ sequenceDiagram
 | Role in force | `ProcessOptions` (parsed once) | process | none; restart to change | the parsed value, logged at startup |
 | Subsystem registry | `RoleRuntime` | process | built at startup from the static list | in-memory list |
 | `config/passwords.yaml` (dev/test) | `tool setup` (creates only) | per clone | delete the file and rerun `setup` | the file |
-| Test cluster root `.serverpod/test/` (`pgdata`, `run`) | Serverpod's embedded Postgres supervisor | until deleted | Serverpod repairs stale locks on start; delete the directory to rebuild | the directory |
+| Test cluster root `.serverpod/test/` (`pgdata`, `run`) | Serverpod's embedded Postgres supervisor; `tool test` stops its postmaster after each run (D4) | until deleted | Serverpod repairs stale locks on start; delete the directory to rebuild | the directory |
 | Kill-test and e2e cluster roots `.serverpod/test-kill/`, `.serverpod/test-e2e/<test-id>/` (each `pgdata` + `run`; stable per test) | the test that sets `SERVERPOD_DATABASE_DATA_PATH` to `<root>/pgdata`; while running, the one child server holding `<root>/owner.lock` (it exits when the harness's stdin pipe closes; the kernel releases the lock at its exit) | until the test's teardown, or the next run of that test after a kill | teardown deletes the root once the child exited and `postmaster.pid` is gone; after a kill, Serverpod's recovery repairs it on the next run | the root |
 | Startup state (subsystems started, stop callback registered) | `RoleRuntime` | process | none | the startup indicator |
 | Generated code | `serverpod_cli generate` | committed | regenerate; `tool generated` detects drift | the generator output |
@@ -442,6 +451,8 @@ sequenceDiagram
 | Strict pre-parse of Serverpod options | yes | Serverpod silently drops all options on one unknown (verified in source): production could start in development mode unnoticed | Serverpod failing hard on unknown options |
 | Reject Serverpod `--role` ≠ monolith | yes | `maintenance` exits after future calls, `serverless` skips them: a role mismatch nobody notices | — |
 | Subsystem registry + one sequential `shutdownTasks` callback | yes | Every later worker loop needs ordered stop before the pool closes; retrofitting is expensive (shared interface) | — |
+| Stop the shared test cluster after `tool test` | yes | `serverpod_test` never stops it, so every `db` run leaves a postmaster on the clone; stopped by data directory with the pinned `pg_ctl` (D4) | `serverpod_test` stopping its cached postmaster itself |
+| Fast preset excludes `integration` + `withServerpod` tier-tag test | yes | A db test without a tier tag would run in the fast loop and fail there for lack of a database (D4) | — |
 | Own embedded-Postgres cleanup | no | Serverpod repairs by data directory already (S8); the kill test proves it | The kill test failing on a Serverpod upgrade |
 | Port-conflict retry in the e2e harness | no | Ports come from binding 0 then releasing; a collision fails the test visibly | Flaky e2e failures from port reuse |
 | Shutdown timeout per subsystem | no | No worker loops yet; the process manager's kill timer bounds it | The first worker loop (alertmanager-ingest-pipeline) |

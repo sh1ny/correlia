@@ -90,7 +90,12 @@ Paths are relative to the repository root. `correlia_server/test/{unit,db,e2e}` 
   `correlia_server/test/db/database_smoke_test.dart` (tag `db`, `withServerpod`, runs `SELECT 1`), because the
   template's only db test went with the greeting example (owner, 2026-11-03). Verify the 3.1 tests pass, flip
   the six tier rows green, and check by hand that `mise run test -- --tags db` runs the smoke test (output
-  shows it).
+  shows it). Amended during apply (owner, 2026-11-03; D4): `dart_test.yaml` also declares `integration` and
+  the `fast` preset excludes it; a fast tool test asserts every `withServerpod` call under
+  `correlia_server/test/` passes a tier tag; after the run `tool test` stops the shared cluster
+  `.serverpod/test/` by data directory when its `postmaster.pid` exists (unit test with a fake stopper, and
+  by hand: no postmaster of that root after `mise run test -- --tags db`). Group 5 is applied before group 4,
+  so fast server tests exist before `check` runs them.
 
 ## 4. Generated-code check
 
