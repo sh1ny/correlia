@@ -52,9 +52,12 @@ These instructions are shared by every harness (Claude Code, Codex, OMP). Keep t
 
 ## Testing
 
-- Server and integration tests run on **Linux through WSL** (Ubuntu 24.04); the repository stays on Windows.
-  The M1 change `bootstrap-workspace` adds `mise run test:wsl` and documents the runner. Until then there
-  are no tests.
+- The repository, the toolchain and every test live in **WSL Ubuntu 24.04**, on the Linux filesystem
+  (`~/Development/dart/correlia`, ADR 0013). Tests run natively with `mise run test`; there is no sync runner.
+  The M1 change `bootstrap-workspace` adds the test tasks. Until then there are no tests.
+- **Never touch another Postgres.** The owner's Hindsight server runs PostgreSQL in this distro on
+  `127.0.0.1:5432` (socket in `/tmp`). Tests and tasks use only their own embedded Postgres; never connect
+  to, stop, signal or kill any other, and never match Postgres processes by name.
 - Tiers (tags): fast unit tests (no database, the default loop); `db` tests (embedded Postgres through
   `withServerpod`); `e2e` tests (HTTP ingress through to outputs); `plugin` tests (spawn real plugin
   processes); `load` tests (manual, never in the default loop).

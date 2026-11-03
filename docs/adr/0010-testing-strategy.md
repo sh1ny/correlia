@@ -1,6 +1,6 @@
 # 0010. Testing on Linux through WSL with embedded Postgres, in tiers
 
-- Status: accepted (2026-11-03)
+- Status: superseded by [0013](0013-develop-and-test-in-wsl.md) (2026-11-03)
 - Date: 2026-11-03
 - Supersedes: none
 

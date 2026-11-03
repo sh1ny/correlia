@@ -12,16 +12,16 @@ backlog is in `docs/plan/integrations.md`, the named acceptance scenarios in
 
 **Outcome:** An Alertmanager webhook becomes a canonical event and updates alert state with ordering fences.
 It is published to NATS by an external Go plugin and appears live in a minimal Flutter web alert list.
-Everything runs on embedded Postgres, and the server tests run from WSL.
+Everything runs on embedded Postgres, developed and tested inside WSL (ADR 0013).
 
 M1 retires the riskiest assumptions:
-- Serverpod 4.1 with embedded Postgres and the WSL runner;
+- Serverpod 4.1 with embedded Postgres in tiered tests on Linux;
 - the durable pipeline and transactional outbox;
 - the lossless change feed;
 - a Dart host speaking go-plugin to a Go process.
 
 **Exit criteria:**
-- `mise run check` and `mise run test:wsl` pass from a clean clone on Windows. (agent)
+- `mise run check` and every test tier except `load` pass from a clean clone in WSL. (agent)
 - Scenarios ORD-1, ORD-2, ORD-3, ORD-5, ID-4, ID-6, ID-7 (b, c), DUR-1, DUR-2, DUR-3, DUR-8, UI-3, SEC-1,
   SEC-5 and UPG-3 pass as named tests. (agent)
 - A kill -9 of the worker during a 1,000-alert burst loses nothing. Every accepted alert is either
@@ -34,8 +34,8 @@ M1 retires the riskiest assumptions:
 **Changes** (in order; each about one PR):
 1. `bootstrap-workspace`:
    - `serverpod create` layout (server, client, flutter);
-   - mise tasks `check`, `test`, `test:wsl`, `generate`, `analyze`, `proto`;
-   - a WSL runner with embedded Postgres and cleanup;
+   - mise tasks `check`, `test`, `generate`, `analyze`, `proto`;
+   - embedded Postgres test tiers with cleanup (ADR 0013);
    - `api`/`worker`/`all` roles and health endpoints;
    - the Serverpod MCP in the agent configs;
    - Go and buf toolchains.

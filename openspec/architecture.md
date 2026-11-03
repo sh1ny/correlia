@@ -181,6 +181,7 @@ Accepted ADRs only.
 | [0007](../docs/adr/0007-alert-and-incident-state-model.md) | Authoritative alert state with ordering fences; one StateMutationService lock protocol; `(txid, id)` change feed | none |
 | [0008](../docs/adr/0008-rule-language.md) | Matcher rule tree with in-memory and SQL evaluators, field catalog, atomic config versions; CEL later | none |
 | [0009](../docs/adr/0009-identity-and-access.md) | Serverpod auth (invite-only) for people, scoped tokens for machines; redaction | none |
-| [0010](../docs/adr/0010-testing-strategy.md) | Tests on Linux through WSL with embedded Postgres, in tiers | none |
+| [0010](../docs/adr/0010-testing-strategy.md) | Tests on Linux through WSL with embedded Postgres, in tiers | [0013](../docs/adr/0013-develop-and-test-in-wsl.md) |
 | [0011](../docs/adr/0011-nats-output-as-go-plugin.md) | NATS output as the first external plugin, in Go | none |
 | [0012](../docs/adr/0012-identities.md) | Four identities (source, delivery, observation, alert); durable observation dedup | none |
+| [0013](../docs/adr/0013-develop-and-test-in-wsl.md) | Repository, toolchain and tests live in WSL; embedded Postgres in tiers; never touch another Postgres | none |

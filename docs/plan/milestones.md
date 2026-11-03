@@ -18,10 +18,10 @@ commands) or **[user]** (the owner checks).
 
 **Outcome:** An Alertmanager webhook arrives. It becomes a canonical event, updates alert state, is
 published to NATS by an external Go plugin, and shows up live in a minimal Flutter web alert list. Everything
-runs on embedded Postgres, and the server tests run from WSL.
+runs on embedded Postgres, developed and tested inside WSL (ADR 0013).
 
 **Retires the riskiest assumptions:**
-- Serverpod 4.1 with embedded Postgres in dev/test and the WSL runner.
+- Serverpod 4.1 with embedded Postgres in dev/test, tiered tests on Linux.
 - The durable staged pipeline with `SKIP LOCKED` claims and a transactional outbox.
 - A Dart host speaking the go-plugin handshake and the Correlia plugin protocol to a Go process.
 - The canonical event contract (protobuf, buf, CloudEvents).
@@ -29,13 +29,13 @@ runs on embedded Postgres, and the server tests run from WSL.
 **Features:**
 - **Workspace:**
   - `serverpod create` layout (`correlia_server`, `correlia_client`, `correlia_flutter`);
-  - mise tasks (`check`, `test`, `test:wsl`, `generate`, `analyze`, `proto`);
+  - mise tasks (`check`, `test`, `generate`, `analyze`, `proto`);
   - the Serverpod CLI pinned;
   - the Serverpod MCP server added to the agent configs;
   - Go and buf toolchains via mise;
   - `dart analyze` clean with strict lints.
-- **WSL runner:** syncs the tree to the WSL filesystem, runs `dart test` with tags, returns the results and
-  exit code, and cleans up embedded Postgres.
+- **Test tiers:** `mise run test` runs `dart test` by tag on Linux and cleans up its embedded Postgres without
+  touching any other Postgres on the machine (ADR 0013).
 - **Roles:** `role=api|worker|all` in one binary (ADR 0001); health endpoints `/livez`, `/readyz`, `/startupz`.
 - **Canonical event v1:**
   - `proto/correlia/event/v1`: identity, time fields (source, observed, ingested), observer and resource
@@ -73,7 +73,7 @@ runs on embedded Postgres, and the server tests run from WSL.
 - **Scenarios:** ORD-1, ORD-2, ORD-3, ORD-5, ID-4, ID-6, ID-7, DUR-1, DUR-2, DUR-3, DUR-8, UI-3, SEC-1, SEC-5, UPG-3.
 
 **Exit criteria:**
-- [agent] `mise run check` and `mise run test:wsl` pass from a clean clone on Windows.
+- [agent] `mise run check` and every test tier except `load` pass from a clean clone in WSL.
 - [agent] Scenarios above pass.
 - [agent] Kill -9 of the worker during a 1,000-alert burst loses nothing: every accepted alert is
   either in NATS or dead-lettered.

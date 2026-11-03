@@ -6,11 +6,9 @@
       "args": [
         "exec",
         "--",
-        "powershell.exe",
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        "$ErrorActionPreference = 'Stop'; $flutterSdk = mise where flutter; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; $flutterSdk = $flutterSdk.Trim(); $dartSdk = Join-Path $flutterSdk 'bin/cache/dart-sdk'; $env:DART_DATA_HOME = Join-Path (Get-Location) '.dart_tool/dart-data'; & (Join-Path $dartSdk 'bin/dart.exe') mcp-server --dart-sdk $dartSdk --flutter-sdk $flutterSdk; exit $LASTEXITCODE"
+        "bash",
+        "-c",
+        "set -e; sdk=$(mise where flutter); dart_sdk=\"$sdk/bin/cache/dart-sdk\"; export DART_DATA_HOME=\"$PWD/.dart_tool/dart-data\"; exec \"$dart_sdk/bin/dart\" mcp-server --dart-sdk \"$dart_sdk\" --flutter-sdk \"$sdk\""
       ]
     }
   }
