@@ -1,0 +1,149 @@
+# workspace-tooling Specification
+
+## Purpose
+
+Defines the pinned Linux toolchain and the tasks that developers and CI run on the Correlia workspace:
+checking, code generation, analysis and tiered tests, with each test run confined to its own embedded
+PostgreSQL.
+
+## Requirements
+
+### Requirement: Pinned Linux toolchain
+Every tool a task runs (Dart, Flutter, the Serverpod CLI, Go, buf, OpenSpec) SHALL come from the versions
+pinned in the repository and resolve to a Linux executable, never to one reached through the Windows PATH.
+A task SHALL fail, naming the tool, when a pinned tool is missing or has another version.
+
+#### Scenario: Tools resolve on Linux
+- **WHEN** a developer in WSL asks the toolchain where each pinned tool lives
+- **THEN** every path is a Linux path, not one under `/mnt/`, and each tool reports its pinned version
+
+#### Scenario: Wrong Serverpod CLI version
+- **WHEN** a task needs the Serverpod CLI and the installed one is not the pinned version
+- **THEN** the task fails before doing any work, naming the Serverpod CLI, the pinned version and the found
+  version
+
+### Requirement: Tasks run on plain Linux
+The tasks SHALL NOT depend on WSL: no Windows paths, no Windows interop and no WSL-only commands, so a Linux
+CI runner can run them unchanged.
+
+#### Scenario: Task definitions
+- **WHEN** the task definitions and the scripts they call are searched for `/mnt/`, `wslpath`, `.exe` and
+  `cmd.exe`
+- **THEN** no match is found
+
+#### Scenario: Windows tool on PATH
+- **WHEN** the PATH also contains a Windows copy of a pinned tool
+- **THEN** the tasks still run the pinned Linux copy
+
+### Requirement: Check gate
+`mise run check` SHALL be the gate run before every push, and SHALL fail when any of its steps fails. Its
+steps SHALL cover OpenSpec validation, static analysis of every package with no issues, formatting, and the
+fast tests.
+
+#### Scenario: Clean workspace
+- **WHEN** `mise run check` runs on a workspace with no analysis issues, formatted code and passing fast tests
+- **THEN** it exits 0
+
+#### Scenario: Analysis issue
+- **WHEN** a package has an analysis warning
+- **THEN** `mise run check` exits non-zero and its output names the file and the issue
+
+### Requirement: Test tier selection
+Tests SHALL be grouped in tiers by tag: untagged fast tests, `db`, `e2e`, `plugin` and `load`.
+`mise run test` with no arguments SHALL run only the fast tests. Arguments given to it SHALL be passed to the
+test runner, so a tag selection runs exactly the tests with that tag; arguments that select no tag SHALL still
+run only the fast tests. `load` tests SHALL run only when asked for by name.
+
+#### Scenario: Default run
+- **WHEN** `mise run test` runs with no arguments
+- **THEN** the fast tests run and no `db`, `e2e`, `plugin` or `load` test runs
+
+#### Scenario: Select the db tier
+- **WHEN** `mise run test -- --tags db` runs
+- **THEN** every `db` test runs, at least one test runs, and no untagged test runs
+
+#### Scenario: Reporting arguments only
+- **WHEN** `mise run test -- --reporter expanded` runs
+- **THEN** the fast tests run with that reporter and no `db`, `e2e`, `plugin` or `load` test runs
+
+#### Scenario: Load asked for by name
+- **WHEN** `mise run test -- --tags load` runs
+- **THEN** the `load` tests run and no other test runs
+
+#### Scenario: All tiers except load
+- **WHEN** the task for every tier except `load` runs
+- **THEN** fast, `db`, `e2e` and `plugin` tests run and no `load` test runs
+
+#### Scenario: Unknown tag
+- **WHEN** `mise run test -- --tags dbb` runs
+- **THEN** the run exits non-zero rather than passing with zero tests
+
+### Requirement: Tests use only their own PostgreSQL
+Database tests SHALL use an embedded PostgreSQL whose data directory and socket directory both lie inside a
+cluster root that the test package owns, one root per cluster. No test or task SHALL connect to, stop, signal
+or reuse any other PostgreSQL server on the machine.
+
+#### Scenario: Another PostgreSQL-like listener is present
+- **WHEN** a decoy that is not the tests' own cluster listens on a loopback TCP port and on a
+  `.s.PGSQL.<port>` socket outside the test's cluster root, and the `db` tests run
+- **THEN** the tests pass against their own cluster, the decoy receives no connection, and the decoy process
+  is still running
+
+#### Scenario: Database identity
+- **WHEN** a `db` test asks its database for its data directory and its socket directories
+- **THEN** both lie inside the test's own cluster root
+
+#### Scenario: Clusters started side by side
+- **WHEN** a test run starts more than one cluster (the shared test cluster and a child server's)
+- **THEN** each has its own cluster root, the same root on every run of the same test, and each root used by a
+  single test is deleted once its server and its PostgreSQL have stopped
+
+#### Scenario: Interrupted end-to-end run
+- **WHEN** only the process running an `e2e` test is killed with SIGKILL while its child server is running,
+  this is repeated once more, and the same test is then run to completion
+- **THEN** the final run passes; afterwards no child server of the earlier runs and no PostgreSQL process of
+  that test's cluster root remains; the number of cluster roots under the test package is the same as after
+  the first run; and a decoy listener outside the test's roots received no connection and is still running
+
+#### Scenario: Re-run while the previous server is still stopping
+- **WHEN** a test's previous child server is held in its graceful shutdown and a replacement child for the same
+  cluster root is started immediately
+- **THEN** the replacement does not start or attach to the cluster while the previous child runs, starts and
+  passes once the previous child has exited, and, if the previous child is still running at the replacement's
+  deadline, exits non-zero naming the cluster root, with the previous child's cluster untouched
+
+### Requirement: Recovery after a killed test run
+A test run whose process was killed with SIGKILL SHALL NOT stop the next run: the next run SHALL recover the
+leftover cluster, identified by its data directory and never by process name, and its tests SHALL pass.
+
+#### Scenario: Test server killed
+- **WHEN** a process that started the tests' embedded PostgreSQL is killed with SIGKILL, and the `db` tests
+  are run again
+- **THEN** the second run passes, and afterwards no PostgreSQL process of that data directory remains
+
+### Requirement: Local passwords on a fresh clone
+The development and test database passwords SHALL be created per clone and never committed. A task that
+needs them SHALL create them when the passwords file is missing, SHALL never overwrite an existing file, and
+SHALL fail with a message naming the file and the missing section when the file lacks a needed section.
+
+#### Scenario: Fresh clone
+- **WHEN** `mise run test -- --tags db` runs in a fresh clone with no passwords file
+- **THEN** a passwords file with development and test sections is created, the db tests pass, and
+  `git status` does not list the passwords file
+
+#### Scenario: Existing file without a test section
+- **WHEN** the passwords file exists with no `test` section and a db test run starts
+- **THEN** the task exits non-zero with a message naming the passwords file and the `test` section, and the
+  file is unchanged
+
+### Requirement: Code generation is current
+The generated server and client code committed in the repository SHALL match what the pinned Serverpod
+generator produces from the models and endpoints.
+
+#### Scenario: Stale generated code
+- **WHEN** an endpoint or model is changed without regenerating
+- **THEN** `mise run check` fails, naming the generated files that differ
+
+#### Scenario: Current generated code on a clean clone
+- **WHEN** `mise run check` runs on a clean clone whose generated code is current
+- **THEN** the generation check passes, and `git status` of the clone is unchanged afterwards
