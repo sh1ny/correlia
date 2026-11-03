@@ -1,0 +1,25 @@
+# Shared analysis options for every package in the workspace (design D12).
+# Each package includes this file; run `dart analyze --fatal-infos`.
+include: package:lints/recommended.yaml
+
+analyzer:
+  language:
+    strict-casts: true
+    strict-inference: true
+    strict-raw-types: true
+  exclude:
+    # Serverpod generated code is committed but never analyzed.
+    - "**/lib/src/generated/**"
+    - "**/lib/src/protocol/**"
+    - "**/test/integration/test_tools/serverpod_test_tools.dart"
+    - "**/build/**"
+    - "**/.dart_tool/**"
+
+linter:
+  rules:
+    unawaited_futures: true
+    avoid_print: true
+    avoid_dynamic_calls: true
+
+formatter:
+  trailing_commas: preserve

@@ -45,18 +45,18 @@ Paths are relative to the repository root. `correlia_server/test/{unit,db,e2e}` 
 
 ## 1. Workspace scaffold and pinned toolchain
 
-- [ ] 1.1 Generate the Serverpod 4.1.0 fullstack template (database and webapp; no auth, Redis or website) in
+- [x] 1.1 Generate the Serverpod 4.1.0 fullstack template (database and webapp; no auth, Redis or website) in
   the scratchpad with the pinned CLI, and bring it into the repository root trimmed per S1/S2: no greeting
   example, Serverpod Cloud storage, `docker-compose.yaml`, `.github/workflows` or Dockerfile, and none of the
   template root `.gitignore` rules that hide `.claude/`, `.agents/`, `.codex/` or `.mcp.json`. Verify:
   `git status` lists only the new packages, the root `pubspec.yaml` and the intended `.gitignore` additions;
   `git check-ignore .mcp.json .codex/config.toml .claude/skills` prints nothing.
-- [ ] 1.2 Root pub workspace with `correlia_server`, `correlia_client`, `correlia_flutter` and a new `tool`
+- [x] 1.2 Root pub workspace with `correlia_server`, `correlia_client`, `correlia_flutter` and a new `tool`
   package (`correlia_tool`, depends on `args`); `serverpod_cli: 4.1.0` as a dev dependency of `correlia_server`
   (D2); the shared root `analysis_options.yaml` of D12, included by every package, excluding generated code.
   Verify: `mise exec -- dart pub get` resolves; `mise exec -- dart run serverpod_cli version` (in
   `correlia_server`) prints 4.1.0; `mise exec -- dart analyze --fatal-infos` is clean.
-- [ ] 1.3 Pin `go = "1.27.3"` and `buf = "1.75.0"` in `mise.toml` (D14); `.gitignore` covers
+- [x] 1.3 Pin `go = "1.27.3"` and `buf = "1.75.0"` in `mise.toml` (D14); `.gitignore` covers
   `correlia_server/web/app/`, `**/.serverpod/` and `**/config/passwords.yaml`; update the `mise.toml` header
   comment. Verify: `mise install` succeeds and `mise exec -- which dart flutter go buf openspec` prints only
   paths under `~/.local/share/mise` (none under `/mnt/`).
@@ -86,8 +86,10 @@ Paths are relative to the repository root. `correlia_server/test/{unit,db,e2e}` 
   fixture package `tool/test/fixtures/tiers/` with one test per tier, asserting which ran, plus `--tags dbb`
   exiting non-zero. Verify they fail because the `test` command does not exist.
 - [ ] 3.2 `correlia_server/dart_test.yaml` declares tags `db`, `e2e`, `plugin`, `load` and the `fast` preset
-  (D4); implement `tool test` and the mise tasks `test` and `test:all`. Verify the 3.1 tests pass, flip the six
-  tier rows green, and check by hand that `mise run test -- --tags db` runs the template's db test (output
+  (D4); implement `tool test` and the mise tasks `test` and `test:all`. Add a minimal db smoke test
+  `correlia_server/test/db/database_smoke_test.dart` (tag `db`, `withServerpod`, runs `SELECT 1`), because the
+  template's only db test went with the greeting example (owner, 2026-11-03). Verify the 3.1 tests pass, flip
+  the six tier rows green, and check by hand that `mise run test -- --tags db` runs the smoke test (output
   shows it).
 
 ## 4. Generated-code check
