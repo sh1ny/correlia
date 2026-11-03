@@ -10,11 +10,11 @@ Paths are relative to the repository root. `correlia_server/test/{unit,db,e2e}` 
 | process-roles → Role selection at startup | Role set explicitly | correlia_server/test/e2e/roles_e2e_test.dart | `worker role is logged as worker` | red |
 | process-roles → Role selection at startup | No role set | correlia_server/test/e2e/roles_e2e_test.dart | `no role runs as all and logs all` | red |
 | process-roles → Role selection at startup | Unknown role | correlia_server/test/e2e/roles_e2e_test.dart | `unknown role exits non-zero before any listener or cluster` | red |
-| process-roles → Role selection keeps the other startup options | Production mode with a role | correlia_server/test/unit/process_options_test.dart | `production mode and api role both survive parsing` | red |
+| process-roles → Role selection keeps the other startup options | Production mode with a role | correlia_server/test/unit/process_options_test.dart | `production mode and api role both survive parsing` | green |
 | process-roles → Role selection keeps the other startup options | Startup options rejected as a whole | correlia_server/test/e2e/roles_e2e_test.dart | `unrecognised option exits non-zero naming it` | red |
 | process-roles → Subsystems per role | api role | correlia_server/test/e2e/roles_e2e_test.dart | `api role serves the console and starts no background subsystem` | red |
 | process-roles → Subsystems per role | worker role | correlia_server/test/e2e/roles_e2e_test.dart | `worker role answers 404 for the console` | red |
-| process-roles → Subsystems per role | Subsystem fails to start | correlia_server/test/unit/role_runtime_test.dart | `a failing start names the subsystem and maps to a non-zero exit` | red |
+| process-roles → Subsystems per role | Subsystem fails to start | correlia_server/test/unit/role_runtime_test.dart | `a failing start names the subsystem and maps to a non-zero exit` | green |
 | process-roles → Health endpoints in every role | Healthy server | correlia_server/test/e2e/health_e2e_test.dart | `livez readyz startupz answer 200 in each role` | red |
 | process-roles → Health endpoints in every role | Subsystem still starting | correlia_server/test/db/startup_gate_test.dart | `startupz stays 503 until the gated subsystem has started` | red |
 | process-roles → Health endpoints in every role | Database unreachable | correlia_server/test/e2e/health_e2e_test.dart | `readyz 503 and livez 200 when the database stops` | red |
@@ -112,21 +112,21 @@ Paths are relative to the repository root. `correlia_server/test/{unit,db,e2e}` 
 
 ## 5. Process roles (fast tier)
 
-- [ ] 5.1 Write failing `correlia_server/test/unit/process_options_test.dart`: `--process-role` values and the
+- [x] 5.1 Write failing `correlia_server/test/unit/process_options_test.dart`: `--process-role` values and the
   default `all`; an unknown role and an unknown option are errors naming the value and valid roles; Serverpod
   `--role` other than `monolith` is rejected; Serverpod's own options pass through unchanged (production mode
   with role `api`); the option list equals the names in Serverpod's `CommandLineArgs` (D1 risk). Verify they
   fail because `ProcessOptions` does not exist.
-- [ ] 5.2 Implement `ProcessOptions` (sealed result, exit 2 on error, `--process-role` removed before
+- [x] 5.2 Implement `ProcessOptions` (sealed result, exit 2 on error, `--process-role` removed before
   Serverpod); verify 5.1 passes and flip "Production mode with a role" green.
-- [ ] 5.3 Write failing `correlia_server/test/unit/role_runtime_test.dart` with fake subsystems: only the
+- [x] 5.3 Write failing `correlia_server/test/unit/role_runtime_test.dart` with fake subsystems: only the
   role's subsystems start; a failing start names the subsystem; one shutdown callback registered before the
   first start stops started subsystems one at a time in reverse order; a failing stop is logged with its name,
   the others still stop, and a combined error naming every failure is rethrown (D7). Also
   `startup_state_test.dart`: the startup indicator is unhealthy until all role subsystems started and the
   callback is registered (D17); and `test_mode_switches_test.dart`: `CORRELIA_TEST_CONSOLE_DIR`,
   `CORRELIA_EXIT_ON_STDIN_CLOSE` and `CORRELIA_TEST_ROOT_LOCK` are ignored outside run mode `test`.
-- [ ] 5.4 Implement `Subsystem`, the role registry, `RoleRuntime` (single `experimental.shutdownTasks`
+- [x] 5.4 Implement `Subsystem`, the role registry, `RoleRuntime` (single `experimental.shutdownTasks`
   callback), the Correlia startup indicator through `HealthConfig.additionalStartupIndicators`, and the
   test-mode stdin-EOF watch and root lock (D16). Wire `bin/main.dart`. Verify 5.3 passes and flip "Subsystem
   fails to start" green.

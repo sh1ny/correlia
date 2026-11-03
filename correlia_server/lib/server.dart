@@ -1,65 +1,89 @@
+import 'dart:async';
 import 'dart:io';
 
-import 'src/cache_busting.dart';
 import 'src/generated/serverpod.dart';
-import 'src/web/routes/app_config_route.dart';
+import 'src/runtime/process_options.dart';
+import 'src/runtime/registry.dart';
+import 'src/runtime/role_runtime.dart';
+import 'src/runtime/serverpod_adapter.dart';
+import 'src/runtime/startup_state.dart';
+import 'src/runtime/template_web_subsystem.dart';
+import 'src/runtime/test_mode_switches.dart';
 
-/// The starting point of the Serverpod server.
-void run(List<String> args) async {
-  // Initialize Serverpod. The generated Serverpod class is already connected
-  // with your project's generated code.
-  final pod = Serverpod(args);
+/// How long to wait for the root lock when the harness gave no deadline.
+const Duration _defaultRootLockTimeout = Duration(seconds: 60);
 
-  // Serve all files in the web/static relative directory under /web.
-  // These are used by the default web page.
-  pod.webServer.addRoute(
-    StaticRoute.withCacheBusting(cacheBustingConfig),
-    cacheBustingConfig.mountPrefix,
+/// The Correlia entry point.
+///
+/// Exit codes: 2 for a rejected command line, 1 for a failed start, a failed
+/// root lock or a failed shutdown, 0 for a clean SIGTERM.
+Future<void> run(List<String> args) async {
+  final environment = Platform.environment;
+  final options = switch (ProcessOptions.parse(
+    args,
+    environment: environment,
+  )) {
+    final ProcessOptionsError error => _exitWith(error.message, error.exitCode),
+    final ProcessOptions options => options,
+  };
+  void log(String line) => stderr.writeln('[correlia] $line');
+  log('Run mode: ${options.runMode}; process role: ${options.role.name}');
+
+  final switches = TestModeSwitches.fromEnvironment(
+    options.runMode,
+    environment,
   );
-
-  // Setup the app config route.
-  // We build this configuration based on the servers api url and serve it to
-  // the flutter app.
-  pod.webServer.addRoute(
-    AppConfigRoute(apiConfig: pod.config.apiServer),
-    '/assets/assets/config.json',
-  );
-
-  // Checks if the flutter web app has been built and serves it if it has.
-  final appDir = Directory(Uri(path: 'web/app').toFilePath());
-  if (appDir.existsSync()) {
-    // Serve the flutter web app under /.
-    pod.webServer.addRoute(
-      FlutterRoute(
-        appDir,
-        // If building the Flutter app with WASM, set the below parameter to
-        // true and add the --wasm flag to the flutter build command.
-        enableWasmHeaders: false,
-      ),
-      '/',
-    );
-  } else {
-    // If the flutter web app has not been built, serve the build app page.
-    final defaultRoute = StaticRoute.file(
-      File(
-        Uri(path: 'web/pages/build_flutter_app.html').toFilePath(),
-      ),
-    );
-
-    pod.webServer.addMiddleware(
-      FallbackMiddleware(
-        fallback: defaultRoute,
-        on: (response) => response.statusCode == 404,
-      ).call,
-      '/',
-    );
-
-    pod.webServer.addRoute(
-      defaultRoute,
-      '/**',
-    );
+  if (switches.rootLock case final String lockPath) {
+    try {
+      await acquireRootLock(
+        lockPath,
+        switches.rootLockTimeout ?? _defaultRootLockTimeout,
+      );
+    } on RootLockTimeout catch (e) {
+      _exitWith('$e', ExitCodes.failure);
+    }
   }
 
-  // Start the server.
-  await pod.start();
+  final startup = StartupState();
+  final pod = Serverpod(
+    options.serverpodArgs,
+    healthConfig: HealthConfig(
+      additionalStartupIndicators: [CorreliaStartupIndicator(startup)],
+    ),
+  );
+
+  if (switches.exitOnStdinClose) {
+    watchStdinForEof(stdin, () => pod.shutdown());
+  }
+
+  final runtime = RoleRuntime(
+    role: options.role,
+    registry: [
+      ...buildSubsystemRegistry(),
+      TemplateWebSubsystem(pod.config.apiServer),
+    ],
+    port: ServerpodAdapter(pod),
+    startup: startup,
+    log: log,
+  );
+
+  switch (await runtime.start()) {
+    case Started():
+      break;
+    case final StartFailed failed:
+      stderr.writeln(failed.message);
+      stderr.writeln(failed.stackTrace);
+      try {
+        await pod.shutdown(exitProcess: false);
+      } catch (e) {
+        stderr.writeln('Shutdown after failed start also failed: $e');
+      }
+      await stderr.flush();
+      exit(failed.exitCode);
+  }
+}
+
+Never _exitWith(String message, int code) {
+  stderr.writeln(message);
+  exit(code);
 }
