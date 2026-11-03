@@ -1,0 +1,14 @@
+# Same tier declarations as correlia_server/dart_test.yaml (a test checks they match).
+# The filename pattern keeps the fixture cases out of the tool's own `dart test`.
+filename: "*_case.dart"
+
+tags:
+  db: {}
+  e2e: {}
+  plugin: {}
+  load: {}
+  integration: {}
+
+presets:
+  fast:
+    exclude_tags: "db || e2e || plugin || load || integration"

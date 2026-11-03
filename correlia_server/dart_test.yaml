@@ -1,0 +1,16 @@
+# Test tiers (design D4 of `bootstrap-workspace`). Untagged tests are the fast tier.
+# `mise run test` runs the `fast` preset; `-- --tags db` selects a tier.
+# Serverpod's `withServerpod` tags its group `integration` unless told otherwise. That is
+# not a tier: every db test passes `testGroupTagsOverride: ['db']` (a tool test checks
+# this), and the `fast` preset also excludes `integration` as a guard, so a db test that
+# forgets the override never runs in the fast loop.
+tags:
+  db: {}
+  e2e: {}
+  plugin: {}
+  load: {}
+  integration: {}
+
+presets:
+  fast:
+    exclude_tags: "db || e2e || plugin || load || integration"

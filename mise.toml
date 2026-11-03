@@ -3,18 +3,74 @@
 #
 # Flutter 3.47.9 bundles Dart 3.13.7 (patched for GHSA-frr6-h895-5pxp).
 # Serverpod 4.x needs Flutter >= 3.44.4 / Dart >= 3.12.2.
-# The Serverpod CLI (serverpod_cli 4.1.x) is installed by the M1 change `bootstrap-workspace`,
-# which also adds the analyze/test/format tasks (tests run natively in WSL, ADR 0014).
-# Until then only the planning tasks below exist.
+# Go 1.27.3 and buf 1.75.0 are pinned for the plugin gRPC contract and its generated code (M1,
+# `bootstrap-workspace`; ADR 0014: everything runs natively on Linux).
+# The Serverpod CLI is not a mise tool: it is the pinned dev dependency `serverpod_cli: 4.1.0` of
+# `correlia_server`, run as `dart run serverpod_cli`.
 
 [tools]
 flutter = "3.47.9"
 node = "24"
+go = "1.27.3"
+buf = "1.75.0"
 "npm:@fission-ai/openspec" = "1.16.0"
 
+[tasks.doctor]
+description = "Check every pinned tool is the Linux copy at its pinned version"
+run = "dart run tool/bin/tool.dart doctor"
+
+[tasks.setup]
+description = "Create the local passwords file when missing (never overwrites it)"
+run = "dart run tool/bin/tool.dart setup"
+
+[tasks.analyze]
+description = "dart analyze --fatal-infos over the workspace, flutter analyze for the console"
+run = "dart analyze --fatal-infos && flutter analyze --fatal-infos correlia_flutter"
+
+[tasks.format]
+description = "Format all Dart code in the workspace"
+run = "dart format ."
+
+[tasks.generate]
+description = "Run the Serverpod code generator in correlia_server"
+run = "dart run serverpod_cli generate"
+dir = "correlia_server"
+
+[tasks.run]
+description = "Start the Correlia server"
+run = "dart run bin/main.dart"
+dir = "correlia_server"
+depends = ["setup"]
+
+[tasks.test]
+description = "Run the fast tests; arguments go to dart test (`mise run test -- --tags db` selects a tier)"
+run = "dart run tool/bin/tool.dart test"
+depends = ["setup"]
+
+[tasks."test:all"]
+description = "Run every tier except load (fast, db, e2e, plugin)"
+run = "dart run tool/bin/tool.dart test --all"
+depends = ["setup"]
+
+[tasks."build:web"]
+description = "Build the Flutter console into correlia_server/web/app (served by the api role)"
+run = "flutter build web --base-href / --output ../correlia_server/web/app"
+dir = "correlia_flutter"
+
 [tasks.check]
-description = "Pre-push gate (pr.validate). Today: OpenSpec validation only; M1 adds analyze + fast tests"
-run = "openspec validate --all --strict"
+description = "Pre-push gate: OpenSpec, doctor, analysis, format, generated code, fast tests (stops at the first failure)"
+run = [
+  "openspec validate --all --strict",
+  "dart run tool/bin/tool.dart doctor",
+  "dart analyze --fatal-infos",
+  "flutter analyze --fatal-infos correlia_flutter",
+  "dart format --output=none --set-exit-if-changed .",
+  "dart run tool/bin/tool.dart generated",
+  "dart run tool/bin/tool.dart test",
+  "cd tool && dart test",
+  "cd correlia_flutter && flutter test",
+]
+depends = ["setup"]
 
 [tasks."spec:validate"]
 description = "Validate every OpenSpec spec and change"

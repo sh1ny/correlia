@@ -45,8 +45,9 @@ These instructions are shared by every harness (Claude Code, Codex, OMP). Keep t
   owner's local Mastermind workspace, or in files excluded locally through `.git/info/exclude`. Never commit, push or
   publish them. Never copy third-party code, schemas, templates or provider configs; specs and ADRs state
   Correlia's own decisions in their own words.
-- **Decisions are the owner's.** `decision_making: all` is set: every change presents all scope and design
-  decisions to the owner before writing them. Never record an agent choice as the owner's.
+- **Decision mode.** `decision_making: autonomous` is set (owner, 2026-11-04; it was `all`): agents take
+  scope and design decisions without asking and record them `Chosen by: agent`. A `Chosen by: user`
+  decision still goes to the owner before it changes. Never record an agent choice as the owner's.
 - Commits: author and committer `Nikolay Bochev <309868+sh1ny@users.noreply.github.com>`, message ends with
   one `Co-authored-by: KintsugiBot <296966193+KintsugiBot@users.noreply.github.com>` trailer.
 - Always use the toolchain through mise (`mise run <task>`, `mise exec -- <cmd>`), never a bare
@@ -55,8 +56,25 @@ These instructions are shared by every harness (Claude Code, Codex, OMP). Keep t
 ## Testing
 
 - The repository, the toolchain and every test live in **WSL Ubuntu 24.04**, on the Linux filesystem
-  (`~/Development/dart/correlia`, ADR 0014). Tests run natively with `mise run test`; there is no sync runner.
-  The M1 change `bootstrap-workspace` adds the test tasks. Until then there are no tests.
+  (`~/Development/dart/correlia`, ADR 0014). Tests run natively; there is no sync runner.
+- Tasks: `mise run test` runs the fast tier only; `mise run test -- --tags db` (or `e2e`, `plugin`, `load`)
+  selects a tier; `mise run test:all` runs every tier except `load`; `mise run check` is the gate (validate,
+  doctor, analyze, format, generated code, fast and widget tests). `mise run setup` writes the local
+  passwords file; `test`, `test:all` and `check` run it first.
+- Cluster roots (all under `correlia_server/.serverpod/`, gitignored):
+  - `test/`: the shared cluster of the `db` tests, started by `serverpod_test`. It keeps running after a
+    run and the next run reuses it. Leave it running; Serverpod repairs it.
+  - `test-kill/`: the SIGKILL recovery test's own root.
+  - `test-e2e/<test-id>/`: one stable root per e2e test.
+
+  Teardown deletes the `test-kill/` and `test-e2e/` roots once their server has exited.
+- e2e children are the real entry point (`bin/main.dart --mode test`), stopped by closing their stdin. On
+  SIGTERM, a server whose Postgres is the Serverpod-managed embedded one exits 143: the embedded supervisor
+  exits first. Only a server without a data path exits 0 on SIGTERM, as the shutdown e2e test shows.
+- Child output goes to a log file, never a pipe. With a pipe, a killed harness kills its child mid-shutdown
+  and leaves the child's postmaster running.
+- Every `withServerpod` call names its tier tag (`testGroupTagsOverride`), or the fast loop picks it up; a
+  `tool` test checks this.
 - **Never touch another Postgres.** The owner's Hindsight server runs PostgreSQL in this distro on
   `127.0.0.1:5432` (socket in `/tmp`). Tests and tasks use only their own embedded Postgres; never connect
   to, stop, signal or kill any other, and never match Postgres processes by name.

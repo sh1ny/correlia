@@ -10,6 +10,17 @@
         "-c",
         "set -e; sdk=$(mise where flutter); dart_sdk=\"$sdk/bin/cache/dart-sdk\"; export DART_DATA_HOME=\"$PWD/.dart_tool/dart-data\"; exec \"$dart_sdk/bin/dart\" mcp-server --dart-sdk \"$dart_sdk\" --flutter-sdk \"$sdk\""
       ]
+    },
+    "serverpod": {
+      "type": "stdio",
+      "command": "mise",
+      "args": [
+        "exec",
+        "--",
+        "bash",
+        "-c",
+        "set -e; cd \"$(git rev-parse --show-toplevel)/correlia_server\"; exec dart run serverpod_cli mcp-server"
+      ]
     }
   }
 }
