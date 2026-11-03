@@ -5,7 +5,7 @@ targets in self-hosted operations, and the plugin capabilities each needs.
 
 ## How integrations are built
 
-Every integration is a **plugin** behind the Correlia plugin interface (ADR 0015). It runs either built in
+Every integration is a **plugin** behind the Correlia plugin interface (ADR 0020). It runs either built in
 (Dart, in-process) or as an external process over gRPC. One plugin declares one or more **capabilities**
 in its manifest, and each capability has its own config schema, required secrets and health check:
 
@@ -42,7 +42,8 @@ in its manifest, and each capability has its own config schema, required secrets
 ## Tiers
 
 - **P0:** needed for the owner's real traffic. Delivered in M1-M3.
-- **P1:** required for 1.0. Delivered in M6-M9.
+- **P1:** planned for M6-M9. Not a 1.0 blocker: each ships when it meets the definition of done, in its
+  milestone or in a 1.x point release (owner, 2026-11-03, D27).
 - **P2:** after 1.0, on demand. The plugin SDK makes them community-buildable.
 - **Avoid:** do not build.
 
@@ -51,13 +52,13 @@ in its manifest, and each capability has its own config schema, required secrets
 | Integration | Capabilities | Runs | Milestone | Notes |
 |---|---|---|---|---|
 | Prometheus Alertmanager | source.push, decoder | built in | M1 | Webhook v4. One canonical event per alert in the notification group. Uses the upstream fingerprint as a fingerprint input. Supports `send_resolved` and the `truncatedAlerts` count. |
-| NATS / JetStream | output (M1), source.consume (M8) | external Go | M1 | The reference external plugin (ADR 0011). Its consume side is a leased durable consumer with explicit ack. |
+| NATS / JetStream | output (M1), source.consume (M8) | external Go | M1 | The reference external plugin (ADR 0018). Its consume side is a leased durable consumer with explicit ack. |
 | Icinga2 | source.push, source.consume (event streams API), source.pull (state sync), decoder, sync (ack, downtime), action | built in | M2 | Host and service state changes, check output, acknowledgement/downtime/flapping flags, soft vs hard state. Pull is used for state reconciliation after downtime of Correlia itself. |
 | Thanos (Ruler, Query) | source.push via the Alertmanager decoder; query via Prometheus query | built in | M2 | A tested configuration plus tenant headers and auth, not a separate decoder. |
 | Generic inbound webhook | source.push, decoder (declarative mapping) | built in | M2 | Any JSON mapped by a versioned mapping document (JSON pointer/path + matcher functions), with a preview against a pasted sample. |
 | Generic webhook out | output, notify, action | built in | M1 (output), M6 (notify) | Signed (HMAC) JSON, CloudEvents structured mode, retry with backoff. |
 
-## P1: required for 1.0
+## P1: planned for M6-M9, not a 1.0 blocker
 
 ### Monitoring sources (M8 unless noted)
 
