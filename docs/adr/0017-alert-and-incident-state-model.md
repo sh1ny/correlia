@@ -1,6 +1,6 @@
 # 0017. State model: authoritative alert state, relational incidents, one mutation protocol and a lossless change feed
 
-- Status: proposed
+- Status: accepted (2026-11-03)
 - Date: 2026-11-03
 - Supersedes: [0007](0007-alert-and-incident-state-model.md)
 
@@ -10,10 +10,13 @@ This ADR restates ADR 0007 with the corrections of the 2026-11-03 design review:
 - **Ordering:** the pipeline has no processing order (ADR 0016); the alert ordering fence is the only thing
   that orders state.
 - **Last seen:** a duplicate observation used to record nothing, so nothing knew when an alert was last
-  reported, and staleness or a silent source could not be detected. A duplicate now advances the alert's
-  `last_observed_at` and has no other effect; it is not routed to outputs (owner, 2026-11-03, D25).
+  reported, and staleness or a silent source could not be detected. Applied and stale observations, and
+  duplicates of them, now advance the alert's `last_observed_at`; a duplicate has no other effect and is
+  not routed to outputs (owner, 2026-11-03, D25 and design review rounds 9 and 10). The console reads it
+  through a bounded freshness pull, not the activity feed.
 - **Activity table:** its `txid xid8 DEFAULT pg_current_xact_id()` column cannot be expressed by Serverpod
-  models, so the table is a listed migration exception (`openspec/architecture.md`, Database).
+  models, so the table is a listed migration exception created by Correlia's schema step
+  (`openspec/architecture.md`, Database).
 - **Concurrency tests** need real independent connections (`docs/plan/acceptance-scenarios.md`).
 
 Everything else is unchanged from ADR 0007.
@@ -43,10 +46,13 @@ protocol.
   - Each row stores its ordering fence: the (effective source time, observed time, event id) of the last
     applied event.
   - Status is firing or resolved. Severity updates in place.
-  - `last_observed_at`: the latest observed time of any observation of this fingerprint that was applied or
-    found to be a duplicate. It only moves forward (`GREATEST`), is not an ordering input, does not
-    increment the entity version and writes no activity row. It is what staleness and silent-source
-    detection read.
+  - `last_observed_at`: the latest observed time of the observations of this fingerprint that were applied
+    or stale, and of duplicates of those (owner, 2026-11-03). Late and future-dated observations, and their
+    duplicates, never advance it: they are backlog or quarantine, not evidence of the alert now. Every
+    counted observation finds an alert row (an applied one creates or updates it, a stale one meets its
+    fence), and the field only moves forward (`GREATEST`), so its value does not depend on processing
+    order. It is not an ordering input, does not increment the entity version and writes no activity row.
+    It is what staleness and silent-source detection read.
   - Acknowledgement, silence and maintenance are separate fields, not statuses.
 - **incidents:** status OPEN, RESOLVED or CLOSED. Acknowledgement is orthogonal to status.
   - An open incident's identity is (correlation rule id, structured group key), enforced by a partial
@@ -129,7 +135,9 @@ No other code writes those tables.
 - **Duplicates first:** the observation dedup of ADR 0019 runs before any lock is taken for state. A
   duplicate observation takes no group lock. Its alert row joins the batch's alert-row locks (step 2, in
   fingerprint order) only to advance `last_observed_at`; it has no other state, contribution, notification
-  or output effect.
+  or output effect. The observation dedup record keeps the original's outcome, so a duplicate of a late or
+  future-dated observation advances nothing. Stale observations advance `last_observed_at` under the same
+  alert-row lock they already take to read the fence.
 - **Hot groups:** a hot group is serialized by its lock. Throughput is qualified in M3 (scenario COR-6).
   The planned mitigation if it misses the target is group-affine batching.
 
@@ -147,8 +155,8 @@ No other code writes those tables.
 ### Change feed (console and API)
 - **Feed position:** every activity row records `txid xid8 DEFAULT pg_current_xact_id()` and a `bigserial`
   id. The feed position is (txid, id). Serverpod models have no `xid8` type and no expression defaults, so
-  `activity` is a listed migration exception: `managedMigration: false` plus hand-written SQL in the
-  generated migration (`openspec/architecture.md`, Database).
+  `activity` is a listed migration exception: `managedMigration: false`, created by Correlia's schema step
+  (`openspec/architecture.md`, Database).
 - **Safe reads:**
   - A feed read returns rows after the client's cursor with `txid < pg_snapshot_xmin(pg_current_snapshot())`.
   - Every transaction below that watermark has finished, and new transactions always get higher ids.
@@ -165,6 +173,9 @@ No other code writes those tables.
   whenever it advances past activity rows that were held back, even if the transaction that held it back
   wrote no activity. Clients also pull every 10 s as a safety net. A feed pull answers with
   `held_back: true` when rows exist above the watermark, so clients know more is coming.
+- **Freshness pull:** `last_observed_at` is not in the feed. On each safety pull and on reconnect, the
+  client fetches `last_observed_at` for the alerts it displays (bounded by the page size) and keeps the
+  later of its value and the response, so an older response never overwrites a newer one (UI-4).
 - **Expired cursors:** a cursor older than feed retention gets `cursor_expired`, and the client takes a new
   snapshot.
 - **Bounded stalls:** a long transaction holds the watermark back. Transaction timeouts bound the stall,

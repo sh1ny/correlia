@@ -1,6 +1,6 @@
 # 0018. The NATS output is the first external plugin, written in Go
 
-- Status: proposed
+- Status: accepted (2026-11-03)
 - Date: 2026-11-03
 - Supersedes: [0011](0011-nats-output-as-go-plugin.md)
 
@@ -29,8 +29,10 @@ nats.go.
   criterion 4). This is not the plugin SDK of M8; stock go-plugin plugins do not watch stdin.
 - **No delivery order per alert:** several relay instances claim outbox rows with `SKIP LOCKED` (ADR 0016),
   so two events of one fingerprint can be published in either order, and a redelivery can follow a newer
-  event. Consumers order events by their time fields (effective source time, then observed time, then event
-  id, as the ordering fence of ADR 0017 does) and dedupe by event id.
+  event. Consumers order events by source time (the CloudEvents `time` attribute, the occurrence time),
+  then `observed_at`, then event id, and dedupe by event id. This matches the ordering fence of ADR 0017
+  except for an event whose source time was clamped to observed time + skew, since the event does not carry
+  the clamped value.
 
 Rejected: a built-in Dart NATS output, because JetStream is experimental in `dart_nats`. Reversal cost: low,
 since a built-in output can be added behind the same interface later.

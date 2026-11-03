@@ -56,6 +56,9 @@ runs on embedded Postgres, developed and tested inside WSL (ADR 0014).
 - **Alert state v0:**
   - firing/resolved per fingerprint with ordering fencing (ORD-1..3, ORD-5);
   - the activity ledger rows.
+- **Schema step:** Correlia's own forward-only SQL scripts for the tables Serverpod cannot express
+  (`activity` first), run at startup after Serverpod's migrations on fresh and upgraded databases alike
+  (`openspec/architecture.md`, Database). The first change that adds such a table adds the step.
 - **Outbox and relay:** one outbox per output; retry with backoff; attempts recorded.
 - **Plugin host v0:**
   - spawn, magic-cookie handshake, gRPC over a Unix socket with AutoMTLS (stock go-plugin's Linux
@@ -117,7 +120,7 @@ simulator, and failures are visible and replayable.
 - **Backpressure:** inbox lag bounds with 429/503 and `Retry-After` (DUR-9).
 - **Secrets:** encrypted plugin config secrets (SEC-3).
 - **Retention jobs:** raw inbox and events partitioning; drop by age.
-- **Scenarios:** ORD-4, ORD-6, ID-2, ID-3, DUR-4, DUR-5, DUR-9..12, RUL-1..4, SEC-2, SEC-3.
+- **Scenarios:** ORD-4, ORD-6, ID-2, ID-3, DUR-4, DUR-5, DUR-9..13, ORD-7, RUL-1..4, SEC-2, SEC-3.
 
 **Exit criteria:**
 - [agent] Golden fixtures for Icinga2 (both paths), Alertmanager and Thanos pass.
@@ -192,7 +195,7 @@ proven fixed.
   - light and dark themes;
   - English only, with localization scaffolding (D19);
   - accessibility basics (focus order, contrast, screen reader labels).
-- **Scenarios:** ID-5, COR-8, UI-1, UI-2, RUL-5, SEC-4, SEC-6.
+- **Scenarios:** ID-5, COR-8, UI-1, UI-2, UI-4, RUL-5, SEC-4, SEC-6.
 
 **Exit criteria:**
 - [agent] Widget and integration tests for the main flows; scenarios pass.

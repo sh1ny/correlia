@@ -1,13 +1,14 @@
 # 0019. Four identities: source, transport delivery, observation and alert
 
-- Status: proposed
+- Status: accepted (2026-11-03)
 - Date: 2026-11-03
 - Supersedes: [0012](0012-identities.md)
 
 ## Context
 
 This ADR restates ADR 0012 with one change from the 2026-11-03 design review: a duplicate observation
-advances its alert's `last_observed_at` (ADR 0017) instead of recording nothing, so an alert that a source
+of an applied or stale observation advances its alert's `last_observed_at` (ADR 0017) instead of
+recording nothing, so an alert that a source
 keeps repeating (for example an Alertmanager repeat notification) is known to be still reported. Duplicates
 are not routed to outputs (owner, 2026-11-03, D25). Everything else is unchanged from ADR 0012.
 

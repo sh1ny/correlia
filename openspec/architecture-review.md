@@ -2,10 +2,10 @@
 
 ## Metadata
 
-- **Round:** 8
-- **Prior round:** Round 7 APPROVE_WITH_CHANGES required one ADR-index correction; verified applied. Round 6 approved the baseline covering ADRs 0001–0012; this amendment also reviews 0013’s decisions as restated in 0014.
+- **Round:** 11
+- **Prior round:** Round 10, REVISE (M1: late observation before alert creation).
 - **Reviewer:** cross-model CLI (Codex)
-- **Reviewed:** Proposed ADRs 0014 and 0015; unchanged ADRs 0013, 0006 and 0011; `openspec/strategy.md`, `openspec/architecture.md`, `openspec/roadmap.md`, `docs/plan/milestones.md`, `docs/plan/open-decisions.md`, `docs/plan/integrations.md`, `AGENTS.md`, `openspec/config.yaml`, `mise.toml`; full repository `git diff`; `docs/research/plugin-architecture.md`; current and saved round 7 reviews; and `git show HEAD:openspec/architecture-review.md`. Read-only review; no runtime verification.
+- **Reviewed:** Proposed ADRs 0016–0020 against unchanged predecessors 0005, 0007, 0011, 0012 and 0015; amendment `9af6e43..17941a5` and working-tree fixes; architecture, strategy, roadmap and changed planning documents; accepted ADRs 0001–0004, 0008, 0009 and 0014; AGENTS.md; plugin-architecture research; legacy-audit section 6 and question 14; saved rounds 9–10 and current architecture review; applicable Serverpod skills and supplied Serverpod 4.1.0 migration, configuration and server sources. Read-only; no runtime verification.
 
 ## Findings
 
@@ -15,14 +15,11 @@ None.
 
 ### Moderate
 
-None open. Round 7 M1 is resolved.
+None open. Round 10 M1 and round 9 C1, M1 and M2 are resolved.
 
 ### Suggestions
 
-- The amendment faithfully records the owner’s Linux-first decision and identifies task portability as an agent proposal. CI timing matches the owner’s choices: the first change after GitHub enablement, with no M1 CI work.
-- ADR 0015 preserves 0006’s substantive contracts except for the platform amendment and authorized D24 deferral. Accepted ADR files remain unchanged, including 0011’s historical reference to 0006. Remaining Windows-target statements belong to historical or pending-supersession material.
-- Linux orphan cleanup remains a spike obligation: process-group membership alone cannot guarantee cleanup after host `SIGKILL`. The explicit kill test against a stock Go plugin and owner-controlled failure gate adequately contain this risk.
-- M1 changes and exit criteria remain consistent. Tasks must run on ordinary Linux without WSL-specific dependencies; runtime portability remains to be demonstrated during implementation. No additional T1–T6 regression was identified.
+None.
 
 ## Verdict
 
@@ -30,10 +27,23 @@ VERDICT: APPROVE_WITH_CHANGES
 
 ## Required Changes
 
-1. **Applied and verified:** Correct `openspec/architecture.md`’s index by listing proposed 0014 → 0013 and 0015 → 0006 in an explicitly pending amendment section, removing 0010 from the in-force table, and recording 0010 → 0013 separately as historical succession. Accepted ADR files remain unchanged. Moving 0014 and 0015 into force remains conditional on owner acceptance.
+1. **Applied and re-checked — unmanaged schema bootstrap:** `openspec/architecture.md` specifies ordered, forward-only Correlia SQL scripts, a versions table, an advisory lock, execution after Serverpod migrations and before role work, and coverage of fresh installations, upgrades and test databases. Managed tables cannot reference exception tables by foreign key. ADRs 0016–0017 and M1 reflect this procedure.
+
+2. **Applied and re-checked — freshness independent of applied-versus-stale processing order:** ADR 0017 counts both applied and stale observations using locked `GREATEST` updates. ORD-7(a) asserts the same final freshness in both processing orders.
+
+3. **Applied and re-checked — late observations before alert creation:** ADR 0017 excludes late and future-dated observations, and duplicates of those outcomes, from freshness updates. Dedup records retain the original outcome. ORD-7(b–c) covers late-before-creation permutations, concurrent transactions and a late duplicate. ADR 0019’s context and D25 reflect the owner’s revised policy.
+
+4. **Applied and re-checked — console freshness synchronization:** ADR 0017 specifies page-bounded freshness pulls on safety pulls and reconnect, with monotonic timestamp merging. UI-4 covers repeated observations, stale observations and delayed responses.
+
+5. **Applied and re-checked — replay and source-claim corrections:** ADR 0016 explicitly scopes its replay re-pinning exception relative to ADR 0008. ADR 0018 names the available ordering fields and discloses the clamp difference. The architecture identifies the verified 4.1.0 future-call configuration and leaves webhook body-limit behavior as an explicit implementation proof obligation.
+
+6. **Applied and re-checked — release scope:** D16 and D27 explicitly record that plugin SDKs are not 1.0 blockers, consistent with the strategy, roadmap and release definition.
 
 CHANGES_APPLIED: yes
 
 ## Rebuttals
 
-- **Round 7 M1 — accepted by reviewer as resolved.** The revised index correctly distinguishes accepted, pending and superseded ADRs. No required edits remain outstanding.
+- **Round-9 C1 — accepted by reviewer as resolved.** The schema step addresses Serverpod’s fresh-install use of `definition.sql`, which excludes unmanaged tables.
+- **Round-9 M1 — accepted by reviewer as resolved.** The separate freshness pull makes unversioned updates observable by an open console.
+- **Round-9 M2 and round-10 M1 — accepted by reviewer as resolved.** Applied/stale observations count regardless of their processing order; late observations count in neither missing-row nor existing-row schedules.
+- The superseding ADRs preserve their predecessors’ substantive contracts apart from the documented amendments. The five predecessor files remain unchanged. No additional concrete regression requiring a change was identified.

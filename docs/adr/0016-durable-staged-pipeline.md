@@ -1,6 +1,6 @@
 # 0016. Durable staged pipeline on PostgreSQL with transactional outboxes
 
-- Status: proposed
+- Status: accepted (2026-11-03)
 - Date: 2026-11-03
 - Supersedes: [0005](0005-durable-staged-pipeline.md)
 
@@ -14,7 +14,8 @@ This ADR restates ADR 0005 with the corrections of the 2026-11-03 design review:
   and reprocessing suppresses notifications, so a fixed mapping never notified for its backlog. The owner
   decided (2026-11-03, D26) that an operator's pipeline replay uses the current configuration.
 - **Batch jobs** commit in short transactions (the change feed of ADR 0017 depends on it).
-- **Partitioned tables** are an exception to Serverpod-managed migrations (`openspec/architecture.md`).
+- **Partitioned tables** are an exception to Serverpod-managed migrations and are created by Correlia's
+  schema step (`openspec/architecture.md`, Database).
 
 Everything else is unchanged from ADR 0005.
 
@@ -116,7 +117,9 @@ and (outbox → outputs)**.
   at replay time, which becomes the row's new pin (owner, 2026-11-03, D26). A failed row produced no events,
   so this is its first application: generation 0, normal alert ordering (ADR 0017) and normal
   notifications. This is how a fixed mapping or rule reaches the backlog it broke. Automatic retries after
-  a crash or transient failure still reuse the original pin.
+  a crash or transient failure still reuse the original pin. ADR 0008's rule that pins stay unchanged
+  covers rows that were processed (their rule failures are skipped and counted); it does not cover a failed
+  row that produced no events, which is what this replay re-pins.
 - **Reprocess:** runs stored raw rows through the current config.
   - By default it is a dry run (simulator output only).
   - "Apply" is an explicit admin action. It emits events with a new `pipeline.generation` and a
@@ -146,5 +149,6 @@ Reversal cost: medium.
   vacuum.
 - **Partitioned tables** (`events`, `raw_inbox`, `outbox`) cannot be expressed by Serverpod models: a
   partitioned table needs the partition key in every unique index, and Serverpod has no partitioning. They
-  are listed migration exceptions: `managedMigration: false` in the model plus hand-written SQL in the
-  generated migration (`openspec/architecture.md`, Database).
+  are listed migration exceptions: `managedMigration: false` in the model, created and changed by
+  Correlia's schema step, which runs on fresh installs and upgrades alike (`openspec/architecture.md`,
+  Database).

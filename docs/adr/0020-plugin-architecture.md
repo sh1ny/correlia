@@ -1,6 +1,6 @@
 # 0020. Hybrid plugin model: built-ins in process, external plugins over gRPC (go-plugin style)
 
-- Status: proposed
+- Status: accepted (2026-11-03)
 - Date: 2026-11-03
 - Supersedes: [0015](0015-plugin-architecture-linux.md)
 

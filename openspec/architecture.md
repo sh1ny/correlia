@@ -77,7 +77,7 @@ flowchart LR
 | Correlation engine (worker) and `StateMutationService` | Alert state with ordering fences, incident open/merge/resolve, thresholds, silences, maintenance; the only writer of incident state, also used by endpoints and jobs | `alerts`, `incidents`, `incident_alerts`, `threshold_contributions`, `incident_transitions`, `activity` | DB: one transaction per batch, lock protocol of ADR 0017 |
 | Outbox relays (worker) | Deliver routed events and notifications per output, with retry, backlog budget and dead letters | `outbox` delivery state, `delivery_attempts` | Output plugin interface; DB |
 | Plugin host (worker) | Spawn, handshake, configure, health-check and restart external plugins; adapt them to the Dart interfaces | plugin runtime state (memory) and plugin status rows | go-plugin handshake + Correlia plugin protocol v1 (gRPC) |
-| Scheduler (worker) | Pull sources, incident expiry, reminders, retention, partition maintenance | job rows (Serverpod future calls) | DB. Future calls run in every Serverpod monolith, so the api role sets `futureCall.executionEnabled: false` (Serverpod >= 4.0.3); the first change that adds a future call applies it |
+| Scheduler (worker) | Pull sources, incident expiry, reminders, retention, partition maintenance | job rows (Serverpod future calls) | DB. Future calls run in every Serverpod monolith, so the api role sets `futureCall.executionEnabled: false` (present in Serverpod 4.1.0's config); the first change that adds a future call applies it |
 | External plugins | Source, decoder, enricher or output in any language | their own | Correlia plugin protocol v1 |
 | Flutter web console | Operators' and engineers' UI | client-side view state only | Generated Serverpod client + streams |
 | PostgreSQL | System of record | everything durable | SQL (Serverpod ORM + raw SQL for claims) |
@@ -125,8 +125,18 @@ run in every role unless they are switched off:
   canonical encoding (ADR 0019).
 - **Change feed:** `(txid, id)` cursors over the activity ledger with the xmin watermark (ADR 0017).
 - **Database:** Serverpod-managed migrations by default. A table Serverpod models cannot express sets
-  `managedMigration: false` in its model, and its SQL is written by hand into the generated `migration.sql`
-  (Serverpod's documented escape hatch). Each such table is a reviewed exception listed here:
+  `managedMigration: false` in its model and is created by Correlia's own **schema step** (owner,
+  2026-11-03, design review round 9). Serverpod builds a fresh database from the latest `definition.sql`
+  alone, which leaves out unmanaged tables, so SQL added only to a `migration.sql` would exist after an
+  upgrade but never on a fresh install. The schema step:
+  - is an ordered set of forward-only SQL scripts in the server package, each applied once and recorded in
+    a Correlia versions table;
+  - runs at startup right after Serverpod applies its migrations, on fresh installs and upgrades alike,
+    under a Postgres advisory lock, and before any role starts work; test databases run it too;
+  - is tested on both paths: an empty database, and a populated database at the previous release;
+  - owns only the listed exception tables, which managed tables do not reference by foreign key.
+
+  Each exception is a reviewed one listed here:
   - `activity`: the `txid xid8 DEFAULT pg_current_xact_id()` column (ADR 0017);
   - `events`, `raw_inbox`, `outbox`: time partitioning, which needs the partition key in every unique index
     (ADR 0016).
@@ -140,7 +150,7 @@ run in every role unless they are switched off:
 
 | Flow / store | Bound | At the bound | On failure | Who finds out |
 |---|---|---|---|---|
-| Webhook body | 1 MiB default per source. Serverpod's `maxRequestSize` (512 KiB) is global and applies to endpoints; ingest webhooks are custom web routes that enforce their own per-source limit while reading the body | 413 | n/a | The sender; an ingest-rejected counter |
+| Webhook body | 1 MiB default per source. Serverpod's `maxRequestSize` (512 KiB) is global and applies to endpoints; ingest webhooks are custom web routes that enforce their own per-source limit while reading the body (to be proven by the first webhook change, since Serverpod does not document whether web routes are bound by `maxRequestSize`) | 413 | n/a | The sender; an ingest-rejected counter |
 | Raw inbox lag | Configurable age/count (default 30 s / 50k rows) | 429/503 + `Retry-After` | n/a | The sender retries; a console banner shows backpressure |
 | Decode | Per-event time budget | Event dead-lettered | `pipeline_failures` row with error | Console dead-letter view with replay |
 | Enrichment | Per-rule regex timeout; per-plugin deadline | Rule skipped and recorded | Soft: `pipeline.enrichment_errors[]` | Event detail; per-rule error counter |
@@ -194,33 +204,24 @@ Accepted ADRs only.
 | [0002](../docs/adr/0002-postgresql-everywhere.md) | PostgreSQL in every run mode; embedded Postgres for development and tests | none |
 | [0003](../docs/adr/0003-flutter-web-console.md) | Flutter web console | none |
 | [0004](../docs/adr/0004-canonical-event-format.md) | Canonical event: CloudEvents envelope + `correlia.event.v1` protobuf; one bounds contract | none |
-| [0005](../docs/adr/0005-durable-staged-pipeline.md) | Durable staged pipeline, transactional outboxes, retention by state, storage budgets, replay vs reprocess | none |
-| [0015](../docs/adr/0015-plugin-architecture-linux.md) | Hybrid plugins: built-ins in process, external over go-plugin-compatible gRPC; spike gate on Linux | [0006](../docs/adr/0006-plugin-architecture.md) |
-| [0007](../docs/adr/0007-alert-and-incident-state-model.md) | Authoritative alert state with ordering fences; one StateMutationService lock protocol; `(txid, id)` change feed | none |
+| [0016](../docs/adr/0016-durable-staged-pipeline.md) | Durable staged pipeline, transactional outboxes, retention by state, storage budgets, replay vs reprocess; no processing order; replay uses current config; short batch transactions | [0005](../docs/adr/0005-durable-staged-pipeline.md) |
+| [0020](../docs/adr/0020-plugin-architecture.md) | Hybrid plugins: built-ins in process, external over go-plugin-compatible gRPC; spike gate on Linux with stdin-EOF exit and Unix-socket fallback | [0015](../docs/adr/0015-plugin-architecture-linux.md) |
+| [0017](../docs/adr/0017-alert-and-incident-state-model.md) | Authoritative alert state with ordering fences and `last_observed_at`; one StateMutationService lock protocol; `(txid, id)` change feed | [0007](../docs/adr/0007-alert-and-incident-state-model.md) |
 | [0008](../docs/adr/0008-rule-language.md) | Matcher rule tree with in-memory and SQL evaluators, field catalog, atomic config versions; CEL later | none |
 | [0009](../docs/adr/0009-identity-and-access.md) | Serverpod auth (invite-only) for people, scoped tokens for machines; redaction | none |
-| [0011](../docs/adr/0011-nats-output-as-go-plugin.md) | NATS output as the first external plugin, in Go | none |
-| [0012](../docs/adr/0012-identities.md) | Four identities (source, delivery, observation, alert); durable observation dedup | none |
+| [0018](../docs/adr/0018-nats-output-as-go-plugin.md) | NATS output as the first external plugin, in Go; exits on stdin close; no delivery order per alert | [0011](../docs/adr/0011-nats-output-as-go-plugin.md) |
+| [0019](../docs/adr/0019-identities.md) | Four identities (source, delivery, observation, alert); durable observation dedup; duplicates advance `last_observed_at` only | [0012](../docs/adr/0012-identities.md) |
 | [0014](../docs/adr/0014-linux-first-platform.md) | Linux-first platform (owner, 2026-11-03): develop and test in WSL, CI on Linux, Windows not a target; embedded Postgres in tiers; never touch another Postgres | [0013](../docs/adr/0013-develop-and-test-in-wsl.md) |
 
 ### Superseded ADRs
 
 | ADR | Superseded by |
 |---|---|
+| [0005](../docs/adr/0005-durable-staged-pipeline.md) | [0016](../docs/adr/0016-durable-staged-pipeline.md) |
 | [0006](../docs/adr/0006-plugin-architecture.md) | [0015](../docs/adr/0015-plugin-architecture-linux.md) |
+| [0007](../docs/adr/0007-alert-and-incident-state-model.md) | [0017](../docs/adr/0017-alert-and-incident-state-model.md) |
+| [0011](../docs/adr/0011-nats-output-as-go-plugin.md) | [0018](../docs/adr/0018-nats-output-as-go-plugin.md) |
+| [0012](../docs/adr/0012-identities.md) | [0019](../docs/adr/0019-identities.md) |
+| [0015](../docs/adr/0015-plugin-architecture-linux.md) | [0020](../docs/adr/0020-plugin-architecture.md) |
 | [0010](../docs/adr/0010-testing-strategy.md) | [0013](../docs/adr/0013-develop-and-test-in-wsl.md) |
 | [0013](../docs/adr/0013-develop-and-test-in-wsl.md) | [0014](../docs/adr/0014-linux-first-platform.md) |
-
-### Pending amendment (proposed, under review)
-
-Proposed by the 2026-11-03 design review fix pass. They take effect, and replace the ADRs they supersede in
-the tables above, only when the architecture review passes. The rest of this document already describes
-them.
-
-| ADR | Decision | Would supersede |
-|---|---|---|
-| [0016](../docs/adr/0016-durable-staged-pipeline.md) | Durable staged pipeline, transactional outboxes, retention by state, storage budgets, replay vs reprocess; no processing order; replay uses current config; short batch transactions | [0005](../docs/adr/0005-durable-staged-pipeline.md) |
-| [0017](../docs/adr/0017-alert-and-incident-state-model.md) | Authoritative alert state with ordering fences and `last_observed_at`; one StateMutationService lock protocol; `(txid, id)` change feed | [0007](../docs/adr/0007-alert-and-incident-state-model.md) |
-| [0018](../docs/adr/0018-nats-output-as-go-plugin.md) | NATS output as the first external plugin, in Go; exits on stdin close; no delivery order per alert | [0011](../docs/adr/0011-nats-output-as-go-plugin.md) |
-| [0019](../docs/adr/0019-identities.md) | Four identities (source, delivery, observation, alert); durable observation dedup; duplicates advance `last_observed_at` only | [0012](../docs/adr/0012-identities.md) |
-| [0020](../docs/adr/0020-plugin-architecture.md) | Hybrid plugins: built-ins in process, external over go-plugin-compatible gRPC; spike gate on Linux with stdin-EOF exit and Unix-socket fallback | [0015](../docs/adr/0015-plugin-architecture-linux.md) |
