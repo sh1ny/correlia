@@ -12,7 +12,8 @@ import 'test_mode_switches.dart';
 /// route, so its web port answers 404. When the app directory has no
 /// `index.html`, every console path answers 503 with a page naming
 /// `mise run build:web`, and a warning is logged at startup; health is not
-/// affected.
+/// affected. The choice is made once, when routes are mounted, so a console
+/// built while the server runs is served only after a restart.
 final class ConsoleSubsystem extends Subsystem {
   /// Creates the subsystem serving [appDir]; warnings go to [log].
   const ConsoleSubsystem({required this.appDir, required this.log});
@@ -55,7 +56,8 @@ final class ConsoleSubsystem extends Subsystem {
     }
     log(
       'Warning: no index.html in ${appDir.path}; the console answers 503 '
-      'until it is built with `mise run build:web`.',
+      'until it is built with `mise run build:web` and the server is '
+      'restarted.',
     );
     host.addRoute(_ConsoleNotBuiltRoute(), '/**');
   }
@@ -81,7 +83,7 @@ const String _notBuiltPage = '''
     <h1>Console not built</h1>
     <p>The console has not been built yet. Run:</p>
     <pre>mise run build:web</pre>
-    <p>then reload this page.</p>
+    <p>then restart the server.</p>
   </body>
 </html>
 ''';

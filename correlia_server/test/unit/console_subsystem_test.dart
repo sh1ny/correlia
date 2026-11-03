@@ -60,12 +60,21 @@ void main() {
       expect(await response.readAsString(), contains('mise run build:web'));
     });
 
+    test('the 503 page says to restart the server, not to reload', () async {
+      // The route is chosen once at startup, so a build made while the
+      // server runs is only served after a restart.
+      final page = await consoleNotBuiltResponse().readAsString();
+      expect(page, contains('restart the server'));
+      expect(page, isNot(contains('reload')));
+    });
+
     test('logs a startup warning naming the task and the directory', () {
       ConsoleSubsystem(appDir: appDir, log: logged.add).mountRoutes(host);
 
       expect(logged, hasLength(1));
       expect(logged.single, contains('mise run build:web'));
       expect(logged.single, contains(appDir.path));
+      expect(logged.single, contains('restart'));
     });
 
     test('treats a missing directory the same way', () {

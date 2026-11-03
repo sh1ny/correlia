@@ -33,7 +33,11 @@ void main() {
         children.add(previous);
         await previous.waitUntilReady();
 
-        final previousExit = previous.closeStdin();
+        // Its exit deadline starts now but must cover the time this test
+        // holds the gate while two replacements compile and start.
+        final previousExit = previous.closeStdin(
+          deadline: const Duration(minutes: 3),
+        );
         await previous.waitForOutput(RegExp('test gate: waiting'));
         expect(previous.hasExited, isFalse);
         expect(root.postmasterPid.existsSync(), isTrue);
