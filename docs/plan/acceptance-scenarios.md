@@ -9,6 +9,11 @@ Each scenario becomes a named test (tag `db` or `e2e`) in the change that first 
 "First in" column is that milestone. A scenario is never deleted; when policy changes, its expected outcome
 changes in a spec amendment.
 
+Concurrency scenarios (COR-*, UI-3 and any other interleaving of two writers) run in the `db` tier with
+`rollbackDatabase: disabled` and two independent database connections, one per writer, each with its own
+transactions. The default rolled-back test transaction runs everything on one connection, so it cannot show
+an interleaving. These tests clean up their own rows.
+
 ## Ordering and state
 
 | Id | Scenario | Expected | First in |
@@ -17,8 +22,9 @@ changes in a spec amendment.
 | ORD-2 | Recovery at t2 is processed, then a stale problem at t1 arrives | The alert stays resolved; no incident is reopened or created | M1 |
 | ORD-3 | Problem and recovery with equal source time | Tie broken by observed time, then event id (strategy assumption 5); the outcome is deterministic across replays | M1 |
 | ORD-4 | Event with source time in the future beyond the skew limit | Accepted; source time is clamped for operational expiry and the clamp is recorded; correlation windows are not stretched (legacy 6.2) | M2 |
-| ORD-5 | The same observation delivered again: (a) a sender retry inside the dedup window; (b) re-batched in another webhook; (c) a retry of a firing observation after a recovery with the same source time, after the transport dedup window expired; (d) a firing observation with source time 1 h in the future, then a recovery, then a retry of the firing after its observation key expired; (e) source time 3 days in the future; (f) generic mapping without a native id: firing with source time 1 h ahead, then a recovery, then a retry of the firing after the transport dedup window | (a) deduplicated at ingest; (b) and (c) `duplicate_observation` with no state, contribution or notification effect; the alert stays resolved in (c) and (d) (the retry is `late`); (e) quarantined as `future_dated`, no state effect; (f) same event id (reported source time), `duplicate_observation`, the alert stays resolved | M1 |
+| ORD-5 | The same observation delivered again: (a) a sender retry inside the dedup window; (b) re-batched in another webhook; (c) a retry of a firing observation after a recovery with the same source time, after the transport dedup window expired; (d) a firing observation with source time 1 h in the future, then a recovery, then a retry of the firing after its observation key expired; (e) source time 3 days in the future; (f) generic mapping without a native id: firing with source time 1 h ahead, then a recovery, then a retry of the firing after the transport dedup window | (a) deduplicated at ingest; (b) and (c) `duplicate_observation` that only advances the alert's `last_observed_at`, with no other state, contribution, notification or output effect; the alert stays resolved in (c) and (d) (the retry is `late`); (e) quarantined as `future_dated`, no state effect; (f) same event id (reported source time), `duplicate_observation` (only `last_observed_at` advances), the alert stays resolved | M1 |
 | ORD-6 | A firing event older than the lateness horizon arrives after the alert resolved and its events expired | Stored as `late`; the tombstone fence holds; no alert or incident change | M2 |
+| ORD-7 | Freshness under any processing order: (a) two observations of one alert, A (source 10:00, observed 10:10) and B (source 10:05, observed 10:06), in both orders; (b) a late observation L (source 8 days ago, observed 10:10) of a new fingerprint and a new firing observation N (observed 10:06), in both orders and in concurrent transactions; (c) a duplicate of L | (a) the alert ends in B's state in both orders (A is stale when it comes second), `last_observed_at` 10:10; (b) N creates the alert, L is `late`, `last_observed_at` 10:06 in every schedule; (c) advances nothing | M2 |
 
 ## Identity and bounds
 
@@ -29,7 +35,7 @@ changes in a spec amendment.
 | ID-3 | Maximum-length legal host (256) grouped and summarized; 4097-character check output (legacy B6) | Accepted; display fields truncated with a marker; identity unaffected; never a 500 | M2 |
 | ID-4 | A delimiter-bearing identifier in a fingerprint input | Fingerprints differ; the fingerprint preimage is length-prefixed/structured | M1 |
 | ID-5 | Naive datetime in an API filter (legacy B7) | 400/422 with a field error, never 500 | M4 |
-| ID-6 | The same alerts re-batched differently or reordered across webhooks | Same event ids (ADR 0012); no extra observations counted | M1 |
+| ID-6 | The same alerts re-batched differently or reordered across webhooks | Same event ids (ADR 0019); no extra observations counted | M1 |
 | ID-7 | Severity changes: (a) Icinga2 service WARNING → CRITICAL; (b) Alertmanager `warning` and `critical` rules for one condition firing together, then `critical` resolving; (c) a source with `severity` excluded from identity changing the label in place | (a) one alert, severity updated; (b) two alerts, the `warning` one stays firing; (c) one alert, severity updated. Fixtures with severity labels for each | M1 (b, c), M2 (a) |
 
 ## Correlation and lifecycle
@@ -62,6 +68,7 @@ changes in a spec amendment.
 | DUR-10 | Workers are down longer than raw retention | Pending and failed raw rows survive retention; processed after restart | M2 |
 | DUR-11 | One output stays down past its combined pending + dead-letter budget, for hours | Under `discard_new`: new deliveries are counted and ledgered, storage stays within budget, a self-alert fires, ingest and other outputs keep their latency. Under `block_ingest`: ingest backpressure | M2 |
 | DUR-12 | A pipeline failure or delivery dead letter expires without replay | Its raw or outbox row moves to `discarded` in the same transaction; ledger entry with a count; the row becomes retention-eligible | M2 |
+| DUR-13 | A mapping bug makes raw rows fail to decode; the operator fixes the mapping and replays the failed rows | Each replay runs with the configuration active at replay time and re-pins the row; its events apply with normal ordering and notify normally; automatic retries before the fix used the original pin (ADR 0016, D26) | M2 |
 
 ## Change feed and console
 
@@ -70,6 +77,7 @@ changes in a spec amendment.
 | UI-1 | Ack, partial recovery, close, expiry and delivery update happen with no new problem event (legacy B3, acceptance 8) | The console sees each through the change feed (monotonic record version), without a refresh | M4 (M1 for the alert list) |
 | UI-2 | Two operators act on the same incident at the same time | Both actions are recorded; the second sees a conflict when its view was stale (optimistic version check) | M4 |
 | UI-3 | (a) Transaction A allocates activity id 100 and commits after transaction B commits 101; (b) an unrelated transaction that writes no activity holds the watermark while B commits | (a) a feed reader never skips A's row; a snapshot-then-feed handover misses nothing; (b) the client receives B's row within one watermark poll after the blocker ends, without a new activity write | M1 |
+| UI-4 | An open console shows an alert; the source repeats it every minute (duplicates) and a stale observation with a later observed time arrives; a slow freshness response from before the repeats returns last | The displayed last seen advances to the latest observed time without a reload, within one safety pull, and never moves backwards; no activity row and no version change is written for it | M4 |
 
 ## Rules and configuration
 
