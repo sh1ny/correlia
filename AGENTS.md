@@ -56,8 +56,25 @@ These instructions are shared by every harness (Claude Code, Codex, OMP). Keep t
 ## Testing
 
 - The repository, the toolchain and every test live in **WSL Ubuntu 24.04**, on the Linux filesystem
-  (`~/Development/dart/correlia`, ADR 0014). Tests run natively with `mise run test`; there is no sync runner.
-  The M1 change `bootstrap-workspace` adds the test tasks. Until then there are no tests.
+  (`~/Development/dart/correlia`, ADR 0014). Tests run natively; there is no sync runner.
+- Tasks: `mise run test` runs the fast tier only; `mise run test -- --tags db` (or `e2e`, `plugin`, `load`)
+  selects a tier; `mise run test:all` runs every tier except `load`; `mise run check` is the gate (validate,
+  doctor, analyze, format, generated code, fast and widget tests). `mise run setup` writes the local
+  passwords file; `test`, `test:all` and `check` run it first.
+- Cluster roots (all under `correlia_server/.serverpod/`, gitignored):
+  - `test/`: the shared cluster of the `db` tests, started by `serverpod_test`. It keeps running after a
+    run and the next run reuses it. Leave it running; Serverpod repairs it.
+  - `test-kill/`: the SIGKILL recovery test's own root.
+  - `test-e2e/<test-id>/`: one stable root per e2e test.
+
+  Teardown deletes the `test-kill/` and `test-e2e/` roots once their server has exited.
+- e2e children are the real entry point (`bin/main.dart --mode test`), stopped by closing their stdin. On
+  SIGTERM, a server whose Postgres is the Serverpod-managed embedded one exits 143: the embedded supervisor
+  exits first. Only a server without a data path exits 0 on SIGTERM, as the shutdown e2e test shows.
+- Child output goes to a log file, never a pipe. With a pipe, a killed harness kills its child mid-shutdown
+  and leaves the child's postmaster running.
+- Every `withServerpod` call names its tier tag (`testGroupTagsOverride`), or the fast loop picks it up; a
+  `tool` test checks this.
 - **Never touch another Postgres.** The owner's Hindsight server runs PostgreSQL in this distro on
   `127.0.0.1:5432` (socket in `/tmp`). Tests and tasks use only their own embedded Postgres; never connect
   to, stop, signal or kill any other, and never match Postgres processes by name.

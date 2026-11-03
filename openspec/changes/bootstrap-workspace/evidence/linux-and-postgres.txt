@@ -1,0 +1,36 @@
+# Task 9.4: Linux-only and Postgres-safety checks
+# Date: 2026-11-03T22:56:13Z  HEAD: f6f4745  Host: Linux 6.18.33.2-microsoft-standard-WSL2 x86_64
+
+## $ mise exec -- which dart flutter go buf openspec
+/home/bgshi/.local/share/mise/installs/flutter/3.47.9/bin/dart
+/home/bgshi/.local/share/mise/installs/flutter/3.47.9/bin/flutter
+/home/bgshi/.local/share/mise/installs/go/1.27.3/bin/go
+/home/bgshi/.local/share/mise/installs/buf/1.75.0/buf/bin/buf
+/home/bgshi/.local/share/mise/installs/npm-fission-ai-openspec/1.16.0/bin/openspec
+## exit=0
+
+## $ ss -ltn | grep 127.0.0.1:5432   (before)
+LISTEN 0      200                      127.0.0.1:5432       0.0.0.0:*          
+
+## Processes whose command line names /home/bgshi/Development/dart/correlia/correlia_server/.serverpod/ (selected by data-directory path from /proc/*/cmdline, never by process name) - before test:all
+pid 911208: /home/bgshi/.cache/serverpod/pg-binaries/16.13.0-r1/linux-x64/bin/postgres -D /home/bgshi/Development/dart/correlia/correlia_server/.serverpod/test/pgdata 
+
+## $ mise run test:all
+## exit=0
+01:21 +68: All tests passed!
+
+## Processes whose command line names /home/bgshi/Development/dart/correlia/correlia_server/.serverpod/ - after test:all (only the shared test cluster .serverpod/test/ may remain, D4)
+pid 915690: /home/bgshi/.cache/serverpod/pg-binaries/16.13.0-r1/linux-x64/bin/postgres -D /home/bgshi/Development/dart/correlia/correlia_server/.serverpod/test/pgdata 
+
+## $ ls -A /home/bgshi/Development/dart/correlia/correlia_server/.serverpod/ and test-e2e/   (no test-kill or e2e roots left)
+test
+test-e2e
+## test-e2e entries: 0
+
+## $ ss -ltn | grep 127.0.0.1:5432   (after: the owner's PostgreSQL still listening; no test connects to it or signals it)
+LISTEN 0      200                      127.0.0.1:5432       0.0.0.0:*          
+
+## $ grep for 127.0.0.1:5432 / localhost:5432 / /tmp/.s.PGSQL in tracked config and test sources (no test points at it)
+## matches: 0
+
+## Note: the shared cluster's postmaster PID differs before and after (911208 -> 915690). Serverpod's own stale-lock repair (S8) replaced the postmaster whose supervising test process had exited; no Correlia code or test signalled it (D4).

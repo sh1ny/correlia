@@ -1,0 +1,256 @@
+# Task 9.2: mise run check and mise run test:all in this checkout
+# Date: 2026-11-03T23:00:50Z  Branch: feat/bootstrap-workspace  HEAD: f6f4745 plus the uncommitted group-9 edits (.mcp.json, .codex/config.toml, AGENTS.md, evidence/), committed with this file
+# Host: Linux 6.18.33.2-microsoft-standard-WSL2 x86_64
+
+## $ mise run check   (exit 0)
+[setup] $ dart run tool/bin/tool.dart setup
+kept /home/bgshi/Development/dart/correlia/correlia_server/config/passwords.yaml
+[check] $ openspec validate --all --strict
+✓ change/bootstrap-workspace
+Totals: 1 passed, 0 failed (1 items)
+[check] $ dart run tool/bin/tool.dart doctor
+ok  dart 3.13.7 /home/bgshi/.local/share/mise/installs/flutter/3.47.9/bin/dart
+ok  flutter 3.47.9 /home/bgshi/.local/share/mise/installs/flutter/3.47.9/bin/flutter
+ok  go 1.27.3 /home/bgshi/.local/share/mise/installs/go/1.27.3/bin/go
+ok  buf 1.75.0 /home/bgshi/.local/share/mise/installs/buf/1.75.0/buf/bin/buf
+ok  openspec 1.16.0 /home/bgshi/.local/share/mise/installs/npm-fission-ai-openspec/1.16.0/bin/openspec
+ok  serverpod_cli 4.1.0 /home/bgshi/.pub-cache/hosted/pub.dev/serverpod_cli-4.1.0
+[check] $ dart analyze --fatal-infos
+Analyzing correlia...
+No issues found!
+[check] $ flutter analyze --fatal-infos correlia_flutter
+Resolving dependencies...
+Downloading packages...
+  _fe_analyzer_shared 103.0.0 (111.0.0 available)
+  analyzer 13.3.0 (14.7.0 available)
+  ansi_escape_codes 2.2.1 (4.0.1 available)
+  built_collection 5.1.2 (6.0.0 available)
+  code_builder 4.11.1 (4.13.0 available)
+  cupertino_icons 1.0.9 (2.0.0 available)
+  equatable 2.1.0 (3.0.0 available)
+  google_fonts 8.2.1 (9.0.0 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  package_config 2.2.0 (3.0.0 available)
+  pub_api_client 3.2.0 (4.0.0 available)
+  skills 0.3.1 (1.0.4 available)
+  sqlite3_web 0.9.4 (0.9.5 available)
+  sqlite_async 0.14.5 (0.14.7 available)
+  test 1.31.1 (1.33.0 available)
+  test_api 0.7.12 (0.7.15 available)
+  test_core 0.6.18 (0.6.21 available)
+Got dependencies!
+17 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+Analyzing correlia_flutter...                                   
+No issues found! (ran in 1.5s)
+[check] $ dart format --output=none --set-exit-if-changed .
+Formatted 68 files (0 changed) in 0.09 seconds.
+[check] $ dart run tool/bin/tool.dart generated
+generated code is current
+[check] $ dart run tool/bin/tool.dart test
+Running build hooks...Running build hooks...00:00 +0: loading test/db/database_smoke_test.dart
+00:00 +0: test/unit/console_subsystem_test.dart: runs in the api and all roles only
+00:00 +1: test/unit/console_subsystem_test.dart: with an index.html in the app directory serves the directory at the root and logs no warning
+00:00 +2: test/unit/console_subsystem_test.dart: without an index.html in the app directory mounts the 503 route for every path
+00:00 +3: test/unit/console_subsystem_test.dart: without an index.html in the app directory the 503 page names mise run build:web
+00:00 +4: test/unit/role_runtime_test.dart: only the role subsystems start, in registry order
+00:00 +5: test/unit/role_runtime_test.dart: only the role subsystems start, in registry order
+00:00 +6: test/unit/role_runtime_test.dart: only the role subsystems start, in registry order
+00:00 +7: test/unit/role_runtime_test.dart: only the role subsystems start, in registry order
+00:00 +8: test/unit/role_runtime_test.dart: only the role subsystems start, in registry order
+00:00 +9: test/unit/role_runtime_test.dart: only the role subsystems start, in registry order
+00:00 +10: test/unit/role_runtime_test.dart: all starts every subsystem and mounts routes before pod start
+00:00 +11: test/unit/role_runtime_test.dart: a failing start names the subsystem and maps to a non-zero exit
+00:00 +12: test/unit/role_runtime_test.dart: a failing Serverpod start is reported as serverpod
+00:00 +13: test/unit/role_runtime_test.dart: registers exactly one shutdown callback, before the first start
+00:00 +14: test/unit/role_runtime_test.dart: stops subsystems one at a time in reverse start order
+00:00 +15: test/unit/role_runtime_test.dart: only subsystems that started are stopped
+00:00 +16: test/unit/role_runtime_test.dart: a failing stop is logged, the rest still stop, a combined error is rethrown
+00:00 +17: test/unit/process_options_test.dart: --process-role defaults to all
+00:00 +18: test/unit/process_options_test.dart: --process-role accepts api
+00:00 +19: test/unit/process_options_test.dart: --process-role accepts worker
+00:00 +20: test/unit/process_options_test.dart: --process-role accepts all
+00:00 +21: test/unit/process_options_test.dart: --process-role an unknown role names the value and the valid roles
+00:00 +22: test/unit/process_options_test.dart: --process-role a missing value is an error
+00:00 +23: test/unit/process_options_test.dart: startup options production mode and api role both survive parsing
+00:00 +24: test/unit/process_options_test.dart: startup options Serverpod options pass through unchanged and in order
+00:00 +25: test/unit/process_options_test.dart: startup options the run mode falls back to SERVERPOD_RUN_MODE, then development
+00:00 +26: test/unit/process_options_test.dart: startup options an unknown option names it and never falls back to defaults
+00:00 +27: test/unit/process_options_test.dart: startup options an invalid mode is an error rather than a silent default
+00:00 +28: test/unit/process_options_test.dart: startup options a Serverpod role other than monolith is rejected
+00:00 +29: test/unit/process_options_test.dart: startup options --process-role after -- is left alone
+00:00 +30: test/unit/process_options_test.dart: Serverpod option list equals the options in Serverpod CommandLineArgs
+00:00 +31: test/unit/test_stop_hooks_test.dart: TestStopHooks runs in every role
+00:00 +32: test/unit/test_stop_hooks_test.dart: TestStopHooks start does nothing and logs nothing
+00:00 +33: test/unit/test_stop_hooks_test.dart: TestStopHooks stop waits at the gate, then runs the probe
+00:00 +34: test/unit/test_stop_hooks_test.dart: TestStopHooks stop without gate or probe logs nothing
+00:00 +35: test/unit/test_stop_hooks_test.dart: TestStopHooks a failing probe is logged and rethrown
+00:00 +36: test/unit/socket_host_test.dart: Given a child working directory a deep checkout gets a relative socket path within sun_path
+00:00 +37: test/unit/socket_host_test.dart: Given a child working directory an absolute path is kept when it is the shorter one
+00:00 +38: test/unit/test_mode_switches_test.dart: TestModeSwitches are ignored in run mode development
+00:00 +39: test/unit/test_mode_switches_test.dart: TestModeSwitches are ignored in run mode staging
+00:00 +40: test/unit/test_mode_switches_test.dart: TestModeSwitches are ignored in run mode production
+00:00 +41: test/unit/test_mode_switches_test.dart: TestModeSwitches are read in run mode test
+00:00 +42: test/unit/test_mode_switches_test.dart: TestModeSwitches stop probe needs the value 1
+00:00 +43: test/unit/test_mode_switches_test.dart: TestModeSwitches exit on stdin close needs the value 1
+00:00 +44: test/unit/test_mode_switches_test.dart: watchStdin runs the shutdown once on end of file
+00:00 +45: test/unit/test_mode_switches_test.dart: acquireRootLock holds a lock on the file
+00:00 +46: test/unit/test_mode_switches_test.dart: acquireRootLock a timeout names the root and the lock
+00:00 +47: test/unit/startup_state_test.dart: the indicator is unhealthy until subsystems started and callback registered
+00:00 +48: test/unit/startup_state_test.dart: the callback alone does not make the state ready
+00:00 +49: All tests passed!
+[check] $ cd tool && dart test
+00:00 +0: loading test/task_definitions_test.dart
+00:00 +0: test/task_definitions_test.dart: mise.toml and tool sources have no Windows or WSL references
+00:00 +1: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +2: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +3: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +4: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +5: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +6: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +7: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +8: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +9: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +10: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +11: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +12: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +13: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +14: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +15: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +16: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +17: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +18: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +19: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +20: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +21: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +22: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +23: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +24: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +25: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +26: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +27: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +28: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +29: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +30: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +31: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +32: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +33: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +34: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +35: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +36: test/generated_test.dart: current code passes and the checkout is unchanged
+00:01 +37: test/generated_test.dart: current code passes and the checkout is unchanged
+00:02 +38: test/generated_test.dart: current code passes and the checkout is unchanged
+00:02 +39: test/generated_test.dart: current code passes and the checkout is unchanged
+00:02 +40: test/generated_test.dart: current code passes and the checkout is unchanged
+00:04 +41: test/generated_test.dart: current code passes and the checkout is unchanged
+00:05 +42: test/generated_test.dart: current code passes and the checkout is unchanged
+00:06 +43: test/generated_test.dart: current code passes and the checkout is unchanged
+00:07 +44: test/generated_test.dart: current code passes and the checkout is unchanged
+00:07 +45: test/generated_test.dart: current code passes and the checkout is unchanged
+00:07 +46: test/generated_test.dart: current code passes and the checkout is unchanged
+00:19 +47: test/generated_test.dart: a stale generated file fails naming it
+00:38 +48: All tests passed!
+[check] $ cd correlia_flutter && flutter test
+Resolving dependencies in `/home/bgshi/Development/dart/correlia`...
+Downloading packages...
+  _fe_analyzer_shared 103.0.0 (111.0.0 available)
+  analyzer 13.3.0 (14.7.0 available)
+  ansi_escape_codes 2.2.1 (4.0.1 available)
+  built_collection 5.1.2 (6.0.0 available)
+  code_builder 4.11.1 (4.13.0 available)
+  cupertino_icons 1.0.9 (2.0.0 available)
+  equatable 2.1.0 (3.0.0 available)
+  google_fonts 8.2.1 (9.0.0 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  package_config 2.2.0 (3.0.0 available)
+  pub_api_client 3.2.0 (4.0.0 available)
+  skills 0.3.1 (1.0.4 available)
+  sqlite3_web 0.9.4 (0.9.5 available)
+  sqlite_async 0.14.5 (0.14.7 available)
+  test 1.31.1 (1.33.0 available)
+  test_api 0.7.12 (0.7.15 available)
+  test_core 0.6.18 (0.6.21 available)
+Got dependencies in `/home/bgshi/Development/dart/correlia`!
+17 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+00:00 +0: loading /home/bgshi/Development/dart/correlia/correlia_flutter/test/placeholder_page_test.dart
+00:00 +0: shows the product name and that the console comes in M2
+00:00 +1: All tests passed!
+Finished in 72.44s
+
+real	1m19.723s
+user	1m40.363s
+sys	0m12.462s
+
+## $ mise run test:all -- --reporter json   (exit=0); test:all = every tier except load. Every test by name, from the JSON reporter's testStart/testDone events:
+
+success  test/db/database_smoke_test.dart: Given the embedded test database when running SELECT 1 then the database answers 1
+success  test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+success  test/db/postgres_isolation_test.dart: Given a PostgreSQL-like decoy outside the cluster root a decoy listener and socket get no connection and keep running
+success  test/db/postgres_isolation_test.dart: Given a PostgreSQL-like decoy outside the cluster root data_directory and unix_socket_directories lie inside the cluster root
+success  test/db/shutdown_order_test.dart: Given a started role whose first-started subsystem fails to stop a failing stop callback makes Serverpod report a failed shutdown
+success  test/db/shutdown_order_test.dart: Given a started role whose subsystem queries the database on stop when the server shuts down then the stop callback runs before the pool closes
+success  test/db/startup_gate_test.dart: Given a role with a subsystem that is still starting startupz stays 503 until the gated subsystem has started
+success  test/e2e/cluster_roots_e2e_test.dart: each cluster has its own stable root, deleted after its server stopped
+success  test/e2e/health_e2e_test.dart: livez readyz startupz answer 200 in each role
+success  test/e2e/health_e2e_test.dart: readyz 503 and livez 200 when the database stops
+success  test/e2e/interrupted_run_e2e_test.dart: killing only the harness twice leaves no child, no cluster process, no extra root
+success  test/e2e/roles_e2e_test.dart: api role serves the console and starts no background subsystem
+success  test/e2e/roles_e2e_test.dart: no role runs as all and logs all
+success  test/e2e/roles_e2e_test.dart: unknown role exits non-zero before any listener or cluster
+success  test/e2e/roles_e2e_test.dart: unrecognised option exits non-zero naming it
+success  test/e2e/roles_e2e_test.dart: worker role answers 404 for the console
+success  test/e2e/roles_e2e_test.dart: worker role is logged as worker
+success  test/e2e/root_handoff_e2e_test.dart: a replacement waits for the root lock, then starts; at its deadline fails naming the root
+success  test/e2e/shutdown_e2e_test.dart: SIGTERM stops subsystems before the pool closes and exits 0
+success  test/unit/console_subsystem_test.dart: forRunMode defaults to web/app without the variable
+success  test/unit/console_subsystem_test.dart: forRunMode ignores CORRELIA_TEST_CONSOLE_DIR in any other run mode
+success  test/unit/console_subsystem_test.dart: forRunMode serves CORRELIA_TEST_CONSOLE_DIR in run mode test
+success  test/unit/console_subsystem_test.dart: runs in the api and all roles only
+success  test/unit/console_subsystem_test.dart: with an index.html in the app directory serves the directory at the root and logs no warning
+success  test/unit/console_subsystem_test.dart: without an index.html in the app directory logs a startup warning naming the task and the directory
+success  test/unit/console_subsystem_test.dart: without an index.html in the app directory mounts the 503 route for every path
+success  test/unit/console_subsystem_test.dart: without an index.html in the app directory the 503 page names mise run build:web
+success  test/unit/console_subsystem_test.dart: without an index.html in the app directory treats a missing directory the same way
+success  test/unit/process_options_test.dart: --process-role a missing value is an error
+success  test/unit/process_options_test.dart: --process-role accepts all
+success  test/unit/process_options_test.dart: --process-role accepts api
+success  test/unit/process_options_test.dart: --process-role accepts worker
+success  test/unit/process_options_test.dart: --process-role an unknown role names the value and the valid roles
+success  test/unit/process_options_test.dart: --process-role defaults to all
+success  test/unit/process_options_test.dart: Serverpod option list equals the options in Serverpod CommandLineArgs
+success  test/unit/process_options_test.dart: startup options --process-role after -- is left alone
+success  test/unit/process_options_test.dart: startup options Serverpod options pass through unchanged and in order
+success  test/unit/process_options_test.dart: startup options a Serverpod role other than monolith is rejected
+success  test/unit/process_options_test.dart: startup options an invalid mode is an error rather than a silent default
+success  test/unit/process_options_test.dart: startup options an unknown option names it and never falls back to defaults
+success  test/unit/process_options_test.dart: startup options production mode and api role both survive parsing
+success  test/unit/process_options_test.dart: startup options the run mode falls back to SERVERPOD_RUN_MODE, then development
+success  test/unit/role_runtime_test.dart: a failing Serverpod start is reported as serverpod
+success  test/unit/role_runtime_test.dart: a failing start names the subsystem and maps to a non-zero exit
+success  test/unit/role_runtime_test.dart: a failing stop is logged, the rest still stop, a combined error is rethrown
+success  test/unit/role_runtime_test.dart: all starts every subsystem and mounts routes before pod start
+success  test/unit/role_runtime_test.dart: only subsystems that started are stopped
+success  test/unit/role_runtime_test.dart: only the role subsystems start, in registry order
+success  test/unit/role_runtime_test.dart: registers exactly one shutdown callback, before the first start
+success  test/unit/role_runtime_test.dart: stops subsystems one at a time in reverse start order
+success  test/unit/socket_host_test.dart: Given a child working directory a deep checkout gets a relative socket path within sun_path
+success  test/unit/socket_host_test.dart: Given a child working directory an absolute path is kept when it is the shorter one
+success  test/unit/startup_state_test.dart: the callback alone does not make the state ready
+success  test/unit/startup_state_test.dart: the indicator is unhealthy until subsystems started and callback registered
+success  test/unit/test_mode_switches_test.dart: TestModeSwitches are ignored in run mode development
+success  test/unit/test_mode_switches_test.dart: TestModeSwitches are ignored in run mode production
+success  test/unit/test_mode_switches_test.dart: TestModeSwitches are ignored in run mode staging
+success  test/unit/test_mode_switches_test.dart: TestModeSwitches are read in run mode test
+success  test/unit/test_mode_switches_test.dart: TestModeSwitches exit on stdin close needs the value 1
+success  test/unit/test_mode_switches_test.dart: TestModeSwitches stop probe needs the value 1
+success  test/unit/test_mode_switches_test.dart: acquireRootLock a timeout names the root and the lock
+success  test/unit/test_mode_switches_test.dart: acquireRootLock holds a lock on the file
+success  test/unit/test_mode_switches_test.dart: watchStdin runs the shutdown once on end of file
+success  test/unit/test_stop_hooks_test.dart: TestStopHooks a failing probe is logged and rethrown
+success  test/unit/test_stop_hooks_test.dart: TestStopHooks runs in every role
+success  test/unit/test_stop_hooks_test.dart: TestStopHooks start does nothing and logs nothing
+success  test/unit/test_stop_hooks_test.dart: TestStopHooks stop waits at the gate, then runs the probe
+success  test/unit/test_stop_hooks_test.dart: TestStopHooks stop without gate or probe logs nothing
+
+total 68; by dir {'db': 7, 'unit': 49, 'e2e': 12}; failures 0; done.success=True

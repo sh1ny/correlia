@@ -1,0 +1,435 @@
+# Task 9.3: fresh-clone check
+# Date: 2026-11-03T22:52:20Z  Source: /home/bgshi/Development/dart/correlia branch feat/bootstrap-workspace @ f6f4745
+# Clone path length: 118 characters (deliberately long: an earlier run here caught a socket-path-length bug, fixed in f6f4745)
+
+## $ git clone --branch feat/bootstrap-workspace --single-branch /home/bgshi/Development/dart/correlia /tmp/claude-1000/-home-bgshi-Development-dart-correlia/fe47366a-7c60-449c-83be-876b59e0f009/scratchpad/fresh2/correlia
+Cloning into '/tmp/claude-1000/-home-bgshi-Development-dart-correlia/fe47366a-7c60-449c-83be-876b59e0f009/scratchpad/fresh2/correlia'...
+done.
+## exit=0
+
+## $ git log -1 --format=%h %s
+f6f4745 fix(bootstrap-workspace): reach the shared cluster socket by a short path
+## exit=0
+
+## $ mise trust /tmp/claude-1000/-home-bgshi-Development-dart-correlia/fe47366a-7c60-449c-83be-876b59e0f009/scratchpad/fresh2/correlia/mise.toml
+mise trusted /tmp/claude-1000/-home-bgshi-Development-dart-correlia/fe47366a-7c60-449c-83be-876b59e0f009/scratchpad/fresh2/correlia
+## exit=0
+
+## $ mise install
+mise all tools are installed
+## exit=0
+
+## passwords file before: absent
+
+## $ mise run test -- --tags db
+[setup] $ dart run tool/bin/tool.dart setup
+created /tmp/claude-1000/-home-bgshi-Development-dart-correlia/fe47366a-7c60-449c-83be-876b59e0f009/scratchpad/fresh2/correlia/correlia_server/config/passwords.yaml
+[test] $ dart run tool/bin/tool.dart test --tags db
+Running build hooks...Running build hooks...00:00 +0: loading test/db/startup_gate_test.dart
+00:00 +0: test/db/startup_gate_test.dart: Given a role with a subsystem that is still starting startupz stays 503 until the gated subsystem has started
+SERVERPOD version: 4.1.0, dart: 3.13.7 (stable) (Thu Oct 22 14:28:57 2026 -0700) on "linux_x64", time: 2026-11-03 22:52:31.268164Z
+runMode: test
+serverId: default
+role: monolith
+loggingMode: normal
+applyMigrations: true
+applyRepairMigration: false
+WARNING: Invalid serviceSecret in password file, Insights server disabled.
+SERVERPOD initialized, time: 2026-11-03 22:52:31.287844Z
+Applied database migration:
+ - 20261103184038320
+SERVERPOD initiating shutdown, time: 2026-11-03 22:52:31.773376Z
+SERVERPOD shutdown completed, time: 2026-11-03 22:52:31.795026Z
+00:01 +1: test/db/startup_gate_test.dart: Given a role with a subsystem that is still starting startupz stays 503 until the gated subsystem has started
+00:01 +2: test/db/startup_gate_test.dart: Given a role with a subsystem that is still starting startupz stays 503 until the gated subsystem has started
+00:01 +3: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+SERVERPOD version: 4.1.0, dart: 3.13.7 (stable) (Thu Oct 22 14:28:57 2026 -0700) on "linux_x64", time: 2026-11-03 22:52:32.401832Z
+runMode: test
+serverId: default
+role: monolith
+loggingMode: normal
+applyMigrations: true
+applyRepairMigration: false
+WARNING: Invalid serviceSecret in password file, Insights server disabled.
+SERVERPOD initialized, time: 2026-11-03 22:52:32.428994Z
+Applied database migration:
+ - 20261103184038320
+SERVERPOD initiating shutdown, time: 2026-11-03 22:52:32.869493Z
+SERVERPOD shutdown completed, time: 2026-11-03 22:52:32.893731Z
+00:02 +4: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:02 +5: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+SERVERPOD version: 4.1.0, dart: 3.13.7 (stable) (Thu Oct 22 14:28:57 2026 -0700) on "linux_x64", time: 2026-11-03 22:52:33.082427Z
+runMode: test
+serverId: default
+role: monolith
+loggingMode: normal
+applyMigrations: true
+applyRepairMigration: false
+WARNING: Invalid serviceSecret in password file, Insights server disabled.
+SERVERPOD initialized, time: 2026-11-03 22:52:33.085193Z
+Applied database migration:
+ - 20261103184038320
+SERVERPOD initiating shutdown, time: 2026-11-03 22:52:33.383247Z
+ERROR: Error in shutdown task "correlia-subsystems-1"
+Failed to stop 1 subsystem(s): first: Bad state: first is stuck
+#0      RoleRuntime._stopStarted (package:correlia_server/src/runtime/role_runtime.dart:148:30)
+<asynchronous suspension>
+#1      FutureIterable.wait.<anonymous closure> (dart:async/future_extensions.dart:38:37)
+<asynchronous suspension>
+#2      TaskManagerImpl.executeTasks (package:serverpod/src/server/tasks/task_manager.dart:76:5)
+<asynchronous suspension>
+#3      Serverpod.shutdown (package:serverpod/src/server/serverpod.dart:1353:7)
+<asynchronous suspension>
+#4      PodFixture.shutdown (file:///tmp/claude-1000/-home-bgshi-Development-dart-correlia/fe47366a-7c60-449c-83be-876b59e0f009/scratchpad/fresh2/correlia/correlia_server/test/support/pod_fixture.dart:87:7)
+<asynchronous suspension>
+#5      Throws._matchFuture (package:matcher/src/expect/throws_matcher.dart:103:19)
+<asynchronous suspension>
+#6      _expect.<anonymous closure> (package:matcher/src/expect/expect.dart:153:17)
+<asynchronous suspension>
+#7      OutstandingWork.complete (package:test_api/hooks.dart:77:3)
+<asynchronous suspension>
+#8      main.<anonymous closure>.<anonymous closure> (file:///tmp/claude-1000/-home-bgshi-Development-dart-correlia/fe47366a-7c60-449c-83be-876b59e0f009/scratchpad/fresh2/correlia/correlia_server/test/db/shutdown_order_test.dart:98:9)
+<asynchronous suspension>
+#9      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:253:15)
+<asynchronous suspension>
+#10     Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:250:11)
+<asynchronous suspension>
+#11     Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:318:9)
+<asynchronous suspension>
+
+SERVERPOD shutdown completed, time: 2026-11-03 22:52:33.391733Z
+00:02 +6: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:17 +7: test/db/kill_recovery_test.dart: (tearDownAll)
+00:17 +7: All tests passed!
+Finished in 27.34s
+## exit=0
+
+## passwords file after: present
+## $ git status --porcelain -- correlia_server/config/passwords.yaml   (empty: not shown, it is ignored)
+
+## $ git check-ignore -v correlia_server/config/passwords.yaml
+correlia_server/.gitignore:15:config/passwords.yaml	correlia_server/config/passwords.yaml
+## exit=0
+
+## $ mise run check
+[setup] $ dart run tool/bin/tool.dart setup
+kept /tmp/claude-1000/-home-bgshi-Development-dart-correlia/fe47366a-7c60-449c-83be-876b59e0f009/scratchpad/fresh2/correlia/correlia_server/config/passwords.yaml
+[check] $ openspec validate --all --strict
+✓ change/bootstrap-workspace
+Totals: 1 passed, 0 failed (1 items)
+[check] $ dart run tool/bin/tool.dart doctor
+ok  dart 3.13.7 /home/bgshi/.local/share/mise/installs/flutter/3.47.9/bin/dart
+ok  flutter 3.47.9 /home/bgshi/.local/share/mise/installs/flutter/3.47.9/bin/flutter
+ok  go 1.27.3 /home/bgshi/.local/share/mise/installs/go/1.27.3/bin/go
+ok  buf 1.75.0 /home/bgshi/.local/share/mise/installs/buf/1.75.0/buf/bin/buf
+ok  openspec 1.16.0 /home/bgshi/.local/share/mise/installs/npm-fission-ai-openspec/1.16.0/bin/openspec
+ok  serverpod_cli 4.1.0 /home/bgshi/.pub-cache/hosted/pub.dev/serverpod_cli-4.1.0
+[check] $ dart analyze --fatal-infos
+Analyzing correlia...
+No issues found!
+[check] $ flutter analyze --fatal-infos correlia_flutter
+Resolving dependencies...
+Downloading packages...
+  _fe_analyzer_shared 103.0.0 (111.0.0 available)
+  analyzer 13.3.0 (14.7.0 available)
+  ansi_escape_codes 2.2.1 (4.0.1 available)
+  built_collection 5.1.2 (6.0.0 available)
+  code_builder 4.11.1 (4.13.0 available)
+  cupertino_icons 1.0.9 (2.0.0 available)
+  equatable 2.1.0 (3.0.0 available)
+  google_fonts 8.2.1 (9.0.0 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  package_config 2.2.0 (3.0.0 available)
+  pub_api_client 3.2.0 (4.0.0 available)
+  skills 0.3.1 (1.0.4 available)
+  sqlite3_web 0.9.4 (0.9.5 available)
+  sqlite_async 0.14.5 (0.14.7 available)
+  test 1.31.1 (1.33.0 available)
+  test_api 0.7.12 (0.7.15 available)
+  test_core 0.6.18 (0.6.21 available)
+Got dependencies!
+17 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+Analyzing correlia_flutter...                                   
+No issues found! (ran in 1.6s)
+[check] $ dart format --output=none --set-exit-if-changed .
+Formatted 68 files (0 changed) in 0.09 seconds.
+[check] $ dart run tool/bin/tool.dart generated
+generated code is current
+[check] $ dart run tool/bin/tool.dart test
+Running build hooks...Running build hooks...00:00 +0: loading test/db/database_smoke_test.dart
+00:00 +0: test/unit/console_subsystem_test.dart: runs in the api and all roles only
+00:00 +1: test/unit/console_subsystem_test.dart: with an index.html in the app directory serves the directory at the root and logs no warning
+00:00 +2: test/unit/console_subsystem_test.dart: without an index.html in the app directory mounts the 503 route for every path
+00:00 +3: test/unit/console_subsystem_test.dart: without an index.html in the app directory the 503 page names mise run build:web
+00:00 +4: test/unit/role_runtime_test.dart: only the role subsystems start, in registry order
+00:00 +5: test/unit/role_runtime_test.dart: only the role subsystems start, in registry order
+00:00 +6: test/unit/role_runtime_test.dart: only the role subsystems start, in registry order
+00:00 +7: test/unit/role_runtime_test.dart: only the role subsystems start, in registry order
+00:00 +8: test/unit/role_runtime_test.dart: only the role subsystems start, in registry order
+00:00 +9: test/unit/role_runtime_test.dart: only the role subsystems start, in registry order
+00:00 +10: test/unit/role_runtime_test.dart: all starts every subsystem and mounts routes before pod start
+00:00 +11: test/unit/role_runtime_test.dart: a failing start names the subsystem and maps to a non-zero exit
+00:00 +12: test/unit/role_runtime_test.dart: a failing Serverpod start is reported as serverpod
+00:00 +13: test/unit/role_runtime_test.dart: registers exactly one shutdown callback, before the first start
+00:00 +14: test/unit/role_runtime_test.dart: stops subsystems one at a time in reverse start order
+00:00 +15: test/unit/role_runtime_test.dart: only subsystems that started are stopped
+00:00 +16: test/unit/role_runtime_test.dart: a failing stop is logged, the rest still stop, a combined error is rethrown
+00:00 +17: test/unit/process_options_test.dart: --process-role defaults to all
+00:00 +18: test/unit/process_options_test.dart: --process-role accepts api
+00:00 +19: test/unit/process_options_test.dart: --process-role accepts worker
+00:00 +20: test/unit/process_options_test.dart: --process-role accepts all
+00:00 +21: test/unit/process_options_test.dart: --process-role an unknown role names the value and the valid roles
+00:00 +22: test/unit/process_options_test.dart: --process-role a missing value is an error
+00:00 +23: test/unit/process_options_test.dart: startup options production mode and api role both survive parsing
+00:00 +24: test/unit/process_options_test.dart: startup options Serverpod options pass through unchanged and in order
+00:00 +25: test/unit/process_options_test.dart: startup options the run mode falls back to SERVERPOD_RUN_MODE, then development
+00:00 +26: test/unit/process_options_test.dart: startup options an unknown option names it and never falls back to defaults
+00:00 +27: test/unit/process_options_test.dart: startup options an invalid mode is an error rather than a silent default
+00:00 +28: test/unit/process_options_test.dart: startup options a Serverpod role other than monolith is rejected
+00:00 +29: test/unit/process_options_test.dart: startup options --process-role after -- is left alone
+00:00 +30: test/unit/process_options_test.dart: Serverpod option list equals the options in Serverpod CommandLineArgs
+00:00 +31: test/unit/process_options_test.dart: Serverpod option list equals the options in Serverpod CommandLineArgs
+00:00 +32: test/unit/process_options_test.dart: Serverpod option list equals the options in Serverpod CommandLineArgs
+00:00 +33: test/unit/process_options_test.dart: Serverpod option list equals the options in Serverpod CommandLineArgs
+00:00 +34: test/unit/process_options_test.dart: Serverpod option list equals the options in Serverpod CommandLineArgs
+00:00 +35: test/unit/process_options_test.dart: Serverpod option list equals the options in Serverpod CommandLineArgs
+00:00 +36: test/unit/socket_host_test.dart: Given a child working directory a deep checkout gets a relative socket path within sun_path
+00:00 +37: test/unit/socket_host_test.dart: Given a child working directory an absolute path is kept when it is the shorter one
+00:00 +38: test/unit/test_mode_switches_test.dart: TestModeSwitches are ignored in run mode development
+00:00 +39: test/unit/test_mode_switches_test.dart: TestModeSwitches are ignored in run mode staging
+00:00 +40: test/unit/test_mode_switches_test.dart: TestModeSwitches are ignored in run mode production
+00:00 +41: test/unit/test_mode_switches_test.dart: TestModeSwitches are read in run mode test
+00:00 +42: test/unit/test_mode_switches_test.dart: TestModeSwitches stop probe needs the value 1
+00:00 +43: test/unit/test_mode_switches_test.dart: TestModeSwitches exit on stdin close needs the value 1
+00:00 +44: test/unit/test_mode_switches_test.dart: watchStdin runs the shutdown once on end of file
+00:00 +45: test/unit/test_mode_switches_test.dart: acquireRootLock holds a lock on the file
+00:00 +46: test/unit/test_mode_switches_test.dart: acquireRootLock a timeout names the root and the lock
+00:00 +47: test/unit/startup_state_test.dart: the indicator is unhealthy until subsystems started and callback registered
+00:00 +48: test/unit/startup_state_test.dart: the callback alone does not make the state ready
+00:00 +49: All tests passed!
+[check] $ cd tool && dart test
+00:00 +0: loading test/task_definitions_test.dart
+00:00 +0: test/task_definitions_test.dart: mise.toml and tool sources have no Windows or WSL references
+00:00 +1: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +2: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +3: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +4: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +5: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +6: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +7: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +8: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +9: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +10: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +11: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +12: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +13: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +14: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +15: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +16: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +17: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +18: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +19: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +20: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +21: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +22: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +23: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +24: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +25: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +26: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +27: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +28: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +29: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +30: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +31: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +32: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +33: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +34: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +35: test/generated_test.dart: current code passes and the checkout is unchanged
+00:00 +36: test/generated_test.dart: current code passes and the checkout is unchanged
+00:01 +37: test/generated_test.dart: current code passes and the checkout is unchanged
+00:01 +38: test/generated_test.dart: current code passes and the checkout is unchanged
+00:01 +39: test/generated_test.dart: current code passes and the checkout is unchanged
+00:02 +40: test/generated_test.dart: current code passes and the checkout is unchanged
+00:04 +41: test/generated_test.dart: current code passes and the checkout is unchanged
+00:05 +42: test/generated_test.dart: current code passes and the checkout is unchanged
+00:06 +43: test/generated_test.dart: current code passes and the checkout is unchanged
+00:07 +44: test/generated_test.dart: current code passes and the checkout is unchanged
+00:07 +45: test/generated_test.dart: current code passes and the checkout is unchanged
+00:07 +46: test/generated_test.dart: current code passes and the checkout is unchanged
+00:19 +47: test/generated_test.dart: a stale generated file fails naming it
+00:38 +48: All tests passed!
+[check] $ cd correlia_flutter && flutter test
+Resolving dependencies in `/tmp/claude-1000/-home-bgshi-Development-dart-correlia/fe47366a-7c60-449c-83be-876b59e0f009/scratchpad/fresh2/correlia`...
+Downloading packages...
+  _fe_analyzer_shared 103.0.0 (111.0.0 available)
+  analyzer 13.3.0 (14.7.0 available)
+  ansi_escape_codes 2.2.1 (4.0.1 available)
+  built_collection 5.1.2 (6.0.0 available)
+  code_builder 4.11.1 (4.13.0 available)
+  cupertino_icons 1.0.9 (2.0.0 available)
+  equatable 2.1.0 (3.0.0 available)
+  google_fonts 8.2.1 (9.0.0 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  package_config 2.2.0 (3.0.0 available)
+  pub_api_client 3.2.0 (4.0.0 available)
+  skills 0.3.1 (1.0.4 available)
+  sqlite3_web 0.9.4 (0.9.5 available)
+  sqlite_async 0.14.5 (0.14.7 available)
+  test 1.31.1 (1.33.0 available)
+  test_api 0.7.12 (0.7.15 available)
+  test_core 0.6.18 (0.6.21 available)
+Got dependencies in `/tmp/claude-1000/-home-bgshi-Development-dart-correlia/fe47366a-7c60-449c-83be-876b59e0f009/scratchpad/fresh2/correlia`!
+17 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+00:00 +0: loading /tmp/claude-1000/-home-bgshi-Development-dart-correlia/fe47366a-7c60-449c-83be-876b59e0f009/scratchpad/fresh2/correlia/correlia_flutter/test/placeholder_page_test.dart
+00:00 +0: shows the product name and that the console comes in M2
+00:00 +1: All tests passed!
+Finished in 84.36s
+## exit=0
+
+## $ mise run test:all
+[setup] $ dart run tool/bin/tool.dart setup
+kept /tmp/claude-1000/-home-bgshi-Development-dart-correlia/fe47366a-7c60-449c-83be-876b59e0f009/scratchpad/fresh2/correlia/correlia_server/config/passwords.yaml
+[test:all] $ dart run tool/bin/tool.dart test --all
+Running build hooks...Running build hooks...00:00 +0: loading test/db/startup_gate_test.dart
+00:00 +0: test/db/startup_gate_test.dart: Given a role with a subsystem that is still starting startupz stays 503 until the gated subsystem has started
+SERVERPOD version: 4.1.0, dart: 3.13.7 (stable) (Thu Oct 22 14:28:57 2026 -0700) on "linux_x64", time: 2026-11-03 22:54:23.179539Z
+runMode: test
+serverId: default
+role: monolith
+loggingMode: normal
+applyMigrations: true
+applyRepairMigration: false
+WARNING: Invalid serviceSecret in password file, Insights server disabled.
+SERVERPOD initialized, time: 2026-11-03 22:54:23.198145Z
+Applied database migration:
+ - 20261103184038320
+SERVERPOD initiating shutdown, time: 2026-11-03 22:54:23.592056Z
+SERVERPOD shutdown completed, time: 2026-11-03 22:54:23.600243Z
+00:01 +1: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+SERVERPOD version: 4.1.0, dart: 3.13.7 (stable) (Thu Oct 22 14:28:57 2026 -0700) on "linux_x64", time: 2026-11-03 22:54:23.907560Z
+runMode: test
+serverId: default
+role: monolith
+loggingMode: normal
+applyMigrations: true
+applyRepairMigration: false
+WARNING: Invalid serviceSecret in password file, Insights server disabled.
+SERVERPOD initialized, time: 2026-11-03 22:54:23.934018Z
+Applied database migration:
+ - 20261103184038320
+SERVERPOD initiating shutdown, time: 2026-11-03 22:54:24.408528Z
+SERVERPOD shutdown completed, time: 2026-11-03 22:54:24.419143Z
+00:02 +2: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:02 +3: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:02 +4: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+SERVERPOD version: 4.1.0, dart: 3.13.7 (stable) (Thu Oct 22 14:28:57 2026 -0700) on "linux_x64", time: 2026-11-03 22:54:24.579126Z
+runMode: test
+serverId: default
+role: monolith
+loggingMode: normal
+applyMigrations: true
+applyRepairMigration: false
+WARNING: Invalid serviceSecret in password file, Insights server disabled.
+SERVERPOD initialized, time: 2026-11-03 22:54:24.582453Z
+Applied database migration:
+ - 20261103184038320
+SERVERPOD initiating shutdown, time: 2026-11-03 22:54:24.866710Z
+ERROR: Error in shutdown task "correlia-subsystems-1"
+Failed to stop 1 subsystem(s): first: Bad state: first is stuck
+#0      RoleRuntime._stopStarted (package:correlia_server/src/runtime/role_runtime.dart:148:30)
+<asynchronous suspension>
+#1      FutureIterable.wait.<anonymous closure> (dart:async/future_extensions.dart:38:37)
+<asynchronous suspension>
+#2      TaskManagerImpl.executeTasks (package:serverpod/src/server/tasks/task_manager.dart:76:5)
+<asynchronous suspension>
+#3      Serverpod.shutdown (package:serverpod/src/server/serverpod.dart:1353:7)
+<asynchronous suspension>
+#4      PodFixture.shutdown (file:///tmp/claude-1000/-home-bgshi-Development-dart-correlia/fe47366a-7c60-449c-83be-876b59e0f009/scratchpad/fresh2/correlia/correlia_server/test/support/pod_fixture.dart:87:7)
+<asynchronous suspension>
+#5      Throws._matchFuture (package:matcher/src/expect/throws_matcher.dart:103:19)
+<asynchronous suspension>
+#6      _expect.<anonymous closure> (package:matcher/src/expect/expect.dart:153:17)
+<asynchronous suspension>
+#7      OutstandingWork.complete (package:test_api/hooks.dart:77:3)
+<asynchronous suspension>
+#8      main.<anonymous closure>.<anonymous closure> (file:///tmp/claude-1000/-home-bgshi-Development-dart-correlia/fe47366a-7c60-449c-83be-876b59e0f009/scratchpad/fresh2/correlia/correlia_server/test/db/shutdown_order_test.dart:98:9)
+<asynchronous suspension>
+#9      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:253:15)
+<asynchronous suspension>
+#10     Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:250:11)
+<asynchronous suspension>
+#11     Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:318:9)
+<asynchronous suspension>
+
+SERVERPOD shutdown completed, time: 2026-11-03 22:54:24.871229Z
+00:03 +5: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +6: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +7: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +8: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +9: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +10: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +11: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +12: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +13: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +14: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +15: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +16: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +17: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +18: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +19: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +20: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +21: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +22: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +23: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +24: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +25: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +26: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +27: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +28: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +29: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +30: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +31: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +32: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +33: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +34: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +35: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +36: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +37: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +38: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +39: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +40: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +41: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +42: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +43: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +44: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +45: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +46: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +47: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +48: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +49: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +50: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +51: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +52: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +53: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +54: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:03 +55: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:19 +56: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:21 +57: test/db/kill_recovery_test.dart: after SIGKILL the next run in the same root passes and leaves no postmaster
+00:25 +58: test/e2e/roles_e2e_test.dart: no role runs as all and logs all
+00:28 +59: test/e2e/health_e2e_test.dart: readyz 503 and livez 200 when the database stops
+00:31 +60: test/e2e/interrupted_run_e2e_test.dart: killing only the harness twice leaves no child, no cluster process, no extra root
+00:37 +61: test/e2e/interrupted_run_e2e_test.dart: killing only the harness twice leaves no child, no cluster process, no extra root
+00:41 +62: test/e2e/interrupted_run_e2e_test.dart: killing only the harness twice leaves no child, no cluster process, no extra root
+00:47 +63: test/e2e/interrupted_run_e2e_test.dart: killing only the harness twice leaves no child, no cluster process, no extra root
+00:53 +64: test/e2e/interrupted_run_e2e_test.dart: killing only the harness twice leaves no child, no cluster process, no extra root
+00:57 +65: test/e2e/interrupted_run_e2e_test.dart: killing only the harness twice leaves no child, no cluster process, no extra root
+01:09 +66: test/e2e/interrupted_run_e2e_test.dart: killing only the harness twice leaves no child, no cluster process, no extra root
+01:23 +67: test/e2e/interrupted_run_e2e_test.dart: killing only the harness twice leaves no child, no cluster process, no extra root
+01:24 +68: All tests passed!
+Finished in 86.63s
+## exit=0
+
+## $ git status --porcelain   (must be empty)
+## lines: 0
