@@ -15,5 +15,13 @@
 ## Tracks
 <!-- Optional: 2-5 long-running areas of work that milestones advance. One line each. -->
 
-## Assumptions
-<!-- Things decided without the user's answer. Each is a candidate question later. -->
+## Decision summary
+<!-- Written by roadmap runs in every mode. One run line per run, then one table; rows are never deleted. -->
+<!-- Run line: `- <run> <YYYY-MM-DD>: <mode> (source: setting)` or `(source: user, "<words>")`; <run> is `init`, `close M<n>` or `pack <name>`. -->
+<!-- Chosen by: `agent`, `user`, or `pending` (awaiting the owner). A pending or agent row the owner later settles is updated in place to `user` with the answer. -->
+
+- init <YYYY-MM-DD>: <mode> (source: setting)
+
+| # | Run | Decision | Choice | Rejected | Reason | Important | Chosen by |
+|---|---|---|---|---|---|---|---|
+| R1 | init | <decision> | <choice> | <rejected alternatives> | <reason> | yes/no | agent |

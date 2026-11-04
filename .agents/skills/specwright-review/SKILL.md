@@ -2,7 +2,7 @@
 name: specwright-review
 description: "Reviewer routes and the pre-ship review for Specwright changes. Chooses the reviewer (codex, claude, omp CLI or the specwright-reviewer subagent) from review.order, runs it isolated and read-only through scripts/review-run.sh, validates the output and fails closed. Pre-ship mode reviews the finished main...<change branch tip> diff before the first PR or a local merge, blocks on P0/P1 findings, and sets the rules for fixes, waivers and spec amendments. Triggers: 'review before ship', 'run the pre-ship review', a design review step (FULL tier, roadmap baseline) choosing its reviewer, or specwright-commit, specwright-pr ship and specwright-finish calling it."
 metadata:
-  version: 0.18.0
+  version: 0.19.0
 ---
 
 # Specwright Review

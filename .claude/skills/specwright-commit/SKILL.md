@@ -2,7 +2,7 @@
 name: specwright-commit
 description: "MANDATORY during the OpenSpec apply phase: /opsx:apply, openspec-apply-change, `openspec instructions apply`, or the user asks to implement/apply an OpenSpec change. Commits each completed task (with `commit_granularity: group`, each completed task group) on the change branch, verifies the commits when all tasks are done, then hands off to archive or to the PR."
 metadata:
-  version: 0.18.0
+  version: 0.19.0
 user-invocable: false
 allowed-tools: Bash(git *) Bash(openspec *) Bash(bash *)
 ---
