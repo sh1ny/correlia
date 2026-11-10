@@ -1,0 +1,30 @@
+{
+  "$schema": "https://raw.githubusercontent.com/can1357/oh-my-pi/main/packages/coding-agent/src/config/mcp-schema.json",
+  "mcpServers": {
+    "dart": {
+      "type": "stdio",
+      "command": "mise",
+      "args": [
+        "exec",
+        "--",
+        "dart",
+        "mcp-server",
+        "--enable",
+        "cli",
+        "--enable",
+        "flutter_app_lifecycle"
+      ]
+    },
+    "serverpod": {
+      "type": "stdio",
+      "command": "mise",
+      "args": [
+        "exec",
+        "--",
+        "bash",
+        "-c",
+        "set -e; cd \"$(git rev-parse --show-toplevel)/correlia_server\"; exec dart run serverpod_cli --quiet mcp-server"
+      ]
+    }
+  }
+}
