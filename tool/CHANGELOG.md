@@ -12,3 +12,5 @@
   an update banner alone is not version evidence.
 - Inspect the resolved Serverpod CLI entry point with `--version`, avoiding implicit pub dependency
   refreshes and CLI update checks during offline `doctor` runs.
+- Skip Flutter's implicit pub refresh in analysis and check tasks; resolve workspace dependencies
+  explicitly before running the warmed-cache gate without network access.

@@ -56,6 +56,12 @@ runtime JSON Schema engine.
 
 ## First-run dependencies and offline reuse
 
+Resolve workspace dependencies once with `mise exec -- flutter pub get`, and repeat that explicit
+step after dependency changes. The analysis and check tasks use Flutter's `--no-pub` flag: they consume
+that resolved workspace instead of refreshing pub dependencies or advisories during verification.
+`doctor` inspects the resolved Serverpod CLI entry point with its machine-oriented `--version` flag,
+without a package refresh or CLI update check.
+
 `mise run proto`, `mise run proto:check` and `mise run check` depend on
 `proto:setup`. It runs the locked npm installation with the prefer-offline,
 no-script, no-audit and no-fund flags:

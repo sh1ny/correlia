@@ -25,7 +25,7 @@ run = "dart run tool/bin/tool.dart setup"
 
 [tasks.analyze]
 description = "dart analyze --fatal-infos over the workspace, flutter analyze for the console"
-run = "dart analyze --fatal-infos && flutter analyze --fatal-infos correlia_flutter"
+run = "dart analyze --fatal-infos && flutter analyze --no-pub --fatal-infos correlia_flutter"
 
 [tasks.format]
 description = "Format all Dart code in the workspace"
@@ -77,13 +77,13 @@ run = [
   "openspec validate --all --strict",
   "dart run tool/bin/tool.dart doctor",
   "dart analyze --fatal-infos",
-  "flutter analyze --fatal-infos correlia_flutter",
+  "flutter analyze --no-pub --fatal-infos correlia_flutter",
   "dart format --output=none --set-exit-if-changed .",
   "dart run tool/bin/tool.dart generated",
   "dart run tool/bin/tool.dart proto:check",
   "dart run tool/bin/tool.dart test",
   "cd tool && dart test",
-  "cd correlia_flutter && flutter test",
+  "cd correlia_flutter && flutter test --no-pub",
 ]
 depends = ["setup", "proto:setup"]
 
