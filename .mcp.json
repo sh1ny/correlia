@@ -6,9 +6,12 @@
       "args": [
         "exec",
         "--",
-        "bash",
-        "-c",
-        "set -e; sdk=$(mise where flutter); dart_sdk=\"$sdk/bin/cache/dart-sdk\"; export DART_DATA_HOME=\"$PWD/.dart_tool/dart-data\"; exec \"$dart_sdk/bin/dart\" mcp-server --dart-sdk \"$dart_sdk\" --flutter-sdk \"$sdk\""
+        "dart",
+        "mcp-server",
+        "--enable",
+        "cli",
+        "--enable",
+        "flutter_app_lifecycle"
       ]
     },
     "serverpod": {
