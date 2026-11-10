@@ -2,7 +2,7 @@
 
 ## Test map
 
-Green rows reflect passing real-boundary checks, not planned results. Tooling's missing-behavior red was reconstructed from main against the new tests (missing ProtoCommand/runBoundedProcess); its original pre-implementation run was not captured. Subsequent integration failures were fixed before green verification. Identity tests first failed against the missing identity API. Wire tests first failed against the missing public event API. Server tests are untagged fast tests. All mapped event cases now pass in the 36-test event suite; the shared schema/runtime patterns also pass the pinned 12-case Ajv fixture set. Additional regressions reject invalid binary UTF-8, closed enum numbers, timestamp nanos, and envelope-inclusive size overflow before acceptance.
+Green rows reflect passing real-boundary checks, not planned results. Tooling's missing-behavior red was reconstructed from main against the new tests (missing ProtoCommand/runBoundedProcess); its original pre-implementation run was not captured. Subsequent integration failures were fixed before green verification. Identity tests first failed against the missing identity API. Wire tests first failed against the missing public event API. Server tests are untagged fast tests. All mapped event cases now pass in the 38-test event suite; the shared schema/runtime patterns also pass the pinned 12-case Ajv fixture set. Additional regressions reject invalid binary UTF-8, overflowing 32-bit wire values, closed enum numbers, timestamp nanos, and envelope-inclusive size overflow before acceptance, and prove null extensions do not consume the non-null attribute allowance.
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
@@ -101,6 +101,17 @@ Skills: dart-use-pattern-matching, dart-write-documentation, dart-run-static-ana
   `docs/event-contract-tooling.md`.
 - Removed the owned clean clone, the layout diagnostic clone, and all throwaway smoke programs
   and their outputs. No database, plugin, live-source, ingestion, or durable-state proof is claimed.
+
+### Pre-ship corrections, round 1
+
+- Codex F1 (P1): binary uint32/int32 decoding masked overflow before validation. A failing regression
+  demonstrated acceptance of overflowing raw size, generation, all three enums, and timestamp nanos.
+  The strict reader now validates full-width values before narrowing.
+- Codex F2 (P2): null extensions incorrectly consumed the extension count. A failing mixed-boundary
+  regression now proves 32 non-null attributes plus 33 omitted nulls pass, while a 33rd non-null fails.
+- Both regressions passed after correction; all 38 event tests and handwritten server analysis passed.
+  The full online/disconnected gate totals above precede these two regressions; the affected event
+  contract suite was rerun for this correction.
 
 ## Workflow follow-up
 

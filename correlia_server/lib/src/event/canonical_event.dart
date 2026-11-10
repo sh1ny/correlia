@@ -750,6 +750,26 @@ Object? _typedJson(Object? value) {
 final class _StrictEventReader extends protobuf.CodedBufferReader {
   _StrictEventReader(Uint8List super.bytes) : super(sizeLimit: _maxEventBytes);
 
+  // The standard 32-bit readers mask overflowing varints. Decode the wire's
+  // full 64-bit value first so enums, nanos, and uint32 fields cannot wrap.
+  @override
+  int readInt32() {
+    final value = super.readInt64().toInt();
+    if (value < -2147483648 || value > 2147483647) {
+      throw const EventFieldError('event', 'out_of_range');
+    }
+    return value;
+  }
+
+  @override
+  int readUint32() {
+    final value = super.readUint64().toInt();
+    if (value < 0 || value > 4294967295) {
+      throw const EventFieldError('event', 'out_of_range');
+    }
+    return value;
+  }
+
   @override
   String readString() {
     try {

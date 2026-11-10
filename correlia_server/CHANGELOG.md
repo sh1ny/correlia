@@ -9,6 +9,9 @@
   or unknown validation scope; JSON output is the current-minor known-field projection.
 - Publish complete positive, negative, and synthetic newer-minor wire fixtures with payload-only
   JSON Schema cross-checks in `contracts/runtime-fixtures/` and `contracts/envelope-fixtures/`.
+- Reject overflowing binary int32/uint32 wire values before protobuf narrowing can turn them into
+  valid raw metadata, generations, enums, or timestamp nanos.
+- Count only non-null CloudEvents extension attributes against the 32-attribute allowance.
 
 ## 1.0.0
 

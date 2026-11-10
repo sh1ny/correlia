@@ -217,10 +217,6 @@ final class CloudEvent {
       if (_refusedAttributes.contains(key)) {
         throw EventFieldError(key, 'unsupported_attribute');
       }
-      unknown++;
-      if (unknown > _maxExtensionAttributes) {
-        throw const EventFieldError('event', 'invalid_count');
-      }
       validateText(
         key,
         key,
@@ -228,13 +224,17 @@ final class CloudEvent {
         max: _maxExtensionNameScalars,
         pattern: r'^[a-z0-9]+$',
       );
+      if (value == null) continue;
+      unknown++;
+      if (unknown > _maxExtensionAttributes) {
+        throw const EventFieldError('event', 'invalid_count');
+      }
       _validateExtensionValue(key, value);
     }
   }
 
   /// Accepts only the CloudEvents scalar types an extension attribute may carry.
-  static void _validateExtensionValue(String name, Object? value) {
-    if (value == null) return;
+  static void _validateExtensionValue(String name, Object value) {
     if (value is bool) return;
     if (value is int) {
       if (value < _minInt32 || value > _maxInt32) {

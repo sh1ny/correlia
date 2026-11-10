@@ -101,6 +101,21 @@ void main() {
     }
   });
 
+  test('Null extensions do not consume the effective attribute limit', () {
+    final input = eventFixture()
+      ..addAll({for (var i = 0; i < 33; i++) 'omitted$i': null})
+      ..addAll({for (var i = 0; i < 32; i++) 'extra$i': i});
+    final accepted = CloudEvent.decode(_bytes(input));
+    expect(accepted.event.eventId, '86fe3b73-ec2d-5dd3-b104-11f2ec79469c');
+    input['extra32'] = 32;
+    expect(
+      () => CloudEvent.decode(_bytes(input)),
+      throwsA(
+        isA<EventFieldError>().having((e) => e.code, 'code', 'invalid_count'),
+      ),
+    );
+  });
+
   test('Invalid extension attribute', () {
     for (final name in [
       'BrokerTrace',

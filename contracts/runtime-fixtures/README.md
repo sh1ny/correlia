@@ -59,6 +59,8 @@ rejected rather than replaced. Enum and timestamp validation happens before prot
 hide invalid known values. Parse-level failures name the `event` boundary; semantic failures name the
 known field. Unit tests also cover truncation, alias rejection, container depth, aggregate byte limits,
 Unicode scalar limits, immutable aliases, schema scope, and cross-representation identity agreement.
+Binary overflow regressions also cover raw size, pipeline generation, every closed enum, and timestamp
+nanos: full-width decoding rejects values that would otherwise truncate into the valid 32-bit domain.
 
 These are pure contract fixtures. They prove no ingestion, storage, durable deduplication, correlation,
 or transport effects.

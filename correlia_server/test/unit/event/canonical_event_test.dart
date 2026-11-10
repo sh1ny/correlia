@@ -387,6 +387,52 @@ void main() {
     );
   });
 
+  test('Binary integer widths are checked before narrowing', () {
+    List<int> varint(int value) {
+      final bytes = <int>[];
+      do {
+        final byte = value & 0x7f;
+        value >>= 7;
+        bytes.add(value == 0 ? byte : byte | 0x80);
+      } while (value != 0);
+      return bytes;
+    }
+
+    List<int> field(int number, int value) => [
+      ...varint(number << 3),
+      ...varint(value),
+    ];
+
+    List<int> nested(int number, int child, int value) {
+      final body = field(child, value);
+      return [...varint((number << 3) | 2), ...varint(body.length), ...body];
+    }
+
+    final original = CanonicalEvent.fromJson(_payload()).toBuffer();
+    final accepted = <String>[];
+    for (final (name, wire) in [
+      ('raw.size', nested(25, 3, 4294967296)),
+      ('pipeline.generation', nested(26, 2, 4294967296)),
+      ('kind', field(5, 4294967297)),
+      ('status', field(6, 4294967297)),
+      ('severity', field(7, 4294967299)),
+      ('observed_at.nanos', nested(23, 2, 4294967297)),
+    ]) {
+      try {
+        CanonicalEvent.fromBuffer(Uint8List.fromList([...original, ...wire]));
+        accepted.add(name);
+      } on EventFieldError catch (error) {
+        expect(error.path, 'event', reason: name);
+        expect(error.code, 'out_of_range', reason: name);
+      }
+    }
+    expect(
+      accepted,
+      isEmpty,
+      reason: 'No wire integer may wrap into a valid value',
+    );
+  });
+
   test('Malformed known protobuf fields fail with field errors', () {
     final original = CanonicalEvent.fromJson(_payload()).toBuffer();
     for (final (path, tag) in [

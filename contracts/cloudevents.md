@@ -64,7 +64,7 @@ Every rejection is an `EventFieldError` with the offending attribute's path and 
 | `unsupported_attribute` | the attribute is a CloudEvents member this codec refuses, such as `data_base64` |
 | `identity_mismatch` | the envelope contradicts the payload it carries |
 | `invalid_format`, `invalid_trace_id` | the trace context is malformed or carries a zero identifier |
-| `invalid_count` | more than 32 unknown attributes |
+| `invalid_count` | more than 32 non-null unknown attributes |
 | `too_long`, `invalid_character`, `invalid_unicode` | an unknown attribute's name or value breaks its bound |
 | `invalid_number`, `out_of_range` | an unknown attribute's number is fractional or outside the signed 32-bit range |
 
@@ -78,6 +78,8 @@ carry at most 128 ASCII characters. Its value must be a string, a boolean or a s
 string carries at most 1024 Unicode scalars, valid Unicode only, without control characters or
 noncharacters. An explicit `null` means omitted. Objects, arrays, fractional numbers, out-of-range numbers
 and malformed strings fail.
+Null-valued attributes do not consume the 32-attribute allowance; their names still obey the token
+and length constraints.
 
 Valid unknown attributes are then ignored. They never reach the payload, never change the payload's
 validation scope and are never re-emitted, so a broker's extension is tolerated without a lossless
@@ -90,7 +92,7 @@ forwarding promise. Payload namespaced keys such as `example.org/context` live e
 |---|---|---|
 | serialized structured envelope | 262144 UTF-8 bytes | Reject before parsing input or accepting a constructed event, `event_too_large` |
 | JSON nesting | 16 containers | Reject before conversion, `too_deep` |
-| unknown envelope attributes | 32 | Reject, `invalid_count` |
+| non-null unknown envelope attributes | 32 | Reject, `invalid_count` |
 | unknown attribute name | 128 ASCII characters | Reject, `too_long` |
 | unknown attribute string value | 1024 Unicode scalars | Reject, `too_long` |
 
