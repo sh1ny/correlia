@@ -8,3 +8,5 @@
   standard validation rules, explicit JSON names, presence and enum domains.
 - Added build-time draft-2020-12 payload fixture validation with pinned Ajv
   8.17.1 and ajv-formats 3.0.1.
+- Fix `doctor` selecting Serverpod's update notification instead of its installed-version line;
+  an update banner alone is not version evidence.

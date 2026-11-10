@@ -30,7 +30,11 @@ class ProcessToolResolver implements ToolResolver {
   /// The repository root.
   final Directory repoRoot;
 
-  static final _semver = RegExp(r'\d+\.\d+\.\d+');
+  static final _semver = RegExp(r'(\d+\.\d+\.\d+)');
+  static final _serverpodVersion = RegExp(
+    r'^Serverpod version: (\d+\.\d+\.\d+)\s*$',
+    multiLine: true,
+  );
 
   static const _versionArgs = <String, List<String>>{
     'dart': ['--version'],
@@ -58,6 +62,7 @@ class ProcessToolResolver implements ToolResolver {
       dart,
       ['run', 'serverpod_cli', 'version'],
       workingDirectory: '${repoRoot.path}/correlia_server',
+      pattern: _serverpodVersion,
     );
     return version == null ? null : ResolvedTool(path: path, version: version);
   }
@@ -95,6 +100,7 @@ class ProcessToolResolver implements ToolResolver {
     String executable,
     List<String> args, {
     String? workingDirectory,
+    RegExp? pattern,
   }) async {
     final result = await Process.run(
       executable,
@@ -102,6 +108,8 @@ class ProcessToolResolver implements ToolResolver {
       workingDirectory: workingDirectory,
     );
     if (result.exitCode != 0) return null;
-    return _semver.firstMatch('${result.stdout}${result.stderr}')?.group(0);
+    return (pattern ?? _semver)
+        .firstMatch('${result.stdout}${result.stderr}')
+        ?.group(1);
   }
 }
