@@ -7,6 +7,7 @@ library;
 export 'src/doctor.dart';
 export 'src/generated_command.dart';
 export 'src/pins.dart';
+export 'src/proto_command.dart';
 export 'src/runner.dart';
 export 'src/server_test_tags.dart';
 export 'src/setup.dart';

@@ -1,0 +1,78 @@
+{
+  "event_id": "86fe3b73-ec2d-5dd3-b104-11f2ec79469c",
+  "fingerprint": "09fc69bd0646d8e356c57b6c9b46256eda741ef8924425df1c9cce8ce2137b7f",
+  "tenant": "default",
+  "namespace": "11111111-1111-4111-8111-111111111111",
+  "kind": "EVENT_KIND_ALERT",
+  "status": "EVENT_STATUS_FIRING",
+  "severity": "EVENT_SEVERITY_FUTURE",
+  "severity_number": 13,
+  "severity_original": "WARNING",
+  "dedup_key": "source-hint",
+  "summary": "Example alert",
+  "description": "Detail 🦋",
+  "resource": {
+    "host.name": "host-7"
+  },
+  "observer": {
+    "source_instance": "11111111-1111-4111-8111-111111111111",
+    "source_kind": "alertmanager",
+    "name": "production",
+    "version": "1.0"
+  },
+  "labels": {
+    "alertname": "Example",
+    "severity": "warning"
+  },
+  "labels_origin": {
+    "severity": "source label"
+  },
+  "annotations": {
+    "runbook": "Check upstream"
+  },
+  "links": [
+    {
+      "href": "https://example.org/runbook",
+      "relation": "runbook",
+      "text": "Help"
+    }
+  ],
+  "starts_at": "2026-11-10T00:00:00Z",
+  "ends_at": "0001-01-01T00:00:00Z",
+  "source_time": "2026-11-10T00:00:00.123456789Z",
+  "reported_source_time": "2026-11-10T02:00:00.123456789+02:00",
+  "observed_at": "2026-11-10T00:00:00.123456789Z",
+  "processed_at": "2026-11-10T00:00:00.123456789Z",
+  "raw": {
+    "ref": "raw:example",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "size": 4294967295
+  },
+  "pipeline": {
+    "version": "example",
+    "generation": 0,
+    "stages_applied": [
+      "decode",
+      "normalize"
+    ],
+    "enrichment_errors": [
+      {
+        "stage": "enrich",
+        "code": "unavailable",
+        "message": "Not reached"
+      }
+    ]
+  },
+  "extensions": {
+    "example.org/context": "rack-7"
+  },
+  "identity_fields": {
+    "alertname": {
+      "raw": "Example"
+    },
+    "severity": {
+      "raw": "warning"
+    }
+  },
+  "observation_key": "AAAABAAAAAZkb21haW4AAAAYY29ycmVsaWEuYWxlcnRtYW5hZ2VyLnYxAAAABnN0YXR1cwAAAAZmaXJpbmcAAAAJc3RhcnRzX2F0AAAAFQEyMDI2LTExLTEwVDAwOjAwOjAwWgAAAAdlbmRzX2F0AAAAAQA="
+}

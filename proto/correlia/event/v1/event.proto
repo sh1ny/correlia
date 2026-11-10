@@ -1,0 +1,330 @@
+syntax = "proto3";
+
+package correlia.event.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+// EventKind identifies the semantic kind of a canonical event.
+enum EventKind {
+  EVENT_KIND_UNSPECIFIED = 0;
+  EVENT_KIND_ALERT = 1;
+  EVENT_KIND_STATE = 2;
+  EVENT_KIND_ACK = 3;
+  EVENT_KIND_DOWNTIME = 4;
+  EVENT_KIND_COMMENT = 5;
+  EVENT_KIND_HEARTBEAT = 6;
+}
+
+// EventStatus identifies the lifecycle state of a canonical event.
+enum EventStatus {
+  EVENT_STATUS_UNSPECIFIED = 0;
+  EVENT_STATUS_FIRING = 1;
+  EVENT_STATUS_RESOLVED = 2;
+  EVENT_STATUS_INFO = 3;
+}
+
+// EventSeverity identifies the normalized severity of a canonical event.
+enum EventSeverity {
+  EVENT_SEVERITY_UNSPECIFIED = 0;
+  EVENT_SEVERITY_CRITICAL = 1;
+  EVENT_SEVERITY_ERROR = 2;
+  EVENT_SEVERITY_WARNING = 3;
+  EVENT_SEVERITY_INFO = 4;
+  EVENT_SEVERITY_UNKNOWN = 5;
+}
+
+// Observer describes the source system that reported an event.
+message Observer {
+  string source_instance = 1 [
+    json_name = "source_instance",
+    (buf.validate.field).required = true,
+    (buf.validate.field).string = {
+      len: 36
+      pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    }
+  ];
+  string source_kind = 2 [
+    json_name = "source_kind",
+    (buf.validate.field).required = true,
+    (buf.validate.field).string = {
+      min_len: 1
+      max_len: 64
+      pattern: "^[a-z][a-z0-9_]*$"
+    }
+  ];
+  optional string name = 3 [
+    json_name = "name",
+    (buf.validate.field).string = {max_len: 256}
+  ];
+  optional string version = 4 [
+    json_name = "version",
+    (buf.validate.field).string = {max_len: 256}
+  ];
+}
+
+// Link describes a bounded external reference associated with an event.
+message Link {
+  string href = 1 [
+    json_name = "href",
+    (buf.validate.field).required = true,
+    (buf.validate.field).string = {
+      min_len: 1
+      max_len: 2048
+      pattern: "^https?://.+$"
+    }
+  ];
+  string relation = 2 [
+    json_name = "relation",
+    (buf.validate.field).required = true,
+    (buf.validate.field).string = {min_len: 1, max_len: 64}
+  ];
+  optional string text = 3 [
+    json_name = "text",
+    (buf.validate.field).string = {max_len: 256}
+  ];
+}
+
+// RawReference identifies the referenced source body without embedding it.
+message RawReference {
+  string ref = 1 [
+    json_name = "ref",
+    (buf.validate.field).required = true,
+    (buf.validate.field).string = {min_len: 1, max_len: 256}
+  ];
+  string sha256 = 2 [
+    json_name = "sha256",
+    (buf.validate.field).required = true,
+    (buf.validate.field).string = {
+      len: 64
+      pattern: "^[0-9a-f]{64}$"
+    }
+  ];
+  uint32 size = 3 [
+    json_name = "size",
+    (buf.validate.field).uint32 = {gte: 0, lte: 4294967295}
+  ];
+}
+
+// EnrichmentError records a bounded, typed pipeline enrichment failure.
+message EnrichmentError {
+  string stage = 1 [
+    json_name = "stage",
+    (buf.validate.field).required = true,
+    (buf.validate.field).string = {min_len: 1, max_len: 64}
+  ];
+  string code = 2 [
+    json_name = "code",
+    (buf.validate.field).required = true,
+    (buf.validate.field).string = {min_len: 1, max_len: 64}
+  ];
+  string message = 3 [
+    json_name = "message",
+    (buf.validate.field).required = true,
+    (buf.validate.field).string = {min_len: 1, max_len: 256}
+  ];
+}
+
+// Pipeline records the processing provenance of an event.
+message Pipeline {
+  string version = 1 [
+    json_name = "version",
+    (buf.validate.field).required = true,
+    (buf.validate.field).string = {min_len: 1, max_len: 128}
+  ];
+  uint32 generation = 2 [
+    json_name = "generation",
+    (buf.validate.field).uint32 = {gte: 0, lte: 4294967295}
+  ];
+  repeated string stages_applied = 3 [
+    json_name = "stages_applied",
+    (buf.validate.field).repeated = {
+      max_items: 32
+      items: {string: {min_len: 1, max_len: 64}}
+    }
+  ];
+  repeated EnrichmentError enrichment_errors = 4 [
+    json_name = "enrichment_errors",
+    (buf.validate.field).repeated = {max_items: 32}
+  ];
+  optional string original_event_id = 5 [
+    json_name = "original_event_id",
+    (buf.validate.field).string = {
+      len: 36
+      pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    }
+  ];
+}
+
+// IdentityComponent is one bounded identity value or its SHA-256 digest.
+message IdentityComponent {
+  oneof value {
+    option (buf.validate.oneof).required = true;
+
+    string raw = 1 [
+      json_name = "raw",
+      (buf.validate.field).string = {min_len: 0, max_bytes: 1024}
+    ];
+    bytes sha256 = 2 [
+      json_name = "sha256",
+      (buf.validate.field).bytes = {len: 32}
+    ];
+  }
+}
+
+// CanonicalEvent is the versioned Correlia event payload.
+message CanonicalEvent {
+  string event_id = 1 [
+    json_name = "event_id",
+    (buf.validate.field).required = true,
+    (buf.validate.field).string = {
+      len: 36
+      pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    }
+  ];
+  string fingerprint = 2 [
+    json_name = "fingerprint",
+    (buf.validate.field).required = true,
+    (buf.validate.field).string = {
+      len: 64
+      pattern: "^[0-9a-f]{64}$"
+    }
+  ];
+  string tenant = 3 [
+    json_name = "tenant",
+    (buf.validate.field).required = true,
+    (buf.validate.field).string = {const: "default"}
+  ];
+  string namespace = 4 [
+    json_name = "namespace",
+    (buf.validate.field).required = true,
+    (buf.validate.field).string = {min_len: 1, max_len: 256}
+  ];
+  EventKind kind = 5 [
+    json_name = "kind",
+    (buf.validate.field).required = true,
+    (buf.validate.field).enum = {defined_only: true}
+  ];
+  EventStatus status = 6 [
+    json_name = "status",
+    (buf.validate.field).required = true,
+    (buf.validate.field).enum = {defined_only: true}
+  ];
+  EventSeverity severity = 7 [
+    json_name = "severity",
+    (buf.validate.field).required = true,
+    (buf.validate.field).enum = {defined_only: true}
+  ];
+  optional uint32 severity_number = 8 [
+    json_name = "severity_number",
+    (buf.validate.field).uint32 = {gte: 1, lte: 24}
+  ];
+  optional string severity_original = 9 [
+    json_name = "severity_original",
+    (buf.validate.field).string = {max_len: 128}
+  ];
+  optional string dedup_key = 10 [
+    json_name = "dedup_key",
+    (buf.validate.field).string = {max_len: 1024}
+  ];
+  string summary = 11 [
+    json_name = "summary",
+    (buf.validate.field).required = true,
+    (buf.validate.field).string = {min_len: 1, max_len: 256}
+  ];
+  optional string description = 12 [
+    json_name = "description",
+    (buf.validate.field).string = {max_len: 4096}
+  ];
+  map<string, string> resource = 13 [
+    json_name = "resource",
+    (buf.validate.field).map = {
+      max_pairs: 128
+      keys: {string: {min_len: 1, max_len: 128}}
+      values: {string: {max_len: 1024}}
+    }
+  ];
+  Observer observer = 14 [
+    json_name = "observer",
+    (buf.validate.field).required = true
+  ];
+  map<string, string> labels = 15 [
+    json_name = "labels",
+    (buf.validate.field).map = {
+      max_pairs: 128
+      keys: {string: {min_len: 1, max_len: 128}}
+      values: {string: {max_len: 1024}}
+    }
+  ];
+  map<string, string> labels_origin = 16 [
+    json_name = "labels_origin",
+    (buf.validate.field).map = {
+      max_pairs: 128
+      keys: {string: {min_len: 1, max_len: 128}}
+      values: {string: {max_len: 1024}}
+    }
+  ];
+  map<string, string> annotations = 17 [
+    json_name = "annotations",
+    (buf.validate.field).map = {
+      max_pairs: 128
+      keys: {string: {min_len: 1, max_len: 128}}
+      values: {string: {max_len: 1024}}
+    }
+  ];
+  repeated Link links = 18 [
+    json_name = "links",
+    (buf.validate.field).repeated = {max_items: 16}
+  ];
+  optional google.protobuf.Timestamp starts_at = 19 [json_name = "starts_at"];
+  optional google.protobuf.Timestamp ends_at = 20 [json_name = "ends_at"];
+  optional google.protobuf.Timestamp source_time = 21 [json_name = "source_time"];
+  optional string reported_source_time = 22 [
+    json_name = "reported_source_time",
+    (buf.validate.field).string = {max_len: 64}
+  ];
+  google.protobuf.Timestamp observed_at = 23 [
+    json_name = "observed_at",
+    (buf.validate.field).required = true
+  ];
+  google.protobuf.Timestamp processed_at = 24 [
+    json_name = "processed_at",
+    (buf.validate.field).required = true
+  ];
+  RawReference raw = 25 [
+    json_name = "raw",
+    (buf.validate.field).required = true
+  ];
+  Pipeline pipeline = 26 [
+    json_name = "pipeline",
+    (buf.validate.field).required = true
+  ];
+  map<string, string> extensions = 27 [
+    json_name = "extensions",
+    (buf.validate.field).map = {
+      max_pairs: 32
+      keys: {
+        string: {
+          min_len: 1
+          max_len: 128
+          pattern: "^[a-z0-9][a-z0-9.-]*/[a-zA-Z0-9_.-]+$"
+        }
+      }
+      values: {string: {max_len: 1024}}
+    }
+  ];
+  map<string, IdentityComponent> identity_fields = 28 [
+    json_name = "identity_fields",
+    (buf.validate.field).required = true,
+    (buf.validate.field).map = {
+      min_pairs: 1
+      max_pairs: 128
+      keys: {string: {min_len: 1, max_len: 128}}
+    }
+  ];
+  bytes observation_key = 29 [
+    json_name = "observation_key",
+    (buf.validate.field).required = true,
+    (buf.validate.field).bytes = {min_len: 1, max_len: 8192}
+  ];
+}

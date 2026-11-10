@@ -1,0 +1,421 @@
+{
+  "$defs": {
+    "correlia.event.v1.CanonicalEvent.jsonschema.strict.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "CanonicalEvent is the versioned Correlia event payload.",
+      "properties": {
+        "annotations": {
+          "additionalProperties": {
+            "maxLength": 1024,
+            "type": "string"
+          },
+          "propertyNames": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "object",
+          "maxProperties": 128
+        },
+        "dedup_key": {
+          "maxLength": 1024,
+          "type": "string"
+        },
+        "description": {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        "ends_at": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.jsonschema.strict.json"
+        },
+        "event_id": {
+          "maxLength": 36,
+          "minLength": 36,
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+          "type": "string"
+        },
+        "extensions": {
+          "additionalProperties": {
+            "maxLength": 1024,
+            "type": "string"
+          },
+          "propertyNames": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9.-]*/[a-zA-Z0-9_.-]+$",
+            "type": "string"
+          },
+          "type": "object",
+          "maxProperties": 32
+        },
+        "fingerprint": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "identity_fields": {
+          "additionalProperties": {
+            "$ref": "#/$defs/correlia.event.v1.IdentityComponent.jsonschema.strict.json"
+          },
+          "propertyNames": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 128
+        },
+        "kind": {
+          "enum": [
+            "EVENT_KIND_ALERT",
+            "EVENT_KIND_STATE",
+            "EVENT_KIND_ACK",
+            "EVENT_KIND_DOWNTIME",
+            "EVENT_KIND_COMMENT",
+            "EVENT_KIND_HEARTBEAT"
+          ],
+          "title": "Event Kind",
+          "type": "string"
+        },
+        "labels": {
+          "additionalProperties": {
+            "maxLength": 1024,
+            "type": "string"
+          },
+          "propertyNames": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "object",
+          "maxProperties": 128
+        },
+        "labels_origin": {
+          "additionalProperties": {
+            "maxLength": 1024,
+            "type": "string"
+          },
+          "propertyNames": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "object",
+          "maxProperties": 128
+        },
+        "links": {
+          "items": {
+            "$ref": "#/$defs/correlia.event.v1.Link.jsonschema.strict.json"
+          },
+          "maxItems": 16,
+          "type": "array"
+        },
+        "namespace": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "observation_key": {
+          "maxLength": 10924,
+          "minLength": 2,
+          "pattern": "^[A-Za-z0-9+/]*={0,2}$",
+          "type": "string"
+        },
+        "observed_at": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.jsonschema.strict.json"
+        },
+        "observer": {
+          "$ref": "#/$defs/correlia.event.v1.Observer.jsonschema.strict.json"
+        },
+        "pipeline": {
+          "$ref": "#/$defs/correlia.event.v1.Pipeline.jsonschema.strict.json"
+        },
+        "processed_at": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.jsonschema.strict.json"
+        },
+        "raw": {
+          "$ref": "#/$defs/correlia.event.v1.RawReference.jsonschema.strict.json"
+        },
+        "reported_source_time": {
+          "maxLength": 64,
+          "type": "string"
+        },
+        "resource": {
+          "additionalProperties": {
+            "maxLength": 1024,
+            "type": "string"
+          },
+          "propertyNames": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "object",
+          "maxProperties": 128
+        },
+        "severity": {
+          "enum": [
+            "EVENT_SEVERITY_CRITICAL",
+            "EVENT_SEVERITY_ERROR",
+            "EVENT_SEVERITY_WARNING",
+            "EVENT_SEVERITY_INFO",
+            "EVENT_SEVERITY_UNKNOWN"
+          ],
+          "title": "Event Severity",
+          "type": "string"
+        },
+        "severity_number": {
+          "maximum": 24,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "severity_original": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "source_time": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.jsonschema.strict.json"
+        },
+        "starts_at": {
+          "$ref": "#/$defs/google.protobuf.Timestamp.jsonschema.strict.json"
+        },
+        "status": {
+          "enum": [
+            "EVENT_STATUS_FIRING",
+            "EVENT_STATUS_RESOLVED",
+            "EVENT_STATUS_INFO"
+          ],
+          "title": "Event Status",
+          "type": "string"
+        },
+        "summary": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "tenant": {
+          "enum": [
+            "default"
+          ],
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id",
+        "fingerprint",
+        "tenant",
+        "namespace",
+        "kind",
+        "status",
+        "severity",
+        "summary",
+        "observer",
+        "observed_at",
+        "processed_at",
+        "raw",
+        "pipeline",
+        "identity_fields",
+        "observation_key"
+      ],
+      "title": "Canonical Event",
+      "type": "object"
+    },
+    "correlia.event.v1.EnrichmentError.jsonschema.strict.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "EnrichmentError records a bounded, typed pipeline enrichment failure.",
+      "properties": {
+        "code": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "message": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "stage": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "stage",
+        "code",
+        "message"
+      ],
+      "title": "Enrichment Error",
+      "type": "object"
+    },
+    "correlia.event.v1.IdentityComponent.jsonschema.strict.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "IdentityComponent is one bounded identity value or its SHA-256 digest.",
+      "properties": {
+        "raw": {
+          "maxLength": 1024,
+          "type": "string"
+        },
+        "sha256": {
+          "maxLength": 44,
+          "minLength": 43,
+          "pattern": "^[A-Za-z0-9+/]*={0,2}$",
+          "type": "string"
+        }
+      },
+      "title": "Identity Component",
+      "type": "object"
+    },
+    "correlia.event.v1.Link.jsonschema.strict.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Link describes a bounded external reference associated with an event.",
+      "properties": {
+        "href": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "pattern": "^https?://.+$",
+          "type": "string"
+        },
+        "relation": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 256,
+          "type": "string"
+        }
+      },
+      "required": [
+        "href",
+        "relation"
+      ],
+      "title": "Link",
+      "type": "object"
+    },
+    "correlia.event.v1.Observer.jsonschema.strict.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Observer describes the source system that reported an event.",
+      "properties": {
+        "name": {
+          "maxLength": 256,
+          "type": "string"
+        },
+        "source_instance": {
+          "maxLength": 36,
+          "minLength": 36,
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+          "type": "string"
+        },
+        "source_kind": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 256,
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_instance",
+        "source_kind"
+      ],
+      "title": "Observer",
+      "type": "object"
+    },
+    "correlia.event.v1.Pipeline.jsonschema.strict.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Pipeline records the processing provenance of an event.",
+      "properties": {
+        "enrichment_errors": {
+          "items": {
+            "$ref": "#/$defs/correlia.event.v1.EnrichmentError.jsonschema.strict.json"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "generation": {
+          "maximum": 4294967295,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "original_event_id": {
+          "maxLength": 36,
+          "minLength": 36,
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+          "type": "string"
+        },
+        "stages_applied": {
+          "items": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "generation"
+      ],
+      "title": "Pipeline",
+      "type": "object"
+    },
+    "correlia.event.v1.RawReference.jsonschema.strict.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "RawReference identifies the referenced source body without embedding it.",
+      "properties": {
+        "ref": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "sha256": {
+          "maxLength": 64,
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "size": {
+          "maximum": 4294967295,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "ref",
+        "sha256",
+        "size"
+      ],
+      "title": "Raw Reference",
+      "type": "object"
+    },
+    "google.protobuf.Timestamp.jsonschema.strict.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    }
+  },
+  "$id": "correlia.event.v1.CanonicalEvent.jsonschema.strict.bundle.json",
+  "$ref": "#/$defs/correlia.event.v1.CanonicalEvent.jsonschema.strict.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

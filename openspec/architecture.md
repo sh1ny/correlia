@@ -107,9 +107,17 @@ run in every role unless they are switched off:
 
 ## Boundaries and contracts
 
-- **Canonical event** `correlia.event.v1` (ADR 0004): `proto/correlia/event/v1/*.proto` is the source of
-  truth. JSON Schema is generated. `buf breaking` gates every change. CloudEvents `type` carries the
-  major version and `dataschema` the minor.
+- **Canonical event** `correlia.event.v1` (ADRs 0004, [0021](../docs/adr/0021-canonical-event-v1-contract.md)):
+  annotated protobuf in `proto/correlia/event/v1/` generates strict payload JSON Schema, Dart messages
+  and bounds. A small handwritten CloudEvents structured-JSON codec derives/checks envelope attributes.
+  Strict ProtoJSON, full boundary validation (including 256 KiB aggregate size) and exact frozen-v1
+  domains precede acceptance; JSON Schema alone is insufficient. Raw size is uint32 referenced-body
+  metadata, not a raised default ingress limit. Events above 64 KiB need transport-specific support.
+  Buf FILE plus exact annotation/enum-domain checks use one committed v1.0 baseline; later-minor
+  publication must extend compatibility coverage first. Newer-minor JSON is a known-core projection,
+  while frozen protobuf backing retains unknown binary fields. Optional binary metadata controls scope;
+  absent metadata means unknown scope, never an inferred minor. CloudEvents `type` carries the major
+  version and `dataschema` the minor.
 - **Plugin protocol** `correlia.plugin.v1` (ADR 0020): `proto/correlia/plugin/v1/*.proto`. The handshake is
   compatible with go-plugin. The protocol version is negotiated at the handshake.
 - **Inbound formats:** one mapping spec per integration (`openspec/specs/integration-<name>/`), with fixture
@@ -122,7 +130,8 @@ run in every role unless they are switched off:
   malformed input (bad timestamp, naive datetime, unknown enum, oversize field) is a 400/422 with a field
   error (`application/problem+json`), never a 500 (legacy B7).
 - **Identities:** source, transport delivery, observation (event id) and alert (fingerprint), with one
-  canonical encoding (ADR 0019).
+  canonical encoding (ADRs 0019, [0021](../docs/adr/0021-canonical-event-v1-contract.md)). The fixed UUIDv5
+  namespace is `f36aac0f-16fa-46db-951b-bb578b323aed`, distinct from operator alert namespace strings.
 - **Change feed:** `(txid, id)` cursors over the activity ledger with the xmin watermark (ADR 0017).
 - **Database:** Serverpod-managed migrations by default. A table Serverpod models cannot express sets
   `managedMigration: false` in its model and is created by Correlia's own **schema step** (owner,
@@ -212,6 +221,7 @@ Accepted ADRs only.
 | [0018](../docs/adr/0018-nats-output-as-go-plugin.md) | NATS output as the first external plugin, in Go; exits on stdin close; no delivery order per alert | [0011](../docs/adr/0011-nats-output-as-go-plugin.md) |
 | [0019](../docs/adr/0019-identities.md) | Four identities (source, delivery, observation, alert); durable observation dedup; duplicates advance `last_observed_at` only | [0012](../docs/adr/0012-identities.md) |
 | [0014](../docs/adr/0014-linux-first-platform.md) | Linux-first platform (owner, 2026-11-03): develop and test in WSL, CI on Linux, Windows not a target; embedded Postgres in tiers; never touch another Postgres | [0013](../docs/adr/0013-develop-and-test-in-wsl.md) |
+| [0021](../docs/adr/0021-canonical-event-v1-contract.md) | Additive v1 identity bytes/UUID namespace, strict wire and boundary validation, standard generation and single-baseline compatibility; parse-only future minors | none (clarifies 0004/0019) |
 
 ### Superseded ADRs
 

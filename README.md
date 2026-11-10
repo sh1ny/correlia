@@ -7,3 +7,8 @@ worked in a Flutter web console. Built on Dart, Serverpod and PostgreSQL.
 **Status:** planning. No code yet. See `openspec/roadmap.md` and `docs/plan/`.
 
 The earlier Python implementation is kept on the local branch `legacy/python`.
+
+The canonical event payload contract is generated and checked with
+`mise run proto` and `mise run proto:check`. See
+`docs/event-contract-tooling.md` for the generation, compatibility and offline
+cache behavior.

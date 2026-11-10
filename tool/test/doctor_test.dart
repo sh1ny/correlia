@@ -112,6 +112,56 @@ void main() {
     });
 
     test(
+      'Serverpod update banners do not select the installed version',
+      () async {
+        final scratch = Directory.systemTemp.createTempSync(
+          'correlia-doctor-version-',
+        );
+        addTearDown(() => scratch.deleteSync(recursive: true));
+        Directory('${scratch.path}/correlia_server').createSync();
+        Directory('${scratch.path}/.dart_tool').createSync();
+        File(
+          '${scratch.path}/.dart_tool/package_config.json',
+        ).writeAsStringSync(
+          '{"packages":[{"name":"serverpod_cli","rootUri":"${scratch.uri}"}]}',
+        );
+        final fakeDart = File('${scratch.path}/dart');
+        fakeDart.writeAsStringSync('#!/bin/sh\nexit 0\n');
+        final chmod = await Process.run('chmod', ['+x', fakeDart.path]);
+        expect(chmod.exitCode, 0, reason: '${chmod.stderr}');
+        final probe = File('${scratch.path}/probe.dart')
+          ..writeAsStringSync('''
+import 'dart:io';
+import 'package:correlia_tool/correlia_tool.dart';
+Future<void> main(List<String> args) async {
+  final tool = await ProcessToolResolver(Directory(args.single)).resolve('serverpod_cli');
+  stdout.write(tool?.version ?? 'missing');
+}
+''');
+        final config =
+            '${Directory.current.parent.path}/.dart_tool/package_config.json';
+        for (final (output, expected) in [
+          (
+            'A new version 4.1.1 of Serverpod is available!\\nServerpod version: 4.1.0',
+            '4.1.0',
+          ),
+          ('A new version 4.1.1 of Serverpod is available!', 'missing'),
+        ]) {
+          fakeDart.writeAsStringSync("#!/bin/sh\nprintf '%b\\n' '$output'\n");
+          final result = await Process.run(
+            Platform.resolvedExecutable,
+            ['--packages=$config', probe.path, scratch.path],
+            environment: {
+              'PATH': '${scratch.path}:${Platform.environment['PATH']}',
+            },
+          );
+          expect(result.exitCode, 0, reason: '${result.stderr}');
+          expect(result.stdout, expected);
+        }
+      },
+    );
+
+    test(
       'a Windows dart earlier on PATH does not win over the pinned one',
       () async {
         final repoRoot = Directory.current.parent;
