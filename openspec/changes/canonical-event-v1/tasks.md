@@ -79,7 +79,28 @@ Skills: dart-use-pattern-matching, dart-write-documentation, dart-run-static-ana
 
 ## 5. Prove the integrated contract
 
-- [ ] 5.1 In an owned clean Linux workspace, resolve pinned dependencies/setup, generate twice, run proto-check, focused event/tool tests and mise run check. Use a throwaway public-API smoke for typed Alertmanager identity → CloudEvent, payload-only Ajv validation, binary parsing with and without metadata and known-core parsing of a synthetic newer minor. Repeat the warmed-cache check with network access disabled. Verify fixed identities, no drift, workspace-generated formatter stability, analyzed handwritten code and all mapped cases green from actual results; remove only the clone/smoke artifacts created here. No database/plugin/live-source tiers are required for this pure contract change.
+- [x] 5.1 In an owned clean Linux workspace, resolve pinned dependencies/setup, generate twice, run proto-check, focused event/tool tests and mise run check. Use a throwaway public-API smoke for typed Alertmanager identity → CloudEvent, payload-only Ajv validation, binary parsing with and without metadata and known-core parsing of a synthetic newer minor. Repeat the warmed-cache check with network access disabled. Verify fixed identities, no drift, workspace-generated formatter stability, analyzed handwritten code and all mapped cases green from actual results; remove only the clone/smoke artifacts created here. No database/plugin/live-source tiers are required for this pure contract change.
+
+### Integrated proof
+
+- Owned clean Linux clone: pinned dependencies resolved and setup completed; two generation runs
+  produced identical SHA-256 values for all five generated outputs. The final clone was clean.
+- Public typed Alertmanager identity → CloudEvent smoke passed, including payload-only pinned Ajv,
+  exact/unknown binary scope, nanoseconds, and synthetic newer-minor known-core projection.
+- Stored positive/negative payload and envelope fixtures passed runtime checks with intended field
+  errors; three current payload projections passed Ajv and three malformed binary fixtures failed
+  at their intended boundaries. Native field 100 remained recoverable after public re-encoding.
+- The online full gate passed. After prerequisite launch-path repairs, the complete gate passed
+  again with external networking disabled: 88 server tests, 63 tool tests, and one widget test.
+  Handwritten analysis was clean; 90 Dart files needed no formatting changes; both generated-code
+  checks reported current outputs and the event compatibility gate passed.
+- Disconnected proof used a filesystem Go module proxy with checksum verification retained.
+  Its private network namespace had no external interface or route; only loopback was enabled for
+  Flutter's local test-harness IPC. Generated pub metadata was rebuilt offline without changing
+  package mappings or lockfile versions. The reproducible procedure is in
+  `docs/event-contract-tooling.md`.
+- Removed the owned clean clone, the layout diagnostic clone, and all throwaway smoke programs
+  and their outputs. No database, plugin, live-source, ingestion, or durable-state proof is claimed.
 
 ## Workflow follow-up
 

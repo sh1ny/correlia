@@ -80,3 +80,24 @@ locked standard annotations, and pub for Dart dependencies. After those caches
 are warm, generation and checking require no network access. The Node modules
 are build-time only and live in the ignored
 `tool/schema_validation/node_modules/` directory.
+
+For a deliberately disconnected Linux check, use Go's documented
+[filesystem module proxy](https://go.dev/ref/mod#environment-variables) over the warmed download cache:
+
+```sh
+GOPROXY="file://$(mise exec -- go env GOMODCACHE)/cache/download" \
+  mise exec -- unshare --user --map-current-user --keep-caps --net -- \
+  sh -c 'ip link set lo up && exec mise run check'
+```
+
+Unlike `GOPROXY=off`, this supplies cached version/deprecation metadata required by versioned `go run`.
+Checksum verification remains enabled. Missing cached dependencies fail rather than reaching a network
+fallback. The private network namespace has only loopback enabled for the Flutter test harness's
+local WebSocket IPC; it has no external interface or route. External network access is disabled for
+the complete gate, not just the generators.
+
+A checkout can invalidate generated pub resolution metadata without changing lockfile bytes. If SDK
+bootstrap still attempts an advisory refresh, remove only the generated `.dart_tool/package_config.json`,
+then run `mise exec -- dart pub get --offline` from the workspace root. Rebuilding this cache resolved
+the pinned SDK's bootstrap failure during the clean-workspace proof; it did not change package mappings
+or dependency versions. Do not alter the committed lockfile or bypass test execution to obtain a pass.
