@@ -1,12 +1,13 @@
 # Project-scoped Codex config (loaded for trusted projects).
-# Dart MCP server from the mise-pinned Flutter SDK. --force-roots-fallback is
-# needed because Codex does not send MCP roots.
+# Dart MCP server: `mise exec -- dart` resolves to this project's pinned Flutter
+# SDK, never a global dart. `cli` and `flutter_app_lifecycle` are opt-in tool
+# categories. --force-roots-fallback is needed because Codex does not send MCP roots.
 # Serverpod MCP server: the pinned serverpod_cli (a dev dependency of
 # correlia_server), run from that package so it serves this server.
 
 [mcp_servers.dart]
 command = "mise"
-args = ["exec", "--", "bash", "-c", "set -e; sdk=$(mise where flutter); dart_sdk=\"$sdk/bin/cache/dart-sdk\"; export DART_DATA_HOME=\"$PWD/.dart_tool/dart-data\"; exec \"$dart_sdk/bin/dart\" mcp-server --dart-sdk \"$dart_sdk\" --flutter-sdk \"$sdk\" --force-roots-fallback"]
+args = ["exec", "--", "dart", "mcp-server", "--enable", "cli", "--enable", "flutter_app_lifecycle", "--force-roots-fallback"]
 startup_timeout_sec = 120
 
 [mcp_servers.serverpod]
