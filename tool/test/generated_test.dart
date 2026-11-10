@@ -30,19 +30,25 @@ Future<Directory> _copyOfRepository(Directory parent) async {
     ['add', '-A'],
     [
       '-c',
-      'user.name=t',
+      'user.name=Nikolay Bochev',
       '-c',
-      'user.email=t@example.invalid',
+      'user.email=309868+sh1ny@users.noreply.github.com',
       'commit',
       '-q',
       '-m',
-      'copy',
+      'copy\n\nCo-authored-by: KintsugiBot <296966193+KintsugiBot@users.noreply.github.com>',
     ],
   ]) {
     final result = await Process.run(
       'git',
       args,
       workingDirectory: copy.path,
+      environment: {
+        'GIT_AUTHOR_NAME': 'Nikolay Bochev',
+        'GIT_AUTHOR_EMAIL': '309868+sh1ny@users.noreply.github.com',
+        'GIT_COMMITTER_NAME': 'Nikolay Bochev',
+        'GIT_COMMITTER_EMAIL': '309868+sh1ny@users.noreply.github.com',
+      },
     );
     expect(result.exitCode, 0, reason: '${result.stderr}');
   }

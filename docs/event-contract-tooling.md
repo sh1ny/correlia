@@ -61,6 +61,10 @@ step after dependency changes. The analysis and check tasks use Flutter's `--no-
 that resolved workspace instead of refreshing pub dependencies or advisories during verification.
 `doctor` inspects the resolved Serverpod CLI entry point with its machine-oriented `--version` flag,
 without a package refresh or CLI update check.
+The Serverpod generated-code check resolves its isolated workspace with offline pub, verifies the
+lockfile versions, then executes that resolved CLI entry point directly. Pure code generation needs
+no native assets; invoking `dart run` there would otherwise download unrelated transitive CLI native
+libraries into every disposable workspace. No generator, comparison, or drift check is skipped.
 
 `mise run proto`, `mise run proto:check` and `mise run check` depend on
 `proto:setup`. It runs the locked npm installation with the prefer-offline,

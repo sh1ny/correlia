@@ -14,3 +14,5 @@
   refreshes and CLI update checks during offline `doctor` runs.
 - Skip Flutter's implicit pub refresh in analysis and check tasks; resolve workspace dependencies
   explicitly before running the warmed-cache gate without network access.
+- Run the resolved Serverpod generator directly after offline scratch resolution, avoiding unrelated
+  native-hook downloads while retaining pinned versions and complete generated-output comparisons.

@@ -1,5 +1,6 @@
-import 'dart:convert';
 import 'dart:io';
+
+import 'resolved_package.dart';
 
 /// A tool found on this machine: where it lives and the version it reports.
 class ResolvedTool {
@@ -56,7 +57,7 @@ class ProcessToolResolver implements ToolResolver {
 
   Future<ResolvedTool?> _serverpodCli() async {
     final dart = _onPath('dart');
-    final path = _pubPackagePath('serverpod_cli');
+    final path = resolvedPackagePath(repoRoot, 'serverpod_cli');
     if (dart == null || path == null) return null;
     // Version inspection must not refresh pub dependencies or check for updates.
     // Use the resolved entry point; --version exits before CLI startup checks.
@@ -79,25 +80,6 @@ class ProcessToolResolver implements ToolResolver {
       if (dir.isEmpty) continue;
       final candidate = '$dir/$name';
       if (FileSystemEntity.isFileSync(candidate)) return candidate;
-    }
-    return null;
-  }
-
-  String? _pubPackagePath(String package) {
-    final config = File('${repoRoot.path}/.dart_tool/package_config.json');
-    if (!config.existsSync()) return null;
-    final decoded = jsonDecode(config.readAsStringSync());
-    if (decoded case {'packages': final List<Object?> packages}) {
-      for (final entry in packages) {
-        if (entry case {
-          'name': final String name,
-          'rootUri': final String uri,
-        } when name == package) {
-          return Uri.parse(uri).isAbsolute
-              ? Uri.parse(uri).toFilePath()
-              : config.parent.uri.resolve(uri).toFilePath();
-        }
-      }
     }
     return null;
   }

@@ -3,6 +3,8 @@ import 'dart:typed_data';
 
 import 'package:args/command_runner.dart';
 
+import 'resolved_package.dart';
+
 /// The result of running one process: its exit code and combined output.
 typedef ProcessOutcome = ({int exit, String output});
 
@@ -151,9 +153,18 @@ class GeneratedCommand extends Command<int> {
         return 1;
       }
 
+      final cli = resolvedPackagePath(workspace, 'serverpod_cli');
+      if (cli == null) {
+        err.writeln(
+          'FAIL serverpod_cli is missing from the resolved workspace',
+        );
+        return 1;
+      }
+      // Code generation needs no native assets. dart run would download CLI
+      // transitive native libraries into this disposable workspace on every run.
       final generate = await launch(dartExecutable, [
-        'run',
-        'serverpod_cli',
+        '--packages=${workspace.path}/.dart_tool/package_config.json',
+        '$cli/bin/serverpod_cli.dart',
         'generate',
       ], server);
       if (generate.exit != 0) {
