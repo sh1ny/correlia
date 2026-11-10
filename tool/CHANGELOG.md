@@ -10,3 +10,5 @@
   8.17.1 and ajv-formats 3.0.1.
 - Fix `doctor` selecting Serverpod's update notification instead of its installed-version line;
   an update banner alone is not version evidence.
+- Inspect the resolved Serverpod CLI entry point with `--version`, avoiding implicit pub dependency
+  refreshes and CLI update checks during offline `doctor` runs.

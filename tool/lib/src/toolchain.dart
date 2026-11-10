@@ -58,9 +58,15 @@ class ProcessToolResolver implements ToolResolver {
     final dart = _onPath('dart');
     final path = _pubPackagePath('serverpod_cli');
     if (dart == null || path == null) return null;
+    // Version inspection must not refresh pub dependencies or check for updates.
+    // Use the resolved entry point; --version exits before CLI startup checks.
     final version = await _versionOf(
       dart,
-      ['run', 'serverpod_cli', 'version'],
+      [
+        '--packages=${repoRoot.path}/.dart_tool/package_config.json',
+        '$path/bin/serverpod_cli.dart',
+        '--version',
+      ],
       workingDirectory: '${repoRoot.path}/correlia_server',
       pattern: _serverpodVersion,
     );
