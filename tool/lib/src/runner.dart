@@ -5,6 +5,7 @@ import 'package:args/command_runner.dart';
 import 'doctor.dart';
 import 'generated_command.dart';
 import 'pins.dart';
+import 'proto_command.dart';
 import 'setup.dart';
 import 'test_command.dart';
 import 'toolchain.dart';
@@ -48,6 +49,26 @@ CommandRunner<int> buildRunner({
         packageDirectory: Directory('${repoRoot.path}/correlia_server'),
         launch: launchDartTest,
         err: err,
+      ),
+    )
+    ..addCommand(
+      ProtoCommand(
+        repoRoot: repoRoot,
+        dartExecutable: Platform.resolvedExecutable,
+        launch: runBoundedProcess,
+        out: out,
+        err: err,
+        write: true,
+      ),
+    )
+    ..addCommand(
+      ProtoCommand(
+        repoRoot: repoRoot,
+        dartExecutable: Platform.resolvedExecutable,
+        launch: runBoundedProcess,
+        out: out,
+        err: err,
+        write: false,
       ),
     );
 }

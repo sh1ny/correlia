@@ -1,0 +1,68 @@
+{
+  "cases": [
+    {
+      "name": "canonical payload is schema valid",
+      "path": "valid/canonical-payload.json",
+      "valid": true
+    },
+    {
+      "name": "payload constraints reject invalid values",
+      "path": "invalid/summary-too-long.json",
+      "valid": false,
+      "errorPath": "/summary"
+    },
+    {
+      "name": "valid source-kind token",
+      "path": "valid/source-kind.json",
+      "valid": true
+    },
+    {
+      "name": "valid substring does not validate the whole token",
+      "path": "invalid/source-kind-substring.json",
+      "valid": false,
+      "errorPath": "/observer/source_kind"
+    },
+    {
+      "name": "missing required field",
+      "path": "invalid/missing-required.json",
+      "valid": false,
+      "errorPath": "/"
+    },
+    {
+      "name": "undeclared alias",
+      "path": "invalid/undeclared-alias.json",
+      "valid": false,
+      "errorPath": "/"
+    },
+    {
+      "name": "invalid timestamp",
+      "path": "invalid/invalid-timestamp.json",
+      "valid": false,
+      "errorPath": "/observed_at"
+    },
+    {
+      "name": "map entry cap",
+      "path": "invalid/map-too-many.json",
+      "valid": false,
+      "errorPath": "/labels"
+    },
+    {
+      "name": "map key cap",
+      "path": "invalid/map-key-too-long.json",
+      "valid": false,
+      "errorPath": "/labels"
+    },
+    {
+      "name": "map value cap",
+      "path": "invalid/map-value-too-long.json",
+      "valid": false,
+      "errorPath": "/labels/key"
+    },
+    {
+      "name": "base64 data",
+      "path": "invalid/invalid-base64.json",
+      "valid": false,
+      "errorPath": "/observation_key"
+    }
+  ]
+}

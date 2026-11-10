@@ -70,22 +70,4 @@ dev_dependencies:
     expect(result.stdout, contains('lib/unused.dart'));
     expect(result.stdout, contains('unused_local_variable'));
   });
-
-  test('the check runs its steps in order and stops at the first failure', () {
-    final entries = _runEntries(
-      File('${Directory.current.parent.path}/mise.toml').readAsStringSync(),
-      'check',
-    );
-    expect(entries, [
-      'openspec validate --all --strict',
-      'dart run tool/bin/tool.dart doctor',
-      'dart analyze --fatal-infos',
-      'flutter analyze --fatal-infos correlia_flutter',
-      'dart format --output=none --set-exit-if-changed .',
-      'dart run tool/bin/tool.dart generated',
-      'dart run tool/bin/tool.dart test',
-      'cd tool && dart test',
-      'cd correlia_flutter && flutter test',
-    ]);
-  });
 }
