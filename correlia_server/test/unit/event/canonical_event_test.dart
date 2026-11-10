@@ -433,6 +433,90 @@ void main() {
     );
   });
 
+  test('Binary varints cannot overflow their 64-bit wire domain', () {
+    final tooWideOne = [0x81, ...List<int>.filled(8, 0x80), 0x02];
+    final tooWideZero = [0x80, ...List<int>.filled(8, 0x80), 0x02];
+    final tooWideThree = [0x83, ...List<int>.filled(8, 0x80), 0x02];
+    final original = CanonicalEvent.fromJson(_payload()).toBuffer();
+    final unknowns = [
+      0xa0,
+      0x06,
+      ...List<int>.filled(9, 0xff),
+      0x01,
+      0xa9,
+      0x06,
+      0x80,
+      0xff,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      0xb2,
+      0x06,
+      2,
+      0xff,
+      0x80,
+      0xbd,
+      0x06,
+      0x80,
+      0xff,
+      0x00,
+      0x7f,
+      0xc3,
+      0x06,
+      0x08,
+      0x7b,
+      0xc4,
+      0x06,
+    ];
+    // Unknown varint/fixed64/bytes/fixed32/group fields must not desynchronize
+    // the raw-width guard before a subsequent known field.
+    final extended = CanonicalEvent.fromBuffer(
+      Uint8List.fromList([
+        ...original,
+        ...unknowns,
+        0x5a,
+        4,
+        0x74,
+        0x61,
+        0x69,
+        0x6c,
+      ]),
+      sourceDataschema: 'urn:correlia:schema:event:1.1',
+    );
+    expect(extended.summary, 'tail');
+    expect(CanonicalEvent.fromBuffer(extended.toBuffer()).summary, 'tail');
+    final accepted = <String>[];
+    for (final (name, wire) in [
+      ('raw.size', [0xca, 0x01, 11, 0x18, ...tooWideOne]),
+      ('pipeline.generation', [0xd2, 0x01, 11, 0x10, ...tooWideZero]),
+      ('kind', [0x28, ...tooWideOne]),
+      ('status', [0x30, ...tooWideOne]),
+      ('severity', [0x38, ...tooWideThree]),
+      ('observed_at.nanos', [0xba, 0x01, 11, 0x10, ...tooWideOne]),
+    ]) {
+      try {
+        CanonicalEvent.fromBuffer(
+          Uint8List.fromList([
+            ...extended.toBuffer(),
+            ...wire,
+          ]),
+        );
+        accepted.add(name);
+      } on EventFieldError catch (error) {
+        expect(error.path, 'event', reason: name);
+        expect(error.code, 'out_of_range', reason: name);
+      }
+    }
+    expect(
+      accepted,
+      isEmpty,
+      reason: 'The tenth varint byte may contain only bit zero',
+    );
+  });
+
   test('Malformed known protobuf fields fail with field errors', () {
     final original = CanonicalEvent.fromJson(_payload()).toBuffer();
     for (final (path, tag) in [

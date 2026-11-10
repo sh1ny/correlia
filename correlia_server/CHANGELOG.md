@@ -12,6 +12,8 @@
 - Reject overflowing binary int32/uint32 wire values before protobuf narrowing can turn them into
   valid raw metadata, generations, enums, or timestamp nanos.
 - Count only non-null CloudEvents extension attributes against the 32-attribute allowance.
+- Reject varints wider than 64 bits before Int64 conversion, retaining aligned decoding and native
+  unknown-field handling across every wire type.
 
 ## 1.0.0
 

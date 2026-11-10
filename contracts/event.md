@@ -44,6 +44,10 @@ not a claim that binary input passed JSON Schema. Known fields are always valida
 seconds/nanos and unknown enum numbers retained by protobuf as native unknown fields.
 Binary int32/uint32 values are decoded at full wire width and range-checked before narrowing, so
 overflow cannot turn a malformed raw size, generation, enum, or timestamp nanos into a valid value.
+The reader checks original varint bytes before Int64 conversion as well: a tenth byte may carry only
+bit zero. This prevents values wider than 64 bits from wrapping before the 32-bit range checks.
+The adapter tracks consumption across all wire types while the standard runtime still decodes
+messages and retains unknown fields.
 
 The wrapper owns a frozen generated message; no mutable generated API escapes. `toBuffer` preserves
 native unknown field numbers/wire values for a newer parser, without promising byte-for-byte field

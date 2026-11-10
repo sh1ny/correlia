@@ -2,7 +2,7 @@
 
 ## Test map
 
-Green rows reflect passing real-boundary checks, not planned results. Tooling's missing-behavior red was reconstructed from main against the new tests (missing ProtoCommand/runBoundedProcess); its original pre-implementation run was not captured. Subsequent integration failures were fixed before green verification. Identity tests first failed against the missing identity API. Wire tests first failed against the missing public event API. Server tests are untagged fast tests. All mapped event cases now pass in the 38-test event suite; the shared schema/runtime patterns also pass the pinned 12-case Ajv fixture set. Additional regressions reject invalid binary UTF-8, overflowing 32-bit wire values, closed enum numbers, timestamp nanos, and envelope-inclusive size overflow before acceptance, and prove null extensions do not consume the non-null attribute allowance.
+Green rows reflect passing real-boundary checks, not planned results. Tooling's missing-behavior red was reconstructed from main against the new tests (missing ProtoCommand/runBoundedProcess); its original pre-implementation run was not captured. Subsequent integration failures were fixed before green verification. Identity tests first failed against the missing identity API. Wire tests first failed against the missing public event API. Server tests are untagged fast tests. All mapped event cases now pass in the 39-test event suite; the shared schema/runtime patterns also pass the pinned 12-case Ajv fixture set. Additional regressions reject invalid binary UTF-8, overflowing 32-bit and 64-bit wire values, closed enum numbers, timestamp nanos, and envelope-inclusive size overflow before acceptance, and prove null extensions do not consume the non-null attribute allowance.
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
@@ -112,6 +112,17 @@ Skills: dart-use-pattern-matching, dart-write-documentation, dart-run-static-ana
 - Both regressions passed after correction; all 38 event tests and handwritten server analysis passed.
   The full online/disconnected gate totals above precede these two regressions; the affected event
   contract suite was rerun for this correction.
+
+### Pre-ship corrections, round 2
+
+- Codex F1 (P1): protobuf's Int64 decoder could itself mask bits above 64. A failing regression
+  demonstrated the same six known-field bypasses using a tenth varint byte of `02`.
+- The reader now validates original varint width before conversion. It tracks standard-reader
+  consumption across length-delimited, varint, fixed32/fixed64 and group fields without copying
+  the input or replacing protobuf message/unknown-field decoding. The regression also parses a
+  known field after every unknown wire type and re-encodes the resulting event.
+- All 39 event tests and server analysis pass. The existing fixnum 1.1.1 version is now an explicit
+  dependency for the reader's typed Int64 overrides; no dependency version was upgraded.
 
 ## Workflow follow-up
 

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:fixnum/fixnum.dart';
 import 'package:protobuf/protobuf.dart' as protobuf;
 
 import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart'
@@ -748,26 +749,126 @@ Object? _typedJson(Object? value) {
 }
 
 final class _StrictEventReader extends protobuf.CodedBufferReader {
-  _StrictEventReader(Uint8List super.bytes) : super(sizeLimit: _maxEventBytes);
+  _StrictEventReader(Uint8List super.bytes)
+    : _wire = bytes,
+      super(sizeLimit: _maxEventBytes);
+
+  final Uint8List _wire;
+  int _position = 0;
+  int _lastInt32 = 0;
+
+  int _varintLength() {
+    for (var n = 0; n < 10; n++) {
+      if (_position + n >= _wire.length) {
+        throw const EventFieldError('event', 'invalid_protobuf');
+      }
+      final byte = _wire[_position + n];
+      if (n == 9 && (byte & 0xfe) != 0) {
+        throw const EventFieldError('event', 'out_of_range');
+      }
+      if ((byte & 0x80) == 0) return n + 1;
+    }
+    throw const EventFieldError('event', 'invalid_protobuf');
+  }
+
+  @override
+  Int64 readInt64() {
+    final length = _varintLength();
+    final value = super.readInt64();
+    _position += length;
+    return value;
+  }
+
+  @override
+  Int64 readUint64() {
+    final length = _varintLength();
+    final value = super.readUint64();
+    _position += length;
+    return value;
+  }
 
   // The standard 32-bit readers mask overflowing varints. Decode the wire's
   // full 64-bit value first so enums, nanos, and uint32 fields cannot wrap.
   @override
   int readInt32() {
-    final value = super.readInt64().toInt();
+    final value = readInt64().toInt();
     if (value < -2147483648 || value > 2147483647) {
+      throw const EventFieldError('event', 'out_of_range');
+    }
+    _lastInt32 = value;
+    return value;
+  }
+
+  @override
+  int readUint32() {
+    final value = readUint64().toInt();
+    if (value < 0 || value > 4294967295) {
       throw const EventFieldError('event', 'out_of_range');
     }
     return value;
   }
 
   @override
-  int readUint32() {
-    final value = super.readUint64().toInt();
-    if (value < 0 || value > 4294967295) {
-      throw const EventFieldError('event', 'out_of_range');
-    }
+  bool readBool() {
+    final length = _varintLength();
+    final value = super.readBool();
+    _position += length;
     return value;
+  }
+
+  @override
+  Uint8List readBytesAsView() {
+    final value = super.readBytesAsView();
+    _position += value.length;
+    return value;
+  }
+
+  @override
+  int readFixed32() {
+    final value = super.readFixed32();
+    _position += 4;
+    return value;
+  }
+
+  @override
+  int readSfixed32() {
+    final value = super.readSfixed32();
+    _position += 4;
+    return value;
+  }
+
+  @override
+  Int64 readSfixed64() {
+    final value = super.readSfixed64();
+    _position += 8;
+    return value;
+  }
+
+  @override
+  double readFloat() {
+    final value = super.readFloat();
+    _position += 4;
+    return value;
+  }
+
+  @override
+  double readDouble() {
+    final value = super.readDouble();
+    _position += 8;
+    return value;
+  }
+
+  @override
+  bool skipField(int tag) {
+    final skipped = super.skipField(tag);
+    // This branch skips bytes internally rather than through a public read.
+    if (skipped && (tag & 7) == 2) {
+      if (_lastInt32 < 0) {
+        throw const EventFieldError('event', 'invalid_protobuf');
+      }
+      _position += _lastInt32;
+    }
+    return skipped;
   }
 
   @override
