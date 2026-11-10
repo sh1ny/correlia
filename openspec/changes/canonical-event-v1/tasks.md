@@ -48,7 +48,7 @@ All rows are planned red: implementation tests have not been run. Apply demonstr
 
 ## 1. Record the simplified contract decisions
 
-- [ ] 1.1 Write the next additive ADR for exact identity bytes/namespace, standard annotation/schema tools, strict ProtoJSON, parse-only future-minor handling, optional binary metadata and the single-baseline policy. Clarify full boundary validation before acceptance, transport-specific support above 64 KiB and re-planning before v1.1 publication. Update architecture index and contract summary without editing accepted ADRs. Verify alignment with design S1–S3/D1–D8 and that the index resolves to the new ADR.
+- [x] 1.1 Write the next additive ADR for exact identity bytes/namespace, standard annotation/schema tools, strict ProtoJSON, parse-only future-minor handling, optional binary metadata and the single-baseline policy. Clarify full boundary validation before acceptance, transport-specific support above 64 KiB and re-planning before v1.1 publication. Update architecture index and contract summary without editing accepted ADRs. Verify alignment with design S1–S3/D1–D8 and that the index resolves to the new ADR.
 
 ## 2. Generate and gate the annotated payload contract
 
