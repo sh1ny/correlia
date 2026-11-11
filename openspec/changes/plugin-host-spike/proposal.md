@@ -91,3 +91,5 @@ four-criterion evidence. Runtime passes do not approve owner-gated adoption.
 - Reproducible independent gate reports preserve real capability failures and
   partial handshake facts; explicitly selected 0600 plaintext diagnostics remain
   distinct from native TLS and never grant fallback or production approval.
+- A concurrent terminal stop fails a waiting delivery drain; clearing discarded
+  pending work can no longer be mistaken for acknowledged completion.

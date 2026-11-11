@@ -195,8 +195,8 @@ void main() {
         expect(delivery.pendingEventCount, 1);
         final blocked = delivery.admit(pluginDeliveryEvent(3));
         final blockedCheck = expectLater(blocked, throwsStateError);
-        await delivery.stop();
-        await blockedCheck;
+        final drainingCheck = expectLater(delivery.drain(), throwsStateError);
+        await Future.wait([delivery.stop(), blockedCheck, drainingCheck]);
         expect(acknowledged, isEmpty);
       } finally {
         await delivery.stop();

@@ -438,11 +438,13 @@ final class PluginDelivery {
   }
 
   /// Waits until all admitted events are acknowledged.
+  ///
+  /// Throws if delivery fails or is stopped, including a concurrent stop.
   Future<void> drain() async {
-    if (_failure != null) throw _failure!;
-    while (_pending.isNotEmpty) {
+    while (true) {
       if (_failure != null) throw _failure!;
       if (_stopped) throw StateError('Delivery stopped');
+      if (_pending.isEmpty) return;
       final waiter = Completer<void>();
       _changed.add(waiter);
       await waiter.future;

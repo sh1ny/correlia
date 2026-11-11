@@ -8,6 +8,9 @@ pending**: neither these results nor explicit diagnostics approve D24, the
 interpretation of ADR 0020 criterion 2, or the native runtime dependency.
 The final workspace gate also passed, including fatal-info analysis, generated
 drift checks, canonical-event coverage, tool tests and the Flutter widget test.
+These full-tier/workspace figures describe group-5 base commit `3c633d9`.
+The explicitly authorized pre-ship follow-up has separate focused verification
+recorded below.
 
 This is an experimental output probe, not a stable plugin SDK, production
 supervisor, durable outbox or host-crash delivery guarantee. The built-in Dart
@@ -185,7 +188,7 @@ nonblocking; real teardown futures are awaited, test evidence uses
 `stdout.writeln`, and multiline guards have braces. No lint was ignored or
 assertion weakened. Formatter checked all 11 owned fix-scope files with zero
 further changes; scoped fix and Serverpod hot reload completed. Both final mise
-tasks passed after those fixes; no further code change followed their results.
+tasks passed for group-5 base `3c633d9`; follow-up verification is recorded below.
 
 ### Final workspace verification
 
@@ -242,3 +245,31 @@ over in-process OpenSSL satisfies criterion 2 with its native dependency, then
 tick **5.5** in `tasks.md`. Otherwise the required alternative/superseding ADR
 must be explicitly decided. Tests never grant this decision. Nothing is pushed,
 archived, merged or released by this implementation step.
+
+## User-authorized pre-ship F1 follow-up
+
+The first independent pre-ship review of `3c633d9` had no P0/P1 findings and one
+P2: a concurrent stop could clear pending work before `drain` rechecked its
+terminal state, causing successful drain completion without acknowledgements.
+The owner explicitly requested fixing F1 and repeating independent review.
+That permission does not approve transport/adoption task 5.5.
+
+The existing real-process `bounded admission supports cancellation and stop
+without transfer` case was extended while its first nonempty batch was held
+unacknowledged at the receiver barrier. A concurrent drain was required to fail
+with `StateError` when stop discarded that work. Against the original code it
+failed behaviorally: expected a thrown `StateError`, but the future emitted
+`null`. No compile/format failure was counted as red.
+
+`drain` now checks failure and terminal stop at the top of every iteration,
+before treating an empty pending map as success. Normal acknowledged draining,
+progress failure and explicit restart semantics remain unchanged. The public
+doc comment, API documentation and Release Notes describe the stop behavior.
+
+Parent verification after the fix: **all 14 delivery tests passed** in 15
+seconds, including the regression and the 10,000-event reconciliation. Workspace
+`dart analyze --fatal-infos` returned `No issues found!`; scoped fix reported
+nothing to fix; both changed Dart files formatted with zero changes. Serverpod
+hot reload completed, Release Notes validation passed and strict change
+validation passed. The new head's independent review is recorded separately by
+Specwright rather than rewriting the already-reviewed head with a receipt.

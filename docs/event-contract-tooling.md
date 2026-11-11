@@ -177,6 +177,9 @@ not on admission or sending. `PluginDeliveryCancellation` cancels a waiting
 admission before ownership transfers; it does not retract admitted work.
 `stop` rejects/wakes waiting admissions, errors remaining receipts and discards
 the explicitly stopped owner's in-memory queue.
+`drain` checks failure/stop before treating an empty queue as acknowledged;
+stopping with outstanding work errors a waiting drain rather than reporting
+discarded events as delivered.
 
 Wrong-epoch/unknown/repeated acknowledgements from the live stream fail that
 generation without false completion or credits. Callbacks belonging to a
