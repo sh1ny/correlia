@@ -98,10 +98,10 @@ run in every role unless they are switched off:
 | `alerts` (state per fingerprint, with ordering fence and `last_observed_at`) | `StateMutationService` | Firing: indefinite. Resolved: kept as tombstone at least the lateness horizon (default 7 d) | **Authoritative, never rebuilt** from events (ADR 0017) | Postgres |
 | `incidents`, `incident_alerts`, `threshold_contributions`, `incident_transitions` | `StateMutationService` only (pipeline, operator actions, expiry/reminder jobs, merge/split all call it) | Indefinite (archival policy later) | Not rebuilt; the activity ledger explains every change | Postgres |
 | `activity` ledger (also the change feed, cursor `(txid, id)`) | `StateMutationService`, endpoints | Indefinite (feed retention configurable; older cursors get `cursor_expired`) | Append-only | Postgres |
-| Configuration versions (rules of every kind, source mappings, routing, plugin config) | Endpoints (console), provisioning loader | Versioned forever | Immutable; activated atomically, rollback = re-activate (ADR 0008) | Postgres; YAML for provisioned rules |
-| Source instances and namespaces | Endpoints (admin) | Until removed | n/a | Postgres (ADR 0019) |
-| `outbox`, `delivery_attempts` | Pipeline and `StateMutationService` (insert), relays (update) | Delivered: retention (7 d). Dead-lettered: dead-letter retention (14 d), expiry recorded in the ledger | Delivery replay (byte-identical) | Postgres |
-| Plugin configs and secrets | Endpoints (admin) | Until changed | n/a | Postgres (secrets encrypted at rest) |
+| Configuration versions (rules of every kind, source mappings, routing, plugin config) | M1 ingest publication repository; later endpoints and provisioning loader | Versioned forever | Immutable; M1 activation requires increasing revision; revert by publishing earlier content at a higher revision | Postgres; M1 bootstrap files are inputs |
+| Source instances and namespaces | M1 ingest publication repository; later endpoints (admin) | Until removed | Admission state atomically follows the active snapshot | Postgres (ADR 0024) |
+| `outbox`, `delivery_attempts` | Pipeline and `StateMutationService` (insert), relays (update) | M1 retains all rows; later retention applies to terminal work | Delivery replay (byte-identical) is later work | Postgres |
+| Plugin configs and secrets | M1 publication repository owns signing-key commitments; operator owns secret bytes in a local file; later endpoints own plugin configuration | Until changed | New reference for key rotation; M1 does not store signing secrets in Postgres | Postgres commitments and operator-owned secret file |
 | Plugin process state | Plugin host | Process lifetime | Restart and re-handshake | Memory; status mirrored to Postgres |
 | Console view state | Console | Session | Re-fetch after a stream invalidation | Browser memory |
 
@@ -141,12 +141,12 @@ run in every role unless they are switched off:
   malformed input (bad timestamp, naive datetime, unknown enum, oversize field) is a 400/422 with a field
   error (`application/problem+json`), never a 500 (legacy B7).
 - **Identities:** source, transport delivery, observation (event id) and alert (fingerprint), with one
-  canonical encoding (ADRs 0019, [0021](../docs/adr/0021-canonical-event-v1-contract.md)). The fixed UUIDv5
+  canonical encoding (ADRs [0024](../docs/adr/0024-identities-and-upstream-evidence.md), [0021](../docs/adr/0021-canonical-event-v1-contract.md)). The fixed UUIDv5
   namespace is `f36aac0f-16fa-46db-951b-bb578b323aed`, distinct from operator alert namespace strings.
 - **Change feed:** `(txid, id)` cursors over the activity ledger with the xmin watermark (ADR 0017).
-- **Database:** Serverpod-managed migrations by default. A table Serverpod models cannot express sets
-  `managedMigration: false` in its model and is created by Correlia's own **schema step** (owner,
-  2026-11-03, design review round 9). Serverpod builds a fresh database from the latest `definition.sql`
+- **Database:** Serverpod-managed migrations by default. SQL-owned exception tables that require composite
+  identities have no generated table model: Serverpod requires a scalar model id. Correlia's own **schema step**
+  creates them. Serverpod builds a fresh database from the latest `definition.sql`
   alone, which leaves out unmanaged tables, so SQL added only to a `migration.sql` would exist after an
   upgrade but never on a fresh install. The schema step:
   - is an ordered set of forward-only SQL scripts in the server package, each applied once and recorded in
@@ -157,13 +157,17 @@ run in every role unless they are switched off:
   - owns only the listed exception tables, which managed tables do not reference by foreign key.
 
   Each exception is a reviewed one listed here:
-  - `activity`: the `txid xid8 DEFAULT pg_current_xact_id()` column (ADR 0017);
-  - `events`, `raw_inbox`, `outbox`: time partitioning, which needs the partition key in every unique index
-    (ADR 0016).
+  - `activity`: the `txid xid8 DEFAULT pg_current_xact_id()` column (ADR 0017; future work);
+  - `events`, `raw_inbox`, `outbox`: SQL-owned time-qualified composite primary keys, initially ordinary
+    tables, with partition maintenance deferred to M2 (ADR 0016).
 
   Every migration is forward-only and tested against a populated database. Serverpod repair migrations try
-  to drop tables outside the migration system, so a repair migration is edited to keep the exceptions before
-  it is used.
+  to drop tables outside the migration system. Review every repair and remove operations against SQL-owned
+  tables and their indexes/constraints before applying it; see `docs/ingest-pipeline.md`.
+- **M1 ingest configuration:** operator-owned JSON bootstrap files publish immutable public snapshots
+  and source token digests atomically. Revisions only advance, including deliberate reverts; signing
+  secrets stay in a separate process-owned file, with immutable digest commitments in Postgres. Pending
+  work pins its snapshot. M2 provisioning and encrypted database secrets are not implied by this boundary.
 - **Rule documents:** a versioned JSON/YAML format with a `language` field (ADR 0008).
 
 ## Resource bounds and failure visibility
@@ -180,8 +184,8 @@ run in every role unless they are switched off:
 | Observation dedup | `observation_keys` kept until max(first seen, source time) + 7 d + 5 min; source time at most 24 h ahead | Pruned by retention; later retries are `late`; far-future observations quarantined `future_dated` | n/a | `duplicate_observation` and `future_dated` counters |
 | Dead letters | Retention 14 d (configurable) | Expired without replay: discarded, count written to the ledger | n/a | Ledger entry; console dead-letter view |
 | Change feed | Watermark lag bounded by the transaction timeout | Feed waits for the watermark; wake-up pushed when it advances; 10 s safety pull | `cursor_expired` beyond feed retention, client re-snapshots | Metric: feed lag |
-| Ingest dedup | Window 10 min (configurable) | Older retries are new deliveries; event ids still dedupe them downstream (ADR 0019) | n/a | `duplicate` counter |
-| Outbox per output | Max attempts with exponential backoff | Moved to `outbox_dead` | Attempt record with error class | Console output health; dead-letter replay |
+| Ingest dedup | Window 10 min | Older retries are new deliveries; event ids still dedupe them downstream (ADR 0024) | n/a | M1 process-local duplicate counter, reset at restart |
+| Outbox per output | M1: at most 20 started attempts, exponential backoff capped at 300 s | Intent becomes dead in `outbox` | Durable attempt record with error class | SQL inspection; later console and replay |
 | Plugin process | Start timeout, health interval, crash budget | Circuit open: plugin `degraded` | Restart with backoff | Console plugin status; activity entry |
 | Tables over time | Retention per table, configurable (defaults: raw `done` 30 d, events 90 d, delivered outbox 7 d), only terminal rows (ADR 0016) | Partitions dropped only when they hold no unfinished row; otherwise eligible rows deleted | Partition job failure alarm | Health endpoint + console system page |
 | Batch jobs (retention, partition maintenance, dead-letter expiry, reprocess-apply) | Short transactions over bounded batches (ADR 0016) | The next batch waits for the next transaction | Job retries from its last committed batch | Metrics: batch duration, feed lag |
@@ -197,22 +201,22 @@ not only a future test. Scenario ids refer to `docs/plan/acceptance-scenarios.md
 | B2 insert/close race gives a 500 | One mutation service; group locks first, discover-lock-revalidate; unique index as backstop | ADR 0017 | COR-2, COR-9 |
 | B3 polling misses lifecycle changes | Change feed over the ledger with `(txid, id)` cursor and xmin watermark; entity versions | ADR 0017 | UI-1, UI-3 |
 | B4 wrong recovery counts | Mutation results report counts per effect | ADR 0017 | COR-4 |
-| B5 group key collisions | Structured group keys with length-prefixed canonical encoding | ADR 0017, 0019 | ID-1 |
-| B6 valid input fails later on length | One bounds contract end to end; identity hashed, display truncated, renders limited | ADR 0004, 0019 | ID-3 |
+| B5 group key collisions | Structured group keys with length-prefixed canonical encoding | ADR 0017, 0024 | ID-1 |
+| B6 valid input fails later on length | One bounds contract end to end; identity hashed, display truncated, renders limited | ADR 0004, 0024 | ID-3 |
 | B7 naive datetime gives a 500 | All malformed API input gives 400/422 problem+json | Boundaries above | ID-5 |
 | B8 empty registry skips validation | Atomic config versions validated against an explicit registry; empty is a registry | ADR 0008 | DUR-5 |
 | B9 converter promises atomicity it lacks | Excluded: no legacy config converter in scope (assumption 2) | Strategy | n/a |
 | B10 re-ack mixes first time and last actor | Ack = ownership; re-ack by another actor transfers; ledger keeps both | ADR 0017 | COR-8 |
 | B11 multiline subject suppresses email | Rendered fields folded and limited per channel | ADR 0004 | DUR-7 |
 | Future timestamps poison expiry | Effective source time clamped by skew allowance; expiry and windows use observed time | ADR 0017 | ORD-4 |
-| Cross-source recovery | Namespace in every fingerprint; sharing only by explicit operator choice | ADR 0019 | ID-2 |
-| Ambiguous fingerprint preimage | Canonical encoding | ADR 0019 | ID-4 |
-| Threshold meaning mixes samples and objects | Explicit counting policy per rule; observations counted by event id | ADR 0017, 0019 | COR-1 |
+| Cross-source recovery | Namespace in every fingerprint; sharing only by explicit operator choice | ADR 0024 | ID-2 |
+| Ambiguous fingerprint preimage | Canonical encoding | ADR 0024 | ID-4 |
+| Threshold meaning mixes samples and objects | Explicit counting policy per rule; observations counted by event id | ADR 0017, 0024 | COR-1 |
 | First crossing is not a successful notification | Notification intent is an outbox row committed with the crossing; retries and dead letters | ADR 0016, 0017 | DUR-6 |
 | Stale problem restores membership | Membership follows the fenced alert transition | ADR 0017 | ORD-2 |
 | Severity never downgrades | Current and peak severity shown separately | ADR 0017 | COR-3 |
 | Accepted work lost on crash (no outbox) | Raw inbox and transactional outbox; retention never deletes unfinished work | ADR 0016 | DUR-1, DUR-2 |
-| Retries replay effects (no idempotency) | Durable observation dedup before any state effect | ADR 0019 | ORD-5 |
+| Retries replay effects (no idempotency) | Durable observation dedup before any state effect | ADR 0024 | ORD-5 |
 
 ## In-force ADRs
 
@@ -230,7 +234,7 @@ Accepted ADRs only.
 | [0008](../docs/adr/0008-rule-language.md) | Matcher rule tree with in-memory and SQL evaluators, field catalog, atomic config versions; CEL later | none |
 | [0009](../docs/adr/0009-identity-and-access.md) | Serverpod auth (invite-only) for people, scoped tokens for machines; redaction | none |
 | [0018](../docs/adr/0018-nats-output-as-go-plugin.md) | NATS output as the first external plugin, in Go; exits on stdin close; no delivery order per alert | [0011](../docs/adr/0011-nats-output-as-go-plugin.md) |
-| [0019](../docs/adr/0019-identities.md) | Four identities (source, delivery, observation, alert); durable observation dedup; duplicates advance `last_observed_at` only | [0012](../docs/adr/0012-identities.md) |
+| [0024](../docs/adr/0024-identities-and-upstream-evidence.md) | Four identities and durable observation dedup; upstream fingerprint is extension evidence | [0019](../docs/adr/0019-identities.md) |
 | [0014](../docs/adr/0014-linux-first-platform.md) | Linux-first platform (owner, 2026-11-03): develop and test in WSL, CI on Linux, Windows not a target; embedded Postgres in tiers; never touch another Postgres | [0013](../docs/adr/0013-develop-and-test-in-wsl.md) |
 | [0021](../docs/adr/0021-canonical-event-v1-contract.md) | Additive v1 identity bytes/UUID namespace, strict wire and boundary validation, standard generation and single-baseline compatibility; parse-only future minors | none (clarifies 0004/0019) |
 | [0023](../docs/adr/0023-native-openssl-plugin-probe.md) | Restated unstable output probe and four independent runtime gates; in-process system OpenSSL 3/TLS 1.3/P-521 custom connector, authenticated-only public API, isolated diagnostics and bounded native/surviving-host ownership; D24, criterion-2 interpretation and production adoption stay owner-only | [0022](../docs/adr/0022-experimental-output-plugin-probe.md) |
@@ -244,6 +248,7 @@ Accepted ADRs only.
 | [0007](../docs/adr/0007-alert-and-incident-state-model.md) | [0017](../docs/adr/0017-alert-and-incident-state-model.md) |
 | [0011](../docs/adr/0011-nats-output-as-go-plugin.md) | [0018](../docs/adr/0018-nats-output-as-go-plugin.md) |
 | [0012](../docs/adr/0012-identities.md) | [0019](../docs/adr/0019-identities.md) |
+| [0019](../docs/adr/0019-identities.md) | [0024](../docs/adr/0024-identities-and-upstream-evidence.md) |
 | [0015](../docs/adr/0015-plugin-architecture-linux.md) | [0020](../docs/adr/0020-plugin-architecture.md) |
 | [0010](../docs/adr/0010-testing-strategy.md) | [0013](../docs/adr/0013-develop-and-test-in-wsl.md) |
 | [0013](../docs/adr/0013-develop-and-test-in-wsl.md) | [0014](../docs/adr/0014-linux-first-platform.md) |

@@ -59,3 +59,12 @@ Source: setting
 - **Reversal cost:** medium.
 - **Important:** yes — security and operator-visible setup.
 - **Chosen by:** agent.
+
+## Release Notes
+
+Establishes durable ingest schema ownership and clarifies upstream identity evidence.
+
+### Added
+
+- Forward-only SQL schema initialization after managed migrations, with composite-key inbox, event and outbox ownership and fresh/upgrade/failure coverage.
+- ADR 0024 clarifies that upstream Alertmanager fingerprints are extension evidence, without changing canonical identity bytes.
