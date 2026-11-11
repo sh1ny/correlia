@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'src/ingest/ingest_startup.dart';
 import 'src/generated/serverpod.dart';
 import 'src/runtime/process_options.dart';
 import 'src/runtime/console_subsystem.dart';
@@ -60,18 +59,17 @@ Future<void> run(List<String> args) async {
     watchStdinForEof(stdin, () => pod.shutdown());
   }
 
-  final ingest = IngestStartup(
-    pod: pod,
-    role: options.role,
-    runMode: options.runMode,
-    environment: environment,
-  );
-
   final runtime = RoleRuntime(
     role: options.role,
     registry: [
-      ingest,
-      ...buildSubsystemRegistry(),
+      ...buildSubsystemRegistry(
+        pod: pod,
+        role: options.role,
+        runMode: options.runMode,
+        environment: environment,
+        startup: startup,
+        log: log,
+      ),
       ConsoleSubsystem.forRunMode(options.runMode, environment, log: log),
       if (switches.stopProbe || switches.stopGate != null)
         _testStopHooks(switches, pod, log),

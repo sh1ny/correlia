@@ -1,6 +1,6 @@
 # Tasks
 
-No tracked implementation task is complete. The FULL design gate passed in review round 5, including the owner-approved D3 SQL-owned composite-key amendment. All groups use the project AGENTS.md Dart/Serverpod rules and applicable installed skills. Add behavioral tests before implementation, use typed constructor-injected fakes only at pure boundaries, and use independent non-rollback embedded-Postgres connections for concurrency proofs. Run tests through Dart MCP (or the project mise task fallback), with explicit db/e2e tags. Never edit generated test tools or generated code by hand.
+The FULL design gate passed in review round 5, including the owner-approved D3 SQL-owned composite-key amendment. Checkboxes and the test map below track implementation. All groups use the project AGENTS.md Dart/Serverpod rules and applicable installed skills. Add behavioral tests before implementation, use typed constructor-injected fakes only at pure boundaries, and use independent non-rollback embedded-Postgres connections for concurrency proofs. Run tests through Dart MCP (or the project mise task fallback), with explicit db/e2e tags. Never edit generated test tools or generated code by hand.
 
 ## Test map
 
@@ -37,8 +37,8 @@ All paths are relative to `correlia_server/`. These are planned tests, not execu
 | T27 | durable-pipeline: Durable observation deduplication and quarantine | ORD-5b rebatching and expired transport window | `test/db/pipeline_test.dart` | `ord_5b_rebatching_and_expired_transport_window` | green |
 | T28 | durable-pipeline: Durable observation deduplication and quarantine | Future quarantine does not poison dedup | `test/db/pipeline_test.dart` | `future_quarantine_does_not_poison_dedup` | green |
 | T29 | durable-pipeline: Durable observation deduplication and quarantine | Late observation evidence | `test/db/pipeline_test.dart` | `late_observation_evidence` | green |
-| T30 | durable-pipeline: Role scoped bounded lifecycle | Split roles and restart | `test/e2e/pipeline_lifecycle_e2e_test.dart` | `split_roles_and_restart` | red |
-| T31 | durable-pipeline: Role scoped bounded lifecycle | Shutdown during processing | `test/e2e/pipeline_lifecycle_e2e_test.dart` | `shutdown_during_processing` | red |
+| T30 | durable-pipeline: Role scoped bounded lifecycle | Split roles and restart | `test/e2e/pipeline_lifecycle_e2e_test.dart` | `split_roles_and_restart` | green |
+| T31 | durable-pipeline: Role scoped bounded lifecycle | Shutdown during processing | `test/e2e/pipeline_lifecycle_e2e_test.dart` | `shutdown_during_processing` | green |
 | T32 | output-delivery: Immutable routed delivery intent | Fanout with configuration change | `test/db/pipeline_routing_test.dart` | `fanout_with_configuration_change` | green |
 | T33 | output-delivery: Immutable routed delivery intent | Explicitly unrouted event | `test/db/pipeline_routing_test.dart` | `explicitly_unrouted_event` | green |
 | T34 | output-delivery: Fenced at least once delivery | DUR-2 restart after processing commit | `test/e2e/output_recovery_e2e_test.dart` | `dur_2_restart_after_processing_commit` | green |
@@ -50,7 +50,7 @@ All paths are relative to `correlia_server/`. These are planned tests, not execu
 | T40 | output-delivery: Signed structured webhook output | Redirect timeout and rejection | `test/e2e/output_delivery_e2e_test.dart` | `redirect_timeout_and_rejection` | green |
 | T41 | source-ingress: Credential safe request handling | Unconfigured ingress still protects token paths | `test/e2e/ingress_e2e_test.dart` | `unconfigured_ingress_still_protects_token_paths` | green |
 | T42 | source-ingress: Validated immutable bootstrap configuration | Stale bootstrap cannot revoke the rotation | `test/db/ingest_config_test.dart` | `stale_bootstrap_cannot_revoke_the_rotation` | green |
-| T43 | source-ingress: Validated immutable bootstrap configuration | Missing config with durable work | `test/e2e/pipeline_lifecycle_e2e_test.dart` | `missing_config_with_durable_work` | red |
+| T43 | source-ingress: Validated immutable bootstrap configuration | Missing config with durable work | `test/e2e/pipeline_lifecycle_e2e_test.dart` | `missing_config_with_durable_work` | green |
 | T44 | source-ingress: Validated immutable bootstrap configuration | Dead intent does not require signing material | `test/db/ingest_config_test.dart` | `dead_intent_does_not_require_signing_material` | green |
 | T45 | integration-alertmanager: Canonical identity from original labels | Empty selected identity | `test/unit/ingest/alertmanager_decoder_test.dart` | `empty_selected_identity` | green |
 | T46 | integration-alertmanager: Bounded explicit display and metadata mapping | Oversize identity label projection | `test/unit/ingest/alertmanager_decoder_test.dart` | `oversize_identity_label_projection` | green |
@@ -58,7 +58,7 @@ All paths are relative to `correlia_server/`. These are planned tests, not execu
 | T48 | output-delivery: Signing key availability before acquisition | Unloaded live signing reference | `test/db/output_relay_test.dart` | `unloaded_live_signing_reference` | green |
 | T49 | source-ingress: Validated immutable bootstrap configuration | Revert by higher revision | `test/db/ingest_config_test.dart` | `revert_by_higher_revision` | green |
 | T50 | source-ingress: Validated immutable bootstrap configuration | Conflicting equal revision | `test/db/ingest_config_test.dart` | `conflicting_equal_revision` | green |
-| T51 | source-ingress: Validated immutable bootstrap configuration | Missing worker config after drained queue | `test/e2e/pipeline_lifecycle_e2e_test.dart` | `missing_worker_config_after_drained_queue` | red |
+| T51 | source-ingress: Validated immutable bootstrap configuration | Missing worker config after drained queue | `test/e2e/pipeline_lifecycle_e2e_test.dart` | `missing_worker_config_after_drained_queue` | green |
 | T52 | source-ingress: Validated immutable bootstrap configuration | Malformed secret or credential-bearing input is not echoed | `test/e2e/ingest_bootstrap_e2e_test.dart` | `malformed_secret_or_credential_bearing_input_is_not_echoed` | green |
 | T53 | integration-alertmanager: Bounded explicit display and metadata mapping | Oversize annotation value | `test/unit/ingest/alertmanager_decoder_test.dart` | `oversize_annotation_value` | green |
 | T54 | durable-pipeline: Atomic raw processing outcome | Processing budget exhaustion | `test/db/pipeline_test.dart` | `processing_budget_exhaustion` | green |
@@ -99,8 +99,8 @@ All paths are relative to `correlia_server/`. These are planned tests, not execu
 
 ## 7. Integrated lifecycle proof
 
-- [ ] 7.1 Add failing T30–T31/T43/T51 and complete api/worker/all registry composition, ingress-before-console mounting, schema/config admission gates and stop order. Verify api accepts while worker is absent, worker exposes no ingest route, a no-config worker with an active snapshot fails even after its queue drained rather than reporting ready, restart drains durable work and shutdown cancels acquisition/HTTP before sessions/database close. Reuse ChildServer file-backed logs, EOF shutdown and owned stable cluster roots; leave unrelated PostgreSQL untouched.
-- [ ] 7.2 Run the focused tests named by all map rows through the Dart MCP test tool with explicit tier tags, then the project gate and non-load tiers through mise. Update README/setup links and the server changelog with delivered behavior and limits. Verify the complete config→HTTP→raw→canonical→signed receiver path with no placeholder stages or output adapter; do not claim the later console/NATS milestone acceptance.
+- [x] 7.1 Add failing T30–T31/T43/T51 and complete api/worker/all registry composition, ingress-before-console mounting, schema/config admission gates and stop order. Verify api accepts while worker is absent, worker exposes no ingest route, a no-config worker with an active snapshot fails even after its queue drained rather than reporting ready, restart drains durable work and shutdown cancels acquisition/HTTP before sessions/database close. Reuse ChildServer file-backed logs, EOF shutdown and owned stable cluster roots; leave unrelated PostgreSQL untouched.
+- [x] 7.2 Run the focused tests named by all map rows through the Dart MCP test tool with explicit tier tags, then the project gate and non-load tiers through mise. Update README/setup links and the server changelog with delivered behavior and limits. Verify the complete config→HTTP→raw→canonical→signed receiver path with no placeholder stages or output adapter; do not claim the later console/NATS milestone acceptance.
 
 ## Workflow follow-up
 

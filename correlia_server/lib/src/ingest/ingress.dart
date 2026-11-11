@@ -278,7 +278,8 @@ final class _IngressRoute extends Route {
                   while (await iterator.moveNext().timeout(
                     const Duration(seconds: 10) - watch.elapsed,
                   )) {
-                    if (overflow || bytes.length + iterator.current.length > limit) {
+                    if (overflow ||
+                        bytes.length + iterator.current.length > limit) {
                       overflow = true;
                       // Drain without buffering until EOF or the total deadline.
                       // Cancelling a live HttpRequest stream aborts its response.

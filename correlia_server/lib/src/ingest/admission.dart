@@ -48,7 +48,9 @@ final class IngestAdmission {
     final key = transportKey(
       sourceInstance: sourceId,
       idempotencyKey: idempotencyKey,
-      bodySha256: idempotencyKey == null ? Uint8List.fromList(bodyDigest.bytes) : null,
+      bodySha256: idempotencyKey == null
+          ? Uint8List.fromList(bodyDigest.bytes)
+          : null,
     );
     final rawId = const Uuid().v4();
     return session.db.transaction((tx) async {
