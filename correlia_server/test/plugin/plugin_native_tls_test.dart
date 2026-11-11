@@ -363,7 +363,7 @@ void main() {
     } finally {
       if (!release.isCompleted) release.complete();
       await remoteEvents?.cancel();
-      remote?.close();
+      await remote?.close();
       await subscription.cancel();
       await server.close();
     }

@@ -29,7 +29,7 @@ void main() {
     expect(observation.socketMode, 0x180);
     expect(observation.elapsed, lessThanOrEqualTo(const Duration(seconds: 5)));
     expect(observation.decoyAliveAfter, isTrue);
-    print(jsonEncode(observation.toJson()));
+    stdout.writeln(jsonEncode(observation.toJson()));
   }, skip: Platform.isLinux ? false : 'Linux process receipts required');
 
   test('uncooperative child is forcibly stopped and reaped', () async {
@@ -48,6 +48,6 @@ void main() {
       observation.uncooperative.elapsedMicroseconds,
       lessThanOrEqualTo(7 * Duration.microsecondsPerSecond),
     );
-    print(jsonEncode(observation.toJson()));
+    stdout.writeln(jsonEncode(observation.toJson()));
   }, skip: Platform.isLinux ? false : 'Linux process receipts required');
 }

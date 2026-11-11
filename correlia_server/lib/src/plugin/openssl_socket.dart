@@ -83,7 +83,7 @@ final class OpenSslSocket implements StreamSink<List<int>> {
       if (socket != null) {
         socket.destroy();
       } else {
-        raw.close();
+        unawaited(raw.close());
         engine?.dispose();
       }
       rethrow;

@@ -396,9 +396,11 @@ final class PluginHost {
         testControls: _controls.tls,
       );
       var abandoned = false;
-      connecting.then((connection) {
-        if (abandoned) unawaited(connection.close());
-      }, onError: (Object _, StackTrace _) {});
+      unawaited(
+        connecting.then((connection) {
+          if (abandoned) unawaited(connection.close());
+        }, onError: (Object _, StackTrace _) {}),
+      );
       try {
         _connection = await connecting.timeout(remaining());
       } on Object {
@@ -516,15 +518,17 @@ Future<T> _acquire<T>(
   Future<void> Function(T) dispose,
 ) async {
   var abandoned = false;
-  future.then((value) {
-    if (abandoned) {
-      unawaited(
-        dispose(value).catchError((Object error, StackTrace stack) {
-          Zone.current.handleUncaughtError(error, stack);
-        }),
-      );
-    }
-  }, onError: (Object _, StackTrace _) {});
+  unawaited(
+    future.then((value) {
+      if (abandoned) {
+        unawaited(
+          dispose(value).catchError((Object error, StackTrace stack) {
+            Zone.current.handleUncaughtError(error, stack);
+          }),
+        );
+      }
+    }, onError: (Object _, StackTrace _) {}),
+  );
   try {
     return await future.timeout(timeout);
   } on Object {

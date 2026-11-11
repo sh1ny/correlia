@@ -276,6 +276,45 @@ evidence uses authenticated TLS1.3 and a protected 0600 socket; internal
 plaintext diagnostics require explicit selection and cannot approve adoption.
 See the [direct lifecycle evidence](../openspec/changes/plugin-host-spike/evidence/host-death-and-shutdown.md).
 
+## Experimental spike verdict
+
+`test/plugin/support/plugin_gate_report.dart` composes actual process
+observations in ADR 0020 order:
+
+1. Stock go-plugin handshake parsing, version/socket validation and a real Unix
+   connect. This is explicitly **handshake-only**: the probe closes without a
+   TLS exchange or application RPC; it cannot claim authenticated delivery.
+2. Native TLS1.3/P-521 authentication, health and a protected application probe,
+   with observed OpenSSL/configuration metadata.
+3. The same five bounded delivery/recovery proofs used by the delivery tests.
+4. Direct-host EOF/exit proof plus normal and forced shutdown observations.
+
+A runtime pass requires exactly four passing, non-diagnostic results. Missing
+results cannot pass. Reports include observed commands, Linux/Dart/Go versions,
+security modes, facts and failure reasons. Parsed handshake/socket/certificate
+facts survive a failed native TLS attempt. The historical built-in Dart TLS
+failure remains separately labelled; native success does not rewrite it.
+
+Run the complete plugin tier and the workspace gate from the repository root:
+
+```sh
+mise run test -- --tags plugin
+mise run check
+```
+
+The named gate tests deliberately narrow the **actual OpenSSL signature offer**
+so stock P-521 cannot negotiate. Without an explicit diagnostic selection,
+criteria 3/4 remain not-run after that failure. The separate diagnostic test
+selects plaintext for only 3/4 before execution and records it as such; criterion
+2 and the runtime verdict remain failed. A real 0755 socket under umask 0022 is
+also refused by the diagnostic exact-0600 rule even though it has no write bits
+for group/other. No chmod, automatic retry or production fallback is involved.
+
+Even four native passes leave D24, the custom-connector interpretation and the
+native dependency decision pending. Only the owner reviews and ticks task 5.5
+in `tasks.md`; tests and agents never approve it. See the
+[consolidated spike evidence](../openspec/changes/plugin-host-spike/evidence/spike-gate.md).
+
 ## Schema validation and runtime validation
 
 The generated payload schema is a build-time contract check. Ajv 8.17.1 with

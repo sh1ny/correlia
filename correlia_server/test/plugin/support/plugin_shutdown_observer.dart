@@ -145,8 +145,9 @@ Future<PluginShutdownObservation> observePluginShutdown(
   PluginFixtureSuite suite, {
   bool diagnosticPlaintext = false,
 }) async {
-  if (!Platform.isLinux)
+  if (!Platform.isLinux) {
     throw UnsupportedError('Linux process receipts required');
+  }
   final build = await suite.build();
   final executable = build.binaries[PluginFixtureBinary.plainStock]!.path;
   final credentials = await suite.createCredentials();

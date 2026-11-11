@@ -171,8 +171,9 @@ Future<PluginHostDeathObservation> observePluginHostDeath(
   PluginFixtureSuite suite, {
   bool diagnosticPlaintext = false,
 }) async {
-  if (!Platform.isLinux)
+  if (!Platform.isLinux) {
     throw UnsupportedError('Linux process receipts required');
+  }
   final build = await suite.build();
   final credentials = await suite.createCredentials();
   final created = Process.runSync('mktemp', [
@@ -230,8 +231,9 @@ Future<PluginHostDeathObservation> observePluginHostDeath(
         throw StateError('host exited before receipt: $diagnostics');
       }
       final value = jsonDecode(lines!.current);
-      if (value is! Map<String, Object?>)
+      if (value is! Map<String, Object?>) {
         throw FormatException('invalid host receipt: $value');
+      }
       return value;
     }
 
@@ -242,8 +244,9 @@ Future<PluginHostDeathObservation> observePluginHostDeath(
       throw StateError('invalid direct host spawn receipt: $spawned');
     }
     pluginIdentity = PluginProcessIdentity.read(spawned['pluginPid']! as int);
-    if (pluginIdentity == null)
+    if (pluginIdentity == null) {
       throw StateError('cannot identify watched plugin: $spawned');
+    }
     pidfd = _openPidfd(pluginIdentity);
     final ready = await nextReceipt();
     if (ready['event'] != 'ready' ||
@@ -266,12 +269,14 @@ Future<PluginHostDeathObservation> observePluginHostDeath(
     final decoyBefore = _isRunning(decoyIdentity);
     if (!decoyBefore) throw StateError('decoy died before host signal');
     final stopwatch = Stopwatch()..start();
-    if (!hostIdentity.signalIfExact(ProcessSignal.sigkill))
+    if (!hostIdentity.signalIfExact(ProcessSignal.sigkill)) {
       throw StateError('could not signal exact direct host $hostIdentity');
+    }
     final hostExit = await hostProcess.exitCode.timeout(_bound);
     final remaining = _bound - stopwatch.elapsed;
-    if (remaining <= Duration.zero)
+    if (remaining <= Duration.zero) {
       throw StateError('host exit exceeded five seconds');
+    }
     final pollResult = await _waitPidfd(pidfd, remaining);
     final finalSnapshot = readPluginProcessSnapshot(pluginIdentity.pid);
     final state = finalSnapshot == null ? 'absent' : finalSnapshot.state;
@@ -371,14 +376,16 @@ Future<PluginHostDeathObservation> observePluginHostDeath(
       final current = readPluginProcessSnapshot(identity.pid);
       if (current == null ||
           current.identity != identity ||
-          current.state == 'Z')
+          current.state == 'Z') {
         continue;
+      }
       final childFd = _openPidfd(identity);
       try {
         identity.signalIfExact(ProcessSignal.sigkill);
         await _waitPidfd(childFd, _bound);
-        if (_isRunning(identity))
+        if (_isRunning(identity)) {
           throw StateError('owned child remains alive: $identity');
+        }
       } finally {
         _close(childFd);
       }
@@ -402,8 +409,9 @@ Future<PluginHostDeathObservation> observePluginHostDeath(
       }
     }
     if (pidfd != null) _close(pidfd);
-    if (decoyIdentity != null)
+    if (decoyIdentity != null) {
       decoyIdentity.signalIfExact(ProcessSignal.sigkill);
+    }
     if (decoyProcess != null) {
       await decoyProcess.exitCode.timeout(_bound);
       await decoyProcess.stdin.close();

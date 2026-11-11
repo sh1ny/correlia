@@ -46,8 +46,9 @@ Future<void> main(List<String> args) async {
           includeParentEnvironment: false,
         );
         final identity = PluginProcessIdentity.read(process.pid);
-        if (identity == null)
+        if (identity == null) {
           throw StateError('cannot identify spawned plugin');
+        }
         File('${attemptDirectory.path}/spawned.json').writeAsStringSync(
           jsonEncode({'pid': identity.pid, 'startTime': identity.startTime}),
           flush: true,

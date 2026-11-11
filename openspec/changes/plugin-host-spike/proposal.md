@@ -60,7 +60,8 @@ DECISION_MAKING: autonomous
 
 Add the experimental output probe, reproducible fixture/generation foundation,
 authenticated Linux subprocess startup, bounded acknowledged delivery with
-explicit surviving-host crash recovery, and verified EOF-driven child exit.
+surviving-host crash recovery, direct-host lifetime proof and independent
+four-criterion evidence. Runtime passes do not approve owner-gated adoption.
 
 ### Added
 
@@ -87,3 +88,6 @@ explicit surviving-host crash recovery, and verified EOF-driven child exit.
 - Direct-Dart-host SIGKILL/EOF-cause proof with exact process identities, pidfd
   exit observation before teardown, and real normal/forced shutdown reaping.
   The host-death guarantee belongs only to the original watched fixture.
+- Reproducible independent gate reports preserve real capability failures and
+  partial handshake facts; explicitly selected 0600 plaintext diagnostics remain
+  distinct from native TLS and never grant fallback or production approval.

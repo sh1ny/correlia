@@ -13,6 +13,7 @@ import 'package:crypto/crypto.dart';
 import 'package:test/test.dart';
 
 import 'delivery_event_source.dart';
+import 'support/plugin_delivery_observer.dart';
 import 'support/plugin_fixture_support.dart';
 
 void main() {
@@ -78,312 +79,66 @@ void main() {
   }
 
   test('withheld acknowledgements bound sends to credits', () async {
-    final file = journal();
-    final barrier = await PluginControlSocket.bind(suite.scratchDirectory);
-    late PluginHost first;
-    final delivery = PluginDelivery(
-      createHost: (_) => first = host(
-        file,
-        ack: PluginFixtureAckMode.withhold,
-        barrier: barrier,
-      ),
-      policy: PluginDeliveryPolicy(
-        maxBatchEvents: 1,
-        maxOutstandingBatches: 2,
-        ackProgressTimeout: const Duration(seconds: 2),
-      ),
+    final observation = await observeDeliveryWithheld(suite);
+    expect(observation.facts['credit_limit'], 2);
+    expect(
+      observation.facts['accepted_unacknowledged_batches'],
+      inInclusiveRange(1, 2),
     );
-    final acknowledged = <String>{};
-    try {
-      await delivery.start();
-      await healthy(first);
-      final failure = delivery.whenFailed;
-      for (final event in pluginDeliveryEvents(6)) {
-        observe(await delivery.admit(event), acknowledged);
-      }
-      await barrier.waitForBarrier(timeout: const Duration(seconds: 5));
-      expect(delivery.outstandingBatchCount, lessThanOrEqualTo(2));
-      expect(delivery.pendingEventCount, 6);
-      await barrier.release();
-      expect(
-        await failure.timeout(const Duration(seconds: 6)),
-        isA<TimeoutException>(),
-      );
-      final records = readPluginJournal(file);
-      expect(records.length, lessThanOrEqualTo(2));
-      expect(records, isNotEmpty);
-      expect(acknowledged, isEmpty);
-      expect(delivery.pendingEventCount, 6);
-      expect(delivery.availableCredits, 0);
-      stdout.writeln(
-        jsonEncode({
-          'credit_limit': delivery.policy.maxOutstandingBatches,
-          'accepted_unacknowledged_batches': records
-              .map((record) => (record.epoch, record.sequence))
-              .toSet()
-              .length,
-          'retained_events_after_timeout': delivery.pendingEventCount,
-        }),
-      );
-    } finally {
-      await delivery.stop();
-      await barrier.dispose();
-    }
+    expect(observation.facts['retained_events_after_timeout'], 6);
+    expect(observation.facts['available_credits'], 0);
+    expect(observation.facts['acknowledged_count'], 0);
   });
 
   test(
     'invalid acknowledgements cannot complete work or create credits',
     () async {
-      for (final mode in [
-        PluginFixtureAckMode.invalidEpoch,
-        PluginFixtureAckMode.invalidSequence,
-        PluginFixtureAckMode.duplicate,
-      ]) {
-        final file = journal();
-        late PluginHost first;
-        final delivery = PluginDelivery(
-          createHost: (_) => first = host(file, ack: mode),
-          policy: PluginDeliveryPolicy(
-            maxBatchEvents: 1,
-            maxOutstandingBatches: 2,
-            ackProgressTimeout: const Duration(seconds: 3),
-          ),
-        );
-        final acknowledged = <String>{};
-        try {
-          await delivery.start();
-          await healthy(first);
-          final failure = delivery.whenFailed;
-          final receipts = await Future.wait([
-            delivery.admit(pluginDeliveryEvent(1)),
-            delivery.admit(pluginDeliveryEvent(2)),
-          ]);
-          for (final receipt in receipts) {
-            observe(receipt, acknowledged);
-          }
-          expect(
-            await failure.timeout(const Duration(seconds: 6)),
-            isA<FormatException>(),
-          );
-          expect(delivery.availableCredits, 0);
-          if (mode != PluginFixtureAckMode.duplicate) {
-            expect(acknowledged, isEmpty);
-            expect(delivery.pendingEventCount, 2);
-          } else {
-            expect(acknowledged, contains(receipts.first.eventId));
-            expect(acknowledged, isNot(contains(receipts.last.eventId)));
-          }
-        } finally {
-          await delivery.stop();
-        }
+      final facts = (await observeDeliveryInvalidAck(suite)).facts;
+      for (final mode in ['invalid-epoch', 'invalid-sequence']) {
+        expect(facts['${mode}_acknowledged'], 0);
+        expect(facts['${mode}_pending'], 2);
+        expect(facts['${mode}_credits'], 0);
       }
+      expect(facts['duplicate_acknowledged'], 1);
+      expect(facts['duplicate_credits'], 0);
     },
   );
 
   test('stalled receiver times out retaining outstanding work', () async {
-    final file = journal();
-    late PluginHost first;
-    final delivery = PluginDelivery(
-      createHost: (_) => first = host(file, ack: PluginFixtureAckMode.withhold),
-      policy: PluginDeliveryPolicy(
-        ackProgressTimeout: const Duration(milliseconds: 400),
-      ),
+    final facts = (await observeDeliveryStalled(suite)).facts;
+    final event = pluginDeliveryEvent(42);
+    expect(facts['pending_count'], 1);
+    expect(facts['pending_id'], event.event.eventId);
+    expect(
+      facts['pending_sha256'],
+      sha256.convert(event.toJsonBytes()).toString(),
     );
-    final acknowledged = <String>{};
-    try {
-      await delivery.start();
-      await healthy(first);
-      final failure = delivery.whenFailed;
-      final event = pluginDeliveryEvent(42);
-      observe(await delivery.admit(event), acknowledged);
-      expect(
-        await failure.timeout(const Duration(seconds: 5)),
-        isA<TimeoutException>(),
-      );
-      expect(delivery.pendingEvents.single.event.eventId, event.event.eventId);
-      expect(delivery.pendingEvents.single.toJsonBytes(), event.toJsonBytes());
-      expect(delivery.availableCredits, 0);
-      expect(acknowledged, isEmpty);
-      await expectLater(delivery.drain(), throwsA(isA<TimeoutException>()));
-    } finally {
-      await delivery.stop();
-    }
+    expect(facts['available_credits'], 0);
+    expect(facts['acknowledged_count'], 0);
   });
 
   test('10000 events reconcile after pre-ack plugin crash', () async {
-    final file = journal();
-    final barrier = await PluginControlSocket.bind(suite.scratchDirectory);
-    final hosts = <PluginHost>[];
-    final delivery = PluginDelivery(
-      createHost: (attempt) {
-        final next = host(file, barrier: attempt == 0 ? barrier : null);
-        hosts.add(next);
-        return next;
-      },
-      policy: PluginDeliveryPolicy(
-        ackProgressTimeout: const Duration(seconds: 10),
-      ),
-    );
-    final digests = <String, String>{};
-    final acknowledged = <String>{};
-    Future<void>? producer;
-    try {
-      await delivery.start();
-      await healthy(hosts.first);
-      final failed = delivery.whenFailed;
-      producer = () async {
-        for (final event in pluginDeliveryEvents(10000)) {
-          final id = event.event.eventId;
-          digests[id] = sha256.convert(event.toJsonBytes()).toString();
-          observe(await delivery.admit(event), acknowledged);
-        }
-      }();
-      unawaited(
-        producer.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
-      );
-      final paused = await barrier.waitForBarrier(
-        timeout: const Duration(seconds: 10),
-      );
-      final outstandingAtFirstBarrier = delivery.outstandingBatchCount;
-      final before = readPluginJournal(file);
-      expect(before, isNotEmpty);
-      expect(
-        before.every(
-          (r) => r.epoch == paused.epoch && r.sequence == paused.sequence,
-        ),
-        isTrue,
-      );
-      final pid = delivery.childPid!;
-      final process = PluginProcessIdentity.read(pid)!;
-      final ackedBeforeCrash = Set<String>.of(acknowledged);
-      expect(process.signalIfExact(ProcessSignal.sigkill), isTrue);
-      await failed.timeout(const Duration(seconds: 6));
-      expect(delivery.pendingEventCount, greaterThan(0));
-      final pendingAtCrash = delivery.pendingEventCount;
-      final pendingBytesAtCrash = delivery.pendingBytes;
-      await delivery.restart();
-      await healthy(hosts.last);
-      await producer.timeout(const Duration(seconds: 90));
-      await delivery.drain().timeout(const Duration(seconds: 90));
-      final records = readPluginJournal(file);
-      expect(digests, hasLength(10000));
-      expect(records.map((r) => r.id).toSet(), digests.keys.toSet());
-      final counts = <String, int>{};
-      for (final record in records) {
-        expect(record.sha256, digests[record.id]);
-        counts.update(record.id, (n) => n + 1, ifAbsent: () => 1);
-        if (record.epoch != paused.epoch) {
-          expect(ackedBeforeCrash, isNot(contains(record.id)));
-        }
-      }
-      final uncertain = before
-          .map((r) => r.id)
-          .toSet()
-          .difference(ackedBeforeCrash);
-      // A second crash, after all 10,000 valid ACKs, makes the no-replay
-      // assertion non-vacuous without moving the required first barrier.
-      final secondFailure = delivery.whenFailed;
-      final secondProcess = PluginProcessIdentity.read(delivery.childPid!)!;
-      expect(secondProcess.signalIfExact(ProcessSignal.sigkill), isTrue);
-      await secondFailure.timeout(const Duration(seconds: 6));
-      await delivery.restart();
-      await healthy(hosts.last);
-      final extra = pluginDeliveryEvent(10000);
-      final extraReceipt = await delivery.admit(extra);
-      await extraReceipt.acknowledged.timeout(const Duration(seconds: 10));
-      await delivery.drain();
-      final afterSecondCrash = readPluginJournal(
-        file,
-      ).skip(records.length).toList();
-      expect(afterSecondCrash, hasLength(1));
-      expect(afterSecondCrash.single.id, extra.event.eventId);
-      expect(
-        counts.entries
-            .where((entry) => entry.value > 1)
-            .map((entry) => entry.key)
-            .toSet(),
-        uncertain,
-      );
-      for (final id in uncertain) {
-        expect(
-          counts[id],
-          2,
-          reason:
-              'recorded but unacknowledged work must actually be redelivered',
-        );
-      }
-      expect(acknowledged, digests.keys.toSet());
-      stdout.writeln(
-        jsonEncode({
-          'reconciled_unique_ids': digests.length,
-          'journal_records_before_second_crash': records.length,
-          'duplicate_ids': counts.values.where((count) => count > 1).length,
-          'first_barrier_sequence': paused.sequence,
-          'first_barrier_events': before.length,
-          'pending_after_first_crash': pendingAtCrash,
-          'pending_bytes_after_first_crash': pendingBytesAtCrash,
-          'default_credit_limit': delivery.policy.maxOutstandingBatches,
-          'outstanding_at_first_barrier': outstandingAtFirstBarrier,
-          'acknowledged_before_second_crash': acknowledged.length,
-          'new_records_after_second_restart': afterSecondCrash.length,
-        }),
-      );
-    } finally {
-      await delivery.stop();
-      if (producer != null) {
-        try {
-          await producer;
-        } on Object catch (_) {}
-      }
-      await barrier.dispose();
-    }
+    final facts = (await observeDeliveryReconciliation(suite)).facts;
+    expect(facts['reconciled_unique_ids'], 10000);
+    expect(facts['acknowledged_before_second_crash'], 10000);
+    expect(facts['duplicate_ids'], facts['uncertain_ids']);
+    expect(facts['first_barrier_events'], greaterThan(0));
+    expect(facts['pending_after_first_crash'], greaterThan(0));
+    expect(facts['new_records_after_second_restart'], 1);
   }, timeout: const Timeout(Duration(seconds: 120)));
 
   test('failed restart retains immutable pending events', () async {
-    final file = journal();
-    final barrier = await PluginControlSocket.bind(suite.scratchDirectory);
-    late PluginHost first;
-    final delivery = PluginDelivery(
-      createHost: (attempt) => attempt == 0
-          ? first = host(
-              file,
-              ack: PluginFixtureAckMode.withhold,
-              barrier: barrier,
-            )
-          : host(file, startup: PluginFixtureStartupMode.exit),
-      policy: PluginDeliveryPolicy(
-        ackProgressTimeout: const Duration(seconds: 10),
-      ),
+    final facts = (await observeDeliveryFailedRestart(suite)).facts;
+    final event = pluginDeliveryEvent(7);
+    expect(facts['failed'], isTrue);
+    expect(facts['pending_count'], 1);
+    expect(facts['pending_id'], event.event.eventId);
+    expect(
+      facts['pending_sha256'],
+      sha256.convert(event.toJsonBytes()).toString(),
     );
-    final acknowledged = <String>{};
-    try {
-      await delivery.start();
-      await healthy(first);
-      final failed = delivery.whenFailed;
-      final event = pluginDeliveryEvent(7);
-      observe(await delivery.admit(event), acknowledged);
-      await barrier.waitForBarrier(timeout: const Duration(seconds: 5));
-      final process = PluginProcessIdentity.read(delivery.childPid!)!;
-      expect(process.signalIfExact(ProcessSignal.sigkill), isTrue);
-      await failed.timeout(const Duration(seconds: 5));
-      final snapshot = delivery.pendingEvents;
-      final bytes = List<int>.of(snapshot.single.toJsonBytes());
-      await expectLater(
-        delivery.restart(),
-        throwsA(isA<PluginStartupException>()),
-      );
-      expect(delivery.isFailed, isTrue);
-      expect(delivery.pendingEventCount, 1);
-      expect(delivery.pendingEvents.single.event.eventId, event.event.eventId);
-      expect(delivery.pendingEvents.single.toJsonBytes(), bytes);
-      expect(() => snapshot.clear(), throwsUnsupportedError);
-      expect(acknowledged, isEmpty);
-    } finally {
-      await delivery.stop();
-      await barrier.dispose();
-    }
+    expect(facts['acknowledged_count'], 0);
   });
-
   test('policy rejects invalid bounds', () {
     expect(
       () => PluginDeliveryPolicy(maxPendingEvents: 0),
