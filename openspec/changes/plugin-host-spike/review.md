@@ -2,21 +2,72 @@
 
 ## Metadata
 
-- **Round:** 2
-- **Prior round:** Round 1 returned APPROVE_WITH_CHANGES with six Required Changes (M1–M6), no Critical findings, and CHANGES_APPLIED: no.
+- **Round:** 5
+- **Prior round:** Round 4 returned APPROVE_WITH_CHANGES with CHANGES_APPLIED: no. It required three changes (M1–M3) and made suggestions S16–S19. The author's Round-4 responses (`review.md:151-156`) say all of them were addressed in planning.
 - **Reviewer:** cross-model CLI (claude route, claude-opus-5-5)
-- **Reviewed:**
-  - Change artifacts: `openspec/changes/plugin-host-spike/{proposal.md, design.md, specs/external-plugin-host/spec.md, review.md (round 1)}`
-  - ADRs: `docs/adr/0014`, `0018`, `0020`, `0021`
-  - `openspec/architecture.md` (plugin sections)
-  - Config: `buf.yaml`
-  - Tooling source: `tool/lib/src/proto_command.dart` (lines 60–380), the package filters in `tool/lib/src/contract_compatibility.dart:202-203` and `tool/lib/src/bounds_extractor.dart:124-125`
-  - Event source: `correlia_server/lib/src/event/cloud_event.dart` (`toJsonBytes`)
-  - The upstream go-plugin source is outside the readable workspace. Claims about it below are marked as inferences. No store references needed resolving.
-
-<!-- This verdict covers only the contents reviewed. Editing proposal, specs or design afterward (other than applying Required Changes, or an edit confined to the proposal's `## Release Notes` section) voids it. -->
+- **Files read:**
+  - **Change:** `openspec/changes/plugin-host-spike/{proposal.md, design.md, specs/external-plugin-host/spec.md, tasks.md, review.md}`, plus `evidence/handshake-and-mtls.md` (grep of its criterion, diagnostic and OpenSSL lines)
+  - **Architecture and ADRs:** `openspec/architecture.md` (references to ADR 0022 at 125 and 234), `docs/adr/0022` in full, and the 0014/0018/0020/0021 set as cited in prior rounds
+  - **Source:**
+    - `correlia_server/lib/plugin.dart`
+    - `correlia_server/lib/src/plugin/{plugin_host.dart, plugin_rpc_connection.dart}`
+    - `correlia_server/lib/src/plugin/bounded_channel.dart` (structure only)
+    - `correlia_server/test/plugin/plugin_host_test.dart`
+    - `correlia_server/test/plugin/plugin_transport_test.dart` (its imports and its use of the old switches)
+    - Go fixture `config.go`/`runtime.go`/`plugin.go` (grep of the TLS and stall modes)
+  - **Feasibility inputs only:** `.dart_tool/plugin-openssl-probe/{openssl_engine.dart, result.json}`. The other probe files were judged as in earlier rounds.
+- **What was and wasn't run:** No tests, builds, formatters or analysis, and no files edited. Everything here comes from reading the source. No mapped row is counted green. Prototype outputs are feasibility evidence only. The current in-progress API is not judged against the new boundary: native integration, the authenticated-only export and the config migration are still unticked tasks (`tasks.md:43-47`).
 
 ## Findings
+
+### Re-check of Round 4 required changes
+
+**M1 (default-mode rejection rules): resolved in planning.**
+- D2 now requires the invalid-startup row to include three default-AutoMTLS negatives (`design.md:39`):
+  - group/other-write rejection under an explicit permissive launch umask;
+  - an empty certificate field;
+  - a health stall behind TLS.
+- Task 2.2 repeats all three as verification items (`tasks.md:43`). The inherited umask is no longer part of the test setup.
+- Each case can be reached with the existing parts:
+  - D6's internal harness selects "controlled negative umasks" and "omitted/wrong identities or pins" (`design.md:77`).
+  - The fixture already has a `stall-health` startup mode that is independent of TLS mode (`plugin.go:150-153`, `runtime.go:56`).
+  - The host already rejects AutoMTLS sockets with group/other write bits (`plugin_host.dart:285`) and empty certificates (`plugin_host.dart:267`).
+- D2 still says plaintext diagnostics are selected "only for criteria 3/4" (`design.md:39`). So the remaining invalid-startup cases implicitly move to AutoMTLS as well. S20 below covers a migration side effect of that, not a reason to block.
+
+**M2 (protocol threshold and OpenSSL configuration): resolved in planning.**
+- D2 names TLS 1.3 as the required minimum and gives the reason: the authenticated test must exercise the P-521 signature path that failed, not a TLS 1.2 workaround. D2 also requires asserting the actual negotiated protocol and recording the protocol, backend and configuration selection (`design.md:39`). The summary row matches (`design.md:93`).
+- D6 now spells out the configuration policy (`design.md:81`):
+  - It keeps OpenSSL's default system/`OPENSSL_CONF` configuration.
+  - It records the compiled default configuration directory and the `OPENSSL_CONF`, `OPENSSL_CONF_INCLUDE` and `OPENSSL_MODULES` settings.
+  - After context construction, it explicitly reapplies the profile: a fresh pin-only trust store, inherited identity material cleared before the caller's identity is installed, and the required protocol.
+  - A configuration that blocks the profile "fails visibly; it cannot produce a passing lower-protocol result".
+- Task 2.5 records the configuration policy, source and environment (`tasks.md:46`).
+- This closes Round 4's scenario where a host capped at 1.2 passes criterion 2. The prototype's `0x0303` minimum (`openssl_engine.dart:119`) is a known gap the implementation must close, not a claim. S21 notes one remaining wording difference.
+
+**M3 (verification ports off the exported surface): resolved in planning.**
+- **Export boundary** (`design.md:77`):
+  - `plugin.dart` gets an explicit show-list with only authenticated constructors and configuration.
+  - The public `secure`, umask opt-out, trust-pin override and separate advertised-certificate controls are removed, with no compatibility shim. Today these are `plugin_host.dart:15-21`, `38-54`.
+  - The advertised certificate is derived from the required identity.
+  - Diagnostic mode, negative umasks, omitted/wrong identities or pins and resource ports sit behind a private constructor and an internal harness factory. Neither is reachable through `plugin.dart`, a public configuration or an exported class member.
+- **Loader control is failure-only** (`design.md:79`):
+  - An enum selects an actual OS-load failure at a fixed path, or a missing symbol in the genuine system library.
+  - It cannot accept a library object, a successful loader callback or a replacement verifier.
+  - The capability profile can only narrow signature support.
+  - This removes Round 4's substitute-library contradiction with "no port bypasses checks".
+- **Spec and tasks agree:**
+  - The spec requirement says the exported API "SHALL require AutoMTLS and exclude internal test/diagnostic controls; failure controls SHALL NOT supply a substitute verification implementation" (`spec.md:36`).
+  - Task 2.4 lists every control to keep off the export, the removal without shims, and a public-import compile smoke as the check (`tasks.md:45`).
+  - The ADR 0022 rule that diagnostic mode is test-only (`0022:120-122`) now holds by construction, not by convention.
+- **No contradictions found:**
+  - Tests already import `src/` directly (`plugin_transport_test.dart:8-9`), so moving the ticked tests to an internal harness is mechanically straightforward.
+  - A library-private constructor plus a top-level internal factory hidden by the show-list is valid Dart.
+
+**S16–S19:**
+- **S16 (eager symbol resolution): resolved.** All required symbols resolve eagerly before any raw connection or per-connection allocation (`design.md:79`). This replaces the prototype's lazy `late final` lookups (`openssl_engine.dart:18-60`).
+- **S17 (inbound bound): resolved.** There is a new scenario (`spec.md:42-44`) and a mapped row (`tasks.md:21`). Task 2.6's count of "nine" matches rows 13–21.
+- **S18 (allocation-accounting isolation): resolved.** Allocation accounting runs in a separately spawned process and also tracks real Dart-side staging allocations (`design.md:83`, `tasks.md:47`).
+- **S19 (evidence labels and release notes): partly resolved.** Task 2.5 now requires labelling historical diagnostic results as diagnostic-only (`tasks.md:46`). The Release Notes (`proposal.md:59-70`) still omit the OpenSSL 3 runtime dependency and the superseding ADR. The author defers this to the "verified group commit", but no task records that deferral (see S22).
 
 ### Critical (blocking)
 
@@ -24,117 +75,45 @@ None.
 
 ### Moderate
 
-None open. I re-checked each round-1 Moderate against the amended artifacts. History:
-
-**M1 (resolved).** The upstream interoperability declarations would have failed the existing `buf lint` gate.
-- D3 now specifies hand-coded Dart `ClientMethod` descriptors and minimal codecs, with no upstream `.proto` files or copied schemas.
-- D5 states that no upstream schemas enter the linted `proto` Buf module, that `correlia.plugin.spike.v1` passes STANDARD lint, and that the event `proto:check` and baseline stay unchanged.
-- The Risks bullet "Existing event generation scans `proto`" was updated to match.
-
-I checked this against the code:
-- `proto_command.dart:92` runs `buf lint` over the single module in `buf.yaml:3`.
-- Adding new files does not trip `buf breaking` with the FILE rule (`proto_command.dart:115-126`).
-- `compareContractDescriptors` filters on `correlia.event.v1` (`contract_compatibility.dart:203`), and so does bounds extraction (`bounds_extractor.dart:125`).
-- The event stage copies only `dart/correlia/event/v1` outputs (`proto_command.dart:235-244`).
-
-So a STANDARD-clean `correlia.plugin.spike.v1` file under `proto/` does not disturb the event gates. Bidirectional streaming is not banned by STANDARD.
-
-**M2 (resolved).** A criterion-2 failure used to take criteria 1 and 3 down with it.
-- D2 now records criterion-1 handshake parsing, negotiation and socket connection independently of TLS.
-- D2 also gives the criterion-3/4 harnesses an explicit security-mode parameter. The diagnostic mode is never an automatic retry or an adoption decision, and the evidence names the mode for each criterion.
-- Risks and Failure & Visibility ("record parsed-handshake evidence before TLS") are consistent with this.
-- The spec's "Reproducible spike verdict" adds "Handshake evidence SHALL survive TLS failure" and the scenario "TLS feasibility fails independently".
-- "A failed authentication SHALL NOT trigger plaintext retry" is kept.
-
-S9 below covers a residual ambiguity about criterion 1's pass condition.
-
-**M3 (resolved).** The fixed 30 s per-stream deadline could kill healthy streams. The Resource Bounds gRPC row now has:
-- a 10 s stream-open/first-response deadline;
-- a 10 s ack-progress deadline while batches are outstanding;
-- explicitly "no whole-stream deadline or idle timeout with no outstanding work".
-
-This agrees with the 10x/100x claims. S8 below covers a small wording ambiguity.
-
-**M4 (resolved).** The socket mode check was underspecified.
-- D3 defines the check: the attempt directory is mode 0700 and owned by the current uid; the announced path resolves inside it to a socket owned by that uid with no group or other write bits; the actual mode is recorded.
-- Flow & State Gaps and Risks state that a stock mode differing from ADR 0020's "0600" wording goes to the owner and is not repaired by chmod or by modifying the plugin.
-
-**M5 (resolved).** The criterion-4 evidence could pass for the wrong reason.
-- (a) D4 and the Flow section launch the resolved Dart executable or an AOT binary directly, with no `dart run` or `timeout` wrapper. The plugin's PPid is asserted to equal the host PID before SIGKILL.
-- (b) "Exit" is defined as `/proc/<pid>` absent, or the same start identity in state `Z`.
-- (c) The watcher writes and flushes a distinct EOF exit-cause marker. The spec's "Host is killed" THEN requires the confirmed parent, the defined exit state and the marker, with no teardown signal before the assertion.
-
-The marker makes the evidence sound even if something does write to fd 1/2 after the handshake. A SIGPIPE death would produce no marker, which is a visible false failure, not a false pass.
-
-**M6 (resolved).** Ownership of the in-flight map contradicted itself.
-- D4 now says "The delivery owner alone mutates pending events and the in-flight map". A generation holds only its epoch, next sequence and credit counter, and reports to the owner.
-- On the first terminal event, the owner retires the epoch and moves the generation's outstanding batches back to pending once.
-- The State & Ownership table splits these into separate rows: "Epoch, sequence, credit counter" owned by the stream generation with "no map mutation from callbacks", and "In-flight batch map" owned by the delivery owner. Flow & State Gaps matches.
-
-S11 below covers a remaining derived-state detail.
+None.
 
 ### Suggestions
 
-**Round-1 suggestions, all addressed by the amendments:**
-- S1 (certificate encoding and context): fixed in D2. The design specifies unpadded standard base64 of DER, PEM-wrapping, `withTrustedRoots: false`, authority `localhost`, no accept-all callback, and a `ChannelCredentials` subclass if needed.
-- S2 (grpc resolution gate): fixed in D2. Failure to resolve without dependency overrides is a stop-and-report feasibility failure.
-- S3 (acknowledgement stall): fixed. The spec adds the scenario "Receiver never acknowledges", whose THEN is assertable.
-- S4 (partial-batch flush): fixed in the Batch row.
-- S5 (digest journal): fixed in D4 and the journal bounds row. Records are id plus SHA-256, epoch and sequence; reconciliation rejects torn records and covers duplicates.
-- S6 (barrier transport): fixed in D4 with a test Unix control socket and explicit release. The bounds row allows one 8 KiB frame in each direction per barrier.
-
-**New in round 2 (none blocking):**
-
-**S7. The diagnostic mode requires exact 0600 but names no stock way to get it.** Flow & State Gaps says "Diagnostic plaintext mode additionally requires exact 0600". The design forbids chmod and plugin modification, and its own Risks bullet expects that the stock mode may not be 0600.
-
-Inference: stock go-plugin binds the socket under the inherited umask and only chmods when a socket group is configured. Under a typical umask of 022 the socket would be 0755, so the diagnostic runs for criteria 3/4 would fail the precondition every time. That is the one branch where M2 needs them.
-
-Recommendation: name the mechanism. For example, the test operator launches the host, and through it the plugin, with an inherited umask of 0177 so the socket comes out 0600. This is environment, not plugin modification. Record the umask with the evidence. If 0600 is still not observed, the diagnostic run fails with the observed mode recorded.
-
-**S8. "First-response" is ambiguous on a bidirectional stream.** If it means the first acknowledgement message, a stream opened before any batch is sent would time out while idle, which contradicts "no … idle timeout with no outstanding work". Define it as receipt of response headers, or open `Deliver` only when there is pending work so the ack-progress deadline covers the first response.
-
-**S9. Criterion 1's pass condition under TLS failure is undefined.** The "Plain stock plugin startup" THEN requires SERVING health and a completed application RPC. Under D2 these run only in the selected security mode, and the diagnostic mode is defined only for criteria 3/4.
-
-When criterion 2 fails, it is unclear whether criterion 1 passed, which contradicts "report the four criteria independently". Either:
-- state that criterion 1 passes on handshake parse, negotiation and socket connection (ADR 0020 says "completes the handshake"), with health/RPC recorded per security mode; or
-- add the plain-stock fixture to the explicitly selected diagnostic runs.
-
-**S10. The crash barrier needs arming and configuration rules.** The restarted plugin may start a fresh epoch at the same sequence. If the barrier is keyed by sequence, it would block or be killed again after restart.
-- Arm the barrier for exactly one configured batch in the first launch only, for example through a launch argument given only to that process.
-- Have the observer release any later barrier.
-- D3's "minimal inherited environment plus explicit cookie, versions, host certificate and private socket directory" leaves no channel for the journal and control-socket paths. Name one, either fixture argv or an explicit test-only environment allowlist.
-
-**S11. Derive the credit counter from the owner's map.** Credits equal the window minus the current epoch's in-flight count. If the generation keeps its own counter, an implementer can increment it on raw ack receipt before the owner validates the ack, which creates an extra credit (spec "Invalid acknowledgement"). Either derive credits from the owner's in-flight map for the current epoch, or state that the generation releases a credit only on the owner's validated-ack notification.
+- **S20. Say how the remaining diagnostic invalid-startup cases migrate.**
+  - Today, 11 cases in the ticked criterion-1 row run with `secure: false` (`plugin_host_test.dart:138`, `164`, `175`, `199`, `212`). D2 limits plaintext to criteria 3/4.
+  - **Script cases:** the two scripted cases print an empty certificate field (`plugin_host_test.dart:186`, `190`). If they move to AutoMTLS as written, the empty-certificate check (`plugin_host.dart:267`) rejects them before the path-escape and non-socket checks (`plugin_host.dart:273`, `283-287`). Those checks then lose their test. The cases need to advertise a certificate.
+  - **Exact-0600 rule:** the diagnostic exact-0600 rule (`design.md:207`, `plugin_host.dart:286`) is currently tested only by `plugin_host_test.dart:150-161`. If that case moves, give the rule a home in a criteria-3/4 or gate row.
+- **S21. Make task 2.3 and the spec assert TLS 1.3, not just record it.**
+  - D2 says to assert the negotiated protocol (`design.md:39`). Task 2.3 says "record negotiated TLS/backend version" (`tasks.md:44`), and the spec says "recorded" (`spec.md:29`).
+  - Stock Go negotiates TLS 1.3 by default (`result.json:9`), so a carried-over `0x0303` minimum would pass every mapped row on a default host.
+  - The "fails visibly" configuration rule (`design.md:81`) has no mapped check.
+  - Optional related point: say whether the "fresh pin-only store" covers the verify store a configuration can set as well as the context's own trust store. The exact DER pin check after the handshake (`openssl_engine.dart:283-294`) means this cannot admit a wrong peer.
+- **S22. Track the Release Notes update in a task.**
+  - Add "update Release Notes for the OpenSSL 3 runtime dependency and the ADR that supersedes 0022" to task 2.3 or 2.4.
+  - Without it, the deferred S19 item depends on someone remembering. Line 67 of the Release Notes still describes ADR 0022 as in force (`proposal.md:67-68`).
 
 ## Verdict
 
-All six round-1 Required Changes are present in design.md and spec.md and are internally consistent. The amendments to D2 (certificate encoding, context, dependency-resolution failure) and D4 (digest journal, control socket), and the new acknowledgement-stall scenario, introduce no Critical or Moderate contradictions with ADRs 0014, 0018, 0020, 0021, the architecture doc or the tooling code. The remaining items are Suggestions.
+All three Round-4 required changes check out against the current proposal, design, spec and tasks:
+- **M1:** the default-AutoMTLS negatives are named in D2 and task 2.2.
+- **M2:** D2 sets a TLS 1.3 minimum, and D6 sets a recorded configuration policy that explicitly reapplies the trust, identity and protocol profile.
+- **M3:** D6 and task 2.4 define an authenticated-only curated export, remove the public switches without shims, move controls to a private or internal harness, and make the native fault selector failure-only.
+
+S16–S18 are incorporated, and S19 is partly incorporated. The plan specifies the API migration and its verification (compile smoke, mapped rows, regressions shown red first) without requiring implementation before the design gate. I found no concrete contradictions between the revised requirements. The three remaining items are wording and coverage suggestions (S20–S22).
 
 VERDICT: APPROVE_WITH_CHANGES
 
 ## Required Changes
 
-These are the round-1 Required Changes. Round 2 re-checked each one and found it applied:
-
-1. **(M1)** Upstream interoperability declarations stay out of the linted `proto` Buf module. Correlia-owned `correlia.plugin.spike.v1` passes STANDARD lint, and the event `proto:check` is unchanged. Applied in D3, D5 and Risks.
-2. **(M2)** Evidence for each criterion is independent:
-   - handshake evidence survives TLS failure;
-   - the criterion-3/4 harnesses take an explicit security mode, and the diagnostic mode is never automatic or adopted;
-   - the spec has the scenario "TLS feasibility fails independently".
-
-   Applied in D2, Risks, the spec requirement and its scenario.
-3. **(M3)** The whole-stream 30 s deadline is replaced by a stream-open/first-response deadline plus the ack-progress deadline. Applied in the Resource Bounds gRPC row.
-4. **(M4)** The socket check is defined exactly (attempt directory, uid, type, mode bits), the observed mode is recorded, and an ADR wording mismatch is escalated to the owner. Applied in D3, Flow and Risks.
-5. **(M5)** Criterion-4 evidence:
-   - (a) direct launch and the PPid assertion;
-   - (b) the definition of exit;
-   - (c) the flushed EOF exit-cause marker.
-
-   Applied in D4, Flow and the spec's "Host is killed" scenario.
-6. **(M6)** The delivery owner is the sole writer of the pending set and the in-flight map, and retires an epoch and returns its batches once. Applied in D4, State & Ownership and Flow.
+None remain. I independently re-checked Round-4 M1–M3 above against `design.md:39`, `77`, `79`, `81`, `83`, `93`, `97`; `spec.md:36`, `42-44`; and `tasks.md:21`, `43-47`.
 
 CHANGES_APPLIED: yes
 
 ## Rebuttals
 
-The author recorded no rebuttals. The round-1 findings M1–M6 were fixed as cited above. The round-2 suggestions S7–S11 are open and optional.
+- **Round-4 M1:** accepted as addressed in planning. S20 records a migration side effect, not a blocking gap.
+- **Round-4 M2:** accepted. The TLS 1.3 minimum and the configuration selection/recording are explicit. S21 asks only to align the task and spec wording to "assert".
+- **Round-4 M3:** accepted. The authenticated-only show-list, removal without shims, private constructor/internal factory and failure-only loader enum resolve the Round-4 contradiction.
+- **S16–S18:** accepted as resolved.
+- **S19:** labelling is accepted as resolved. Deferring the release notes is acceptable, but it should be recorded in a task (S22).
+- **Feasibility inputs** (`result.json`, allocation probe, historical evidence): accepted as feasibility only. None of them satisfies a mapped row, the revised API or profile, or the backpressure commitments, and no such claim was made.
