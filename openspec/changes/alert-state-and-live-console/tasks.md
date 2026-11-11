@@ -39,14 +39,14 @@ Paths are relative to `correlia_server/` unless they start with `correlia_flutte
 | alert-state → Single writer for alert state | Informational observation | test/unit/state/transition_test.dart | informational_observation | green |
 | change-feed → Append-only activity ledger | Firing then resolved writes two entries | test/db/activity_ledger_test.dart | firing_then_resolved_writes_two_entries | green |
 | change-feed → Append-only activity ledger | Rolled-back change leaves no entry | test/db/activity_ledger_test.dart | rolled_back_change_leaves_no_entry | green |
-| change-feed → Feed reads only below the watermark | UI-3a a late-committing transaction is never skipped | test/db/change_feed_test.dart | ui_3a_late_committing_transaction_never_skipped | red |
-| change-feed → Feed reads only below the watermark | Page limit | test/db/change_feed_test.dart | page_limit | red |
-| change-feed → Opaque feed cursors | Malformed cursor | test/unit/feed/feed_cursor_test.dart; test/db/change_feed_test.dart | malformed_cursor | red |
-| change-feed → Opaque feed cursors | Snapshot cursor on an empty ledger | test/db/change_feed_test.dart | snapshot_cursor_on_empty_ledger | red |
-| change-feed → Snapshot and feed handover | Change committed during the snapshot | test/db/change_feed_test.dart | change_committed_during_snapshot | red |
-| change-feed → Snapshot and feed handover | Repeated change in snapshot and feed | test/db/change_feed_test.dart | repeated_change_in_snapshot_and_feed | red |
-| change-feed → Wake-up stream liveness | UI-3b blocker without activity | test/db/feed_watermark_test.dart | ui_3b_blocker_without_activity | red |
-| change-feed → Wake-up stream liveness | Stream dropped and resumed | test/e2e/live_feed_e2e_test.dart | stream_dropped_and_resumed | red |
+| change-feed → Feed reads only below the watermark | UI-3a a late-committing transaction is never skipped | test/db/change_feed_test.dart | ui_3a_late_committing_transaction_never_skipped | green |
+| change-feed → Feed reads only below the watermark | Page limit | test/db/change_feed_test.dart | page_limit | green |
+| change-feed → Opaque feed cursors | Malformed cursor | test/unit/feed/feed_cursor_test.dart; test/db/change_feed_test.dart | malformed_cursor | green |
+| change-feed → Opaque feed cursors | Snapshot cursor on an empty ledger | test/db/change_feed_test.dart | snapshot_cursor_on_empty_ledger | green |
+| change-feed → Snapshot and feed handover | Change committed during the snapshot | test/db/change_feed_test.dart | change_committed_during_snapshot | green |
+| change-feed → Snapshot and feed handover | Repeated change in snapshot and feed | test/db/change_feed_test.dart | repeated_change_in_snapshot_and_feed | green |
+| change-feed → Wake-up stream liveness | UI-3b blocker without activity | test/db/feed_watermark_test.dart | ui_3b_blocker_without_activity | green |
+| change-feed → Wake-up stream liveness | Stream dropped and resumed | test/e2e/live_feed_e2e_test.dart | stream_dropped_and_resumed | green |
 | durable-pipeline → Atomic raw processing outcome | DUR-1 outbox failure rolls back event work | test/db/pipeline_test.dart | dur_1_outbox_failure_rolls_back_event_work | green |
 | durable-pipeline → Atomic raw processing outcome | Invalid member after valid member | test/db/pipeline_test.dart | invalid_member_after_valid_member | green |
 | durable-pipeline → Atomic raw processing outcome | Processing budget exhaustion | test/db/pipeline_test.dart | processing_budget_exhaustion | green |
@@ -67,10 +67,10 @@ Paths are relative to `correlia_server/` unless they start with `correlia_flutte
 | operator-console → Bounded partial snapshot | Partial list refills after a resolution | correlia_flutter/test/alert_feed_controller_test.dart | partial_list_refills_after_resolution | red |
 | operator-console → Connection loss is visible and recovered | Server restart | correlia_flutter/test/alert_list_page_test.dart | server_restart_shows_disconnected_then_resumes | red |
 | operator-console → Connection loss is visible and recovered | Rejected cursor | correlia_flutter/test/alert_feed_controller_test.dart | rejected_cursor_takes_new_snapshot | red |
-| operator-console → Development-only unauthenticated read access | Local development access | test/e2e/live_feed_e2e_test.dart | local_development_access | red |
-| operator-console → Development-only unauthenticated read access | Production mode refuses | test/unit/console/console_access_policy_test.dart | production_mode_refuses | red |
-| operator-console → Development-only unauthenticated read access | Non-loopback peer refuses | test/unit/console/console_access_policy_test.dart | non_loopback_peer_refuses | red |
-| operator-console → Development-only unauthenticated read access | Worker role refuses | test/e2e/live_feed_e2e_test.dart | worker_role_refuses | red |
+| operator-console → Development-only unauthenticated read access | Local development access | test/e2e/live_feed_e2e_test.dart | local_development_access | green |
+| operator-console → Development-only unauthenticated read access | Production mode refuses | test/unit/console/console_access_policy_test.dart | production_mode_refuses | green |
+| operator-console → Development-only unauthenticated read access | Non-loopback peer refuses | test/unit/console/console_access_policy_test.dart | non_loopback_peer_refuses | green |
+| operator-console → Development-only unauthenticated read access | Worker role refuses | test/e2e/live_feed_e2e_test.dart | worker_role_refuses | green |
 | operator-console → Console usability baseline | Filter narrows the list | correlia_flutter/test/alert_list_page_test.dart | filter_narrows_the_list | red |
 | operator-console → Console usability baseline | Filter matches nothing | correlia_flutter/test/alert_list_page_test.dart | filter_matches_nothing | red |
 | operator-console → Console usability baseline | Generator link and selectable text | correlia_flutter/test/alert_list_page_test.dart | generator_link_and_selectable_text | red |
@@ -160,7 +160,7 @@ Paths are relative to `correlia_server/` unless they start with `correlia_flutte
 
 ## 4. Change feed, endpoint, guard and wake-ups
 
-- [ ] 4.1 Write failing unit tests:
+- [x] 4.1 Write failing unit tests:
   - `test/unit/feed/feed_cursor_test.dart`: the codec, round trip, malformed inputs and 64-bit values;
   - `test/unit/console/console_access_policy_test.dart`: production_mode_refuses and
     non_loopback_peer_refuses, using real Relic `Request`s with `ConnectionInfo`. Also cover:
@@ -172,10 +172,10 @@ Paths are relative to `correlia_server/` unless they start with `correlia_flutte
     - the allowed development, test and loopback case.
 
   Verify that they fail.
-- [ ] 4.2 Implement `lib/src/feed/feed_cursor.dart` and `lib/src/console/console_access_policy.dart`
+- [x] 4.2 Implement `lib/src/feed/feed_cursor.dart` and `lib/src/console/console_access_policy.dart`
   (D6, D8). Verify that the 4.1 tests pass, then flip production_mode_refuses and non_loopback_peer_refuses
   green.
-- [ ] 4.3 Write failing db tests in `test/db/change_feed_test.dart` for the change_feed rows of the test
+- [x] 4.3 Write failing db tests in `test/db/change_feed_test.dart` for the change_feed rows of the test
   map, calling the feed service directly with two independent sessions:
   - ui_3a;
   - page_limit;
@@ -188,7 +188,7 @@ Paths are relative to `correlia_server/` unless they start with `correlia_flutte
 
   Write a failing test in `test/db/feed_watermark_test.dart` for ui_3b_blocker_without_activity, with an
   injected short poll interval. Verify that they fail.
-- [ ] 4.4 Implement:
+- [x] 4.4 Implement:
   - `lib/src/feed/feed_reader.dart`: a snapshot in REPEATABLE READ and feed pages below
     `pg_snapshot_xmin`, with `heldBack`, `more` and current `AlertView` rows;
   - client-visible models `AlertView`, `AlertSnapshot`, `FeedEntry`, `FeedPage`, `FeedWakeUp`;
@@ -199,7 +199,7 @@ Paths are relative to `correlia_server/` unless they start with `correlia_flutte
     closes, with the held-back log warning after 30 s.
 
   Run `mise run generate`. Verify that the 4.3 tests pass, then flip their rows green.
-- [ ] 4.5 Write `test/e2e/live_feed_e2e_test.dart` against a `ChildServer` in run mode `test`, using the
+- [x] 4.5 Write `test/e2e/live_feed_e2e_test.dart` against a `ChildServer` in run mode `test`, using the
   generated Dart client over real HTTP and WebSocket:
   - local_development_access: POST an Alertmanager webhook, receive a wake-up, and find the alert in the
     feed;
@@ -207,7 +207,7 @@ Paths are relative to `correlia_server/` unless they start with `correlia_flutte
   - worker_role_refuses.
 
   Verify that it passes under `mise run test -- --tags e2e`, then flip these rows green.
-- [ ] 4.6 Document the feed contract and the development-only console exposure in
+- [x] 4.6 Document the feed contract and the development-only console exposure in
   `docs/console-feed.md`:
   - cursor, watermark, `heldBack`, wake-ups;
   - the guard's rules, and that it is not for production until M4.

@@ -12,6 +12,20 @@
 
 // ignore_for_file: no_leading_underscores_for_library_prefixes
 import 'package:serverpod_client/serverpod_client.dart' as _isc;
+import 'alert_snapshot.dart' as _iz3t21fy;
+import 'alert_view.dart' as _i897ft9c;
+import 'console_access_denied_exception.dart' as _i25sduw2;
+import 'feed_entry.dart' as _iywqxrq6;
+import 'feed_page.dart' as _ijrqdfur;
+import 'feed_wake_up.dart' as _ivrec9rl;
+import 'invalid_cursor_exception.dart' as _iil3cq3h;
+export 'alert_snapshot.dart';
+export 'alert_view.dart';
+export 'console_access_denied_exception.dart';
+export 'feed_entry.dart';
+export 'feed_page.dart';
+export 'feed_wake_up.dart';
+export 'invalid_cursor_exception.dart';
 export 'client.dart';
 
 class Protocol extends _isc.SerializationManager
@@ -26,9 +40,34 @@ class Protocol extends _isc.SerializationManager
   _isc.ProtocolDeserialization get deserializationMetadata =>
       _isc.ProtocolDeserialization.cached(
         this,
-        types: const [],
+        types: const [
+          _isc.getType<_iz3t21fy.AlertSnapshot>,
+          _isc.getType<_i897ft9c.AlertView>,
+          _isc.getType<_i25sduw2.ConsoleAccessDeniedException>,
+          _isc.getType<_iywqxrq6.FeedEntry>,
+          _isc.getType<_ijrqdfur.FeedPage>,
+          _isc.getType<_ivrec9rl.FeedWakeUp>,
+          _isc.getType<_iil3cq3h.InvalidCursorException>,
+          _isc.getType<_iz3t21fy.AlertSnapshot?>,
+          _isc.getType<_i897ft9c.AlertView?>,
+          _isc.getType<_i25sduw2.ConsoleAccessDeniedException?>,
+          _isc.getType<_iywqxrq6.FeedEntry?>,
+          _isc.getType<_ijrqdfur.FeedPage?>,
+          _isc.getType<_ivrec9rl.FeedWakeUp?>,
+          _isc.getType<_iil3cq3h.InvalidCursorException?>,
+          _isc.getType<List<_i897ft9c.AlertView>>,
+          _isc.getType<List<_iywqxrq6.FeedEntry>>,
+        ],
         modules: const [],
-        classNames: const [],
+        classNames: const [
+          'AlertSnapshot',
+          'AlertView',
+          'ConsoleAccessDeniedException',
+          'FeedEntry',
+          'FeedPage',
+          'FeedWakeUp',
+          'InvalidCursorException',
+        ],
       );
 
   static String? getClassNameFromObjectJson(dynamic data) =>
@@ -55,11 +94,79 @@ class Protocol extends _isc.SerializationManager
       }
     }
 
+    if (t == _iz3t21fy.AlertSnapshot) {
+      return _iz3t21fy.AlertSnapshot.fromJson(data) as T;
+    }
+    if (t == _i897ft9c.AlertView) {
+      return _i897ft9c.AlertView.fromJson(data) as T;
+    }
+    if (t == _i25sduw2.ConsoleAccessDeniedException) {
+      return _i25sduw2.ConsoleAccessDeniedException.fromJson(data) as T;
+    }
+    if (t == _iywqxrq6.FeedEntry) {
+      return _iywqxrq6.FeedEntry.fromJson(data) as T;
+    }
+    if (t == _ijrqdfur.FeedPage) {
+      return _ijrqdfur.FeedPage.fromJson(data) as T;
+    }
+    if (t == _ivrec9rl.FeedWakeUp) {
+      return _ivrec9rl.FeedWakeUp.fromJson(data) as T;
+    }
+    if (t == _iil3cq3h.InvalidCursorException) {
+      return _iil3cq3h.InvalidCursorException.fromJson(data) as T;
+    }
+    if (t == _isc.getType<_iz3t21fy.AlertSnapshot?>()) {
+      return (data != null ? _iz3t21fy.AlertSnapshot.fromJson(data) : null)
+          as T;
+    }
+    if (t == _isc.getType<_i897ft9c.AlertView?>()) {
+      return (data != null ? _i897ft9c.AlertView.fromJson(data) : null) as T;
+    }
+    if (t == _isc.getType<_i25sduw2.ConsoleAccessDeniedException?>()) {
+      return (data != null
+              ? _i25sduw2.ConsoleAccessDeniedException.fromJson(data)
+              : null)
+          as T;
+    }
+    if (t == _isc.getType<_iywqxrq6.FeedEntry?>()) {
+      return (data != null ? _iywqxrq6.FeedEntry.fromJson(data) : null) as T;
+    }
+    if (t == _isc.getType<_ijrqdfur.FeedPage?>()) {
+      return (data != null ? _ijrqdfur.FeedPage.fromJson(data) : null) as T;
+    }
+    if (t == _isc.getType<_ivrec9rl.FeedWakeUp?>()) {
+      return (data != null ? _ivrec9rl.FeedWakeUp.fromJson(data) : null) as T;
+    }
+    if (t == _isc.getType<_iil3cq3h.InvalidCursorException?>()) {
+      return (data != null
+              ? _iil3cq3h.InvalidCursorException.fromJson(data)
+              : null)
+          as T;
+    }
+    if (t == List<_i897ft9c.AlertView>) {
+      return (data as List)
+              .map((e) => deserialize<_i897ft9c.AlertView>(e))
+              .toList()
+          as T;
+    }
+    if (t == List<_iywqxrq6.FeedEntry>) {
+      return (data as List)
+              .map((e) => deserialize<_iywqxrq6.FeedEntry>(e))
+              .toList()
+          as T;
+    }
     return super.deserialize<T>(data, t);
   }
 
   static String? getClassNameForType(Type type) {
     return switch (type) {
+      _iz3t21fy.AlertSnapshot => 'AlertSnapshot',
+      _i897ft9c.AlertView => 'AlertView',
+      _i25sduw2.ConsoleAccessDeniedException => 'ConsoleAccessDeniedException',
+      _iywqxrq6.FeedEntry => 'FeedEntry',
+      _ijrqdfur.FeedPage => 'FeedPage',
+      _ivrec9rl.FeedWakeUp => 'FeedWakeUp',
+      _iil3cq3h.InvalidCursorException => 'InvalidCursorException',
       _ => null,
     };
   }
@@ -73,6 +180,22 @@ class Protocol extends _isc.SerializationManager
       return (data['__className__'] as String).replaceFirst('correlia.', '');
     }
 
+    switch (data) {
+      case _iz3t21fy.AlertSnapshot():
+        return 'AlertSnapshot';
+      case _i897ft9c.AlertView():
+        return 'AlertView';
+      case _i25sduw2.ConsoleAccessDeniedException():
+        return 'ConsoleAccessDeniedException';
+      case _iywqxrq6.FeedEntry():
+        return 'FeedEntry';
+      case _ijrqdfur.FeedPage():
+        return 'FeedPage';
+      case _ivrec9rl.FeedWakeUp():
+        return 'FeedWakeUp';
+      case _iil3cq3h.InvalidCursorException():
+        return 'InvalidCursorException';
+    }
     return null;
   }
 
@@ -81,6 +204,27 @@ class Protocol extends _isc.SerializationManager
     var dataClassName = data['className'];
     if (dataClassName is! String) {
       return super.deserializeByClassName(data);
+    }
+    if (dataClassName == 'AlertSnapshot') {
+      return deserialize<_iz3t21fy.AlertSnapshot>(data['data']);
+    }
+    if (dataClassName == 'AlertView') {
+      return deserialize<_i897ft9c.AlertView>(data['data']);
+    }
+    if (dataClassName == 'ConsoleAccessDeniedException') {
+      return deserialize<_i25sduw2.ConsoleAccessDeniedException>(data['data']);
+    }
+    if (dataClassName == 'FeedEntry') {
+      return deserialize<_iywqxrq6.FeedEntry>(data['data']);
+    }
+    if (dataClassName == 'FeedPage') {
+      return deserialize<_ijrqdfur.FeedPage>(data['data']);
+    }
+    if (dataClassName == 'FeedWakeUp') {
+      return deserialize<_ivrec9rl.FeedWakeUp>(data['data']);
+    }
+    if (dataClassName == 'InvalidCursorException') {
+      return deserialize<_iil3cq3h.InvalidCursorException>(data['data']);
     }
     return super.deserializeByClassName(data);
   }

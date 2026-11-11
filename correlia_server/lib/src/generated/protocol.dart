@@ -14,20 +14,34 @@
 import 'package:serverpod/protocol.dart' as _isp;
 import 'package:serverpod/serverpod.dart' as _is;
 import 'alert.dart' as _iqmz6gj4;
+import 'alert_snapshot.dart' as _iz3t21fy;
+import 'alert_view.dart' as _i897ft9c;
+import 'console_access_denied_exception.dart' as _i25sduw2;
 import 'delivery_attempt.dart' as _ihd6gt0n;
+import 'feed_entry.dart' as _iywqxrq6;
+import 'feed_page.dart' as _ijrqdfur;
+import 'feed_wake_up.dart' as _ivrec9rl;
 import 'ingest_active_config.dart' as _ibsgqcqa;
 import 'ingest_config_snapshot.dart' as _iwupdujg;
 import 'ingest_secret_commitment.dart' as _iupiayjd;
 import 'ingest_source.dart' as _inhmna33;
+import 'invalid_cursor_exception.dart' as _iil3cq3h;
 import 'observation_key.dart' as _ii70ink4;
 import 'pipeline_failure.dart' as _ir1rifdz;
 import 'transport_key.dart' as _ix76ovok;
 export 'alert.dart';
+export 'alert_snapshot.dart';
+export 'alert_view.dart';
+export 'console_access_denied_exception.dart';
 export 'delivery_attempt.dart';
+export 'feed_entry.dart';
+export 'feed_page.dart';
+export 'feed_wake_up.dart';
 export 'ingest_active_config.dart';
 export 'ingest_config_snapshot.dart';
 export 'ingest_secret_commitment.dart';
 export 'ingest_source.dart';
+export 'invalid_cursor_exception.dart';
 export 'observation_key.dart';
 export 'pipeline_failure.dart';
 export 'transport_key.dart';
@@ -46,32 +60,55 @@ class Protocol extends _is.DatabaseSerializationManager
         this,
         types: const [
           _is.getType<_iqmz6gj4.AlertRow>,
+          _is.getType<_iz3t21fy.AlertSnapshot>,
+          _is.getType<_i897ft9c.AlertView>,
+          _is.getType<_i25sduw2.ConsoleAccessDeniedException>,
           _is.getType<_ihd6gt0n.DeliveryAttempt>,
+          _is.getType<_iywqxrq6.FeedEntry>,
+          _is.getType<_ijrqdfur.FeedPage>,
+          _is.getType<_ivrec9rl.FeedWakeUp>,
           _is.getType<_ibsgqcqa.IngestActiveConfig>,
           _is.getType<_iwupdujg.IngestConfigSnapshot>,
           _is.getType<_iupiayjd.IngestSecretCommitment>,
           _is.getType<_inhmna33.IngestSourceRow>,
+          _is.getType<_iil3cq3h.InvalidCursorException>,
           _is.getType<_ii70ink4.ObservationKeyRow>,
           _is.getType<_ir1rifdz.PipelineFailure>,
           _is.getType<_ix76ovok.TransportKey>,
           _is.getType<_iqmz6gj4.AlertRow?>,
+          _is.getType<_iz3t21fy.AlertSnapshot?>,
+          _is.getType<_i897ft9c.AlertView?>,
+          _is.getType<_i25sduw2.ConsoleAccessDeniedException?>,
           _is.getType<_ihd6gt0n.DeliveryAttempt?>,
+          _is.getType<_iywqxrq6.FeedEntry?>,
+          _is.getType<_ijrqdfur.FeedPage?>,
+          _is.getType<_ivrec9rl.FeedWakeUp?>,
           _is.getType<_ibsgqcqa.IngestActiveConfig?>,
           _is.getType<_iwupdujg.IngestConfigSnapshot?>,
           _is.getType<_iupiayjd.IngestSecretCommitment?>,
           _is.getType<_inhmna33.IngestSourceRow?>,
+          _is.getType<_iil3cq3h.InvalidCursorException?>,
           _is.getType<_ii70ink4.ObservationKeyRow?>,
           _is.getType<_ir1rifdz.PipelineFailure?>,
           _is.getType<_ix76ovok.TransportKey?>,
+          _is.getType<List<_i897ft9c.AlertView>>,
+          _is.getType<List<_iywqxrq6.FeedEntry>>,
         ],
         modules: const [_isp.Protocol.new],
         classNames: const [
           'AlertRow',
+          'AlertSnapshot',
+          'AlertView',
+          'ConsoleAccessDeniedException',
           'DeliveryAttempt',
+          'FeedEntry',
+          'FeedPage',
+          'FeedWakeUp',
           'IngestActiveConfig',
           'IngestConfigSnapshot',
           'IngestSecretCommitment',
           'IngestSourceRow',
+          'InvalidCursorException',
           'ObservationKeyRow',
           'PipelineFailure',
           'TransportKey',
@@ -736,8 +773,26 @@ class Protocol extends _is.DatabaseSerializationManager
     if (t == _iqmz6gj4.AlertRow) {
       return _iqmz6gj4.AlertRow.fromJson(data) as T;
     }
+    if (t == _iz3t21fy.AlertSnapshot) {
+      return _iz3t21fy.AlertSnapshot.fromJson(data) as T;
+    }
+    if (t == _i897ft9c.AlertView) {
+      return _i897ft9c.AlertView.fromJson(data) as T;
+    }
+    if (t == _i25sduw2.ConsoleAccessDeniedException) {
+      return _i25sduw2.ConsoleAccessDeniedException.fromJson(data) as T;
+    }
     if (t == _ihd6gt0n.DeliveryAttempt) {
       return _ihd6gt0n.DeliveryAttempt.fromJson(data) as T;
+    }
+    if (t == _iywqxrq6.FeedEntry) {
+      return _iywqxrq6.FeedEntry.fromJson(data) as T;
+    }
+    if (t == _ijrqdfur.FeedPage) {
+      return _ijrqdfur.FeedPage.fromJson(data) as T;
+    }
+    if (t == _ivrec9rl.FeedWakeUp) {
+      return _ivrec9rl.FeedWakeUp.fromJson(data) as T;
     }
     if (t == _ibsgqcqa.IngestActiveConfig) {
       return _ibsgqcqa.IngestActiveConfig.fromJson(data) as T;
@@ -751,6 +806,9 @@ class Protocol extends _is.DatabaseSerializationManager
     if (t == _inhmna33.IngestSourceRow) {
       return _inhmna33.IngestSourceRow.fromJson(data) as T;
     }
+    if (t == _iil3cq3h.InvalidCursorException) {
+      return _iil3cq3h.InvalidCursorException.fromJson(data) as T;
+    }
     if (t == _ii70ink4.ObservationKeyRow) {
       return _ii70ink4.ObservationKeyRow.fromJson(data) as T;
     }
@@ -763,9 +821,31 @@ class Protocol extends _is.DatabaseSerializationManager
     if (t == _is.getType<_iqmz6gj4.AlertRow?>()) {
       return (data != null ? _iqmz6gj4.AlertRow.fromJson(data) : null) as T;
     }
+    if (t == _is.getType<_iz3t21fy.AlertSnapshot?>()) {
+      return (data != null ? _iz3t21fy.AlertSnapshot.fromJson(data) : null)
+          as T;
+    }
+    if (t == _is.getType<_i897ft9c.AlertView?>()) {
+      return (data != null ? _i897ft9c.AlertView.fromJson(data) : null) as T;
+    }
+    if (t == _is.getType<_i25sduw2.ConsoleAccessDeniedException?>()) {
+      return (data != null
+              ? _i25sduw2.ConsoleAccessDeniedException.fromJson(data)
+              : null)
+          as T;
+    }
     if (t == _is.getType<_ihd6gt0n.DeliveryAttempt?>()) {
       return (data != null ? _ihd6gt0n.DeliveryAttempt.fromJson(data) : null)
           as T;
+    }
+    if (t == _is.getType<_iywqxrq6.FeedEntry?>()) {
+      return (data != null ? _iywqxrq6.FeedEntry.fromJson(data) : null) as T;
+    }
+    if (t == _is.getType<_ijrqdfur.FeedPage?>()) {
+      return (data != null ? _ijrqdfur.FeedPage.fromJson(data) : null) as T;
+    }
+    if (t == _is.getType<_ivrec9rl.FeedWakeUp?>()) {
+      return (data != null ? _ivrec9rl.FeedWakeUp.fromJson(data) : null) as T;
     }
     if (t == _is.getType<_ibsgqcqa.IngestActiveConfig?>()) {
       return (data != null ? _ibsgqcqa.IngestActiveConfig.fromJson(data) : null)
@@ -787,6 +867,12 @@ class Protocol extends _is.DatabaseSerializationManager
       return (data != null ? _inhmna33.IngestSourceRow.fromJson(data) : null)
           as T;
     }
+    if (t == _is.getType<_iil3cq3h.InvalidCursorException?>()) {
+      return (data != null
+              ? _iil3cq3h.InvalidCursorException.fromJson(data)
+              : null)
+          as T;
+    }
     if (t == _is.getType<_ii70ink4.ObservationKeyRow?>()) {
       return (data != null ? _ii70ink4.ObservationKeyRow.fromJson(data) : null)
           as T;
@@ -797,6 +883,18 @@ class Protocol extends _is.DatabaseSerializationManager
     }
     if (t == _is.getType<_ix76ovok.TransportKey?>()) {
       return (data != null ? _ix76ovok.TransportKey.fromJson(data) : null) as T;
+    }
+    if (t == List<_i897ft9c.AlertView>) {
+      return (data as List)
+              .map((e) => deserialize<_i897ft9c.AlertView>(e))
+              .toList()
+          as T;
+    }
+    if (t == List<_iywqxrq6.FeedEntry>) {
+      return (data as List)
+              .map((e) => deserialize<_iywqxrq6.FeedEntry>(e))
+              .toList()
+          as T;
     }
     final modules = deserializationMetadata.modulesForDeserialization(
       t,
@@ -814,11 +912,18 @@ class Protocol extends _is.DatabaseSerializationManager
   static String? getClassNameForType(Type type) {
     return switch (type) {
       _iqmz6gj4.AlertRow => 'AlertRow',
+      _iz3t21fy.AlertSnapshot => 'AlertSnapshot',
+      _i897ft9c.AlertView => 'AlertView',
+      _i25sduw2.ConsoleAccessDeniedException => 'ConsoleAccessDeniedException',
       _ihd6gt0n.DeliveryAttempt => 'DeliveryAttempt',
+      _iywqxrq6.FeedEntry => 'FeedEntry',
+      _ijrqdfur.FeedPage => 'FeedPage',
+      _ivrec9rl.FeedWakeUp => 'FeedWakeUp',
       _ibsgqcqa.IngestActiveConfig => 'IngestActiveConfig',
       _iwupdujg.IngestConfigSnapshot => 'IngestConfigSnapshot',
       _iupiayjd.IngestSecretCommitment => 'IngestSecretCommitment',
       _inhmna33.IngestSourceRow => 'IngestSourceRow',
+      _iil3cq3h.InvalidCursorException => 'InvalidCursorException',
       _ii70ink4.ObservationKeyRow => 'ObservationKeyRow',
       _ir1rifdz.PipelineFailure => 'PipelineFailure',
       _ix76ovok.TransportKey => 'TransportKey',
@@ -838,8 +943,20 @@ class Protocol extends _is.DatabaseSerializationManager
     switch (data) {
       case _iqmz6gj4.AlertRow():
         return 'AlertRow';
+      case _iz3t21fy.AlertSnapshot():
+        return 'AlertSnapshot';
+      case _i897ft9c.AlertView():
+        return 'AlertView';
+      case _i25sduw2.ConsoleAccessDeniedException():
+        return 'ConsoleAccessDeniedException';
       case _ihd6gt0n.DeliveryAttempt():
         return 'DeliveryAttempt';
+      case _iywqxrq6.FeedEntry():
+        return 'FeedEntry';
+      case _ijrqdfur.FeedPage():
+        return 'FeedPage';
+      case _ivrec9rl.FeedWakeUp():
+        return 'FeedWakeUp';
       case _ibsgqcqa.IngestActiveConfig():
         return 'IngestActiveConfig';
       case _iwupdujg.IngestConfigSnapshot():
@@ -848,6 +965,8 @@ class Protocol extends _is.DatabaseSerializationManager
         return 'IngestSecretCommitment';
       case _inhmna33.IngestSourceRow():
         return 'IngestSourceRow';
+      case _iil3cq3h.InvalidCursorException():
+        return 'InvalidCursorException';
       case _ii70ink4.ObservationKeyRow():
         return 'ObservationKeyRow';
       case _ir1rifdz.PipelineFailure():
@@ -871,8 +990,26 @@ class Protocol extends _is.DatabaseSerializationManager
     if (dataClassName == 'AlertRow') {
       return deserialize<_iqmz6gj4.AlertRow>(data['data']);
     }
+    if (dataClassName == 'AlertSnapshot') {
+      return deserialize<_iz3t21fy.AlertSnapshot>(data['data']);
+    }
+    if (dataClassName == 'AlertView') {
+      return deserialize<_i897ft9c.AlertView>(data['data']);
+    }
+    if (dataClassName == 'ConsoleAccessDeniedException') {
+      return deserialize<_i25sduw2.ConsoleAccessDeniedException>(data['data']);
+    }
     if (dataClassName == 'DeliveryAttempt') {
       return deserialize<_ihd6gt0n.DeliveryAttempt>(data['data']);
+    }
+    if (dataClassName == 'FeedEntry') {
+      return deserialize<_iywqxrq6.FeedEntry>(data['data']);
+    }
+    if (dataClassName == 'FeedPage') {
+      return deserialize<_ijrqdfur.FeedPage>(data['data']);
+    }
+    if (dataClassName == 'FeedWakeUp') {
+      return deserialize<_ivrec9rl.FeedWakeUp>(data['data']);
     }
     if (dataClassName == 'IngestActiveConfig') {
       return deserialize<_ibsgqcqa.IngestActiveConfig>(data['data']);
@@ -885,6 +1022,9 @@ class Protocol extends _is.DatabaseSerializationManager
     }
     if (dataClassName == 'IngestSourceRow') {
       return deserialize<_inhmna33.IngestSourceRow>(data['data']);
+    }
+    if (dataClassName == 'InvalidCursorException') {
+      return deserialize<_iil3cq3h.InvalidCursorException>(data['data']);
     }
     if (dataClassName == 'ObservationKeyRow') {
       return deserialize<_ii70ink4.ObservationKeyRow>(data['data']);

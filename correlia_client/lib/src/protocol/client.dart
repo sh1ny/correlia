@@ -10,9 +10,55 @@
 // ignore_for_file: invalid_use_of_internal_member
 
 // ignore_for_file: no_leading_underscores_for_library_prefixes
+import 'dart:async' as _ida;
+import 'package:correlia_client/src/protocol/alert_snapshot.dart' as _iwtce40m;
+import 'package:correlia_client/src/protocol/feed_page.dart' as _ic2oo2k5;
+import 'package:correlia_client/src/protocol/feed_wake_up.dart' as _in8k0z4e;
 import 'package:http/http.dart' as _i85jenna;
 import 'package:serverpod_client/serverpod_client.dart' as _isc;
 import 'protocol.dart' as _il2as5qe;
+
+/// Development-only snapshot, durable feed and wake-up API.
+/// {@category Endpoint}
+class EndpointAlertConsole extends _isc.EndpointRef {
+  EndpointAlertConsole(_isc.EndpointCaller caller) : super(caller);
+
+  @override
+  String get name => 'alertConsole';
+
+  /// Returns a bounded firing-alert snapshot and its handover cursor.
+  _ida.Future<_iwtce40m.AlertSnapshot> snapshot() =>
+      caller.callServerEndpoint<_iwtce40m.AlertSnapshot>(
+        'alertConsole',
+        'snapshot',
+        {},
+      );
+
+  /// Reads a page of durable activity and its current alert views.
+  _ida.Future<_ic2oo2k5.FeedPage> feed(
+    String cursor,
+    int limit,
+  ) => caller.callServerEndpoint<_ic2oo2k5.FeedPage>(
+    'alertConsole',
+    'feed',
+    {
+      'cursor': cursor,
+      'limit': limit,
+    },
+  );
+
+  /// Emits wake-ups while this client is subscribed.
+  _ida.Stream<_in8k0z4e.FeedWakeUp> wakeUps() =>
+      caller.callStreamingServerEndpoint<
+        _ida.Stream<_in8k0z4e.FeedWakeUp>,
+        _in8k0z4e.FeedWakeUp
+      >(
+        'alertConsole',
+        'wakeUps',
+        {},
+        {},
+      );
+}
 
 class Client extends _isc.ServerpodClientShared {
   Client(
@@ -40,10 +86,16 @@ class Client extends _isc.ServerpodClientShared {
          disconnectStreamsOnLostInternetConnection:
              disconnectStreamsOnLostInternetConnection,
          httpClientOverride: httpClientOverride,
-       ) {}
+       ) {
+    alertConsole = EndpointAlertConsole(this);
+  }
+
+  late final EndpointAlertConsole alertConsole;
 
   @override
-  Map<String, _isc.EndpointRef> get endpointRefLookup => {};
+  Map<String, _isc.EndpointRef> get endpointRefLookup => {
+    'alertConsole': alertConsole,
+  };
 
   @override
   Map<String, _isc.ModuleEndpointCaller> get moduleLookup => {};
