@@ -1,7 +1,7 @@
 ---
 name: specwright-implementer
 description: Implements one task group of a Specwright/OpenSpec change test-first and reports evidence. Dispatched by the orchestrating agent during apply; never commits or ticks tasks itself.
-model: pi/smol
+model: pi/task
 tools: read,grep,find,lsp,edit,write,bash
 spawns: []
 ---

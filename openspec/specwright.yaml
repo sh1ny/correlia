@@ -41,8 +41,8 @@ review:
   # specwright-reviewer agent instead.
   cross_model: true
   # Reviewer CLIs tried in order; the current harness is skipped, and the
-  # first one installed (OMP: whose model resolves) runs the review.
-  order: [codex, claude, omp]
+  # first one installed (OMP: whose model resolves) runs the review. Owner: Claude first.
+  order: [claude, codex, omp]
   # Model per route. Omit = the CLI's default; OMP takes a role (@slow) or a
   # provider/id, and defaults to @default.
   # models:
