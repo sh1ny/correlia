@@ -41,21 +41,21 @@ All paths are relative to `correlia_server/`. These are planned tests, not execu
 | T31 | durable-pipeline: Role scoped bounded lifecycle | Shutdown during processing | `test/e2e/pipeline_lifecycle_e2e_test.dart` | `shutdown_during_processing` | red |
 | T32 | output-delivery: Immutable routed delivery intent | Fanout with configuration change | `test/db/pipeline_routing_test.dart` | `fanout_with_configuration_change` | green |
 | T33 | output-delivery: Immutable routed delivery intent | Explicitly unrouted event | `test/db/pipeline_routing_test.dart` | `explicitly_unrouted_event` | green |
-| T34 | output-delivery: Fenced at least once delivery | DUR-2 restart after processing commit | `test/e2e/output_recovery_e2e_test.dart` | `dur_2_restart_after_processing_commit` | red |
-| T35 | output-delivery: Fenced at least once delivery | DUR-3 acknowledgement lost before local commit | `test/e2e/output_recovery_e2e_test.dart` | `dur_3_acknowledgement_lost_before_local_commit` | red |
-| T36 | output-delivery: Fenced at least once delivery | Expired owner completion | `test/db/output_relay_test.dart` | `expired_owner_completion` | red |
-| T37 | output-delivery: Isolated attempts retry and dead letters | One output fails while another succeeds | `test/e2e/output_delivery_e2e_test.dart` | `one_output_fails_while_another_succeeds` | red |
-| T38 | output-delivery: Isolated attempts retry and dead letters | Interrupted attempt exhausts budget | `test/db/output_relay_test.dart` | `interrupted_attempt_exhausts_budget` | red |
-| T39 | output-delivery: Signed structured webhook output | Receiver verifies signed event | `test/e2e/output_delivery_e2e_test.dart` | `receiver_verifies_signed_event` | red |
-| T40 | output-delivery: Signed structured webhook output | Redirect timeout and rejection | `test/e2e/output_delivery_e2e_test.dart` | `redirect_timeout_and_rejection` | red |
+| T34 | output-delivery: Fenced at least once delivery | DUR-2 restart after processing commit | `test/e2e/output_recovery_e2e_test.dart` | `dur_2_restart_after_processing_commit` | green |
+| T35 | output-delivery: Fenced at least once delivery | DUR-3 acknowledgement lost before local commit | `test/e2e/output_recovery_e2e_test.dart` | `dur_3_acknowledgement_lost_before_local_commit` | green |
+| T36 | output-delivery: Fenced at least once delivery | Expired owner completion | `test/db/output_relay_test.dart` | `expired_owner_completion` | green |
+| T37 | output-delivery: Isolated attempts retry and dead letters | One output fails while another succeeds | `test/e2e/output_delivery_e2e_test.dart` | `one_output_fails_while_another_succeeds` | green |
+| T38 | output-delivery: Isolated attempts retry and dead letters | Interrupted attempt exhausts budget | `test/db/output_relay_test.dart` | `interrupted_attempt_exhausts_budget` | green |
+| T39 | output-delivery: Signed structured webhook output | Receiver verifies signed event | `test/e2e/output_delivery_e2e_test.dart` | `receiver_verifies_signed_event` | green |
+| T40 | output-delivery: Signed structured webhook output | Redirect timeout and rejection | `test/e2e/output_delivery_e2e_test.dart` | `redirect_timeout_and_rejection` | green |
 | T41 | source-ingress: Credential safe request handling | Unconfigured ingress still protects token paths | `test/e2e/ingress_e2e_test.dart` | `unconfigured_ingress_still_protects_token_paths` | green |
 | T42 | source-ingress: Validated immutable bootstrap configuration | Stale bootstrap cannot revoke the rotation | `test/db/ingest_config_test.dart` | `stale_bootstrap_cannot_revoke_the_rotation` | green |
 | T43 | source-ingress: Validated immutable bootstrap configuration | Missing config with durable work | `test/e2e/pipeline_lifecycle_e2e_test.dart` | `missing_config_with_durable_work` | red |
 | T44 | source-ingress: Validated immutable bootstrap configuration | Dead intent does not require signing material | `test/db/ingest_config_test.dart` | `dead_intent_does_not_require_signing_material` | green |
 | T45 | integration-alertmanager: Canonical identity from original labels | Empty selected identity | `test/unit/ingest/alertmanager_decoder_test.dart` | `empty_selected_identity` | green |
 | T46 | integration-alertmanager: Bounded explicit display and metadata mapping | Oversize identity label projection | `test/unit/ingest/alertmanager_decoder_test.dart` | `oversize_identity_label_projection` | green |
-| T47 | output-delivery: Signing key availability before acquisition | Loaded historical signing reference | `test/e2e/output_delivery_e2e_test.dart` | `loaded_historical_signing_reference` | red |
-| T48 | output-delivery: Signing key availability before acquisition | Unloaded live signing reference | `test/db/output_relay_test.dart` | `unloaded_live_signing_reference` | red |
+| T47 | output-delivery: Signing key availability before acquisition | Loaded historical signing reference | `test/e2e/output_delivery_e2e_test.dart` | `loaded_historical_signing_reference` | green |
+| T48 | output-delivery: Signing key availability before acquisition | Unloaded live signing reference | `test/db/output_relay_test.dart` | `unloaded_live_signing_reference` | green |
 | T49 | source-ingress: Validated immutable bootstrap configuration | Revert by higher revision | `test/db/ingest_config_test.dart` | `revert_by_higher_revision` | green |
 | T50 | source-ingress: Validated immutable bootstrap configuration | Conflicting equal revision | `test/db/ingest_config_test.dart` | `conflicting_equal_revision` | green |
 | T51 | source-ingress: Validated immutable bootstrap configuration | Missing worker config after drained queue | `test/e2e/pipeline_lifecycle_e2e_test.dart` | `missing_worker_config_after_drained_queue` | red |
@@ -93,9 +93,9 @@ All paths are relative to `correlia_server/`. These are planned tests, not execu
 
 ## 6. Durable output relay and signed webhook
 
-- [ ] 6.1 Add failing T36–T38/T48 at their mapped database/HTTP boundaries. Implement the narrow typed output contract, fenced DB-clock leases, durable started/interrupted attempts, finite retry/dead transitions and shared bounded discovery with independent per-output lanes (D5). Verify stale completions cannot mutate successor claims, interrupted attempts exhaust the budget and a failed output does not prevent a healthy output from delivering; missing live signing references remain queued without attempts and emit bounded diagnostics.
-- [ ] 6.2 Add failing real-receiver T39–T40/T47; implement exact-byte CloudEvents POST, message id, HMAC signing, URL validation, non-followed redirects, bounded response draining and total HTTP deadline. Verify receiver-computed signatures, fixed ids/bytes, response classification and absent signing/response-body secrets in diagnostics.
-- [ ] 6.3 Add failing T34–T35 real-process recovery tests using the receiver acknowledgement as a kill barrier. Verify pending work after processing commit is delivered after restart and remote-accepted/local-uncommitted work redelivers byte-identically with the same message id. Document at-least-once duplicates, attempt/dead inspection, old-target/key retention and HTTP-only development restrictions in docs/ingest-pipeline.md.
+- [x] 6.1 Add failing T36–T38/T48 at their mapped database/HTTP boundaries. Implement the narrow typed output contract, fenced DB-clock leases, durable started/interrupted attempts, finite retry/dead transitions and shared bounded discovery with independent per-output lanes (D5). Verify stale completions cannot mutate successor claims, interrupted attempts exhaust the budget and a failed output does not prevent a healthy output from delivering; missing live signing references remain queued without attempts and emit bounded diagnostics.
+- [x] 6.2 Add failing real-receiver T39–T40/T47; implement exact-byte CloudEvents POST, message id, HMAC signing, URL validation, non-followed redirects, bounded response draining and total HTTP deadline. Verify receiver-computed signatures, fixed ids/bytes, response classification and absent signing/response-body secrets in diagnostics.
+- [x] 6.3 Add failing T34–T35 real-process recovery tests using the receiver acknowledgement as a kill barrier. Verify pending work after processing commit is delivered after restart and remote-accepted/local-uncommitted work redelivers byte-identically with the same message id. Document at-least-once duplicates, attempt/dead inspection, old-target/key retention and HTTP-only development restrictions in docs/ingest-pipeline.md.
 
 ## 7. Integrated lifecycle proof
 

@@ -123,3 +123,27 @@ FROM pipeline_failures;
 ```
 
 Use both time and id when joining raw/event/output evidence. Raw payloads remain private operational data; never paste them into diagnostics. Accepted bytes are not silently discarded, and no retention/replay scheduler is implemented in this slice. Provision disk headroom until M2 retention/backpressure work. Alert freshness/state, complete ORD-5 and the full DUR-1 state-mutation extension belong to the following roadmap change; this slice has no placeholder state writer.
+
+## Signed webhook delivery and recovery
+
+Every routed intent stores its original structured CloudEvents bytes, event id, destination, snapshot and signing-key commitment. Rotation never redirects or re-encodes old work. Relays POST `Content-Type: application/cloudevents+json`, `Idempotency-Key: <event-id>` and `X-Correlia-Signature: sha256=<lowercase HMAC-SHA256 hex over the exact body>`. Receivers must deduplicate the event id: delivery is at least once, not exactly once or ordered per alert. HMAC authenticates bytes, not freshness.
+
+Only 2xx acknowledges. Network errors, total-deadline expiry, 408, 429 and 5xx retry; other statuses, including redirects, are permanent. Redirects are not followed. Destinations require HTTPS except explicit loopback HTTP in development/test; userinfo, query and fragment are rejected. Calls have a ten-second total deadline. Response bodies are discarded up to 64 KiB, then the connection closes; an already received 2xx still acknowledges an oversized response.
+
+One shared discovery loop serves independent lanes, with at most one in-flight request per retained output id. A failing output cannot hold a database transaction over HTTP or block healthy outputs. Acquiring an intent commits a random claim token, database-clock thirty-second lease and started attempt. Finalization is fenced by that current unexpired token. Death after remote success can therefore produce a byte-identical duplicate after restart; stale completions cannot overwrite a successor.
+
+Expired claims mark their unfinished attempts `interrupted` and retry. Every started attempt spends the twenty-attempt budget, including ambiguous outcomes and process death. Backoff is `min(300 seconds, 2^(attempt-1) seconds)`; exhausted or permanent work becomes terminal `dead` with its payload retained. Delivered/dead rows have no automatic replay in this slice.
+
+Inspect delivery state and attempts with restricted SQL:
+
+```sql
+SELECT created_at, delivery_id, output_id, event_id, status,
+       attempt_count, lease_until, next_attempt_at, dead_reason
+FROM outbox;
+
+SELECT "outboxCreatedAt", "deliveryId", "attemptNumber",
+       "startedAt", "finishedAt", outcome, "errorClass"
+FROM delivery_attempts;
+```
+
+Keep historical target definitions and matching signing material while queued/delivering work refers to them. Missing loaded references leave work queued without an attempt and emit bounded reference-availability diagnostics; never an unsigned fallback. Terminal metadata keeps commitments, not secret bytes. Shutdown cancels acquisition and HTTP work before the database closes; unfinished started claims remain recoverable through lease expiry.
