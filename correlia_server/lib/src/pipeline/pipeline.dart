@@ -12,6 +12,7 @@ import '../event/validation.dart';
 import '../ingest/alertmanager_decoder.dart';
 import '../runtime/process_options.dart';
 import '../runtime/subsystem.dart';
+import '../state/alert_state_service.dart';
 
 const _transactionLimit = Duration(seconds: 10);
 const _fanoutLimit = 16 * 1024 * 1024;
@@ -321,10 +322,14 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
             quarantines = 0,
             duplicateQuarantine = 0,
             late = 0,
-            unrouted = 0;
+            unrouted = 0,
+            applied = 0,
+            stale = 0;
         var aggregate = 0;
         final seen = <String>{};
         final savepoint = await tx.createSavepoint();
+        final effects = <_Prepared>[];
+        final stateInputs = <StateInput>[];
         try {
           for (final item in prepared) {
             deadline.check();
@@ -361,14 +366,46 @@ ON CONFLICT ("eventId") DO NOTHING RETURNING "eventId"''',
               );
               if (key.isEmpty) {
                 duplicates++;
+                await _limits(tx, deadline);
+                final original = await session.db.unsafeQuery(
+                  'SELECT disposition FROM observation_keys WHERE "eventId"=CAST(@event AS uuid)',
+                  parameters: QueryParameters.named({'event': event.eventId}),
+                  transaction: tx,
+                  timeoutInSeconds: 5,
+                );
+                if (original.single[0] == 'ready') {
+                  stateInputs.add(StateInput(event, duplicate: true));
+                }
                 continue;
               }
             }
+            if (item.disposition == EvidenceDisposition.ready) {
+              stateInputs.add(StateInput(event, duplicate: false));
+            }
+            effects.add(item);
+          }
+
+          final stateOutcomes = await AlertStateService(
+            session,
+            skewAllowance: stateSkewAllowance,
+            beforeQuery: () => _limits(tx, deadline),
+          ).apply(tx, stateInputs, rawId: raw.id, now: clock().toUtc());
+          applied = stateOutcomes.values.where((v) => v == 'applied').length;
+          stale = stateOutcomes.values.where((v) => v == 'stale').length;
+
+          for (final item in effects) {
+            deadline.check();
+            final event = item.event;
+            final disposition = switch (item.disposition) {
+              EvidenceDisposition.ready => 'ready',
+              EvidenceDisposition.late => 'late',
+              EvidenceDisposition.futureDated => 'future_dated',
+            };
             await _limits(tx, deadline);
             final inserted = await session.db.unsafeQuery(
               '''INSERT INTO events
-(observed_at,event_id,disposition,raw_observed_at,raw_id,source_id,config_snapshot_id,source_time,payload)
-VALUES (@observed,CAST(@event AS uuid),@disposition,@observed,CAST(@raw AS uuid),CAST(@source AS uuid),@pin,@sourceTime,@payload)
+(observed_at,event_id,disposition,raw_observed_at,raw_id,source_id,config_snapshot_id,source_time,payload,state_outcome)
+VALUES (@observed,CAST(@event AS uuid),@disposition,@observed,CAST(@raw AS uuid),CAST(@source AS uuid),@pin,@sourceTime,@payload,@stateOutcome)
 ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
               parameters: QueryParameters.named({
                 'observed': raw.observed,
@@ -379,6 +416,7 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
                 'pin': raw.pin,
                 'sourceTime': _date(event.sourceTime!),
                 'payload': item.payload,
+                'stateOutcome': stateOutcomes[event.eventId],
               }),
               transaction: tx,
               timeoutInSeconds: 5,
@@ -458,6 +496,8 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
               'future_dated': quarantines,
               'duplicate_quarantine': duplicateQuarantine,
               'late': late,
+              'applied': applied,
+              'stale': stale,
             }),
           }),
           transaction: tx,

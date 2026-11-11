@@ -156,3 +156,4 @@ Adds authoritative alert state and a live development console.
 
 - Managed alert storage and an append-only activity ledger with atomic schema upgrades.
 - Nanosecond-precision ordering fences and pure, versioned alert transitions.
+- Atomic pipeline state mutations, stale classification and freshness-only duplicate handling.

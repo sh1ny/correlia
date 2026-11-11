@@ -20,25 +20,25 @@ Paths are relative to `correlia_server/` unless they start with `correlia_flutte
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| alert-state → Authoritative alert state per fingerprint | First firing observation creates a firing alert | test/db/alert_state_test.dart | first_firing_observation_creates_firing_alert | red |
-| alert-state → Authoritative alert state per fingerprint | First observation is a recovery | test/db/alert_state_test.dart | first_observation_is_a_recovery | red |
-| alert-state → Authoritative alert state per fingerprint | Concurrent first observations of one fingerprint | test/db/alert_state_test.dart | concurrent_first_observations_of_one_fingerprint | red |
-| alert-state → Ordering fence decides state changes | ORD-1 delayed recovery does not clear a newer problem | test/unit/state/transition_test.dart; test/db/alert_state_test.dart | ord_1_delayed_recovery_does_not_clear_newer_problem | red |
-| alert-state → Ordering fence decides state changes | ORD-2 stale problem does not resurrect a resolved alert | test/unit/state/transition_test.dart; test/db/alert_state_test.dart | ord_2_stale_problem_does_not_resurrect_resolved_alert | red |
+| alert-state → Authoritative alert state per fingerprint | First firing observation creates a firing alert | test/db/alert_state_test.dart | first_firing_observation_creates_firing_alert | green |
+| alert-state → Authoritative alert state per fingerprint | First observation is a recovery | test/db/alert_state_test.dart | first_observation_is_a_recovery | green |
+| alert-state → Authoritative alert state per fingerprint | Concurrent first observations of one fingerprint | test/db/alert_state_test.dart | concurrent_first_observations_of_one_fingerprint | green |
+| alert-state → Ordering fence decides state changes | ORD-1 delayed recovery does not clear a newer problem | test/unit/state/transition_test.dart; test/db/alert_state_test.dart | ord_1_delayed_recovery_does_not_clear_newer_problem | green |
+| alert-state → Ordering fence decides state changes | ORD-2 stale problem does not resurrect a resolved alert | test/unit/state/transition_test.dart; test/db/alert_state_test.dart | ord_2_stale_problem_does_not_resurrect_resolved_alert | green |
 | alert-state → Ordering fence decides state changes | Source clock ahead within the future limit | test/unit/state/ordering_key_test.dart | source_clock_ahead_within_future_limit | green |
-| alert-state → State converges in any processing order | ORD-3 equal source times are ordered deterministically | test/unit/state/transition_test.dart; test/db/alert_state_test.dart | ord_3_equal_source_times_ordered_deterministically | red |
-| alert-state → State converges in any processing order | Source times less than a microsecond apart | test/db/alert_state_test.dart | source_times_less_than_a_microsecond_apart | red |
-| alert-state → Applied observations update state in place | ID-7c severity changes in place | test/db/alert_state_test.dart | id_7c_severity_changes_in_place | red |
-| alert-state → Applied observations update state in place | ID-7b severity-labelled alerts are separate | test/db/alert_state_test.dart | id_7b_severity_labelled_alerts_are_separate | red |
+| alert-state → State converges in any processing order | ORD-3 equal source times are ordered deterministically | test/unit/state/transition_test.dart; test/db/alert_state_test.dart | ord_3_equal_source_times_ordered_deterministically | green |
+| alert-state → State converges in any processing order | Source times less than a microsecond apart | test/db/alert_state_test.dart | source_times_less_than_a_microsecond_apart | green |
+| alert-state → Applied observations update state in place | ID-7c severity changes in place | test/db/alert_state_test.dart | id_7c_severity_changes_in_place | green |
+| alert-state → Applied observations update state in place | ID-7b severity-labelled alerts are separate | test/db/alert_state_test.dart | id_7b_severity_labelled_alerts_are_separate | green |
 | alert-state → Applied observations update state in place | Newer repeat with no visible change | test/unit/state/transition_test.dart | newer_repeat_with_no_visible_change | green |
-| alert-state → Last observed time advances monotonically | Stale observation with a later observed time | test/db/alert_state_test.dart | stale_observation_with_later_observed_time | red |
-| alert-state → Last observed time advances monotonically | Older observed time never moves it backwards | test/db/alert_state_test.dart | older_observed_time_never_moves_it_backwards | red |
-| alert-state → Last observed time advances monotonically | Late observation advances nothing | test/db/alert_state_test.dart | late_observation_advances_nothing | red |
-| alert-state → Single writer for alert state | Effect counts per raw row | test/db/alert_state_test.dart | effect_counts_per_raw_row | red |
-| alert-state → Single writer for alert state | Opposite fingerprint order in concurrent deliveries | test/db/alert_state_test.dart | opposite_fingerprint_order_in_concurrent_deliveries | red |
+| alert-state → Last observed time advances monotonically | Stale observation with a later observed time | test/db/alert_state_test.dart | stale_observation_with_later_observed_time | green |
+| alert-state → Last observed time advances monotonically | Older observed time never moves it backwards | test/db/alert_state_test.dart | older_observed_time_never_moves_it_backwards | green |
+| alert-state → Last observed time advances monotonically | Late observation advances nothing | test/db/alert_state_test.dart | late_observation_advances_nothing | green |
+| alert-state → Single writer for alert state | Effect counts per raw row | test/db/alert_state_test.dart | effect_counts_per_raw_row | green |
+| alert-state → Single writer for alert state | Opposite fingerprint order in concurrent deliveries | test/db/alert_state_test.dart | opposite_fingerprint_order_in_concurrent_deliveries | green |
 | alert-state → Single writer for alert state | Informational observation | test/unit/state/transition_test.dart | informational_observation | green |
-| change-feed → Append-only activity ledger | Firing then resolved writes two entries | test/db/activity_ledger_test.dart | firing_then_resolved_writes_two_entries | red |
-| change-feed → Append-only activity ledger | Rolled-back change leaves no entry | test/db/activity_ledger_test.dart | rolled_back_change_leaves_no_entry | red |
+| change-feed → Append-only activity ledger | Firing then resolved writes two entries | test/db/activity_ledger_test.dart | firing_then_resolved_writes_two_entries | green |
+| change-feed → Append-only activity ledger | Rolled-back change leaves no entry | test/db/activity_ledger_test.dart | rolled_back_change_leaves_no_entry | green |
 | change-feed → Feed reads only below the watermark | UI-3a a late-committing transaction is never skipped | test/db/change_feed_test.dart | ui_3a_late_committing_transaction_never_skipped | red |
 | change-feed → Feed reads only below the watermark | Page limit | test/db/change_feed_test.dart | page_limit | red |
 | change-feed → Opaque feed cursors | Malformed cursor | test/unit/feed/feed_cursor_test.dart; test/db/change_feed_test.dart | malformed_cursor | red |
@@ -47,16 +47,16 @@ Paths are relative to `correlia_server/` unless they start with `correlia_flutte
 | change-feed → Snapshot and feed handover | Repeated change in snapshot and feed | test/db/change_feed_test.dart | repeated_change_in_snapshot_and_feed | red |
 | change-feed → Wake-up stream liveness | UI-3b blocker without activity | test/db/feed_watermark_test.dart | ui_3b_blocker_without_activity | red |
 | change-feed → Wake-up stream liveness | Stream dropped and resumed | test/e2e/live_feed_e2e_test.dart | stream_dropped_and_resumed | red |
-| durable-pipeline → Atomic raw processing outcome | DUR-1 outbox failure rolls back event work | test/db/pipeline_test.dart | dur_1_outbox_failure_rolls_back_event_work | red |
-| durable-pipeline → Atomic raw processing outcome | Invalid member after valid member | test/db/pipeline_test.dart | invalid_member_after_valid_member | red |
+| durable-pipeline → Atomic raw processing outcome | DUR-1 outbox failure rolls back event work | test/db/pipeline_test.dart | dur_1_outbox_failure_rolls_back_event_work | green |
+| durable-pipeline → Atomic raw processing outcome | Invalid member after valid member | test/db/pipeline_test.dart | invalid_member_after_valid_member | green |
 | durable-pipeline → Atomic raw processing outcome | Processing budget exhaustion | test/db/pipeline_test.dart | processing_budget_exhaustion | green |
 | durable-pipeline → Durable observation deduplication and quarantine | ORD-5b rebatching and expired transport window | test/db/pipeline_test.dart | ord_5b_rebatching_and_expired_transport_window | green |
-| durable-pipeline → Durable observation deduplication and quarantine | ORD-5c retry of firing after a recovery | test/db/alert_state_test.dart | ord_5c_retry_of_firing_after_recovery | red |
-| durable-pipeline → Durable observation deduplication and quarantine | ORD-5d retry after the observation key expired | test/db/alert_state_test.dart | ord_5d_retry_after_observation_key_expired | red |
-| durable-pipeline → Durable observation deduplication and quarantine | ORD-5f generic retry without a native id | test/db/alert_state_test.dart | ord_5f_retry_without_native_id | red |
-| durable-pipeline → Durable observation deduplication and quarantine | Duplicate of a late observation | test/db/alert_state_test.dart | duplicate_of_late_observation | red |
-| durable-pipeline → Durable observation deduplication and quarantine | Future quarantine does not poison dedup | test/db/pipeline_test.dart | future_quarantine_does_not_poison_dedup | red |
-| durable-pipeline → Durable observation deduplication and quarantine | Late observation evidence | test/db/pipeline_test.dart | late_observation_evidence | red |
+| durable-pipeline → Durable observation deduplication and quarantine | ORD-5c retry of firing after a recovery | test/db/alert_state_test.dart | ord_5c_retry_of_firing_after_recovery | green |
+| durable-pipeline → Durable observation deduplication and quarantine | ORD-5d retry after the observation key expired | test/db/alert_state_test.dart | ord_5d_retry_after_observation_key_expired | green |
+| durable-pipeline → Durable observation deduplication and quarantine | ORD-5f generic retry without a native id | test/db/alert_state_test.dart | ord_5f_retry_without_native_id | green |
+| durable-pipeline → Durable observation deduplication and quarantine | Duplicate of a late observation | test/db/alert_state_test.dart | duplicate_of_late_observation | green |
+| durable-pipeline → Durable observation deduplication and quarantine | Future quarantine does not poison dedup | test/db/pipeline_test.dart | future_quarantine_does_not_poison_dedup | green |
+| durable-pipeline → Durable observation deduplication and quarantine | Late observation evidence | test/db/pipeline_test.dart | late_observation_evidence | green |
 | operator-console → Live alert list | New alert appears live | correlia_flutter/test/alert_list_page_test.dart | new_alert_appears_live | red |
 | operator-console → Live alert list | Resolved alert leaves the list | correlia_flutter/test/alert_list_page_test.dart | resolved_alert_leaves_the_list | red |
 | operator-console → Live alert list | Wake-up stream silent | correlia_flutter/test/alert_feed_controller_test.dart | wake_up_stream_silent | red |
@@ -123,11 +123,11 @@ Paths are relative to `correlia_server/` unless they start with `correlia_flutte
 
 ## 3. State mutation in the pipeline transaction
 
-- [ ] 3.1 Restructure `PipelineRepository.processOne` into D3's three phases (keys, state placeholder,
+- [x] 3.1 Restructure `PipelineRepository.processOne` into D3's three phases (keys, state placeholder,
   effects) with no state writes yet. Verify that every existing test in `test/db/pipeline_test.dart`,
   `test/db/pipeline_routing_test.dart`, `test/db/transport_dedup_test.dart` and the pipeline e2e tests
   still passes unchanged (`mise run test -- --tags db`, then `-- --tags e2e`).
-- [ ] 3.2 Write failing db tests in `test/db/alert_state_test.dart` and
+- [x] 3.2 Write failing db tests in `test/db/alert_state_test.dart` and
   `test/db/activity_ledger_test.dart` for every `alert_state_test` and `activity_ledger_test` row of the
   test map. Drive them through `processOne` with Alertmanager fixtures and injected clocks.
   - **ORD-5d** deletes the observation key, as the M2 retention job will.
@@ -140,7 +140,7 @@ Paths are relative to `correlia_server/` unless they start with `correlia_flutte
   - late_observation_evidence.
 
   Verify that the new assertions fail.
-- [ ] 3.3 Implement `lib/src/state/alert_state_service.dart`:
+- [x] 3.3 Implement `lib/src/state/alert_state_service.dart`:
   - D3's phase 2: locks in fingerprint order, ensuring each row with `INSERT … ON CONFLICT DO NOTHING`
     and then `SELECT … FOR UPDATE`;
   - `decideTransition`;
@@ -151,7 +151,7 @@ Paths are relative to `correlia_server/` unless they start with `correlia_flutte
   Wire it into phase 2. Write `events.state_outcome` in phase 3 and add `applied` and `stale` to
   `outcome_json` (D10). Verify that every group-3 row and the existing pipeline tests pass, then flip
   those rows green.
-- [ ] 3.4 Document the alert state model in `docs/ingest-pipeline.md`:
+- [x] 3.4 Document the alert state model in `docs/ingest-pipeline.md`:
   - fence, stale, `last_observed_at`;
   - the outcome counts;
   - the lock order.
