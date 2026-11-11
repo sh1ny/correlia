@@ -1,8 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
-import 'placeholder_page.dart';
+import 'client.dart';
+import 'src/alert_feed_controller.dart';
+import 'src/alert_list_page.dart';
+import 'src/console_api.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await initializeClient();
   runApp(const CorreliaApp());
 }
 
@@ -17,20 +24,36 @@ ThemeData _buildTheme(Brightness brightness) {
 }
 
 /// Root widget of the Correlia operator console.
-///
-/// A placeholder until the console is built in a later milestone.
-class CorreliaApp extends StatelessWidget {
+class CorreliaApp extends StatefulWidget {
   /// Creates the console root widget.
   const CorreliaApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Correlia',
-      theme: _buildTheme(Brightness.light),
-      darkTheme: _buildTheme(Brightness.dark),
-      themeMode: ThemeMode.system,
-      home: const PlaceholderPage(),
-    );
+  State<CorreliaApp> createState() => _CorreliaAppState();
+}
+
+class _CorreliaAppState extends State<CorreliaApp> {
+  late final AlertFeedController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AlertFeedController(api: ServerConsoleApi(client));
+    unawaited(_controller.start());
   }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => MaterialApp(
+    title: 'Correlia',
+    theme: _buildTheme(Brightness.light),
+    darkTheme: _buildTheme(Brightness.dark),
+    themeMode: ThemeMode.system,
+    home: AlertListPage(controller: _controller),
+  );
 }

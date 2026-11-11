@@ -57,23 +57,23 @@ Paths are relative to `correlia_server/` unless they start with `correlia_flutte
 | durable-pipeline → Durable observation deduplication and quarantine | Duplicate of a late observation | test/db/alert_state_test.dart | duplicate_of_late_observation | green |
 | durable-pipeline → Durable observation deduplication and quarantine | Future quarantine does not poison dedup | test/db/pipeline_test.dart | future_quarantine_does_not_poison_dedup | green |
 | durable-pipeline → Durable observation deduplication and quarantine | Late observation evidence | test/db/pipeline_test.dart | late_observation_evidence | green |
-| operator-console → Live alert list | New alert appears live | correlia_flutter/test/alert_list_page_test.dart | new_alert_appears_live | red |
-| operator-console → Live alert list | Resolved alert leaves the list | correlia_flutter/test/alert_list_page_test.dart | resolved_alert_leaves_the_list | red |
-| operator-console → Live alert list | Wake-up stream silent | correlia_flutter/test/alert_feed_controller_test.dart | wake_up_stream_silent | red |
-| operator-console → Responses applied in order by version | Older version arrives after a newer one | correlia_flutter/test/alert_feed_controller_test.dart | older_version_after_newer_one | red |
-| operator-console → Responses applied in order by version | Delayed older response after a resolution | correlia_flutter/test/alert_feed_controller_test.dart | delayed_older_response_after_resolution | red |
-| operator-console → Bounded partial snapshot | Snapshot bound exceeded | test/db/change_feed_test.dart; correlia_flutter/test/alert_list_page_test.dart | snapshot_bound_exceeded | red |
-| operator-console → Bounded partial snapshot | Complete list grows past the limit | correlia_flutter/test/alert_feed_controller_test.dart | complete_list_grows_past_limit | red |
-| operator-console → Bounded partial snapshot | Partial list refills after a resolution | correlia_flutter/test/alert_feed_controller_test.dart | partial_list_refills_after_resolution | red |
-| operator-console → Connection loss is visible and recovered | Server restart | correlia_flutter/test/alert_list_page_test.dart | server_restart_shows_disconnected_then_resumes | red |
-| operator-console → Connection loss is visible and recovered | Rejected cursor | correlia_flutter/test/alert_feed_controller_test.dart | rejected_cursor_takes_new_snapshot | red |
+| operator-console → Live alert list | New alert appears live | correlia_flutter/test/alert_list_page_test.dart | new_alert_appears_live | green |
+| operator-console → Live alert list | Resolved alert leaves the list | correlia_flutter/test/alert_list_page_test.dart | resolved_alert_leaves_the_list | green |
+| operator-console → Live alert list | Wake-up stream silent | correlia_flutter/test/alert_feed_controller_test.dart | wake_up_stream_silent | green |
+| operator-console → Responses applied in order by version | Older version arrives after a newer one | correlia_flutter/test/alert_feed_controller_test.dart | older_version_after_newer_one | green |
+| operator-console → Responses applied in order by version | Delayed older response after a resolution | correlia_flutter/test/alert_feed_controller_test.dart | delayed_older_response_after_resolution | green |
+| operator-console → Bounded partial snapshot | Snapshot bound exceeded | test/db/change_feed_test.dart; correlia_flutter/test/alert_list_page_test.dart | snapshot_bound_exceeded | green |
+| operator-console → Bounded partial snapshot | Complete list grows past the limit | correlia_flutter/test/alert_feed_controller_test.dart | complete_list_grows_past_limit | green |
+| operator-console → Bounded partial snapshot | Partial list refills after a resolution | correlia_flutter/test/alert_feed_controller_test.dart | partial_list_refills_after_resolution | green |
+| operator-console → Connection loss is visible and recovered | Server restart | correlia_flutter/test/alert_list_page_test.dart | server_restart_shows_disconnected_then_resumes | green |
+| operator-console → Connection loss is visible and recovered | Rejected cursor | correlia_flutter/test/alert_feed_controller_test.dart | rejected_cursor_takes_new_snapshot | green |
 | operator-console → Development-only unauthenticated read access | Local development access | test/e2e/live_feed_e2e_test.dart | local_development_access | green |
 | operator-console → Development-only unauthenticated read access | Production mode refuses | test/unit/console/console_access_policy_test.dart | production_mode_refuses | green |
 | operator-console → Development-only unauthenticated read access | Non-loopback peer refuses | test/unit/console/console_access_policy_test.dart | non_loopback_peer_refuses | green |
 | operator-console → Development-only unauthenticated read access | Worker role refuses | test/e2e/live_feed_e2e_test.dart | worker_role_refuses | green |
-| operator-console → Console usability baseline | Filter narrows the list | correlia_flutter/test/alert_list_page_test.dart | filter_narrows_the_list | red |
-| operator-console → Console usability baseline | Filter matches nothing | correlia_flutter/test/alert_list_page_test.dart | filter_matches_nothing | red |
-| operator-console → Console usability baseline | Generator link and selectable text | correlia_flutter/test/alert_list_page_test.dart | generator_link_and_selectable_text | red |
+| operator-console → Console usability baseline | Filter narrows the list | correlia_flutter/test/alert_list_page_test.dart | filter_narrows_the_list | green |
+| operator-console → Console usability baseline | Filter matches nothing | correlia_flutter/test/alert_list_page_test.dart | filter_matches_nothing | green |
+| operator-console → Console usability baseline | Generator link and selectable text | correlia_flutter/test/alert_list_page_test.dart | generator_link_and_selectable_text | green |
 
 ## 1. Alert table, activity ledger and schema step
 
@@ -216,9 +216,9 @@ Paths are relative to `correlia_server/` unless they start with `correlia_flutte
 
 ## 5. Flutter console alert list
 
-- [ ] 5.1 Add `url_launcher` to `correlia_flutter/pubspec.yaml` through mise (`mise exec -- flutter pub
+- [x] 5.1 Add `url_launcher` to `correlia_flutter/pubspec.yaml` through mise (`mise exec -- flutter pub
   add url_launcher`). Verify that `mise run analyze` passes.
-- [ ] 5.2 Write failing tests:
+- [x] 5.2 Write failing tests:
   - `correlia_flutter/test/alert_feed_controller_test.dart`: every `alert_feed_controller_test` row,
     with a fake `ConsoleApi`, fake wake-up stream controllers, an injected clock and a fake timer
     factory;
@@ -227,7 +227,7 @@ Paths are relative to `correlia_server/` unless they start with `correlia_flutte
     while asserting the disconnected banner, kept rows and resume.
 
   Remove `placeholder_page_test.dart` together with the placeholder. Verify that they fail.
-- [ ] 5.3 Implement:
+- [x] 5.3 Implement:
   - `correlia_flutter/lib/src/console_api.dart`: the interface and the generated-client adapter;
   - `alert_feed_controller.dart`: D9's single flight, generations, tombstones (10,000 cap), partial
     reconciliation including from a complete start, and backoff of 1, 2, 4, then a 10 s cap;

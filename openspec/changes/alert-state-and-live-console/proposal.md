@@ -158,3 +158,4 @@ Adds authoritative alert state and a live development console.
 - Nanosecond-precision ordering fences and pure, versioned alert transitions.
 - Atomic pipeline state mutations, stale classification and freshness-only duplicate handling.
 - Lossless snapshot/feed handover, wake-up streams and loopback-only development read APIs.
+- Live firing-alert console with filtering, selectable rows, source links, bounded reconciliation and reconnect recovery.
