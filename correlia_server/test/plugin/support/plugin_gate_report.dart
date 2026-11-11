@@ -82,7 +82,8 @@ final class PluginGateReport {
     'historical_builtin_dart_tls': {
       'status': 'failed historically, not rerun',
       'source':
-          'openspec/changes/plugin-host-spike/evidence/handshake-and-mtls.md',
+          'openspec/changes/archive/2026-11-11-plugin-host-spike/'
+          'evidence/handshake-and-mtls.md',
     },
     'plain_stock_vs_watched':
         'plain stock has no proven stdin-EOF guarantee; lifecycle uses the watched fixture',
