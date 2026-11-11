@@ -6,7 +6,7 @@ The four individual runtime criteria pass through the **custom in-process
 OpenSSL connector**. The full plugin tier passes 39 tests. The owner accepted
 D24, the interpretation of ADR 0020 criterion 2, and the native runtime
 dependency on 2026-11-11, as recorded under [Owner acceptance](#owner-acceptance).
-Owner task **5.5 remains unticked** until the owner personally checks it.
+The owner personally ticked task **5.5** on 2026-11-11.
 Runtime results and explicit diagnostics never grant that approval.
 The final workspace gate also passed, including fatal-info analysis, generated
 drift checks, canonical-event coverage, tool tests and the Flutter widget test.
@@ -260,9 +260,9 @@ This settles D24 and the custom-connector/native-dependency decision. It does
 not declare the spike a finished production SDK or authorize deployment, push,
 archive, merge or release. Plaintext diagnostics remain diagnostic-only.
 
-The owner must personally tick **5.5** in `tasks.md`; the agent leaves that
-checkbox unchanged even when acceptance is reported in chat. Tests never
-grant the decision recorded here.
+After acceptance was recorded, the owner personally ticked **5.5** in `tasks.md`
+on 2026-11-11. The agent committed that existing edit without changing the
+checkbox. Tests never grant the decision recorded here.
 
 ## User-authorized pre-ship F1 follow-up
 
