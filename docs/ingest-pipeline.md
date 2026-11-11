@@ -80,3 +80,22 @@ Bodies default to—and cannot exceed—1 MiB; a source may select a lower posit
 | 503 | Startup/stopping gate, saturated admission or unavailable persistence; retry after the supplied `Retry-After: 1` |
 
 A 202 is durable admission, not successful normalization or delivery. Invalid JSON can be accepted as raw bytes and later become a durable processing failure. Correlia-authored HTTP tests exercise the example source shape and a body above 512 KiB with exact persisted bytes/digest. Source-side UI captures and the owner's live-system result have not been collected.
+
+## Normalization contract
+
+Only Alertmanager webhook version `"4"` is supported. Every supplied alert uses its own labels, annotations and firing/resolved status; group metadata is validated but never substituted for per-alert evidence. Empty groups complete without events. `truncatedAlerts` records an upstream omission count without inventing missing alerts.
+
+| Input | Canonical mapping |
+|---|---|
+| Complete original labels | Source-namespaced identity; severity participates unless explicitly excluded |
+| `startsAt` | Required nonzero offset-bearing timestamp; firing source time |
+| `endsAt` | Resolved source time; firing zero sentinel is absent from canonical resolution time but remains exact observation-key evidence |
+| Severity label | Exact critical/error/warning/info, otherwise unknown with original text retained |
+| Summary annotation | Summary; falls back to nonempty alertname, then `Alertmanager alert` |
+| Description annotation | Description |
+| Generator/external URL | Canonical-valid HTTP(S) links; empty omitted, invalid nonempty rejected |
+| Upstream fingerprint | Namespaced extension evidence, never canonical identity or labels_origin |
+
+Identity uses complete originals before display projection. Long label/annotation values and display text truncate with a visible marker; originals remain only in restricted raw bytes. Exact supplied timestamp strings determine observation evidence; arrival time is never a fallback. Reversed intervals, missing required time, empty selected identity, invalid field types and unknown fields fail the whole delivery with a bounded field path.
+
+The decoder permits at most 1,000 alerts and JSON depth 32. Canonical map/count/key, original-identity and 256 KiB structured-event bounds still apply; entries are not removed to force acceptance. The pipeline separately bounds aggregate event-plus-fanout storage. Strict upstream-field validation means additive sender fields require a decoder update; retain failed raw bytes for the future replay workflow. Correlia-authored fixtures and their field/provenance notes live beside `test/unit/ingest/alertmanager_decoder_test.dart`; they are documented-format examples, not real captures. Canonical event, CloudEvents and identity contracts are reused unchanged.

@@ -70,3 +70,4 @@ Establishes durable ingest schema ownership and clarifies upstream identity evid
 - ADR 0024 clarifies that upstream Alertmanager fingerprints are extension evidence, without changing canonical identity bytes.
 - Bounded private bootstrap files, monotonic immutable snapshots, source-token rotation, historical signing-key commitments and retained-output admission limits.
 - Session-independent authenticated Alertmanager admission, bounded streaming, credential-safe diagnostics and atomic non-sliding transport deduplication.
+- Strict bounded webhook-v4 normalization using the existing canonical codecs, full-original label identity and explicit timestamp/upstream truncation evidence.

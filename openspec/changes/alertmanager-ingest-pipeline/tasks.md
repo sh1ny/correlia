@@ -19,15 +19,15 @@ All paths are relative to `correlia_server/`. These are planned tests, not execu
 | T09 | source-ingress: Atomic transport retry deduplication | Key conflict and expiry | `test/db/transport_dedup_test.dart` | `key_conflict_and_expiry` | green |
 | T10 | source-ingress: Validated immutable bootstrap configuration | Bootstrap publication and rotation | `test/db/ingest_config_test.dart` | `bootstrap_publication_and_rotation` | green |
 | T11 | source-ingress: Validated immutable bootstrap configuration | Empty registry and missing secret | `test/db/ingest_config_test.dart` | `empty_registry_and_missing_secret` | green |
-| T12 | integration-alertmanager: Per alert webhook decoding | Mixed group and upstream truncation | `test/unit/ingest/alertmanager_decoder_test.dart` | `mixed_group_and_upstream_truncation` | red |
-| T13 | integration-alertmanager: Per alert webhook decoding | Unsupported version or malformed member | `test/unit/ingest/alertmanager_decoder_test.dart` | `unsupported_version_or_malformed_member` | red |
-| T14 | integration-alertmanager: Per alert webhook decoding | Empty group | `test/unit/ingest/alertmanager_decoder_test.dart` | `empty_group` | red |
-| T15 | integration-alertmanager: Canonical identity from original labels | ID-6 rebatching and fingerprint independence | `test/unit/ingest/alertmanager_decoder_test.dart` | `id_6_rebatching_and_fingerprint_independence` | red |
-| T16 | integration-alertmanager: Canonical identity from original labels | ID-7b and ID-7c severity labels | `test/unit/ingest/alertmanager_decoder_test.dart` | `id_7b_and_id_7c_severity_labels` | red |
-| T17 | integration-alertmanager: Explicit timestamp evidence | Firing zero end and resolved end | `test/unit/ingest/alertmanager_decoder_test.dart` | `firing_zero_end_and_resolved_end` | red |
-| T18 | integration-alertmanager: Explicit timestamp evidence | Invalid source evidence | `test/unit/ingest/alertmanager_decoder_test.dart` | `invalid_source_evidence` | red |
-| T19 | integration-alertmanager: Bounded explicit display and metadata mapping | Display and provenance mapping | `test/unit/ingest/alertmanager_decoder_test.dart` | `display_and_provenance_mapping` | red |
-| T20 | integration-alertmanager: Bounded explicit display and metadata mapping | Map or aggregate event overflow | `test/unit/ingest/alertmanager_decoder_test.dart` | `map_or_aggregate_event_overflow` | red |
+| T12 | integration-alertmanager: Per alert webhook decoding | Mixed group and upstream truncation | `test/unit/ingest/alertmanager_decoder_test.dart` | `mixed_group_and_upstream_truncation` | green |
+| T13 | integration-alertmanager: Per alert webhook decoding | Unsupported version or malformed member | `test/unit/ingest/alertmanager_decoder_test.dart` | `unsupported_version_or_malformed_member` | green |
+| T14 | integration-alertmanager: Per alert webhook decoding | Empty group | `test/unit/ingest/alertmanager_decoder_test.dart` | `empty_group` | green |
+| T15 | integration-alertmanager: Canonical identity from original labels | ID-6 rebatching and fingerprint independence | `test/unit/ingest/alertmanager_decoder_test.dart` | `id_6_rebatching_and_fingerprint_independence` | green |
+| T16 | integration-alertmanager: Canonical identity from original labels | ID-7b and ID-7c severity labels | `test/unit/ingest/alertmanager_decoder_test.dart` | `id_7b_and_id_7c_severity_labels` | green |
+| T17 | integration-alertmanager: Explicit timestamp evidence | Firing zero end and resolved end | `test/unit/ingest/alertmanager_decoder_test.dart` | `firing_zero_end_and_resolved_end` | green |
+| T18 | integration-alertmanager: Explicit timestamp evidence | Invalid source evidence | `test/unit/ingest/alertmanager_decoder_test.dart` | `invalid_source_evidence` | green |
+| T19 | integration-alertmanager: Bounded explicit display and metadata mapping | Display and provenance mapping | `test/unit/ingest/alertmanager_decoder_test.dart` | `display_and_provenance_mapping` | green |
+| T20 | integration-alertmanager: Bounded explicit display and metadata mapping | Map or aggregate event overflow | `test/unit/ingest/alertmanager_decoder_test.dart` | `map_or_aggregate_event_overflow` | green |
 | T21 | durable-pipeline: Schema readiness on fresh and upgraded databases | Fresh and populated schema paths | `test/db/schema_step_test.dart` | `fresh_and_populated_schema_paths` | green |
 | T22 | durable-pipeline: Schema readiness on fresh and upgraded databases | Failed schema step | `test/db/schema_step_test.dart` | `failed_schema_step` | green |
 | T23 | durable-pipeline: Durable first claim configuration pin | Pin survives crash and activation | `test/e2e/pipeline_recovery_e2e_test.dart` | `pin_survives_crash_and_activation` | red |
@@ -52,15 +52,15 @@ All paths are relative to `correlia_server/`. These are planned tests, not execu
 | T42 | source-ingress: Validated immutable bootstrap configuration | Stale bootstrap cannot revoke the rotation | `test/db/ingest_config_test.dart` | `stale_bootstrap_cannot_revoke_the_rotation` | green |
 | T43 | source-ingress: Validated immutable bootstrap configuration | Missing config with durable work | `test/e2e/pipeline_lifecycle_e2e_test.dart` | `missing_config_with_durable_work` | red |
 | T44 | source-ingress: Validated immutable bootstrap configuration | Dead intent does not require signing material | `test/db/ingest_config_test.dart` | `dead_intent_does_not_require_signing_material` | green |
-| T45 | integration-alertmanager: Canonical identity from original labels | Empty selected identity | `test/unit/ingest/alertmanager_decoder_test.dart` | `empty_selected_identity` | red |
-| T46 | integration-alertmanager: Bounded explicit display and metadata mapping | Oversize identity label projection | `test/unit/ingest/alertmanager_decoder_test.dart` | `oversize_identity_label_projection` | red |
+| T45 | integration-alertmanager: Canonical identity from original labels | Empty selected identity | `test/unit/ingest/alertmanager_decoder_test.dart` | `empty_selected_identity` | green |
+| T46 | integration-alertmanager: Bounded explicit display and metadata mapping | Oversize identity label projection | `test/unit/ingest/alertmanager_decoder_test.dart` | `oversize_identity_label_projection` | green |
 | T47 | output-delivery: Signing key availability before acquisition | Loaded historical signing reference | `test/e2e/output_delivery_e2e_test.dart` | `loaded_historical_signing_reference` | red |
 | T48 | output-delivery: Signing key availability before acquisition | Unloaded live signing reference | `test/db/output_relay_test.dart` | `unloaded_live_signing_reference` | red |
 | T49 | source-ingress: Validated immutable bootstrap configuration | Revert by higher revision | `test/db/ingest_config_test.dart` | `revert_by_higher_revision` | green |
 | T50 | source-ingress: Validated immutable bootstrap configuration | Conflicting equal revision | `test/db/ingest_config_test.dart` | `conflicting_equal_revision` | green |
 | T51 | source-ingress: Validated immutable bootstrap configuration | Missing worker config after drained queue | `test/e2e/pipeline_lifecycle_e2e_test.dart` | `missing_worker_config_after_drained_queue` | red |
 | T52 | source-ingress: Validated immutable bootstrap configuration | Malformed secret or credential-bearing input is not echoed | `test/e2e/ingest_bootstrap_e2e_test.dart` | `malformed_secret_or_credential_bearing_input_is_not_echoed` | green |
-| T53 | integration-alertmanager: Bounded explicit display and metadata mapping | Oversize annotation value | `test/unit/ingest/alertmanager_decoder_test.dart` | `oversize_annotation_value` | red |
+| T53 | integration-alertmanager: Bounded explicit display and metadata mapping | Oversize annotation value | `test/unit/ingest/alertmanager_decoder_test.dart` | `oversize_annotation_value` | green |
 | T54 | durable-pipeline: Atomic raw processing outcome | Processing budget exhaustion | `test/db/pipeline_test.dart` | `processing_budget_exhaustion` | red |
 
 ## 1. Identity evidence ADR and schema ownership
@@ -82,8 +82,8 @@ All paths are relative to `correlia_server/`. These are planned tests, not execu
 
 ## 4. Alertmanager decoder and canonical mapping
 
-- [ ] 4.1 Add failing T12–T20/T45–T46/T53 as pure deterministic decoder tests over Correlia-authored fixtures based on the documented v4 format (mark provenance). Implement typed JSON edge validation and complete field mapping with the existing event/identity/time codecs; no dynamic domain values, invented identity fields or arrival-derived times. Verify per-alert mixed status, zero-end semantics, exact timestamp evidence, default/excluded severity identity, rebatching independence, empty/truncated groups, empty-identity rejection, full-original long-label hashes versus truncated projections and long-annotation display truncation, and whole-delivery failures at actual canonical bounds.
-- [ ] 4.2 Document field mapping and unsupported/custom fields beside the decoder fixtures and setup guide. Verify canonical structured CloudEvents produced by fixtures pass the existing full event codec; no new schema/protobuf baseline or identity bytes are introduced.
+- [x] 4.1 Add failing T12–T20/T45–T46/T53 as pure deterministic decoder tests over Correlia-authored fixtures based on the documented v4 format (mark provenance). Implement typed JSON edge validation and complete field mapping with the existing event/identity/time codecs; no dynamic domain values, invented identity fields or arrival-derived times. Verify per-alert mixed status, zero-end semantics, exact timestamp evidence, default/excluded severity identity, rebatching independence, empty/truncated groups, empty-identity rejection, full-original long-label hashes versus truncated projections and long-annotation display truncation, and whole-delivery failures at actual canonical bounds.
+- [x] 4.2 Document field mapping and unsupported/custom fields beside the decoder fixtures and setup guide. Verify canonical structured CloudEvents produced by fixtures pass the existing full event codec; no new schema/protobuf baseline or identity bytes are introduced.
 
 ## 5. Pinned atomic pipeline processing
 
