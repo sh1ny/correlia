@@ -39,7 +39,13 @@ enum PluginFixtureStartupMode {
   oversized('oversized'),
 
   /// Write an incomplete handshake and stay alive.
-  incomplete('incomplete');
+  incomplete('incomplete'),
+
+  /// Serve stock gRPC but withhold health check replies.
+  stallHealth('stall-health'),
+
+  /// Bind a real socket owned by namespace UID 1.
+  foreignOwner('foreign-owner');
 
   const PluginFixtureStartupMode(this.argument);
 

@@ -41,7 +41,98 @@ frozen event baseline is never regenerated. Plugin drift checks compare
 changed, missing and obsolete files in both output roots. No upstream
 go-plugin schemas enter Buf: compatibility RPC descriptors are handwritten
 Dart, outside the Correlia-owned proto module. The probe is not a stable SDK
-(ADR 0022).
+(ADR 0023, superseding ADR 0022).
+
+## Experimental plugin startup
+
+`package:correlia_server/plugin.dart` exports only authenticated `PluginHost`
+construction, `PluginHostConfig`, immutable `PluginClientIdentity`, and
+startup/handshake/TLS evidence. It is experimental, not the production plugin SDK.
+The host owns one Linux subprocess, keeps stdin open without writing, and drains
+stdout/stderr throughout its lifetime. It validates the bounded stock handshake,
+0700 attempt directory and actual Unix socket owner/type/mode before connecting.
+Startup requires authenticated HTTP/2 SETTINGS and health `plugin` = SERVING;
+`probe` validates an empty application acknowledgement. Parsed handshake facts and
+the original transport cause survive startup failure.
+
+The normal path always uses stock go-plugin AutoMTLS over the Unix socket.
+Original Dart FFI bindings use system `libssl.so.3` and `libcrypto.so.3` through
+`ffi` 2.2.0; there is no OpenSSL executable/proxy, bundled crypto or Dart TLS
+fallback. TLS 1.3 is mandatory. The handshake certificate is the sole trust pin:
+both native trust stores are replaced, inherited identity material is cleared,
+then the caller's certificate/key are installed. Certificate/time/signature,
+`localhost`, exact DER and ALPN `h2` checks remain enabled. Evidence records the
+actual certificate groups, protocol and backend version.
+
+OpenSSL's default system/`OPENSSL_CONF` policy is honored. TLS evidence records
+the compiled configuration directory and `OPENSSL_CONF`, `OPENSSL_CONF_INCLUDE`
+and `OPENSSL_MODULES` selections, never config contents or private keys. A host
+configuration capped at TLS 1.2 fails visibly rather than weakening the profile.
+Missing native libraries/symbols fail before connecting or allocating per-session
+native state. Runtime needs the OpenSSL 3 shared libraries; the C compiler and
+OpenSSL development headers are needed only for allocation-accounting tests.
+
+The engine owns its SSL context/session, 32 KiB BIOs in each direction and three
+16 KiB native staging buffers. The socket adapter owns one 16 KiB ciphertext
+buffer and at most 256 KiB retained plaintext, pauses its source at capacity and
+stops reading while its plaintext consumer is paused. Native write retries retain
+the identical buffer; short kernel writes preserve the unsent ciphertext.
+Identity/DER inputs and certificate chains are capped at 16 KiB. Partial native
+initialization, timeout, late acquisition and close release their owned resources;
+private-key/plaintext staging is cleared. The gRPC wire guard rejects messages
+above 2 MiB before accepting their body.
+
+Default launch policy is `/bin/sh -c 'umask 0177; exec "$@"'`, preserving the
+direct child PID without chmod repair. The observed socket is 0600. This machine's
+inherited umask 0002 instead yields stock mode 0775, which is rejected; 0600 is not
+an intrinsic go-plugin default. Both inherited/effective masks and actual mode are
+reported. `stop` requests controller shutdown, then forcibly terminates and reaps
+an uncooperative child within a bounded cleanup period.
+
+A caller with the original test credential helper's PEM files can launch the
+real plain-stock fixture through the same public API:
+
+```dart
+import 'dart:io';
+import 'package:correlia_server/plugin.dart';
+
+Future<void> main(List<String> args) async {
+  // Arguments: plain-stock executable, client PEM, client key, journal path.
+  final host = PluginHost(PluginHostConfig(
+    executable: args[0],
+    arguments: ['--journal', args[3]],
+    identity: PluginClientIdentity(
+      certificatePem: await File(args[1]).readAsBytes(),
+      privateKeyPem: await File(args[2]).readAsBytes(),
+    ),
+  ));
+  try {
+    await host.start();
+    await host.probe();
+  } finally {
+    await host.stop();
+  }
+}
+```
+
+Credential generation is test-only, not production certificate issuance.
+The separate internal `createPluginHostForTesting` factory and
+`PluginHostTestControls`/`PluginTlsTestControls` are not exported by `plugin.dart`
+or exposed on its constructors/configuration. They select explicit plaintext
+diagnostics (exactly 0600), negative umasks/identities/pins, failure-only native
+ABI faults, real acquisition/allocator ports and a narrowed signature profile.
+No library-replacement or successful-verifier injection is available. There is no
+public `secure: false`, umask opt-out, advertised-certificate or trust override.
+
+The pinned Dart built-in TLS engine still **fails** stock P-521 AutoMTLS: its
+TLS 1.3 ClientHello omits signature scheme `0x0603`. The custom OpenSSL connector
+has separately passed protected stock application RPC and authentication-negative
+checks; it does not turn that built-in failure into a pass. See the
+[observed evidence](../openspec/changes/plugin-host-spike/evidence/handshake-and-mtls.md).
+ADR 0023 keeps D24 and the interpretation of ADR 0020 criterion 2 owner-only.
+Neither runtime success nor explicit diagnostics grant production adoption.
+The plain-stock fixture makes no host-death guarantee; only the distinct
+stdin-watched fixture is intended to prove EOF-driven exit.
 
 The Buf workspace uses STANDARD lint rules and FILE breaking rules. The
 committed `contracts/baselines/event-v1.0.binpb` is the one v1.0 descriptor

@@ -132,6 +132,9 @@ final class PluginFixtureSuite {
     _binaries[PluginFixtureBinary.credentialHelper] = File(
       p.join(outputDirectory.path, 'credential-helper'),
     );
+    _binaries[PluginFixtureBinary.nativeTlsPeer] = File(
+      p.join(outputDirectory.path, 'native-tls-peer'),
+    );
 
     return PluginFixtureBuild(
       binaries: Map.unmodifiable(_binaries),
@@ -230,6 +233,9 @@ enum PluginFixtureBinary {
 
   /// The ephemeral credential helper.
   credentialHelper,
+
+  /// The controlled mutual-TLS byte-stream peer.
+  nativeTlsPeer,
 }
 
 /// The result of building the fixture binaries once per suite.

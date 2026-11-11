@@ -1,11 +1,15 @@
 package fixture
 
 import (
+	"encoding/base64"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -36,7 +40,27 @@ func Run(config Config, watchStdin bool) error {
 		}
 		waitForSignal()
 		return nil
-	case StartupServe:
+	case StartupForeignOwner:
+		path := filepath.Join(os.Getenv("PLUGIN_UNIX_SOCKET_DIR"), "foreign.sock")
+		listener, err := net.Listen("unix", path)
+		if err != nil {
+			return err
+		}
+		defer listener.Close()
+		if err := os.Chown(path, 1, -1); err != nil {
+			return err
+		}
+		block, _ := pem.Decode([]byte(os.Getenv("PLUGIN_CLIENT_CERT")))
+		if block == nil {
+			return errors.New("foreign owner requires a client certificate")
+		}
+		certificate := base64.RawStdEncoding.EncodeToString(block.Bytes)
+		if _, err := fmt.Fprintf(os.Stdout, "1|1|unix|%s|grpc|%s\n", path, certificate); err != nil {
+			return err
+		}
+		waitForSignal()
+		return nil
+	case StartupServe, StartupStallHealth:
 	default:
 		return fmt.Errorf("unsupported startup mode %q", config.Startup)
 	}

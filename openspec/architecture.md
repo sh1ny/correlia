@@ -122,13 +122,15 @@ run in every role unless they are switched off:
   compatible with go-plugin. The protocol version is negotiated at the handshake. This is the production
   target; the spike probe does not implement it.
 - **Experimental output probe** `correlia.plugin.spike.v1`
-  ([0022](../docs/adr/0022-experimental-output-plugin-probe.md)): `proto/correlia/plugin/spike/v1/`. A
+  ([0023](../docs/adr/0023-native-openssl-plugin-probe.md)): `proto/correlia/plugin/spike/v1/`. A
   Correlia-owned, unstable, output-only probe that carries immutable canonical event bytes in bounded
   batches with epoch and sequence acknowledgements, used to prove ADR 0020's four Linux spike criteria
   against stock go-plugin. It is not `correlia.plugin.v1`, not a preview of it and not a plugin SDK: no
   compatibility promise, no durable queue, no supervision. Its delivery guarantee is at-least-once with
-  pending work only in the surviving host. The production transport (D24) and any fallback stay owner
-  decisions recorded in a superseding ADR.
+  pending work only in the surviving host. The experimental authenticated connector uses system OpenSSL 3
+  in process, with TLS 1.3 and observed P-521 identities; the failed built-in TLS path is retained separately.
+  Production transport (D24), acceptance of this custom-connector interpretation/native dependency and any
+  security fallback stay owner decisions, not consequences of passing runtime tests.
 - **Inbound formats:** one mapping spec per integration (`openspec/specs/integration-<name>/`), with fixture
   payloads captured from real systems.
 - **NATS subjects** (ADR 0018): `correlia.v1.ev.<tenant>.<kind>.<source_kind>.<severity>` and
@@ -231,7 +233,7 @@ Accepted ADRs only.
 | [0019](../docs/adr/0019-identities.md) | Four identities (source, delivery, observation, alert); durable observation dedup; duplicates advance `last_observed_at` only | [0012](../docs/adr/0012-identities.md) |
 | [0014](../docs/adr/0014-linux-first-platform.md) | Linux-first platform (owner, 2026-11-03): develop and test in WSL, CI on Linux, Windows not a target; embedded Postgres in tiers; never touch another Postgres | [0013](../docs/adr/0013-develop-and-test-in-wsl.md) |
 | [0021](../docs/adr/0021-canonical-event-v1-contract.md) | Additive v1 identity bytes/UUID namespace, strict wire and boundary validation, standard generation and single-baseline compatibility; parse-only future minors | none (clarifies 0004/0019) |
-| [0022](../docs/adr/0022-experimental-output-plugin-probe.md) | Additive experimental output probe: unstable output-only `correlia.plugin.spike.v1` namespace, ADR 0020's four gates reported independently, stock go-plugin only, test-only ephemeral P-521 credentials, immutable canonical bytes, bounded at-least-once pending work in the surviving host; D24 transport and any fallback stay owner-only | none (clarifies 0020) |
+| [0023](../docs/adr/0023-native-openssl-plugin-probe.md) | Restated unstable output probe and four independent runtime gates; in-process system OpenSSL 3/TLS 1.3/P-521 custom connector, authenticated-only public API, isolated diagnostics and bounded native/surviving-host ownership; D24, criterion-2 interpretation and production adoption stay owner-only | [0022](../docs/adr/0022-experimental-output-plugin-probe.md) |
 
 ### Superseded ADRs
 
@@ -245,3 +247,4 @@ Accepted ADRs only.
 | [0015](../docs/adr/0015-plugin-architecture-linux.md) | [0020](../docs/adr/0020-plugin-architecture.md) |
 | [0010](../docs/adr/0010-testing-strategy.md) | [0013](../docs/adr/0013-develop-and-test-in-wsl.md) |
 | [0013](../docs/adr/0013-develop-and-test-in-wsl.md) | [0014](../docs/adr/0014-linux-first-platform.md) |
+| [0022](../docs/adr/0022-experimental-output-plugin-probe.md) | [0023](../docs/adr/0023-native-openssl-plugin-probe.md) |

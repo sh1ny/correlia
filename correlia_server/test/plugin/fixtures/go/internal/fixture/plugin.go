@@ -131,7 +131,7 @@ func (receiver *OutputReceiver) Deliver(
 
 // ServeConfig creates the stock go-plugin serving configuration.
 func ServeConfig(config Config, receiver *OutputReceiver) *plugin.ServeConfig {
-	return &plugin.ServeConfig{
+	result := &plugin.ServeConfig{
 		HandshakeConfig: plugin.HandshakeConfig{
 			ProtocolVersion:  uint(config.ProtocolVersion),
 			MagicCookieKey:   config.CookieKey,
@@ -147,4 +147,17 @@ func ServeConfig(config Config, receiver *OutputReceiver) *plugin.ServeConfig {
 			JSONFormat: true,
 		}),
 	}
+	if config.Startup == StartupStallHealth {
+		result.GRPCServer = func(options []grpc.ServerOption) *grpc.Server {
+			options = append(options, grpc.UnaryInterceptor(func(ctx context.Context, request any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+				if info.FullMethod == "/grpc.health.v1.Health/Check" {
+					<-ctx.Done()
+					return nil, ctx.Err()
+				}
+				return handler(ctx, request)
+			}))
+			return grpc.NewServer(options...)
+		}
+	}
+	return result
 }

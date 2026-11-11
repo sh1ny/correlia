@@ -58,13 +58,22 @@ DECISION_MAKING: autonomous
 
 ## Release Notes
 
-Add the experimental output-probe contract and reproducible generation foundation.
+Add the experimental output probe, reproducible fixture/generation foundation
+and authenticated Linux subprocess startup through an in-process native transport.
 
 ### Added
 
 - Experimental output-only protobuf/gRPC probe, isolated Dart/Go generation and
   generated drift checks, without changing the canonical-event baseline.
-- ADR 0022 distinguishes the unstable probe from the production plugin protocol
-  and preserves owner-only transport and fallback decisions.
+- ADR 0023 supersedes the whole experimental-probe ADR 0022, retaining the
+  unstable protocol boundary and owner-only transport, fallback and custom
+  connector interpretation decisions.
 - Stock and stdin-watched Go fixtures, ephemeral P-521 credentials, bounded
   acceptance journal/control barriers, and suite-owned exact-process cleanup.
+- Authenticated-only Dart host API using stock go-plugin AutoMTLS over Unix
+  sockets, exact certificate pinning and TLS 1.3 through system OpenSSL 3
+  (`libssl.so.3`, `libcrypto.so.3`) and `ffi` 2.2.0, without a proxy or downgrade.
+- Bounded native/socket ownership, observed TLS/configuration evidence and
+  real-process security, backpressure, deadline and allocation verification.
+  C compiler/OpenSSL headers are test-only dependencies; shared libraries are
+  runtime dependencies. Runtime success does not approve production adoption.

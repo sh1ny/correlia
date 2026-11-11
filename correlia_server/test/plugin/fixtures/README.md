@@ -20,7 +20,7 @@ The module pins these generators through Go tool directives:
 
 ## Executables
 
-The Dart suite builds these three programs once per suite into an owned
+The Dart suite builds these four programs once per suite into an owned
 scratch directory:
 
 - `cmd/plain-stock`: stock `plugin.Serve()` only. It deliberately does not
@@ -31,7 +31,10 @@ scratch directory:
   and syncs the distinct EOF-cause marker, then exits;
 - `cmd/credential-helper`: creates an ephemeral self-signed P-521 client
   identity with a `localhost` SAN in an owner-only directory. It is a test
-  helper, not a production certificate dependency.
+  helper, not a production certificate dependency;
+- `cmd/native-tls-peer`: an original P-521 mutual-TLS byte peer with controlled
+  read/write and readiness barriers. It proves native adapter backpressure and
+  deadlines only, never replaces the stock plugin compatibility checks.
 
 The plain-stock and stdin-watched executables share
 `internal/fixture/plugin.go`; only the presence of the stdin watcher differs.
@@ -47,7 +50,7 @@ Both plugin executables accept the following explicit test-only arguments:
 - `--ack-mode MODE`: `normal`, `withhold`, `invalid-epoch`,
   `invalid-sequence`, or `duplicate`;
 - `--startup-mode MODE`: `serve`, `exit`, `stall`, `malformed`, `oversized`,
-  or `incomplete`;
+  `incomplete`, `stall-health`, or `foreign-owner`;
 - `--tls-mode MODE`: `stock`, `plaintext`, or `required`;
 - `--lifecycle-mode MODE`: `cooperative` or `uncooperative`;
 - `--arm-barrier`: arm exactly one pre-ack control barrier in this process.
@@ -59,6 +62,14 @@ fallback. `required` fails startup when the client certificate is absent.
 The uncooperative lifecycle mode keeps the process alive after the stock
 controller stops serving, so the host must exercise its bounded forced-stop
 path.
+
+The foreign-owner negative test uses `unshare --user --map-root-user
+--map-auto`, working subordinate UID/GID ranges, and the `newuidmap` /
+`newgidmap` helpers. Namespace UID 1 owns a real socket within the host's
+private directory; the host sees a foreign subordinate UID and must reject
+it even though type, path and mode 0600 are otherwise valid. Missing mapping
+support is a visible test prerequisite failure, never a skipped security
+check or mocked ownership result.
 
 ## Journal and barrier contract
 
@@ -90,6 +101,17 @@ the marker proves an actual EOF rather than an arbitrary I/O failure. In the
 host-death path it does not write to file descriptors 1 or 2 after the
 handshake. The fixture also disables gRPC's default stderr logger before
 stock serving starts so an internal error cannot violate that boundary.
+
+## Native ownership verification
+
+`native/alloc_counter.c` installs real OpenSSL allocation hooks only in the cold
+`native/allocation_child.dart` process, before native initialization. The child
+warms caches, compares repeated constructor/disposal and invalid-key failures,
+and injects failure at every tracked Dart-side native allocation site. Hooks
+never enter the normal host or the test runner. This verification requires a C
+compiler and OpenSSL development headers; the host runtime needs only OpenSSL 3
+shared libraries. The test-only real socket observer records actual short writes
+and ciphertext reads while pressure tests preserve every original byte.
 
 ## Original-code boundary
 
