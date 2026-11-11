@@ -59,8 +59,8 @@ DECISION_MAKING: autonomous
 ## Release Notes
 
 Add the experimental output probe, reproducible fixture/generation foundation,
-authenticated Linux subprocess startup and bounded acknowledged delivery with
-explicit surviving-host crash recovery.
+authenticated Linux subprocess startup, bounded acknowledged delivery with
+explicit surviving-host crash recovery, and verified EOF-driven child exit.
 
 ### Added
 
@@ -84,3 +84,6 @@ explicit surviving-host crash recovery.
 - Explicit restart retaining unacknowledged bytes, with real 10,000-event
   id/digest reconciliation and a second-crash no-acknowledged-replay check.
   This is at-least-once delivery while the host survives, not host-crash durability.
+- Direct-Dart-host SIGKILL/EOF-cause proof with exact process identities, pidfd
+  exit observation before teardown, and real normal/forced shutdown reaping.
+  The host-death guarantee belongs only to the original watched fixture.

@@ -144,8 +144,8 @@ checks; it does not turn that built-in failure into a pass. See the
 [observed evidence](../openspec/changes/plugin-host-spike/evidence/handshake-and-mtls.md).
 ADR 0023 keeps D24 and the interpretation of ADR 0020 criterion 2 owner-only.
 Neither runtime success nor explicit diagnostics grant production adoption.
-The plain-stock fixture makes no host-death guarantee; only the distinct
-stdin-watched fixture is intended to prove EOF-driven exit.
+The EOF-driven host-death proof applies only to the distinct stdin-watched
+fixture, not arbitrary plain-stock plugins.
 
 ## Experimental acknowledged delivery
 
@@ -239,6 +239,42 @@ before recording and acknowledging a canonical event, proving both output paths
 drain during normal authenticated delivery. All runtime results here use stock
 AutoMTLS.
 
+## Experimental plugin lifetime
+
+```mermaid
+flowchart LR
+  O["Independent observer"] -->|"direct resolved Dart executable"| H["Dart host"]
+  H -->|"direct child; sole stdin writer"| G["Watched Go plugin"]
+```
+
+The observer verifies the Go child's actual PPid and both processes' Linux
+PID/start identities before sending SIGKILL to the exact Dart host. It retains
+no duplicate of the Go stdin writer. A pidfd pins the child exit observation;
+an atomic `/proc` snapshot distinguishes a running process from an absent PID
+or the same start identity in state `Z`.
+
+Within five seconds, both the synced `stdin-eof` cause marker and the defined
+child-exit observation must be present **before teardown can signal the Go
+child**. The default watched fixture performs no post-handshake fd-1/fd-2
+writes, so a closed diagnostics pipe is not the intended exit mechanism.
+The directly launched Dart host is reaped. An observer cannot reap an orphan
+it does not parent; an accepted zombie means terminated, not reaped by this
+observer. All owned attempt files are removed only after exact-process cleanup,
+and an unrelated captured decoy must survive the proof.
+
+Normal `stop` requests stock controller shutdown during a two-second grace
+interval; uncooperative children are then SIGKILLed with a five-second exit/reap
+watchdog. The real plain-stock controller case has no stdin watcher and exits
+zero without forcing; the uncooperative case records force, exit `-9` and a
+reaped child. Both cases were observed inside the seven-second test bound.
+Closing stdin is therefore not a substitute for the controller proof.
+
+The watched behavior is an original fixture contract, not a guarantee supplied
+by arbitrary go-plugin executables or a shipped production supervisor/SDK.
+Killing the host still loses its in-memory delivery queue. Default lifetime
+evidence uses authenticated TLS1.3 and a protected 0600 socket; internal
+plaintext diagnostics require explicit selection and cannot approve adoption.
+See the [direct lifecycle evidence](../openspec/changes/plugin-host-spike/evidence/host-death-and-shutdown.md).
 
 ## Schema validation and runtime validation
 
