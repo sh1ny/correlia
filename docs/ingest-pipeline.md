@@ -59,3 +59,24 @@ Startup atomically publishes immutable public snapshots, token digests and the a
 Source rotation has no overlap window: coordinate the higher-revision publication and sender token update; requests carrying the old token then receive 401. Signing-key names are immutable commitments. Rotate signing material under a new reference, retain old material while queued/delivering work uses it, and distribute the updated secret file before restarting workers. A process missing a newly activated signing reference leaves that output queued without spending attempts; restart with current files. Terminal dead/delivered rows retain commitments but need no loaded signing bytes until a future explicit replay. Active plus retained live output lanes cannot exceed 64.
 
 The api process also loads signing keys to validate publication; protect its secret file accordingly. No admin/configuration/raw-payload API is exposed. Without bootstrap, a worker/all process refuses startup whenever an active snapshot or unfinished ingest/output work exists—even after the queue drains. An unconfigured api still serves workspace behavior and securely rejects hook admission.
+
+## Alertmanager sender setup and admission
+
+POST to `/hooks/alertmanager/<source-uuid>` with `Authorization: Bearer <token>` and `Content-Type: application/json`. Prefer this header form. Only when `path_token_enabled` is true, the alternative is `/hooks/alertmanager/<source-uuid>/<token>` with no Authorization header. The token is the generated 43-character unpadded base64url value. Query parameters and simultaneous credential forms are rejected. Configure reverse proxies to omit or redact credential-bearing paths, queries, Authorization and Idempotency-Key; proxy logs are outside this process's privacy proof. Use TLS for sender traffic.
+
+Admission authenticates before reading the body, then rechecks current source credentials in the storage transaction. It stores exact uncompressed bytes, their digest, the receipt time and normalized content type, never raw authorization or idempotency headers. An optional `Idempotency-Key` is source-scoped and limited to 256 UTF-8 bytes; absent that header, the source/body digest identifies transport retries. The ten-minute reservation window is fixed from first admission and does not slide on retries.
+
+Bodies default to—and cannot exceed—1 MiB; a source may select a lower positive limit. A ten-second total body deadline and sixteen request slots bound admission, with a smaller authentication lookup bound protecting the shared connection pool. In-memory source/unknown counters reset on restart and rekey to the active registry; they are not a durable ledger.
+
+| Status | Meaning |
+|---|---|
+| 202 | Raw bytes committed, or an exact transport retry committed as duplicate |
+| 400 | Malformed request metadata or forbidden query |
+| 401 | Missing, mismatched, revoked or conflicting credentials |
+| 405 | Unsupported method |
+| 409 | Live explicit idempotency key reused for different bytes |
+| 413 | Source body limit exceeded |
+| 415 | Unsupported media type or content encoding |
+| 503 | Startup/stopping gate, saturated admission or unavailable persistence; retry after the supplied `Retry-After: 1` |
+
+A 202 is durable admission, not successful normalization or delivery. Invalid JSON can be accepted as raw bytes and later become a durable processing failure. Correlia-authored HTTP tests exercise the example source shape and a body above 512 KiB with exact persisted bytes/digest. Source-side UI captures and the owner's live-system result have not been collected.

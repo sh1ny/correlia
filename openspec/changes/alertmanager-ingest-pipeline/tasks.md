@@ -8,15 +8,15 @@ All paths are relative to `correlia_server/`. These are planned tests, not execu
 
 | # | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|---|
-| T01 | source-ingress: Source scoped authentication | Authenticated source delivery | `test/e2e/ingress_e2e_test.dart` | `authenticated_source_delivery` | red |
-| T02 | source-ingress: Source scoped authentication | SEC-1 another source token | `test/e2e/ingress_e2e_test.dart` | `sec_1_another_source_token` | red |
-| T03 | source-ingress: Credential safe request handling | SEC-5 path token redaction | `test/e2e/ingress_e2e_test.dart` | `sec_5_path_token_redaction` | red |
-| T04 | source-ingress: Credential safe request handling | Conflicting credentials | `test/e2e/ingress_e2e_test.dart` | `conflicting_credentials` | red |
-| T05 | source-ingress: Bounded durable admission | Accepted body above endpoint default | `test/e2e/ingress_e2e_test.dart` | `accepted_body_above_endpoint_default` | red |
-| T06 | source-ingress: Bounded durable admission | Chunked oversized delivery | `test/e2e/ingress_e2e_test.dart` | `chunked_oversized_delivery` | red |
-| T07 | source-ingress: Bounded durable admission | Admission commit fails | `test/db/ingress_test.dart` | `admission_commit_fails` | red |
-| T08 | source-ingress: Atomic transport retry deduplication | ORD-5a concurrent exact retries | `test/db/transport_dedup_test.dart` | `ord_5a_concurrent_exact_retries` | red |
-| T09 | source-ingress: Atomic transport retry deduplication | Key conflict and expiry | `test/db/transport_dedup_test.dart` | `key_conflict_and_expiry` | red |
+| T01 | source-ingress: Source scoped authentication | Authenticated source delivery | `test/e2e/ingress_e2e_test.dart` | `authenticated_source_delivery` | green |
+| T02 | source-ingress: Source scoped authentication | SEC-1 another source token | `test/e2e/ingress_e2e_test.dart` | `sec_1_another_source_token` | green |
+| T03 | source-ingress: Credential safe request handling | SEC-5 path token redaction | `test/e2e/ingress_e2e_test.dart` | `sec_5_path_token_redaction` | green |
+| T04 | source-ingress: Credential safe request handling | Conflicting credentials | `test/e2e/ingress_e2e_test.dart` | `conflicting_credentials` | green |
+| T05 | source-ingress: Bounded durable admission | Accepted body above endpoint default | `test/e2e/ingress_e2e_test.dart` | `accepted_body_above_endpoint_default` | green |
+| T06 | source-ingress: Bounded durable admission | Chunked oversized delivery | `test/e2e/ingress_e2e_test.dart` | `chunked_oversized_delivery` | green |
+| T07 | source-ingress: Bounded durable admission | Admission commit fails | `test/db/ingress_test.dart` | `admission_commit_fails` | green |
+| T08 | source-ingress: Atomic transport retry deduplication | ORD-5a concurrent exact retries | `test/db/transport_dedup_test.dart` | `ord_5a_concurrent_exact_retries` | green |
+| T09 | source-ingress: Atomic transport retry deduplication | Key conflict and expiry | `test/db/transport_dedup_test.dart` | `key_conflict_and_expiry` | green |
 | T10 | source-ingress: Validated immutable bootstrap configuration | Bootstrap publication and rotation | `test/db/ingest_config_test.dart` | `bootstrap_publication_and_rotation` | green |
 | T11 | source-ingress: Validated immutable bootstrap configuration | Empty registry and missing secret | `test/db/ingest_config_test.dart` | `empty_registry_and_missing_secret` | green |
 | T12 | integration-alertmanager: Per alert webhook decoding | Mixed group and upstream truncation | `test/unit/ingest/alertmanager_decoder_test.dart` | `mixed_group_and_upstream_truncation` | red |
@@ -48,7 +48,7 @@ All paths are relative to `correlia_server/`. These are planned tests, not execu
 | T38 | output-delivery: Isolated attempts retry and dead letters | Interrupted attempt exhausts budget | `test/db/output_relay_test.dart` | `interrupted_attempt_exhausts_budget` | red |
 | T39 | output-delivery: Signed structured webhook output | Receiver verifies signed event | `test/e2e/output_delivery_e2e_test.dart` | `receiver_verifies_signed_event` | red |
 | T40 | output-delivery: Signed structured webhook output | Redirect timeout and rejection | `test/e2e/output_delivery_e2e_test.dart` | `redirect_timeout_and_rejection` | red |
-| T41 | source-ingress: Credential safe request handling | Unconfigured ingress still protects token paths | `test/e2e/ingress_e2e_test.dart` | `unconfigured_ingress_still_protects_token_paths` | red |
+| T41 | source-ingress: Credential safe request handling | Unconfigured ingress still protects token paths | `test/e2e/ingress_e2e_test.dart` | `unconfigured_ingress_still_protects_token_paths` | green |
 | T42 | source-ingress: Validated immutable bootstrap configuration | Stale bootstrap cannot revoke the rotation | `test/db/ingest_config_test.dart` | `stale_bootstrap_cannot_revoke_the_rotation` | green |
 | T43 | source-ingress: Validated immutable bootstrap configuration | Missing config with durable work | `test/e2e/pipeline_lifecycle_e2e_test.dart` | `missing_config_with_durable_work` | red |
 | T44 | source-ingress: Validated immutable bootstrap configuration | Dead intent does not require signing material | `test/db/ingest_config_test.dart` | `dead_intent_does_not_require_signing_material` | green |
@@ -76,9 +76,9 @@ All paths are relative to `correlia_server/`. These are planned tests, not execu
 
 ## 3. Secure HTTP admission and transport deduplication
 
-- [ ] 3.1 Add failing actual-HTTP T01–T06/T41 before implementing session-independent ingress routes, reject-route coverage, source authentication, unpadded-base64url credential validation, readiness/admission gates and bounded streaming reads (D2). Verify source-mismatched tokens are 401, path credentials are absent from console/persistent session metadata/diagnostic events, conflicting forms reject, unconfigured /hooks stays session-safe, the existing admission slot is taken before the authentication lookup and saturation rejects without exhausting the shared DB pool, D7 counter snapshots match source/unknown outcomes without DB-source-lock writes, chunked overflow is 413, and a body above 512 KiB below the configured limit receives 202 with exact persisted bytes. Inspect rejection/error/close paths, not merely successful application logs.
-- [ ] 3.2 Add failing T07–T09 using real Postgres, then implement atomic source-row recheck, transport-key reservation/expiry/conflict and raw insert. Verify concurrent equal requests create one raw row, changed-body key reuse conflicts, expiry is not sliding, and forced commit failure leaves neither reservation nor raw insertion.
-- [ ] 3.3 Document bearer/path-token sender setup, Retry-After/status behavior, body limits and reverse-proxy redaction in docs/ingest-pipeline.md. Verify the guide's Correlia-owned example against T01/T05 and mark source-side UI captures as not collected rather than fabricating a screenshot or an owner's real-source result.
+- [x] 3.1 Add failing actual-HTTP T01–T06/T41 before implementing session-independent ingress routes, reject-route coverage, source authentication, unpadded-base64url credential validation, readiness/admission gates and bounded streaming reads (D2). Verify source-mismatched tokens are 401, path credentials are absent from console/persistent session metadata/diagnostic events, conflicting forms reject, unconfigured /hooks stays session-safe, the existing admission slot is taken before the authentication lookup and saturation rejects without exhausting the shared DB pool, D7 counter snapshots match source/unknown outcomes without DB-source-lock writes, chunked overflow is 413, and a body above 512 KiB below the configured limit receives 202 with exact persisted bytes. Inspect rejection/error/close paths, not merely successful application logs.
+- [x] 3.2 Add failing T07–T09 using real Postgres, then implement atomic source-row recheck, transport-key reservation/expiry/conflict and raw insert. Verify concurrent equal requests create one raw row, changed-body key reuse conflicts, expiry is not sliding, and forced commit failure leaves neither reservation nor raw insertion.
+- [x] 3.3 Document bearer/path-token sender setup, Retry-After/status behavior, body limits and reverse-proxy redaction in docs/ingest-pipeline.md. Verify the guide's Correlia-owned example against T01/T05 and mark source-side UI captures as not collected rather than fabricating a screenshot or an owner's real-source result.
 
 ## 4. Alertmanager decoder and canonical mapping
 
