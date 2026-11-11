@@ -84,7 +84,10 @@ final class FeedWatermarkSubsystem extends Subsystem {
   }
 
   void _schedule(Duration delay) {
-    if (_stopped || _subscribers.isEmpty || _timer != null || _inFlight != null) {
+    if (_stopped ||
+        _subscribers.isEmpty ||
+        _timer != null ||
+        _inFlight != null) {
       return;
     }
     _timer = Timer(delay, () {
