@@ -17,8 +17,8 @@ All paths are relative to `correlia_server/`. These are planned tests, not execu
 | T07 | source-ingress: Bounded durable admission | Admission commit fails | `test/db/ingress_test.dart` | `admission_commit_fails` | red |
 | T08 | source-ingress: Atomic transport retry deduplication | ORD-5a concurrent exact retries | `test/db/transport_dedup_test.dart` | `ord_5a_concurrent_exact_retries` | red |
 | T09 | source-ingress: Atomic transport retry deduplication | Key conflict and expiry | `test/db/transport_dedup_test.dart` | `key_conflict_and_expiry` | red |
-| T10 | source-ingress: Validated immutable bootstrap configuration | Bootstrap publication and rotation | `test/db/ingest_config_test.dart` | `bootstrap_publication_and_rotation` | red |
-| T11 | source-ingress: Validated immutable bootstrap configuration | Empty registry and missing secret | `test/db/ingest_config_test.dart` | `empty_registry_and_missing_secret` | red |
+| T10 | source-ingress: Validated immutable bootstrap configuration | Bootstrap publication and rotation | `test/db/ingest_config_test.dart` | `bootstrap_publication_and_rotation` | green |
+| T11 | source-ingress: Validated immutable bootstrap configuration | Empty registry and missing secret | `test/db/ingest_config_test.dart` | `empty_registry_and_missing_secret` | green |
 | T12 | integration-alertmanager: Per alert webhook decoding | Mixed group and upstream truncation | `test/unit/ingest/alertmanager_decoder_test.dart` | `mixed_group_and_upstream_truncation` | red |
 | T13 | integration-alertmanager: Per alert webhook decoding | Unsupported version or malformed member | `test/unit/ingest/alertmanager_decoder_test.dart` | `unsupported_version_or_malformed_member` | red |
 | T14 | integration-alertmanager: Per alert webhook decoding | Empty group | `test/unit/ingest/alertmanager_decoder_test.dart` | `empty_group` | red |
@@ -49,17 +49,17 @@ All paths are relative to `correlia_server/`. These are planned tests, not execu
 | T39 | output-delivery: Signed structured webhook output | Receiver verifies signed event | `test/e2e/output_delivery_e2e_test.dart` | `receiver_verifies_signed_event` | red |
 | T40 | output-delivery: Signed structured webhook output | Redirect timeout and rejection | `test/e2e/output_delivery_e2e_test.dart` | `redirect_timeout_and_rejection` | red |
 | T41 | source-ingress: Credential safe request handling | Unconfigured ingress still protects token paths | `test/e2e/ingress_e2e_test.dart` | `unconfigured_ingress_still_protects_token_paths` | red |
-| T42 | source-ingress: Validated immutable bootstrap configuration | Stale bootstrap cannot revoke the rotation | `test/db/ingest_config_test.dart` | `stale_bootstrap_cannot_revoke_the_rotation` | red |
+| T42 | source-ingress: Validated immutable bootstrap configuration | Stale bootstrap cannot revoke the rotation | `test/db/ingest_config_test.dart` | `stale_bootstrap_cannot_revoke_the_rotation` | green |
 | T43 | source-ingress: Validated immutable bootstrap configuration | Missing config with durable work | `test/e2e/pipeline_lifecycle_e2e_test.dart` | `missing_config_with_durable_work` | red |
-| T44 | source-ingress: Validated immutable bootstrap configuration | Dead intent does not require signing material | `test/db/ingest_config_test.dart` | `dead_intent_does_not_require_signing_material` | red |
+| T44 | source-ingress: Validated immutable bootstrap configuration | Dead intent does not require signing material | `test/db/ingest_config_test.dart` | `dead_intent_does_not_require_signing_material` | green |
 | T45 | integration-alertmanager: Canonical identity from original labels | Empty selected identity | `test/unit/ingest/alertmanager_decoder_test.dart` | `empty_selected_identity` | red |
 | T46 | integration-alertmanager: Bounded explicit display and metadata mapping | Oversize identity label projection | `test/unit/ingest/alertmanager_decoder_test.dart` | `oversize_identity_label_projection` | red |
 | T47 | output-delivery: Signing key availability before acquisition | Loaded historical signing reference | `test/e2e/output_delivery_e2e_test.dart` | `loaded_historical_signing_reference` | red |
 | T48 | output-delivery: Signing key availability before acquisition | Unloaded live signing reference | `test/db/output_relay_test.dart` | `unloaded_live_signing_reference` | red |
-| T49 | source-ingress: Validated immutable bootstrap configuration | Revert by higher revision | `test/db/ingest_config_test.dart` | `revert_by_higher_revision` | red |
-| T50 | source-ingress: Validated immutable bootstrap configuration | Conflicting equal revision | `test/db/ingest_config_test.dart` | `conflicting_equal_revision` | red |
+| T49 | source-ingress: Validated immutable bootstrap configuration | Revert by higher revision | `test/db/ingest_config_test.dart` | `revert_by_higher_revision` | green |
+| T50 | source-ingress: Validated immutable bootstrap configuration | Conflicting equal revision | `test/db/ingest_config_test.dart` | `conflicting_equal_revision` | green |
 | T51 | source-ingress: Validated immutable bootstrap configuration | Missing worker config after drained queue | `test/e2e/pipeline_lifecycle_e2e_test.dart` | `missing_worker_config_after_drained_queue` | red |
-| T52 | source-ingress: Validated immutable bootstrap configuration | Malformed secret or credential-bearing input is not echoed | `test/e2e/ingest_bootstrap_e2e_test.dart` | `malformed_secret_or_credential_bearing_input_is_not_echoed` | red |
+| T52 | source-ingress: Validated immutable bootstrap configuration | Malformed secret or credential-bearing input is not echoed | `test/e2e/ingest_bootstrap_e2e_test.dart` | `malformed_secret_or_credential_bearing_input_is_not_echoed` | green |
 | T53 | integration-alertmanager: Bounded explicit display and metadata mapping | Oversize annotation value | `test/unit/ingest/alertmanager_decoder_test.dart` | `oversize_annotation_value` | red |
 | T54 | durable-pipeline: Atomic raw processing outcome | Processing budget exhaustion | `test/db/pipeline_test.dart` | `processing_budget_exhaustion` | red |
 
@@ -71,8 +71,8 @@ All paths are relative to `correlia_server/`. These are planned tests, not execu
 
 ## 2. Immutable bootstrap and source credentials
 
-- [ ] 2.1 Add failing T10–T11/T42/T44/T49–T50 configuration tests and actual-startup T52 and boundary cases for invalid registry references, secret-file permissions/size, repeated snapshot publication and secret-reference rebinding. Implement typed sanitized bootstrap parsing, monotonic revision activation/higher-revision revert, immutable snapshots, active pointer and source credential rotation through one transactional publication service (D1). Verify T10–T11 and rejected activation leaves the prior snapshot intact.
-- [ ] 2.2 Implement historical signing-key reference validation, retained-output admission bounds and no-bootstrap behavior. Verify pending intents keep old material after rotation, missing/rebound live historical secrets prevent startup, dead intents need commitments only, stale bootstrap cannot reactivate revoked tokens, and removed sources cannot admit; add those behavioral cases beside T10–T11. Document real secret generation, file ownership, bounded non-secret example input and the non-reverting snapshot startup/rotation policy in docs/ingest-pipeline.md.
+- [x] 2.1 Add failing T10–T11/T42/T44/T49–T50 configuration tests and actual-startup T52 and boundary cases for invalid registry references, secret-file permissions/size, repeated snapshot publication and secret-reference rebinding. Implement typed sanitized bootstrap parsing, monotonic revision activation/higher-revision revert, immutable snapshots, active pointer and source credential rotation through one transactional publication service (D1). Verify T10–T11 and rejected activation leaves the prior snapshot intact.
+- [x] 2.2 Implement historical signing-key reference validation, retained-output admission bounds and no-bootstrap behavior. Verify pending intents keep old material after rotation, missing/rebound live historical secrets prevent startup, dead intents need commitments only, stale bootstrap cannot reactivate revoked tokens, and removed sources cannot admit; add those behavioral cases beside T10–T11. Document real secret generation, file ownership, bounded non-secret example input and the non-reverting snapshot startup/rotation policy in docs/ingest-pipeline.md.
 
 ## 3. Secure HTTP admission and transport deduplication
 

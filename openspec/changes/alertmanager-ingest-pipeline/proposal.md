@@ -68,3 +68,4 @@ Establishes durable ingest schema ownership and clarifies upstream identity evid
 
 - Forward-only SQL schema initialization after managed migrations, with composite-key inbox, event and outbox ownership and fresh/upgrade/failure coverage.
 - ADR 0024 clarifies that upstream Alertmanager fingerprints are extension evidence, without changing canonical identity bytes.
+- Bounded private bootstrap files, monotonic immutable snapshots, source-token rotation, historical signing-key commitments and retained-output admission limits.
