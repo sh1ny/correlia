@@ -239,7 +239,7 @@ Paths are relative to `correlia_server/` unless they start with `correlia_flutte
 
 ## 6. Integration
 
-- [ ] 6.1 Run `mise run check` and `mise run test:all`. Both must pass from a clean state. Then run
+- [x] 6.1 Run `mise run check` and `mise run test:all`. Both must pass from a clean state. Then run
   `mise run build:web` and confirm that the api role serves the built console.
-- [ ] 6.2 [evidence] Capture the command lines and summarized results of 6.1 (test counts per tier, and
+- [x] 6.2 [evidence] Capture the command lines and summarized results of 6.1 (test counts per tier, and
   the check gate's steps) → evidence/test-run.md
