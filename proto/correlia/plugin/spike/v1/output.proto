@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package correlia.plugin.spike.v1;
+
+option go_package = "correlia.local/pluginspike/gen/correlia/plugin/spike/v1;spikev1";
+
+// OutputService is an experimental output-only interoperability probe.
+service OutputService {
+  // Deliver accepts immutable canonical event batches and acknowledges whole batches.
+  rpc Deliver(stream DeliverRequest) returns (stream DeliverResponse);
+}
+
+// DeliverRequest identifies one batch within a connection epoch.
+message DeliverRequest {
+  string epoch = 1;
+  uint64 sequence = 2;
+  repeated Event events = 3;
+}
+
+// Event carries the canonical structured JSON snapshot and its envelope id.
+message Event {
+  string event_id = 1;
+  bytes canonical_json = 2;
+}
+
+// DeliverResponse acknowledges the entire identified batch.
+message DeliverResponse {
+  string epoch = 1;
+  uint64 sequence = 2;
+}

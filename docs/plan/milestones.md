@@ -61,8 +61,9 @@ runs on embedded Postgres, developed and tested inside WSL (ADR 0014).
   (`openspec/architecture.md`, Database). The first change that adds such a table adds the step.
 - **Outbox and relay:** one outbox per output; retry with backoff; attempts recorded.
 - **Plugin host v0:**
-  - spawn, magic-cookie handshake, gRPC over a Unix socket with AutoMTLS (stock go-plugin's Linux
-    transport; the owner confirms it in `plugin-host-spike`, D24);
+  - spawn, magic-cookie handshake, gRPC over protected Unix sockets with stock AutoMTLS through
+    in-process OpenSSL 3 and grpc-dart's custom connector (D24 and native dependencies accepted by
+    the owner on 2026-11-11);
   - `GetMetadata`, `Configure`, `CheckHealth`;
   - a batched output stream with credit windows;
   - restart with backoff; status rows.

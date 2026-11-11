@@ -19,9 +19,9 @@ typedef BoundedProcessLauncher =
       Directory workingDirectory,
     );
 
-/// Generates or checks the canonical event protobuf contract.
+/// Generates or checks the canonical event and experimental plugin contracts.
 ///
-/// `proto` writes generated Dart, schema and bounds into their owned
+/// `proto` writes generated Dart, Go, schema and bounds into their owned
 /// directories. `proto:check` regenerates into disposable scratch, compares
 /// every output in both directions and never changes the checkout.
 class ProtoCommand extends Command<int> {
@@ -62,8 +62,8 @@ class ProtoCommand extends Command<int> {
 
   @override
   String get description => write
-      ? 'Generate the canonical event contract outputs.'
-      : 'Check the canonical event contract for compatibility and drift.';
+      ? 'Generate the event and experimental plugin contract outputs.'
+      : 'Check event compatibility and event/plugin generated drift.';
 
   /// The generated Dart output directory relative to the repository root.
   static const dartOutputDirectory = 'correlia_server/lib/src/event_generated';
@@ -74,6 +74,11 @@ class ProtoCommand extends Command<int> {
 
   /// The committed v1.0 descriptor baseline path.
   static const baselinePath = 'contracts/baselines/event-v1.0.binpb';
+
+  static const _pluginDartDirectory =
+      'correlia_server/lib/src/plugin_generated';
+  static const _pluginGoDirectory =
+      'correlia_server/test/plugin/fixtures/go/gen';
 
   static const _maxProtoFiles = 256;
   static const _maxImageBytes = 16 * 1024 * 1024;
@@ -242,8 +247,13 @@ class ProtoCommand extends Command<int> {
         );
         outputs['$dartOutputDirectory/$relative'] = entity.readAsStringSync();
       }
+      final plugin = await _generatePlugin(scratch, outputs);
+      if (plugin.exit != 0) return _fail('plugin generation', plugin);
       if (outputs.keys.any(
-        (path) => !path.endsWith('.dart') && !path.endsWith('.json'),
+        (path) =>
+            !path.endsWith('.dart') &&
+            !path.endsWith('.json') &&
+            !path.endsWith('.go'),
       )) {
         err.writeln('FAIL generated output has an unsupported extension');
         return 1;
@@ -350,9 +360,71 @@ plugins:
     return _run(
       'buf generate',
       'buf',
-      ['generate', repoRoot.path, '--template', template],
+      [
+        'generate',
+        repoRoot.path,
+        '--path',
+        '${repoRoot.path}/proto/correlia/event/v1',
+        '--template',
+        template,
+      ],
       workingDirectory: pluginRoot,
     );
+  }
+
+  Future<BoundedProcessOutcome> _generatePlugin(
+    Directory scratch,
+    Map<String, String> outputs,
+  ) async {
+    final template = File('${scratch.path}/buf.plugin.gen.yaml')
+      ..writeAsStringSync('''
+version: v2
+plugins:
+  - local: ["$dartExecutable", "run", "protoc_plugin:protoc_plugin"]
+    out: ${scratch.path}/plugin_dart
+    opt: grpc
+  - local: ["go", "run", "google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11"]
+    out: ${scratch.path}/plugin_go
+    opt: paths=source_relative
+  - local: ["go", "run", "google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.0"]
+    out: ${scratch.path}/plugin_go
+    opt: paths=source_relative
+''');
+    final result = await _run(
+      'buf generate plugin',
+      'buf',
+      [
+        'generate',
+        repoRoot.path,
+        '--path',
+        '${repoRoot.path}/proto/correlia/plugin/spike/v1',
+        '--template',
+        template.path,
+      ],
+      workingDirectory: Directory('${scratch.path}/plugin'),
+    );
+    if (result.exit != 0) return result;
+    for (final (scratchRoot, outputRoot) in [
+      ('plugin_dart', _pluginDartDirectory),
+      ('plugin_go', _pluginGoDirectory),
+    ]) {
+      final directory = Directory('${scratch.path}/$scratchRoot');
+      if (!directory.existsSync()) {
+        return (exit: 1, output: 'missing plugin output: $scratchRoot');
+      }
+      for (final entity in directory.listSync(recursive: true)) {
+        if (entity is! File) continue;
+        if (!_withinLimit(entity, _maxOutputBytes)) {
+          return (
+            exit: 1,
+            output: 'plugin output exceeds 4 MiB: ${entity.path}',
+          );
+        }
+        final relative = entity.path.substring(directory.path.length + 1);
+        outputs['$outputRoot/$relative'] = entity.readAsStringSync();
+      }
+    }
+    return result;
   }
 
   File? _selectSchema(Directory scratch) {
@@ -468,7 +540,7 @@ plugins:
     final dartOutputs = <String, String>{};
     for (final entry in outputs.entries) {
       if (!entry.key.endsWith('.dart')) continue;
-      final relative = entry.key.substring(dartOutputDirectory.length + 1);
+      final relative = entry.key;
       final file = File('${formatRoot.path}/$relative')
         ..parent.createSync(recursive: true)
         ..writeAsStringSync(entry.value);
@@ -539,7 +611,12 @@ dev_dependencies:
   }
 
   void _writeOutputs(Map<String, String> outputs) {
-    final ownedRoots = [dartOutputDirectory, 'contracts/schemas'];
+    final ownedRoots = [
+      dartOutputDirectory,
+      'contracts/schemas',
+      _pluginDartDirectory,
+      _pluginGoDirectory,
+    ];
     for (final root in ownedRoots) {
       final directory = Directory('${repoRoot.path}/$root');
       if (directory.existsSync()) {
@@ -570,6 +647,8 @@ dev_dependencies:
     for (final directory in [
       dartOutputDirectory,
       'contracts/schemas',
+      _pluginDartDirectory,
+      _pluginGoDirectory,
     ]) {
       final committedDirectory = Directory('${repoRoot.path}/$directory');
       if (!committedDirectory.existsSync()) continue;
