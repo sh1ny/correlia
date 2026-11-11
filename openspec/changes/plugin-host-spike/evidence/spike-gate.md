@@ -3,9 +3,11 @@
 ## Status and boundary
 
 The four individual runtime criteria pass through the **custom in-process
-OpenSSL connector**. The full plugin tier passes 39 tests. Owner task **5.5 is
-pending**: neither these results nor explicit diagnostics approve D24, the
-interpretation of ADR 0020 criterion 2, or the native runtime dependency.
+OpenSSL connector**. The full plugin tier passes 39 tests. The owner accepted
+D24, the interpretation of ADR 0020 criterion 2, and the native runtime
+dependency on 2026-11-11, as recorded under [Owner acceptance](#owner-acceptance).
+Owner task **5.5 remains unticked** until the owner personally checks it.
+Runtime results and explicit diagnostics never grant that approval.
 The final workspace gate also passed, including fatal-info analysis, generated
 drift checks, canonical-event coverage, tool tests and the Flutter widget test.
 These full-tier/workspace figures describe group-5 base commit `3c633d9`.
@@ -237,14 +239,30 @@ against committed/local original review output, not inferred.
 | S21 | TLS1.3/configuration/verify store | Actual TLS1.3 asserted, TLS1.2-capped config rejected, both trust/verify stores reset. D2 enforces the threshold; no weaker runtime interpretation. |
 | S22 | Track release notes | Task 2.4 records it; validated notes include native dependency, whole supersession and owner boundary. |
 
-## Owner-only next decision
+## Owner acceptance
 
-Only the owner can review the observed inherited/restrictive stock socket modes
-and this four-gate evidence, decide D24 and whether grpc-dart's custom connector
-over in-process OpenSSL satisfies criterion 2 with its native dependency, then
-tick **5.5** in `tasks.md`. Otherwise the required alternative/superseding ADR
-must be explicitly decided. Tests never grant this decision. Nothing is pushed,
-archived, merged or released by this implementation step.
+Chosen by: user, 2026-11-11.
+
+After the transport and dependency tradeoff was explained, the owner replied
+"accepted, go ahead." This accepts:
+
+- Linux local plugin processes communicating through protected Unix sockets,
+  with a 0700 parent directory and a 0600 socket under explicit child umask 0177.
+- Stock go-plugin AutoMTLS through grpc-dart's custom connector over in-process
+  OpenSSL 3 as satisfying ADR 0020 criterion 2, despite the separate historical
+  failure of Dart's built-in TLS path.
+- The `libssl.so.3` and `libcrypto.so.3` runtime dependencies and responsibility
+  for maintaining the Dart native TLS adapter. OpenSSL runs inside the Dart
+  process, not as an executable, proxy or sidecar. The C compiler and OpenSSL
+  headers remain test-only dependencies.
+
+This settles D24 and the custom-connector/native-dependency decision. It does
+not declare the spike a finished production SDK or authorize deployment, push,
+archive, merge or release. Plaintext diagnostics remain diagnostic-only.
+
+The owner must personally tick **5.5** in `tasks.md`; the agent leaves that
+checkbox unchanged even when acceptance is reported in chat. Tests never
+grant the decision recorded here.
 
 ## User-authorized pre-ship F1 follow-up
 

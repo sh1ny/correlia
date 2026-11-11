@@ -313,10 +313,10 @@ selects plaintext for only 3/4 before execution and records it as such; criterio
 also refused by the diagnostic exact-0600 rule even though it has no write bits
 for group/other. No chmod, automatic retry or production fallback is involved.
 
-Even four native passes leave D24, the custom-connector interpretation and the
-native dependency decision pending. Only the owner reviews and ticks task 5.5
-in `tasks.md`; tests and agents never approve it. See the
-[consolidated spike evidence](../openspec/changes/plugin-host-spike/evidence/spike-gate.md).
+Four native passes do not themselves approve D24, the custom connector or its
+native dependencies. The owner accepted those decisions on 2026-11-11; see the
+[consolidated spike evidence](../openspec/changes/plugin-host-spike/evidence/spike-gate.md#owner-acceptance).
+Only the owner ticks task 5.5 in `tasks.md`; tests and agents never tick it.
 
 ## Schema validation and runtime validation
 
