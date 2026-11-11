@@ -1,5 +1,6 @@
 import 'package:serverpod/serverpod.dart';
 
+import '../schema/schema_steps.dart';
 import 'role_runtime.dart';
 import 'subsystem.dart';
 
@@ -24,11 +25,17 @@ final class ServerpodAdapter implements ServerpodPort {
   /// answers 404, so its web port still listens and a console request is
   /// answered with 404 rather than refused (D11).
   @override
-  Future<void> start() {
+  Future<void> start() async {
     if (!pod.webServer.hasApp) {
       pod.webServer.addRoute(_NotFoundRoute(), '/**');
     }
-    return pod.start();
+    await pod.start();
+    final session = await pod.createSession(enableLogging: false);
+    try {
+      await initializeSchema(session);
+    } finally {
+      await session.close();
+    }
   }
 
   @override

@@ -1,0 +1,16 @@
+class: DeliveryAttempt
+table: delivery_attempts
+serverOnly: true
+fields:
+  outboxCreatedAt: DateTime
+  deliveryId: UuidValue
+  attemptNumber: int
+  claimId: UuidValue
+  startedAt: DateTime
+  finishedAt: DateTime?
+  outcome: String
+  errorClass: String?
+indexes:
+  delivery_attempt_identity_idx:
+    fields: outboxCreatedAt, deliveryId, attemptNumber
+    unique: true

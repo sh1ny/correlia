@@ -62,7 +62,14 @@ Future<void> run(List<String> args) async {
   final runtime = RoleRuntime(
     role: options.role,
     registry: [
-      ...buildSubsystemRegistry(),
+      ...buildSubsystemRegistry(
+        pod: pod,
+        role: options.role,
+        runMode: options.runMode,
+        environment: environment,
+        startup: startup,
+        log: log,
+      ),
       ConsoleSubsystem.forRunMode(options.runMode, environment, log: log),
       if (switches.stopProbe || switches.stopGate != null)
         _testStopHooks(switches, pod, log),

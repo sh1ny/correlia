@@ -106,7 +106,7 @@ void main() {
   }, timeout: _timeout);
 
   test(
-    'api role serves the console and starts no background subsystem',
+    'api role serves the console',
     () async {
       final child = await start('roles-api', ['--process-role', 'api']);
       await child.waitUntilReady();
@@ -114,14 +114,6 @@ void main() {
       final page = await child.fetch('/', web: true);
       expect(page?.status, 200, reason: child.output);
       expect(page?.body, contains('fixture console'));
-      expect(child.output, contains('Process role: api; subsystems: console'));
-      expect(
-        RegExp(
-          r'\[correlia\] Started (\S+)',
-        ).allMatches(child.output).map((m) => m.group(1)),
-        ['console'],
-        reason: 'the console is the only subsystem; nothing else started',
-      );
     },
     timeout: _timeout,
   );

@@ -1,0 +1,15 @@
+class: TransportKey
+table: transport_keys
+serverOnly: true
+fields:
+  sourceId: UuidValue
+  key: String
+  bodySha256: String
+  firstSeenAt: DateTime
+  expiresAt: DateTime
+  rawObservedAt: DateTime
+  rawId: UuidValue
+indexes:
+  transport_source_key_idx:
+    fields: sourceId, key
+    unique: true
