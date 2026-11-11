@@ -30,17 +30,17 @@ All paths are relative to `correlia_server/`. These are planned tests, not execu
 | T20 | integration-alertmanager: Bounded explicit display and metadata mapping | Map or aggregate event overflow | `test/unit/ingest/alertmanager_decoder_test.dart` | `map_or_aggregate_event_overflow` | green |
 | T21 | durable-pipeline: Schema readiness on fresh and upgraded databases | Fresh and populated schema paths | `test/db/schema_step_test.dart` | `fresh_and_populated_schema_paths` | green |
 | T22 | durable-pipeline: Schema readiness on fresh and upgraded databases | Failed schema step | `test/db/schema_step_test.dart` | `failed_schema_step` | green |
-| T23 | durable-pipeline: Durable first claim configuration pin | Pin survives crash and activation | `test/e2e/pipeline_recovery_e2e_test.dart` | `pin_survives_crash_and_activation` | red |
-| T24 | durable-pipeline: Durable first claim configuration pin | Concurrent claiming | `test/db/pipeline_test.dart` | `concurrent_claiming` | red |
-| T25 | durable-pipeline: Atomic raw processing outcome | DUR-1 outbox failure rolls back event work | `test/db/pipeline_test.dart` | `dur_1_outbox_failure_rolls_back_event_work` | red |
-| T26 | durable-pipeline: Atomic raw processing outcome | Invalid member after valid member | `test/db/pipeline_test.dart` | `invalid_member_after_valid_member` | red |
-| T27 | durable-pipeline: Durable observation deduplication and quarantine | ORD-5b rebatching and expired transport window | `test/db/pipeline_test.dart` | `ord_5b_rebatching_and_expired_transport_window` | red |
-| T28 | durable-pipeline: Durable observation deduplication and quarantine | Future quarantine does not poison dedup | `test/db/pipeline_test.dart` | `future_quarantine_does_not_poison_dedup` | red |
-| T29 | durable-pipeline: Durable observation deduplication and quarantine | Late observation evidence | `test/db/pipeline_test.dart` | `late_observation_evidence` | red |
+| T23 | durable-pipeline: Durable first claim configuration pin | Pin survives crash and activation | `test/e2e/pipeline_recovery_e2e_test.dart` | `pin_survives_crash_and_activation` | green |
+| T24 | durable-pipeline: Durable first claim configuration pin | Concurrent claiming | `test/db/pipeline_test.dart` | `concurrent_claiming` | green |
+| T25 | durable-pipeline: Atomic raw processing outcome | DUR-1 outbox failure rolls back event work | `test/db/pipeline_test.dart` | `dur_1_outbox_failure_rolls_back_event_work` | green |
+| T26 | durable-pipeline: Atomic raw processing outcome | Invalid member after valid member | `test/db/pipeline_test.dart` | `invalid_member_after_valid_member` | green |
+| T27 | durable-pipeline: Durable observation deduplication and quarantine | ORD-5b rebatching and expired transport window | `test/db/pipeline_test.dart` | `ord_5b_rebatching_and_expired_transport_window` | green |
+| T28 | durable-pipeline: Durable observation deduplication and quarantine | Future quarantine does not poison dedup | `test/db/pipeline_test.dart` | `future_quarantine_does_not_poison_dedup` | green |
+| T29 | durable-pipeline: Durable observation deduplication and quarantine | Late observation evidence | `test/db/pipeline_test.dart` | `late_observation_evidence` | green |
 | T30 | durable-pipeline: Role scoped bounded lifecycle | Split roles and restart | `test/e2e/pipeline_lifecycle_e2e_test.dart` | `split_roles_and_restart` | red |
 | T31 | durable-pipeline: Role scoped bounded lifecycle | Shutdown during processing | `test/e2e/pipeline_lifecycle_e2e_test.dart` | `shutdown_during_processing` | red |
-| T32 | output-delivery: Immutable routed delivery intent | Fanout with configuration change | `test/db/pipeline_routing_test.dart` | `fanout_with_configuration_change` | red |
-| T33 | output-delivery: Immutable routed delivery intent | Explicitly unrouted event | `test/db/pipeline_routing_test.dart` | `explicitly_unrouted_event` | red |
+| T32 | output-delivery: Immutable routed delivery intent | Fanout with configuration change | `test/db/pipeline_routing_test.dart` | `fanout_with_configuration_change` | green |
+| T33 | output-delivery: Immutable routed delivery intent | Explicitly unrouted event | `test/db/pipeline_routing_test.dart` | `explicitly_unrouted_event` | green |
 | T34 | output-delivery: Fenced at least once delivery | DUR-2 restart after processing commit | `test/e2e/output_recovery_e2e_test.dart` | `dur_2_restart_after_processing_commit` | red |
 | T35 | output-delivery: Fenced at least once delivery | DUR-3 acknowledgement lost before local commit | `test/e2e/output_recovery_e2e_test.dart` | `dur_3_acknowledgement_lost_before_local_commit` | red |
 | T36 | output-delivery: Fenced at least once delivery | Expired owner completion | `test/db/output_relay_test.dart` | `expired_owner_completion` | red |
@@ -61,7 +61,7 @@ All paths are relative to `correlia_server/`. These are planned tests, not execu
 | T51 | source-ingress: Validated immutable bootstrap configuration | Missing worker config after drained queue | `test/e2e/pipeline_lifecycle_e2e_test.dart` | `missing_worker_config_after_drained_queue` | red |
 | T52 | source-ingress: Validated immutable bootstrap configuration | Malformed secret or credential-bearing input is not echoed | `test/e2e/ingest_bootstrap_e2e_test.dart` | `malformed_secret_or_credential_bearing_input_is_not_echoed` | green |
 | T53 | integration-alertmanager: Bounded explicit display and metadata mapping | Oversize annotation value | `test/unit/ingest/alertmanager_decoder_test.dart` | `oversize_annotation_value` | green |
-| T54 | durable-pipeline: Atomic raw processing outcome | Processing budget exhaustion | `test/db/pipeline_test.dart` | `processing_budget_exhaustion` | red |
+| T54 | durable-pipeline: Atomic raw processing outcome | Processing budget exhaustion | `test/db/pipeline_test.dart` | `processing_budget_exhaustion` | green |
 
 ## 1. Identity evidence ADR and schema ownership
 
@@ -87,9 +87,9 @@ All paths are relative to `correlia_server/`. These are planned tests, not execu
 
 ## 5. Pinned atomic pipeline processing
 
-- [ ] 5.1 Add failing T24–T29, T32–T33/T54 against real Postgres, with independent connections for claim/dedup interleavings. Implement durable pin phase, locked bounded processing phase, sorted observation-key inserts, event dispositions, immutable event/output writes and raw/failure outcomes (D4). Verify transaction rollback removes keys/events/intents together, invalid siblings produce no partial effects, duplicate observations do not route and future quarantine can later admit its first eligible key; transient retries beyond five attempts retain their pin without consuming the internal-error budget, fanout bytes respect the aggregate batch bound and only repeated non-transient errors become processing_exhausted.
-- [ ] 5.2 Add failing process-crash T23, then connect worker/all pipeline ownership to the existing subsystem lifecycle. Verify a committed pin survives kill/restart and a changed active snapshot; use explicit event/barrier synchronization, not sleeps. Any necessary fault switch must be test-run-mode-only with a rejection test outside test mode.
-- [ ] 5.3 Document pin/retry/disposition/count semantics, SQL-only failure inspection and finite processing retry exhaustion in docs/ingest-pipeline.md. Verify the T54 non-transient exhaustion case added in 5.1 retains raw/config evidence, and verify no repeated internal failure silently discards accepted bytes. State explicitly that alert freshness/state, full ORD-5 and the complete DUR-1 state mutation extension belong to the following roadmap change.
+- [x] 5.1 Add failing T24–T29, T32–T33/T54 against real Postgres, with independent connections for claim/dedup interleavings. Implement durable pin phase, locked bounded processing phase, sorted observation-key inserts, event dispositions, immutable event/output writes and raw/failure outcomes (D4). Verify transaction rollback removes keys/events/intents together, invalid siblings produce no partial effects, duplicate observations do not route and future quarantine can later admit its first eligible key; transient retries beyond five attempts retain their pin without consuming the internal-error budget, fanout bytes respect the aggregate batch bound and only repeated non-transient errors become processing_exhausted.
+- [x] 5.2 Add failing process-crash T23, then connect worker/all pipeline ownership to the existing subsystem lifecycle. Verify a committed pin survives kill/restart and a changed active snapshot; use explicit event/barrier synchronization, not sleeps. Any necessary fault switch must be test-run-mode-only with a rejection test outside test mode.
+- [x] 5.3 Document pin/retry/disposition/count semantics, SQL-only failure inspection and finite processing retry exhaustion in docs/ingest-pipeline.md. Verify the T54 non-transient exhaustion case added in 5.1 retains raw/config evidence, and verify no repeated internal failure silently discards accepted bytes. State explicitly that alert freshness/state, full ORD-5 and the complete DUR-1 state mutation extension belong to the following roadmap change.
 
 ## 6. Durable output relay and signed webhook
 

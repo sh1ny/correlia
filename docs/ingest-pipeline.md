@@ -99,3 +99,27 @@ Only Alertmanager webhook version `"4"` is supported. Every supplied alert uses 
 Identity uses complete originals before display projection. Long label/annotation values and display text truncate with a visible marker; originals remain only in restricted raw bytes. Exact supplied timestamp strings determine observation evidence; arrival time is never a fallback. Reversed intervals, missing required time, empty selected identity, invalid field types and unknown fields fail the whole delivery with a bounded field path.
 
 The decoder permits at most 1,000 alerts and JSON depth 32. Canonical map/count/key, original-identity and 256 KiB structured-event bounds still apply; entries are not removed to force acceptance. The pipeline separately bounds aggregate event-plus-fanout storage. Strict upstream-field validation means additive sender fields require a decoder update; retain failed raw bytes for the future replay workflow. Correlia-authored fixtures and their field/provenance notes live beside `test/unit/ingest/alertmanager_decoder_test.dart`; they are documented-format examples, not real captures. Canonical event, CloudEvents and identity contracts are reused unchanged.
+
+## Durable processing and failure inspection
+
+A worker first commits the active immutable configuration pin, then decodes and processes under a separate raw-row lock. A killed worker retains the pin; replacements never substitute the current configuration. If that first-pinned snapshot omits/disables the source, the raw row fails as `source_not_configured`, retaining its bytes.
+
+Processing validates the complete batch before effects, folds repeated observations and inserts observation keys in stable event-id order. Keys, event evidence, unique routed output intents and raw completion commit together. Invalid siblings or fanout beyond 16 MiB—including every event and intent payload copy—produce a failed raw delivery without partial effects.
+
+Future-dated evidence (more than 24 hours ahead) has no observation key or output. Identical quarantined evidence at equal observed time collapses on the events key and increments `duplicate_quarantine`, not the error budget. Late evidence (older than seven days) retains a key and event but has no output. Eligible duplicates preserve first evidence and produce no additional event/output effects. Empty routes record an unrouted event with no intent. Raw outcome JSON records committed, unrouted, upstream-omitted, duplicate-observation, future, duplicate-quarantine and late counts.
+
+Serialization, deadlock, lock-timeout and connection-unavailable errors retry indefinitely with capped one-to-thirty-second backoff without spending the internal-error budget. Other internal failures consume five attempts, then produce `processing_exhausted`. Scheduling hints are bounded and process-local; database eligibility, raw bytes, pins and the internal-error budget remain durable. A ten-second total transaction deadline and five-second statement/lock bounds limit work.
+
+Inspect failures through restricted SQL, not a public API:
+
+```sql
+SELECT observed_at, raw_id, source_id, status, config_snapshot_id,
+       attempt_count, outcome_json
+FROM raw_inbox
+WHERE status = 'failed';
+
+SELECT "rawObservedAt", "rawId", "configSnapshotId", "errorClass", "fieldPath"
+FROM pipeline_failures;
+```
+
+Use both time and id when joining raw/event/output evidence. Raw payloads remain private operational data; never paste them into diagnostics. Accepted bytes are not silently discarded, and no retention/replay scheduler is implemented in this slice. Provision disk headroom until M2 retention/backpressure work. Alert freshness/state, complete ORD-5 and the full DUR-1 state-mutation extension belong to the following roadmap change; this slice has no placeholder state writer.
