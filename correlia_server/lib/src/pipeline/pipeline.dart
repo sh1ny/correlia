@@ -16,6 +16,9 @@ import '../runtime/subsystem.dart';
 const _transactionLimit = Duration(seconds: 10);
 const _fanoutLimit = 16 * 1024 * 1024;
 
+/// The maximum source clock lead used by alert-state ordering.
+const skewAllowance = Duration(minutes: 5);
+
 /// The disposition of source evidence before observation deduplication.
 enum EvidenceDisposition { ready, late, futureDated }
 
@@ -145,6 +148,7 @@ final class PipelineRepository {
     Map<String, int>? retryCounts,
     this.retryDelay,
     PipelineCounters? counters,
+    this.stateSkewAllowance = skewAllowance,
   }) : clock = clock ?? DateTime.now,
        _retryCounts = retryCounts ?? {},
        counters = counters ?? PipelineCounters();
@@ -155,6 +159,7 @@ final class PipelineRepository {
   final Map<String, int> _retryCounts;
   final Duration Function(int)? retryDelay;
   final PipelineCounters counters;
+  final Duration stateSkewAllowance;
 
   Future<void> _limits(Transaction tx, _Deadline deadline) async {
     await session.db.unsafeQuery(

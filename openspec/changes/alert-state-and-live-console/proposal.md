@@ -155,3 +155,4 @@ Adds authoritative alert state and a live development console.
 ### Added
 
 - Managed alert storage and an append-only activity ledger with atomic schema upgrades.
+- Nanosecond-precision ordering fences and pure, versioned alert transitions.

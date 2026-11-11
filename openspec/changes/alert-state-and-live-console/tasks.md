@@ -25,18 +25,18 @@ Paths are relative to `correlia_server/` unless they start with `correlia_flutte
 | alert-state → Authoritative alert state per fingerprint | Concurrent first observations of one fingerprint | test/db/alert_state_test.dart | concurrent_first_observations_of_one_fingerprint | red |
 | alert-state → Ordering fence decides state changes | ORD-1 delayed recovery does not clear a newer problem | test/unit/state/transition_test.dart; test/db/alert_state_test.dart | ord_1_delayed_recovery_does_not_clear_newer_problem | red |
 | alert-state → Ordering fence decides state changes | ORD-2 stale problem does not resurrect a resolved alert | test/unit/state/transition_test.dart; test/db/alert_state_test.dart | ord_2_stale_problem_does_not_resurrect_resolved_alert | red |
-| alert-state → Ordering fence decides state changes | Source clock ahead within the future limit | test/unit/state/ordering_key_test.dart | source_clock_ahead_within_future_limit | red |
+| alert-state → Ordering fence decides state changes | Source clock ahead within the future limit | test/unit/state/ordering_key_test.dart | source_clock_ahead_within_future_limit | green |
 | alert-state → State converges in any processing order | ORD-3 equal source times are ordered deterministically | test/unit/state/transition_test.dart; test/db/alert_state_test.dart | ord_3_equal_source_times_ordered_deterministically | red |
 | alert-state → State converges in any processing order | Source times less than a microsecond apart | test/db/alert_state_test.dart | source_times_less_than_a_microsecond_apart | red |
 | alert-state → Applied observations update state in place | ID-7c severity changes in place | test/db/alert_state_test.dart | id_7c_severity_changes_in_place | red |
 | alert-state → Applied observations update state in place | ID-7b severity-labelled alerts are separate | test/db/alert_state_test.dart | id_7b_severity_labelled_alerts_are_separate | red |
-| alert-state → Applied observations update state in place | Newer repeat with no visible change | test/unit/state/transition_test.dart | newer_repeat_with_no_visible_change | red |
+| alert-state → Applied observations update state in place | Newer repeat with no visible change | test/unit/state/transition_test.dart | newer_repeat_with_no_visible_change | green |
 | alert-state → Last observed time advances monotonically | Stale observation with a later observed time | test/db/alert_state_test.dart | stale_observation_with_later_observed_time | red |
 | alert-state → Last observed time advances monotonically | Older observed time never moves it backwards | test/db/alert_state_test.dart | older_observed_time_never_moves_it_backwards | red |
 | alert-state → Last observed time advances monotonically | Late observation advances nothing | test/db/alert_state_test.dart | late_observation_advances_nothing | red |
 | alert-state → Single writer for alert state | Effect counts per raw row | test/db/alert_state_test.dart | effect_counts_per_raw_row | red |
 | alert-state → Single writer for alert state | Opposite fingerprint order in concurrent deliveries | test/db/alert_state_test.dart | opposite_fingerprint_order_in_concurrent_deliveries | red |
-| alert-state → Single writer for alert state | Informational observation | test/unit/state/transition_test.dart | informational_observation | red |
+| alert-state → Single writer for alert state | Informational observation | test/unit/state/transition_test.dart | informational_observation | green |
 | change-feed → Append-only activity ledger | Firing then resolved writes two entries | test/db/activity_ledger_test.dart | firing_then_resolved_writes_two_entries | red |
 | change-feed → Append-only activity ledger | Rolled-back change leaves no entry | test/db/activity_ledger_test.dart | rolled_back_change_leaves_no_entry | red |
 | change-feed → Feed reads only below the watermark | UI-3a a late-committing transaction is never skipped | test/db/change_feed_test.dart | ui_3a_late_committing_transaction_never_skipped | red |
@@ -103,7 +103,7 @@ Paths are relative to `correlia_server/` unless they start with `correlia_flutte
 
 ## 2. Pure ordering and transition logic
 
-- [ ] 2.1 Write failing unit tests in `test/unit/state/ordering_key_test.dart` and
+- [x] 2.1 Write failing unit tests in `test/unit/state/ordering_key_test.dart` and
   `test/unit/state/transition_test.dart` for these rows:
   - ORD-1, ORD-2 and ORD-3, in both processing orders;
   - source_clock_ahead_within_future_limit;
@@ -117,7 +117,7 @@ Paths are relative to `correlia_server/` unless they start with `correlia_flutte
     `severity_changed`, `display_changed`).
 
   Verify that they fail because the library is missing.
-- [ ] 2.2 Implement `lib/src/state/ordering_key.dart` and `lib/src/state/transition.dart`, D4's sealed
+- [x] 2.2 Implement `lib/src/state/ordering_key.dart` and `lib/src/state/transition.dart`, D4's sealed
   pure types and the injectable skew constant (D5). Verify that the 2.1 tests pass under `mise run test`,
   then flip their rows green (the db halves of ORD-1/2/3 stay red until group 3).
 
