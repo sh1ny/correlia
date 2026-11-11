@@ -28,6 +28,21 @@ schema with the pinned Ajv validator and only then replaces owned outputs.
 directions. It never writes the checkout and removes its scratch directory on
 success or failure.
 
+The same commands generate the **experimental** `correlia.plugin.spike.v1`
+output probe separately from event inputs:
+
+- Dart protobuf/gRPC under `correlia_server/lib/src/plugin_generated/`;
+- Go protobuf/gRPC under `correlia_server/test/plugin/fixtures/go/gen/`.
+
+Plugin generation pins protoc_plugin 25.1.0, protoc-gen-go v1.36.11 and
+protoc-gen-go-grpc v1.6.0. Only the plugin stage requests gRPC generation.
+The event schema generator receives only `proto/correlia/event/v1`, and the
+frozen event baseline is never regenerated. Plugin drift checks compare
+changed, missing and obsolete files in both output roots. No upstream
+go-plugin schemas enter Buf: compatibility RPC descriptors are handwritten
+Dart, outside the Correlia-owned proto module. The probe is not a stable SDK
+(ADR 0022).
+
 The Buf workspace uses STANDARD lint rules and FILE breaking rules. The
 committed `contracts/baselines/event-v1.0.binpb` is the one v1.0 descriptor
 baseline. `proto:check` fails when it is missing and never rebuilds it

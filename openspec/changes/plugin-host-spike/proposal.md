@@ -54,3 +54,16 @@ DECISION_MAKING: autonomous
 - **Reversal cost:** low.
 - **Important:** yes — defines the failure guarantee demonstrated.
 - **Chosen by:** agent
+
+## Release Notes
+
+Add the experimental output-probe contract and reproducible generation foundation.
+
+### Added
+
+- Experimental output-only protobuf/gRPC probe, isolated Dart/Go generation and
+  generated drift checks, without changing the canonical-event baseline.
+- ADR 0022 distinguishes the unstable probe from the production plugin protocol
+  and preserves owner-only transport and fallback decisions.
+- Stock and stdin-watched Go fixtures, ephemeral P-521 credentials, bounded
+  acceptance journal/control barriers, and suite-owned exact-process cleanup.

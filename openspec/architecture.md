@@ -119,7 +119,16 @@ run in every role unless they are switched off:
   absent metadata means unknown scope, never an inferred minor. CloudEvents `type` carries the major
   version and `dataschema` the minor.
 - **Plugin protocol** `correlia.plugin.v1` (ADR 0020): `proto/correlia/plugin/v1/*.proto`. The handshake is
-  compatible with go-plugin. The protocol version is negotiated at the handshake.
+  compatible with go-plugin. The protocol version is negotiated at the handshake. This is the production
+  target; the spike probe does not implement it.
+- **Experimental output probe** `correlia.plugin.spike.v1`
+  ([0022](../docs/adr/0022-experimental-output-plugin-probe.md)): `proto/correlia/plugin/spike/v1/`. A
+  Correlia-owned, unstable, output-only probe that carries immutable canonical event bytes in bounded
+  batches with epoch and sequence acknowledgements, used to prove ADR 0020's four Linux spike criteria
+  against stock go-plugin. It is not `correlia.plugin.v1`, not a preview of it and not a plugin SDK: no
+  compatibility promise, no durable queue, no supervision. Its delivery guarantee is at-least-once with
+  pending work only in the surviving host. The production transport (D24) and any fallback stay owner
+  decisions recorded in a superseding ADR.
 - **Inbound formats:** one mapping spec per integration (`openspec/specs/integration-<name>/`), with fixture
   payloads captured from real systems.
 - **NATS subjects** (ADR 0018): `correlia.v1.ev.<tenant>.<kind>.<source_kind>.<severity>` and
@@ -222,6 +231,7 @@ Accepted ADRs only.
 | [0019](../docs/adr/0019-identities.md) | Four identities (source, delivery, observation, alert); durable observation dedup; duplicates advance `last_observed_at` only | [0012](../docs/adr/0012-identities.md) |
 | [0014](../docs/adr/0014-linux-first-platform.md) | Linux-first platform (owner, 2026-11-03): develop and test in WSL, CI on Linux, Windows not a target; embedded Postgres in tiers; never touch another Postgres | [0013](../docs/adr/0013-develop-and-test-in-wsl.md) |
 | [0021](../docs/adr/0021-canonical-event-v1-contract.md) | Additive v1 identity bytes/UUID namespace, strict wire and boundary validation, standard generation and single-baseline compatibility; parse-only future minors | none (clarifies 0004/0019) |
+| [0022](../docs/adr/0022-experimental-output-plugin-probe.md) | Additive experimental output probe: unstable output-only `correlia.plugin.spike.v1` namespace, ADR 0020's four gates reported independently, stock go-plugin only, test-only ephemeral P-521 credentials, immutable canonical bytes, bounded at-least-once pending work in the surviving host; D24 transport and any fallback stay owner-only | none (clarifies 0020) |
 
 ### Superseded ADRs
 

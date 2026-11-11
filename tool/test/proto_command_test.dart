@@ -286,6 +286,41 @@ void main() {
   );
 
   test(
+    'Plugin generated drift includes changed missing and obsolete files',
+    () async {
+      final dartRoot = '${repo.path}/correlia_server/lib/src/plugin_generated';
+      final goRoot = '${repo.path}/correlia_server/test/plugin/fixtures/go/gen';
+      final changed = File(
+        '$dartRoot/correlia/plugin/spike/v1/output.pb.dart',
+      );
+      changed.writeAsStringSync('${changed.readAsStringSync()}\n// stale\n');
+      File('$goRoot/correlia/plugin/spike/v1/output.pb.go').deleteSync();
+      final obsolete = File('$goRoot/obsolete.go')
+        ..writeAsStringSync('package obsolete\n');
+      final before = await _status(repo);
+
+      final result = await _runTool(repo, ['proto:check']);
+      expect(result.exit, 1);
+      expect(result.err, contains('output.pb.dart (content differs)'));
+      expect(
+        result.err,
+        contains('output.pb.go (generated but not committed)'),
+      );
+      expect(
+        result.err,
+        contains('obsolete.go (committed but no longer generated)'),
+      );
+      expect(await _status(repo), before);
+
+      final repair = await _runTool(repo, ['proto']);
+      expect(repair.exit, 0, reason: '${repair.out}${repair.err}');
+      expect(obsolete.existsSync(), isFalse);
+      expect(await _status(repo), isEmpty);
+    },
+    timeout: timeout,
+  );
+
+  test(
     'Payload schema covers key value numeric timestamp and base64 bounds',
     () async {
       for (final caseName in [

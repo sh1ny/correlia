@@ -41,12 +41,12 @@ description = "Install the pinned build-time payload schema validator from its n
 run = "npm ci --prefix tool/schema_validation --prefer-offline --ignore-scripts --no-audit --no-fund"
 
 [tasks.proto]
-description = "Generate the canonical event Dart, payload schema and bounds"
+description = "Generate event contract outputs and experimental plugin Dart/Go"
 run = "dart run tool/bin/tool.dart proto"
 depends = ["proto:setup"]
 
 [tasks."proto:check"]
-description = "Check canonical event compatibility, generated drift and payload fixtures"
+description = "Check event compatibility, event/plugin drift and payload fixtures"
 run = "dart run tool/bin/tool.dart proto:check"
 depends = ["proto:setup"]
 
