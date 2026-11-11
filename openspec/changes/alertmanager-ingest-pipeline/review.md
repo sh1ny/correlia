@@ -1,26 +1,23 @@
-All five Round 2 Required Changes are in place in the current design.md and the three specs, so the verdict stays APPROVE_WITH_CHANGES and I set CHANGES_APPLIED to yes. I only read files: nothing was edited or run, and review.md was not written. The full review text for the wrapper is below.
-
----
-
 # Review
 
 ## Metadata
 
-- **Round:** 3
-- **Prior round:** Round 2 returned VERDICT: APPROVE_WITH_CHANGES with 0 Critical, 5 Moderate (M1–M5) and 5 Suggestion findings, CHANGES_APPLIED: no. The Moderate findings were: M1 config revert impossible under content-addressed snapshot ids; M2 a worker without config idle after the queue drains; M3 pipeline retry budget contradicting the spec; M4 rejecting annotation values; M5 unsanitized startup errors. This round is the required localized recheck of those five Required Changes only. It is not a new full architecture review.
+- **Round:** 5
+- **Prior round:** Round 4 was a localized recheck of the user-approved D3 amendment. It returned VERDICT: APPROVE_WITH_CHANGES with CHANGES_APPLIED: no and two Required Changes: M1 (an events primary-key conflict on a `future_dated` redelivery would use up the internal-error budget) and M2 (tasks.md did not reflect the SQL-owned/managed split). Suggestions A1–A3 and S1–S5 were open and nonblocking.
 - **Reviewer:** cross-model CLI (claude, claude-opus-5-5)
 - **Reviewed:**
   - **Change artifacts:** `openspec/changes/alertmanager-ingest-pipeline/`
-    - review.md (round 2)
-    - design.md
-    - `specs/source-ingress/spec.md`
-    - `specs/durable-pipeline/spec.md`
-    - `specs/integration-alertmanager/spec.md`
+    - review.md (Round 4 findings and Required Changes, :33-101)
+    - design.md D3 (:51-59), D4 (:61-70) and the decision summary row for D3 (:107)
+    - tasks.md :3 and group 1 (:66-70)
+    - `specs/durable-pipeline/spec.md` :51-59, checked only to confirm the optional THEN clause
   - **Review template:** `openspec/schemas/specwright/templates/review.md`
-  - **Not re-inspected (taken as given):**
-    - proposal.md and `specs/output-delivery/spec.md`. The author states they are unchanged since Round 2.
-    - Server source, ADRs and planning documents. They were already covered in Round 2, and this recheck is limited to the five edits.
-    - The project `SKILL.md` files and `AGENTS.md`. They remain constraints on the future implementation and produced no finding.
+  - **Skills and rules:** `.claude/skills/serverpod-{models,database,migrations,testing}/SKILL.md`, `serverpod-overview/SKILL.md` and the project AGENTS.md. These were used only as the frame for the Round 4 checks; no unchanged decision was reopened.
+  - **Not re-inspected:**
+    - D1, D2 and D5–D7; Round 3's approval covers them, and Round 4 covers D3.
+    - The other spec deltas.
+    - The implementation drafts in `lib/src/ingest/` and `test/unit/ingest/`, as instructed.
+  - **Not done:** this was a read-only review. No tests were run and no files were written.
 
 <!-- This verdict covers only the contents reviewed. Editing proposal, specs or design afterward (other than applying Required Changes, or an edit confined to the proposal's `## Release Notes` section) voids it. -->
 
@@ -32,127 +29,87 @@ None.
 
 ### Moderate
 
-None open. Each Round 2 Moderate finding was checked on its own against its Required Change:
+None. Round 4's M1 and M2 are both fixed. The checks below follow the order of Round 4's Required Changes.
 
-**M1 (config revert): resolved.**
-- **Format and preimage:** design.md:33 adds a required integer `revision` from 1 to 2147483647 to `format_version: 1`. design.md:34 includes the revision in the snapshot-id preimage.
-- **Activation rule (design.md:34):**
-  - An input id equal to the active id is a no-op.
-  - An unseen snapshot activates only when its revision is greater than the active revision, or when no snapshot is active.
-  - Every other input fails startup, naming only the input and active ids and revisions, without changing source admission or the active pointer.
-- **Revert procedure:** design.md:34 says a revert republishes earlier content with a higher revision, which creates a new snapshot.
-- **Tables:**
-  - The D1 summary row is updated (design.md:103).
-  - The Failure & Visibility row covers stale and equal-conflicting revisions (design.md:201).
-  - The bootstrap bounds row includes the revision range (design.md:217).
-- **Spec:**
-  - The source-ingress requirement now states increasing revisions and the stale/equal-conflict failure (source-ingress spec:67).
-  - Scenarios: "Stale bootstrap cannot revoke the rotation" now uses lower-revision version A (:77-79); "Revert by higher revision" (:89-91); "Conflicting equal revision" (:93-95).
-- **Older snapshots:** activation is strictly monotonic, so every stored inactive snapshot has a lower revision than the active one. A stale process cannot reactivate it.
+**Round 4 M1: events-key conflicts. Fixed.**
+- **D3 (design.md:54):**
+  - D3 now says: "The events key is not a dedup authority: the observation key deduplicates eligible evidence, while identical quarantined evidence at the same observed time collapses on the events primary key." This matches the required text.
+  - The PK list at :53 is still exactly `(observed_at, raw_id)`, `(observed_at, event_id, disposition)` and `(created_at, delivery_id)`. No columns changed.
+- **D4 (design.md:66):**
+  - Quarantined (`future_dated`) event inserts use `ON CONFLICT` on the events PK `DO NOTHING`.
+  - An existing row is recorded as a duplicate quarantine in the raw outcome.
+  - D4 says explicitly that this expected conflict "never consumes the internal-error budget".
+  - It adds that a redelivery at the same observed time still completes and cannot prevent later eligible evidence from getting its first observation key.
+  - This closes the `processing_exhausted` path described in Round 4 and keeps D4's "unexpected SQL" classification at :64 consistent. A PK conflict is now an expected outcome, not an unexpected one.
+- **Cross-disposition safety:** `disposition` is a PK column, so a `future_dated` row can never collide with a later `late` or ready row for the same `event_id`/`observed_at`. That keeps the guarantee in "Future quarantine does not poison dedup" (spec:57-59).
+- **Same-batch duplicates:** two members of one raw batch that share an id are also covered, because they share one `observed_at` and the insert now does nothing on conflict.
+- **Spec THEN clause:** not added. Round 4 marked it as optional, so this is not a gap.
 
-**M2 (worker without config): resolved.**
-- design.md:33 now requires worker/all to fail startup with sanitized active-config and unfinished-work counts whenever an active ingest snapshot exists **or** pending raw or queued/delivering work exists.
-- The Failure & Visibility row at design.md:201 matches.
-- The source-ingress requirement at spec:67 says the same.
-- The new scenario "Missing worker config after drained queue" (source-ingress spec:97-99) asserts the startup failure and that readiness never becomes ready.
-
-**M3 (pipeline retry budget): resolved.**
-- **Design:**
-  - design.md:63 says serialization failures, deadlocks, lock timeouts and connection-unavailable errors retry indefinitely under capped backoff without consuming the budget.
-  - Only other internal errors (statement or transaction deadline exceeded, unexpected SQL or programming errors) consume the five-attempt budget.
-  - On exhaustion, the raw row is `failed` with `processing_exhausted` and a `pipeline_failures` row, keeping its pin and bytes, with no partial effects.
-  - The resource bounds row (design.md:222) states the 1..30 s capped backoff, that transient errors never consume the budget, and that "transient outage cannot exhaust accepted work".
-- **Spec:**
-  - durable-pipeline spec:35 is reworded to match.
-  - DUR-1 (:37-39) now asserts that repeated transient failures beyond five leave the internal-error budget unchanged and the pin intact.
-  - The new scenario "Processing budget exhaustion" (:45-47) is present.
-
-**M4 (annotation values): resolved.**
-- **Design:**
-  - The `alerts[].annotations` Field Mapping row (design.md:240) keeps the map count and keys within bounds, truncates long display values with the canonical marker, and keeps full originals only in the raw bytes.
-  - Summary and description are projected from those bounded values, so overflow is visibly marked in both.
-  - design.md:248 limits rejection to map counts/keys, annotation count/key and original-input bounds.
-- **Spec:**
-  - integration-alertmanager spec:55 contains the exact required sentence: "Display text, annotation values and label projections SHALL truncate with a marker".
-  - spec:62 now says "annotation count/key bound".
-  - The new scenario "Oversize annotation value" (:69-71) asserts that the delivery completes, the projections are visibly truncated, the full original stays in the raw bytes, and the fingerprint and event id are unchanged.
-
-**M5 (sanitized startup errors): resolved.**
-- **Design (design.md:33):**
-  - Bootstrap and secret parsing and validation catch every parser, URI and IO exception.
-  - They expose only an allowlisted error type containing file kind, a bounded field path and an error code.
-  - Neither `toString` nor stack-associated messages may include input excerpts, secret values or URLs, explicitly because server.dart prints startup errors verbatim.
-- **Spec:** the new source-ingress scenario "Malformed secret or credential-bearing input is not echoed" (spec:101-103) asserts this against captured stderr and logs.
+**Round 4 M2: tasks.md alignment. Fixed.**
+- **tasks.md:3:** now cites "localized review round 4". It needs no further correctness change; the orchestrator updates this prose after receipt, as instructed.
+- **Task 1.2 (tasks.md:69):**
+  - Managed model definitions and generated outputs are limited to exactly source/config/active pointer, secret commitments, transport_keys, observation_keys, pipeline_failures and delivery_attempts.
+  - It states that raw_inbox, events and outbox have **no** `.spy.yaml` table model. They are created only in `schema/*.sql` with their exact composite PKs and accessed through typed handwritten immutable records and parameterized `unsafeQuery`/`unsafeExecute` repositories.
+  - "Never hand-edit generated definitions" is kept.
+  - T21 now checks, from the catalog, each SQL-owned table's exact PK columns and its time-qualified reference columns on both the fresh and the upgraded path. It also checks that the generated `definition*.json` files do not contain those tables.
+  - Together these cover ORM reintroduction, PK drift and drift between the two ownership paths.
+  - The text matches the user-approved D3 and the decision summary row (:107).
+- **Task 1.3 (tasks.md:70):**
+  - The docs item now includes "the repair-migration review procedure for SQL-owned tables".
+  - It still runs schema initialization after Serverpod managed migrations and before ingest work, on both the startup path and the non-rollback test-helper path. Generated tools stay untouched.
 
 ### Suggestions
 
-Round 2 Suggestions S1–S5 are carried forward unchanged. They are still open and nonblocking.
+**Amendment-related, nonblocking (carried from Round 4):**
 
-**S1. The api role must hold webhook signing keys it never uses.** Publication computes signing-key commitments (design.md:35) and fails on unavailable secrets (source-ingress spec:73-75), so the internet-facing api needs the HMAC keys.
+- **A1. Make the repair guidance concrete.** Task 1.3 now names the procedure.
+  - **Content:** the doc should tell operators to remove any generated statement that touches `schema_versions`, raw_inbox, events or outbox before applying a repair `migration.sql`.
+  - **Check:** if feasible, cite the pinned CLI's actual behavior for tables that exist in the live database but not in the definition.
+- **A2. State the foreign-key policy in both directions,** i.e. whether SQL-owned tables may hold foreign keys to managed tables.
+- **A3. Pin down `outbox.created_at`.** State that it is set once inside the effect transaction and never updated, and that references always carry `(created_at, delivery_id)` and `(observed_at, raw_id)` together.
+- **A4 (new, minor). Make the duplicate-quarantine outcome observable.**
+  - **Scope:** D4:66 says "record an existing row as a duplicate quarantine in the raw outcome". D7's list of durable raw-result counts (design.md:92) names only `upstream_omitted`/`committed`/`duplicate_observation`.
+  - **Suggestion:** when implementing T28, either add a `duplicate_quarantine` count next to them or state that it is folded into `duplicate_observation`. Also consider adding a parameterized T28 case for a concurrent identical `future_dated` redelivery at an equal `observed_at`.
 
-A compromised api can already forge deliveries by writing outbox rows, so the extra exposure is limited. Still, an exfiltrated key allows offline forgery that lasts until the key is rotated. Consider carrying a public `sha256` commitment in the output config, so that only worker/all load signing bytes. At minimum, record the exposure under Risks.
+**Carried forward from Round 2/3, unchanged and still nonblocking:**
 
-**S2. Token rotation always has a rejection window.** Each source has exactly one current token, so senders get 401 between publication and their own config update. As far as I know, Alertmanager retries only 5xx and transport errors, not 4xx. The group is then sent again at its next flush, which delays it rather than losing it. A bounded previous-token overlap would be cheap to add now, while the stored config format is still new. Otherwise, document the rotation order in the setup guide.
-
-**S3. Bound the pre-authentication lookup.** Authentication queries the database before the 16-read admission bound applies (design.md:45, :218). An unauthenticated flood can therefore take connections from the pool that the `all` role shares with the pipeline and relays. Take the admission slot, or a separate small bound, before the lookup, and return 503 at the bound.
-
-**S4. Add a batch-bound scenario, and consider referencing event bytes instead of copying them.** With 1000 alerts of about 2 KiB and 8 outputs, a delivery exceeds the 16 MiB aggregate that counts fanout copies (design.md:221). It then fails deterministically, but no spec scenario covers `batch_bound`. Separately, architecture.md:97 already keeps events alive "while referenced by a pending or dead-lettered outbox row". If intents referenced the immutable event row, fanout would no longer multiply stored bytes.
-
-**S5. Two wording cleanups.**
-- The Field Mapping row for `truncatedAlerts` still says "committed source counter" (design.md:245). This contradicts D7, which uses durable raw-result counts and never touches source rows. Say "raw-result count".
-- D7 prunes the counter map "on config publication" (design.md:90, :193). That never happens for sources that another process activates. Add buckets lazily, up to the 64+1 bound, for sources authenticated from the database.
+- **S1.** The api role holds webhook signing keys it never uses; consider a public commitment in config or record the exposure under Risks.
+- **S2.** Token rotation always has a rejection window; consider a bounded previous-token overlap or document the rotation order.
+- **S3.** Bound the pre-authentication database lookup in the design text (:45, :218).
+- **S4.** Add a `batch_bound` scenario, and consider referencing event bytes from the outbox instead of copying them for each output.
+- **S5.** Change the `truncatedAlerts` row wording from "committed source counter" to "raw-result count", and add D7 counter buckets lazily for sources activated by another process.
 
 ## Verdict
 
-There are no Critical findings. All five Round 2 Required Changes were applied as specified and each was confirmed independently. None of them reverses a `Chosen by: user` decision. The Suggestions remain open and nonblocking.
+There are no Critical or Moderate findings.
+
+- **Round 4 required changes:**
+  - **M1:** applied in D3 (:54) and D4 (:66) as specified, with the PK columns unchanged.
+  - **M2:** applied at tasks.md:3, task 1.2 (:69) and task 1.3 (:70) as specified.
+- **User decision:** both edits keep the user-approved D3 exactly: SQL-owned composite-key tables, exact keys, typed handwritten records, parameterized SQL and no surrogate `id`.
+- **Not reopened:** D1, D2 and D5–D7, the other spec deltas and the implementation drafts. Round 3 and Round 4 still cover them.
+- **Open suggestions:** A1–A4 and S1–S5 are all nonblocking.
 
 VERDICT: APPROVE_WITH_CHANGES
 
 ## Required Changes
 
-All five were applied and re-checked by the reviewer in Round 3.
+The two Round 4 Required Changes, both now applied and rechecked:
 
-1. **M1: monotonic config revision in D1.**
-   - Required integer `revision` from 1 to 2147483647, included in the snapshot-id preimage.
-   - Activation rule: same id is a no-op. An unseen id activates when its revision is greater than the active revision, or when no snapshot is active. Anything else fails startup naming only ids and revisions, with no change to state.
-   - A revert republishes earlier content with a higher revision.
-   - Updated: the D1 summary row, the Failure & Visibility row and the bootstrap bounds row.
-   - source-ingress scenarios: lower-revision stale restart, "Revert by higher revision" and "Conflicting equal revision".
-   - *Verified:* design.md:33-34, :103, :201, :217; source-ingress spec:67, :77-79, :89-95.
-2. **M2: fail a worker without config whenever ingest is configured.**
-   - worker/all without config fails startup with sanitized counts when an active snapshot exists or pending raw or queued/delivering work exists.
-   - Added the scenario "Missing worker config after drained queue".
-   - *Verified:* design.md:33, :201; source-ingress spec:67, :97-99.
-3. **M3: align the pipeline retry policy.**
-   - Serialization, deadlock, lock-timeout and connection-unavailable errors retry indefinitely with capped 1..30 s backoff and never consume the budget.
-   - Other internal errors consume five attempts, then the row becomes `processing_exhausted` with its pin and raw bytes retained and no partial effects.
-   - The spec is reworded, DUR-1 is extended and "Processing budget exhaustion" is added.
-   - *Verified:* design.md:63, :222; durable-pipeline spec:35-39, :45-47.
-4. **M4: truncate long annotation values instead of rejecting them.**
-   - Values over the bound truncate with the canonical marker, and the original stays in the raw bytes.
-   - Count and key bounds still reject.
-   - The spec sentence and bound wording are updated, and "Oversize annotation value" is added.
-   - *Verified:* design.md:240, :248; integration-alertmanager spec:55, :61-63, :69-71.
-5. **M5: sanitized startup errors.**
-   - Parser, URI and IO exceptions are caught, and only an allowlisted error with file kind, field path and code is exposed.
-   - Added the scenario "Malformed secret or credential-bearing input is not echoed".
-   - *Verified:* design.md:33; source-ingress spec:101-103.
+1. **M1: handle event-key conflicts in design.md.**
+   - Applied at design.md:54 (D3, events key is not a dedup authority) and design.md:66 (D4, `future_dated` inserts use `ON CONFLICT DO NOTHING` on the events PK, the result counts as a duplicate quarantine, and no internal-error budget is used).
+   - The PK columns are unchanged.
+2. **M2: align tasks.md with the amended D3.**
+   - Applied at tasks.md:3 (round 4 reference) and tasks.md:69 (task 1.2: SQL-owned tables are excluded from `.spy.yaml` table models, plus typed records and parameterized SQL; T21 checks exact PKs and time-qualified reference columns from the catalog on the fresh and upgraded paths, and that the tables are absent from `definition*.json`).
+   - Also applied at tasks.md:70 (task 1.3: repair-migration review procedure).
 
 CHANGES_APPLIED: yes
 
 ## Rebuttals
 
-- **Round 1 M1 (strict unknown fields), rebutted by author: accepted by reviewer.**
-  - `AGENTS.md:108-109` is an explicit, in-force project rule: normalizers "reject unmapped fields loudly".
-  - ADR 0021's tolerant reading (0021:93-97) applies to readers of canonical events with a newer v1 minor. It does not apply to upstream Alertmanager v4 payloads.
-  - design.md:248 documents the upgrade and replay risk and keeps failed raw bytes for M2 replay.
-  - Relaxing this would be an **owner policy decision** that changes `AGENTS.md`, not a design fix this change can make on its own.
-- **Round 1 S3 (timestamp in the signature), not built:** acknowledged. design.md:283 records that the HMAC covers authenticity only and that receivers must deduplicate by event id. It was a Suggestion, so it needs no acceptance.
-- **Round 1 M2–M8 and S1, S2, S4–S7:** verified as fixed in Round 2. Not re-reviewed in this round.
-- **Round 2 M1–M5:** fixed by the author and verified by the reviewer in Round 3.
-  - **M1:** design.md:33-34, :103, :201, :217; source-ingress spec:67, :77-79, :89-95.
-  - **M2:** design.md:33, :201; source-ingress spec:67, :97-99.
-  - **M3:** design.md:63, :222; durable-pipeline spec:35-39, :45-47.
-  - **M4:** design.md:240, :248; integration-alertmanager spec:55, :61-63, :69-71.
-  - **M5:** design.md:33; source-ingress spec:101-103.
-- **Round 2 S1–S5:** not addressed. They remain open Suggestions and need no rebuttal.
+- **Round 1 M1 (strict unknown fields):** rebutted by the author and accepted by the reviewer in Round 3. No change.
+- **Round 1 S3 (timestamp in the signature), not built:** acknowledged. No change.
+- **Round 1 M2–M8, Round 2 M1–M5:** fixed and verified, as recorded in Round 3.
+- **Round 4 M1:** fixed (design.md:54, :66); verified in Round 5.
+- **Round 4 M2:** fixed (tasks.md:3, :69, :70); verified in Round 5.
+- **Round 4 A1–A3, Round 5 A4, Round 2/3 S1–S5:** not addressed. They remain open Suggestions and need no rebuttal.
