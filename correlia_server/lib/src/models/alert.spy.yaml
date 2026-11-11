@@ -1,0 +1,25 @@
+class: AlertRow
+table: alerts
+serverOnly: true
+fields:
+  tenant: String
+  fingerprint: String
+  status: String
+  severity: String
+  summary: String
+  sourceInstance: String
+  firingSince: DateTime?
+  generatorUrl: String?
+  fenceEffectiveSeconds: int
+  fenceEffectiveNanos: int
+  fenceObservedSeconds: int
+  fenceObservedNanos: int
+  fenceEventId: String
+  lastObservedAt: DateTime
+  version: int
+  createdAt: DateTime
+  updatedAt: DateTime
+indexes:
+  alerts_tenant_fingerprint_idx:
+    fields: tenant, fingerprint
+    unique: true

@@ -13,6 +13,7 @@
 // ignore_for_file: no_leading_underscores_for_library_prefixes
 import 'package:serverpod/protocol.dart' as _isp;
 import 'package:serverpod/serverpod.dart' as _is;
+import 'alert.dart' as _iqmz6gj4;
 import 'delivery_attempt.dart' as _ihd6gt0n;
 import 'ingest_active_config.dart' as _ibsgqcqa;
 import 'ingest_config_snapshot.dart' as _iwupdujg;
@@ -21,6 +22,7 @@ import 'ingest_source.dart' as _inhmna33;
 import 'observation_key.dart' as _ii70ink4;
 import 'pipeline_failure.dart' as _ir1rifdz;
 import 'transport_key.dart' as _ix76ovok;
+export 'alert.dart';
 export 'delivery_attempt.dart';
 export 'ingest_active_config.dart';
 export 'ingest_config_snapshot.dart';
@@ -43,6 +45,7 @@ class Protocol extends _is.DatabaseSerializationManager
       _is.ProtocolDeserialization.cached(
         this,
         types: const [
+          _is.getType<_iqmz6gj4.AlertRow>,
           _is.getType<_ihd6gt0n.DeliveryAttempt>,
           _is.getType<_ibsgqcqa.IngestActiveConfig>,
           _is.getType<_iwupdujg.IngestConfigSnapshot>,
@@ -51,6 +54,7 @@ class Protocol extends _is.DatabaseSerializationManager
           _is.getType<_ii70ink4.ObservationKeyRow>,
           _is.getType<_ir1rifdz.PipelineFailure>,
           _is.getType<_ix76ovok.TransportKey>,
+          _is.getType<_iqmz6gj4.AlertRow?>,
           _is.getType<_ihd6gt0n.DeliveryAttempt?>,
           _is.getType<_ibsgqcqa.IngestActiveConfig?>,
           _is.getType<_iwupdujg.IngestConfigSnapshot?>,
@@ -62,6 +66,7 @@ class Protocol extends _is.DatabaseSerializationManager
         ],
         modules: const [_isp.Protocol.new],
         classNames: const [
+          'AlertRow',
           'DeliveryAttempt',
           'IngestActiveConfig',
           'IngestConfigSnapshot',
@@ -74,6 +79,144 @@ class Protocol extends _is.DatabaseSerializationManager
       );
 
   static List<_isp.TableDefinition> get targetTableDefinitions => [
+    _isp.TableDefinition(
+      name: 'alerts',
+      dartName: 'AlertRow',
+      schema: 'public',
+      module: 'correlia',
+      columns: [
+        _isp.ColumnDefinition(
+          name: 'id',
+          columnType: _isp.ColumnType.bigint,
+          isNullable: false,
+          dartType: 'int?',
+          columnDefault: 'serial',
+        ),
+        _isp.ColumnDefinition(
+          name: 'tenant',
+          columnType: _isp.ColumnType.text,
+          isNullable: false,
+          dartType: 'String',
+        ),
+        _isp.ColumnDefinition(
+          name: 'fingerprint',
+          columnType: _isp.ColumnType.text,
+          isNullable: false,
+          dartType: 'String',
+        ),
+        _isp.ColumnDefinition(
+          name: 'status',
+          columnType: _isp.ColumnType.text,
+          isNullable: false,
+          dartType: 'String',
+        ),
+        _isp.ColumnDefinition(
+          name: 'severity',
+          columnType: _isp.ColumnType.text,
+          isNullable: false,
+          dartType: 'String',
+        ),
+        _isp.ColumnDefinition(
+          name: 'summary',
+          columnType: _isp.ColumnType.text,
+          isNullable: false,
+          dartType: 'String',
+        ),
+        _isp.ColumnDefinition(
+          name: 'sourceInstance',
+          columnType: _isp.ColumnType.text,
+          isNullable: false,
+          dartType: 'String',
+        ),
+        _isp.ColumnDefinition(
+          name: 'firingSince',
+          columnType: _isp.ColumnType.timestampWithoutTimeZone,
+          isNullable: true,
+          dartType: 'DateTime?',
+        ),
+        _isp.ColumnDefinition(
+          name: 'generatorUrl',
+          columnType: _isp.ColumnType.text,
+          isNullable: true,
+          dartType: 'String?',
+        ),
+        _isp.ColumnDefinition(
+          name: 'fenceEffectiveSeconds',
+          columnType: _isp.ColumnType.bigint,
+          isNullable: false,
+          dartType: 'int',
+        ),
+        _isp.ColumnDefinition(
+          name: 'fenceEffectiveNanos',
+          columnType: _isp.ColumnType.bigint,
+          isNullable: false,
+          dartType: 'int',
+        ),
+        _isp.ColumnDefinition(
+          name: 'fenceObservedSeconds',
+          columnType: _isp.ColumnType.bigint,
+          isNullable: false,
+          dartType: 'int',
+        ),
+        _isp.ColumnDefinition(
+          name: 'fenceObservedNanos',
+          columnType: _isp.ColumnType.bigint,
+          isNullable: false,
+          dartType: 'int',
+        ),
+        _isp.ColumnDefinition(
+          name: 'fenceEventId',
+          columnType: _isp.ColumnType.text,
+          isNullable: false,
+          dartType: 'String',
+        ),
+        _isp.ColumnDefinition(
+          name: 'lastObservedAt',
+          columnType: _isp.ColumnType.timestampWithoutTimeZone,
+          isNullable: false,
+          dartType: 'DateTime',
+        ),
+        _isp.ColumnDefinition(
+          name: 'version',
+          columnType: _isp.ColumnType.bigint,
+          isNullable: false,
+          dartType: 'int',
+        ),
+        _isp.ColumnDefinition(
+          name: 'createdAt',
+          columnType: _isp.ColumnType.timestampWithoutTimeZone,
+          isNullable: false,
+          dartType: 'DateTime',
+        ),
+        _isp.ColumnDefinition(
+          name: 'updatedAt',
+          columnType: _isp.ColumnType.timestampWithoutTimeZone,
+          isNullable: false,
+          dartType: 'DateTime',
+        ),
+      ],
+      foreignKeys: [],
+      indexes: [
+        _isp.IndexDefinition(
+          indexName: 'alerts_tenant_fingerprint_idx',
+          tableSpace: null,
+          elements: [
+            _isp.IndexElementDefinition(
+              type: _isp.IndexElementDefinitionType.column,
+              definition: 'tenant',
+            ),
+            _isp.IndexElementDefinition(
+              type: _isp.IndexElementDefinitionType.column,
+              definition: 'fingerprint',
+            ),
+          ],
+          type: 'btree',
+          isUnique: true,
+          isPrimary: false,
+        ),
+      ],
+      managed: true,
+    ),
     _isp.TableDefinition(
       name: 'delivery_attempts',
       dartName: 'DeliveryAttempt',
@@ -590,6 +733,9 @@ class Protocol extends _is.DatabaseSerializationManager
       }
     }
 
+    if (t == _iqmz6gj4.AlertRow) {
+      return _iqmz6gj4.AlertRow.fromJson(data) as T;
+    }
     if (t == _ihd6gt0n.DeliveryAttempt) {
       return _ihd6gt0n.DeliveryAttempt.fromJson(data) as T;
     }
@@ -613,6 +759,9 @@ class Protocol extends _is.DatabaseSerializationManager
     }
     if (t == _ix76ovok.TransportKey) {
       return _ix76ovok.TransportKey.fromJson(data) as T;
+    }
+    if (t == _is.getType<_iqmz6gj4.AlertRow?>()) {
+      return (data != null ? _iqmz6gj4.AlertRow.fromJson(data) : null) as T;
     }
     if (t == _is.getType<_ihd6gt0n.DeliveryAttempt?>()) {
       return (data != null ? _ihd6gt0n.DeliveryAttempt.fromJson(data) : null)
@@ -664,6 +813,7 @@ class Protocol extends _is.DatabaseSerializationManager
 
   static String? getClassNameForType(Type type) {
     return switch (type) {
+      _iqmz6gj4.AlertRow => 'AlertRow',
       _ihd6gt0n.DeliveryAttempt => 'DeliveryAttempt',
       _ibsgqcqa.IngestActiveConfig => 'IngestActiveConfig',
       _iwupdujg.IngestConfigSnapshot => 'IngestConfigSnapshot',
@@ -686,6 +836,8 @@ class Protocol extends _is.DatabaseSerializationManager
     }
 
     switch (data) {
+      case _iqmz6gj4.AlertRow():
+        return 'AlertRow';
       case _ihd6gt0n.DeliveryAttempt():
         return 'DeliveryAttempt';
       case _ibsgqcqa.IngestActiveConfig():
@@ -715,6 +867,9 @@ class Protocol extends _is.DatabaseSerializationManager
     var dataClassName = data['className'];
     if (dataClassName is! String) {
       return super.deserializeByClassName(data);
+    }
+    if (dataClassName == 'AlertRow') {
+      return deserialize<_iqmz6gj4.AlertRow>(data['data']);
     }
     if (dataClassName == 'DeliveryAttempt') {
       return deserialize<_ihd6gt0n.DeliveryAttempt>(data['data']);
@@ -758,6 +913,8 @@ class Protocol extends _is.DatabaseSerializationManager
       }
     }
     switch (t) {
+      case _iqmz6gj4.AlertRow:
+        return _iqmz6gj4.AlertRow.t;
       case _ihd6gt0n.DeliveryAttempt:
         return _ihd6gt0n.DeliveryAttempt.t;
       case _ibsgqcqa.IngestActiveConfig:

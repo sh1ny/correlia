@@ -77,14 +77,14 @@ Paths are relative to `correlia_server/` unless they start with `correlia_flutte
 
 ## 1. Alert table, activity ledger and schema step
 
-- [ ] 1.1 Add `lib/src/models/alert.spy.yaml` (`serverOnly`, table `alerts`) with D1's columns:
+- [x] 1.1 Add `lib/src/models/alert.spy.yaml` (`serverOnly`, table `alerts`) with D1's columns:
   - the fence as seconds plus nanos;
   - `generatorUrl`;
   - a unique index on (`tenant`, `fingerprint`).
 
   Run `mise run generate` and create the managed migration with the Serverpod tooling, never by hand.
   Verify that `mise run check`'s generated-code step passes and that the migration registry lists it.
-- [ ] 1.2 Extend `test/db/schema_step_test.dart` first, so that it fails. It must assert:
+- [x] 1.2 Extend `test/db/schema_step_test.dart` first, so that it fails. It must assert:
   - `activity`'s columns, including `txid xid8` with default `pg_current_xact_id()`;
   - the `(txid, id)` index;
   - `events.state_outcome` and its CHECK;
@@ -93,7 +93,7 @@ Paths are relative to `correlia_server/` unless they start with `correlia_flutte
 
   Then add `schema/0002_activity.sql` and register `SchemaStep(2, …)` in `lib/src/schema/schema_steps.dart`.
   Verify that the test passes.
-- [ ] 1.3 Update `openspec/architecture.md`, Database:
+- [x] 1.3 Update `openspec/architecture.md`, Database:
   - `activity` is created by schema step 0002, no longer future work;
   - `events.state_outcome` is noted;
   - `alerts` is a managed table.

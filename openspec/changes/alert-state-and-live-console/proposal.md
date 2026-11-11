@@ -147,3 +147,11 @@ DECISION_MAKING: autonomous
 - **Reversal cost:** low.
 - **Important:** no.
 - **Chosen by:** agent.
+
+## Release Notes
+
+Adds authoritative alert state and a live development console.
+
+### Added
+
+- Managed alert storage and an append-only activity ledger with atomic schema upgrades.

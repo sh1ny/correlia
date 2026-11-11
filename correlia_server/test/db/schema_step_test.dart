@@ -83,6 +83,94 @@ WHERE table_schema = current_schema() AND table_name IN ('events', 'outbox')
   );
 }
 
+Future<void> _expectActivityCatalog(Session session) async {
+  final rows = await session.db.unsafeQuery('''
+SELECT column_name, data_type, udt_name, is_nullable, column_default
+FROM information_schema.columns
+WHERE table_schema = current_schema() AND table_name = 'activity'
+''');
+  final columns = {
+    for (final row in rows)
+      row.toColumnMap()['column_name'] as String: row.toColumnMap(),
+  };
+  expect(columns.keys.toSet(), {
+    'id',
+    'txid',
+    'occurred_at',
+    'entity_kind',
+    'entity_id',
+    'entity_version',
+    'change_kind',
+    'actor_kind',
+    'actor_ref',
+    'cause_event_id',
+    'cause_raw_id',
+  });
+  expect(columns['id']!['data_type'], 'bigint');
+  expect(columns['id']!['column_default'], contains('nextval('));
+  expect(columns['txid']!['udt_name'], 'xid8');
+  expect(columns['txid']!['is_nullable'], 'NO');
+  expect(columns['txid']!['column_default'], 'pg_current_xact_id()');
+  expect(columns['occurred_at']!['data_type'], 'timestamp with time zone');
+  for (final name in [
+    'entity_kind',
+    'change_kind',
+    'actor_kind',
+    'actor_ref',
+  ]) {
+    expect(columns[name]!['data_type'], 'text');
+  }
+  for (final name in ['entity_id', 'entity_version']) {
+    expect(columns[name]!['data_type'], 'bigint');
+  }
+  for (final name in ['cause_event_id', 'cause_raw_id']) {
+    expect(columns[name]!['data_type'], 'uuid');
+  }
+  final indexes = await session.db.unsafeQuery('''
+SELECT i.indisprimary, array_agg(a.attname::text ORDER BY k.ordinality) AS columns
+FROM pg_index i
+JOIN pg_class t ON t.oid = i.indrelid
+JOIN pg_namespace n ON n.oid = t.relnamespace
+JOIN LATERAL unnest(i.indkey) WITH ORDINALITY k(attnum, ordinality) ON true
+JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
+WHERE n.nspname = current_schema() AND t.relname = 'activity'
+GROUP BY i.indexrelid, i.indisprimary
+''');
+  final indexColumns = indexes.map((row) => row.toColumnMap()).toList();
+  expect(
+    indexColumns,
+    contains(
+      allOf(
+        containsPair('indisprimary', true),
+        containsPair('columns', ['id']),
+      ),
+    ),
+  );
+  expect(indexColumns, contains(containsPair('columns', ['txid', 'id'])));
+  final outcome = await session.db.unsafeQuery('''
+SELECT data_type, is_nullable FROM information_schema.columns
+WHERE table_schema = current_schema() AND table_name = 'events'
+  AND column_name = 'state_outcome'
+''');
+  expect(outcome.single.toColumnMap(), {
+    'data_type': 'text',
+    'is_nullable': 'YES',
+  });
+  final checks = await session.db.unsafeQuery('''
+SELECT pg_get_constraintdef(c.oid) AS definition
+FROM pg_constraint c
+JOIN pg_class t ON t.oid = c.conrelid
+JOIN pg_namespace n ON n.oid = t.relnamespace
+WHERE n.nspname = current_schema() AND t.relname = 'events' AND c.contype = 'c'
+''');
+  expect(
+    checks.map((row) => row.toColumnMap()['definition']),
+    contains(
+      allOf(contains('state_outcome'), contains('applied'), contains('stale')),
+    ),
+  );
+}
+
 void main() {
   test('fresh_and_populated_schema_paths normal startup', () async {
     final fixture = await PodFixture.create([]);
@@ -108,6 +196,7 @@ void main() {
         final session = sessionBuilder.build();
         await initializeIngestSchema(session);
         await _expectCompositeCatalog(session);
+        await _expectActivityCatalog(session);
         final rows = await session.db.unsafeQuery(
           "SELECT to_regclass('raw_inbox') AS raw, to_regclass('events') AS events, to_regclass('outbox') AS outbox",
         );
@@ -154,6 +243,58 @@ INSERT INTO baseline_marker VALUES ('preserved');
           "SELECT to_regclass('raw_inbox') AS raw, to_regclass('events') AS events, to_regclass('outbox') AS outbox",
         );
         expect(result.single.toColumnMap().values, everyElement(isNotNull));
+      });
+    },
+    rollbackDatabase: RollbackDatabase.disabled,
+    testGroupTagsOverride: ['db'],
+  );
+  withServerpod(
+    'Populated version 1 schema',
+    (sessionBuilder, _) {
+      test('activity_schema_populated_v1_upgrade', () async {
+        final session = sessionBuilder.build();
+        await applySchemaSteps(session, [schemaSteps.first]);
+        await session.db.unsafeSimpleExecute('''
+INSERT INTO raw_inbox
+  (observed_at, raw_id, source_id, body, body_sha256, content_type)
+VALUES
+  ('2026-01-01 UTC', '00000000-0000-0000-0000-000000000001',
+   '00000000-0000-0000-0000-000000000002', decode('01', 'hex'), 'digest', 'application/json');
+INSERT INTO events
+  (observed_at, event_id, disposition, raw_observed_at, raw_id, source_id,
+   config_snapshot_id, source_time, payload)
+VALUES
+  ('2026-01-01 UTC', '00000000-0000-0000-0000-000000000003', 'ready',
+   '2026-01-01 UTC', '00000000-0000-0000-0000-000000000001',
+   '00000000-0000-0000-0000-000000000002', 'snapshot',
+   '2026-01-01 UTC', decode('01', 'hex'));
+''');
+        await applySchemaSteps(session, schemaSteps);
+        await _expectActivityCatalog(session);
+        final events = await session.db.unsafeQuery(
+          'SELECT state_outcome FROM events',
+        );
+        expect(events.single.toColumnMap()['state_outcome'], isNull);
+        for (final value in ['applied', 'stale']) {
+          await session.db.unsafeExecute(
+            'UPDATE events SET state_outcome = @value',
+            parameters: QueryParameters.named({'value': value}),
+          );
+        }
+        await expectLater(
+          session.db.unsafeExecute(
+            "UPDATE events SET state_outcome = 'invalid'",
+          ),
+          throwsA(anything),
+        );
+        final raw = await session.db.unsafeQuery(
+          'SELECT raw_id FROM raw_inbox',
+        );
+        expect(raw, hasLength(1));
+        final versions = await session.db.unsafeQuery(
+          'SELECT version FROM correlia_schema_versions ORDER BY version',
+        );
+        expect(versions.map((row) => row.toColumnMap()['version']), [1, 2]);
       });
     },
     rollbackDatabase: RollbackDatabase.disabled,
@@ -227,7 +368,7 @@ ORDER BY c.relname, k.ordinality
                       f.path.endsWith('definition_project.json'),
                 )) {
           final definition = await file.readAsString();
-          for (final name in ['raw_inbox', 'events', 'outbox']) {
+          for (final name in ['raw_inbox', 'events', 'outbox', 'activity']) {
             expect(definition, isNot(contains('"name": "$name"')));
           }
         }
