@@ -141,7 +141,7 @@ The pinned Dart built-in TLS engine still **fails** stock P-521 AutoMTLS: its
 TLS 1.3 ClientHello omits signature scheme `0x0603`. The custom OpenSSL connector
 has separately passed protected stock application RPC and authentication-negative
 checks; it does not turn that built-in failure into a pass. See the
-[observed evidence](../openspec/changes/plugin-host-spike/evidence/handshake-and-mtls.md).
+[observed evidence](../openspec/changes/archive/2026-11-11-plugin-host-spike/evidence/handshake-and-mtls.md).
 ADR 0023 keeps D24 and the interpretation of ADR 0020 criterion 2 owner-only.
 Neither runtime success nor explicit diagnostics grant production adoption.
 The EOF-driven host-death proof applies only to the distinct stdin-watched
@@ -230,7 +230,7 @@ omit the flag. A crash after recording and before acknowledgement permits
 duplicates of that uncertain work. The proven guarantee is **at least once
 while this Dart owner survives**, not exactly once or durability across host
 death. The separate second-crash check proves acknowledged work is not replayed.
-See the [delivery evidence](../openspec/changes/plugin-host-spike/evidence/stream-and-redelivery.md).
+See the [delivery evidence](../openspec/changes/archive/2026-11-11-plugin-host-spike/evidence/stream-and-redelivery.md).
 
 Resource-boundary checks also reject an oversized native plaintext source chunk
 before any admission/network write; an exact 256 KiB chunk remains usable.
@@ -277,7 +277,7 @@ by arbitrary go-plugin executables or a shipped production supervisor/SDK.
 Killing the host still loses its in-memory delivery queue. Default lifetime
 evidence uses authenticated TLS1.3 and a protected 0600 socket; internal
 plaintext diagnostics require explicit selection and cannot approve adoption.
-See the [direct lifecycle evidence](../openspec/changes/plugin-host-spike/evidence/host-death-and-shutdown.md).
+See the [direct lifecycle evidence](../openspec/changes/archive/2026-11-11-plugin-host-spike/evidence/host-death-and-shutdown.md).
 
 ## Experimental spike verdict
 
@@ -315,7 +315,7 @@ for group/other. No chmod, automatic retry or production fallback is involved.
 
 Four native passes do not themselves approve D24, the custom connector or its
 native dependencies. The owner accepted those decisions on 2026-11-11; see the
-[consolidated spike evidence](../openspec/changes/plugin-host-spike/evidence/spike-gate.md#owner-acceptance).
+[consolidated spike evidence](../openspec/changes/archive/2026-11-11-plugin-host-spike/evidence/spike-gate.md#owner-acceptance).
 Only the owner ticks task 5.5 in `tasks.md`; tests and agents never tick it.
 
 ## Schema validation and runtime validation
