@@ -1,3 +1,9 @@
+export 'src/plugin/plugin_delivery.dart'
+    show
+        PluginDelivery,
+        PluginDeliveryPolicy,
+        PluginDeliveryCancellation,
+        PluginDeliveryReceipt;
 export 'src/plugin/plugin_host.dart'
     show
         PluginHost,

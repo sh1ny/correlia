@@ -13,8 +13,9 @@ final class _TrackingAllocator implements Allocator {
 
   @override
   Pointer<T> allocate<T extends NativeType>(int byteCount, {int? alignment}) {
-    if (allocations++ == failAt)
+    if (allocations++ == failAt) {
       throw StateError('injected allocation failure');
+    }
     final pointer = calloc.allocate<T>(byteCount, alignment: alignment);
     if (!live.add(pointer.address)) throw StateError('duplicate allocation');
     return pointer;
@@ -35,8 +36,9 @@ Future<void> main(List<String> args) async {
   final live = library.lookupFunction<Uint64 Function(), int Function()>(
     'probe_live_allocations',
   );
-  if (install() != 1)
+  if (install() != 1) {
     throw StateError('OpenSSL allocation hooks installed too late');
+  }
   final certificate = await File(args[1]).readAsBytes();
   final key = await File(args[2]).readAsBytes();
   final pem = utf8
@@ -66,10 +68,11 @@ Future<void> main(List<String> args) async {
     } on HandshakeException {
       rejected = true;
     }
-    if (!rejected || allocator.live.isNotEmpty)
+    if (!rejected || allocator.live.isNotEmpty) {
       throw StateError(
         'partial initialization retained Dart allocations or accepted invalid key',
       );
+    }
   }
 
   for (var i = 0; i < 16; i++) {
@@ -80,8 +83,9 @@ Future<void> main(List<String> args) async {
     attempt();
   }
   final after = live();
-  if (before != after)
+  if (before != after) {
     throw StateError('OpenSSL live allocations changed: $before -> $after');
+  }
 
   allocator.allocations = 0;
   NativeTlsEngine(
@@ -91,8 +95,9 @@ Future<void> main(List<String> args) async {
     testControls: controls,
   ).dispose();
   final allocationCount = allocator.allocations;
-  if (allocationCount == 0 || allocator.live.isNotEmpty)
+  if (allocationCount == 0 || allocator.live.isNotEmpty) {
     throw StateError('allocator was not used or retained allocations');
+  }
   for (var i = 0; i < allocationCount; i++) {
     allocator.allocations = 0;
     allocator.failAt = i;
@@ -107,12 +112,14 @@ Future<void> main(List<String> args) async {
     } on Object {
       failed = true;
     }
-    if (!failed || allocator.live.isNotEmpty)
+    if (!failed || allocator.live.isNotEmpty) {
       throw StateError('allocation failure $i leaked or was ignored');
-    if (live() != after)
+    }
+    if (live() != after) {
       throw StateError(
         'OpenSSL allocation imbalance at failure $i: baseline=$after current=${live()}',
       );
+    }
   }
   stdout.writeln(
     jsonEncode({

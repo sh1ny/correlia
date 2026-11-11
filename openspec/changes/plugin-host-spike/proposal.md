@@ -58,8 +58,9 @@ DECISION_MAKING: autonomous
 
 ## Release Notes
 
-Add the experimental output probe, reproducible fixture/generation foundation
-and authenticated Linux subprocess startup through an in-process native transport.
+Add the experimental output probe, reproducible fixture/generation foundation,
+authenticated Linux subprocess startup and bounded acknowledged delivery with
+explicit surviving-host crash recovery.
 
 ### Added
 
@@ -77,3 +78,9 @@ and authenticated Linux subprocess startup through an in-process native transpor
   real-process security, backpressure, deadline and allocation verification.
   C compiler/OpenSSL headers are test-only dependencies; shared libraries are
   runtime dependencies. Runtime success does not approve production adoption.
+- Immutable count/byte-bounded canonical admission, derived batch credits,
+  epoch/sequence acknowledgement validation, cancellation and progress deadlines
+  without a whole-stream timeout.
+- Explicit restart retaining unacknowledged bytes, with real 10,000-event
+  id/digest reconciliation and a second-crash no-acknowledged-replay check.
+  This is at-least-once delivery while the host survives, not host-crash durability.

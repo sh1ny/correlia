@@ -22,7 +22,7 @@ const (
 	AckDuplicate AckMode = "duplicate"
 )
 
-// StartupMode controls behavior before the stock go-plugin handshake.
+// StartupMode controls startup and diagnostic behavior of the fixture.
 type StartupMode string
 
 const (
@@ -42,6 +42,10 @@ const (
 	StartupStallHealth StartupMode = "stall-health"
 	// StartupForeignOwner binds a socket then transfers it to namespace UID 1.
 	StartupForeignOwner StartupMode = "foreign-owner"
+	// StartupDiagnosticFlood writes bounded test diagnostics before failing.
+	StartupDiagnosticFlood StartupMode = "diagnostic-flood"
+	// StartupDiagnosticFloodAfterHandshake floods both diagnostic streams during the first application RPC.
+	StartupDiagnosticFloodAfterHandshake StartupMode = "diagnostic-flood-after-handshake"
 )
 
 // TLSMode controls the stock go-plugin AutoMTLS selection.
@@ -100,7 +104,7 @@ func ParseConfig(args []string) (Config, error) {
 	flags.StringVar(&config.ControlSocket, "control-socket", "", "Unix control socket path")
 	flags.StringVar(&config.EOFMarker, "eof-marker", "", "stdin EOF cause marker path")
 	flags.Var((*ackModeValue)(&config.Ack), "ack-mode", "ack mode: normal, withhold, invalid-epoch, invalid-sequence, or duplicate")
-	flags.Var((*startupModeValue)(&config.Startup), "startup-mode", "startup mode: serve, exit, stall, malformed, oversized, incomplete, stall-health, or foreign-owner")
+	flags.Var((*startupModeValue)(&config.Startup), "startup-mode", "startup mode: serve, exit, stall, malformed, oversized, incomplete, stall-health, foreign-owner, diagnostic-flood, or diagnostic-flood-after-handshake")
 	flags.Var((*tlsModeValue)(&config.TLS), "tls-mode", "TLS mode: stock, plaintext, or required")
 	flags.Var((*lifecycleModeValue)(&config.Lifecycle), "lifecycle-mode", "lifecycle mode: cooperative or uncooperative")
 	flags.BoolVar(&config.ArmBarrier, "arm-barrier", false, "arm the one-time pre-ack control barrier")
@@ -143,7 +147,7 @@ type startupModeValue StartupMode
 func (value *startupModeValue) Set(raw string) error {
 	mode := StartupMode(raw)
 	switch mode {
-	case StartupServe, StartupExit, StartupStall, StartupMalformed, StartupOversized, StartupIncomplete, StartupStallHealth, StartupForeignOwner:
+	case StartupServe, StartupExit, StartupStall, StartupMalformed, StartupOversized, StartupIncomplete, StartupStallHealth, StartupForeignOwner, StartupDiagnosticFlood, StartupDiagnosticFloodAfterHandshake:
 		*value = startupModeValue(mode)
 		return nil
 	default:

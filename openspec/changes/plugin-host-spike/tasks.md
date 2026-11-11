@@ -2,7 +2,7 @@
 
 ## Test map
 
-Paths are relative to the code repository. Missing new behavior starts red; task 2.6 records actual initial states for already-proved prototype behavior without fabricating failures. A task turns its rows green only after executing their named tests. Tests below cross the actual process/gRPC boundary, including deliberately broken fixtures. Evidence tasks capture observed results, never planned outcomes.
+Paths are relative to the code repository. Missing new behavior starts red; task 2.6 and the owner-approved task 3.1 exception record actual initial states for already-working prototype behavior without fabricating failures. A task turns its rows green only after executing their named tests. Tests below cross the actual process/gRPC boundary, including deliberately broken fixtures. Evidence tasks capture observed results, never planned outcomes.
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
@@ -19,11 +19,11 @@ Paths are relative to the code repository. Missing new behavior starts red; task
 | Native TLS runtime ownership | Socket acquisition finishes late | correlia_server/test/plugin/plugin_native_tls_test.dart | late socket connection is closed after startup deadline | green |
 | Native TLS runtime ownership | AutoMTLS readiness stalls | correlia_server/test/plugin/plugin_native_tls_test.dart | TLS and HTTP2 readiness stalls fail within the AutoMTLS startup deadline | green |
 | Native TLS runtime ownership | Host pauses the native stream | correlia_server/test/plugin/plugin_native_tls_test.dart | paused native consumer bounds inbound ciphertext and resumes byte-identically | green |
-| Bounded acknowledged delivery | Receiver withholds acknowledgements | correlia_server/test/plugin/plugin_delivery_test.dart | withheld acknowledgements bound sends to credits | red |
-| Bounded acknowledged delivery | Invalid acknowledgement | correlia_server/test/plugin/plugin_delivery_test.dart | invalid acknowledgements cannot complete work or create credits | red |
-| Bounded acknowledged delivery | Receiver never acknowledges | correlia_server/test/plugin/plugin_delivery_test.dart | stalled receiver times out retaining outstanding work | red |
-| Plugin crash redelivery | Ten thousand events with an uncertain batch | correlia_server/test/plugin/plugin_delivery_test.dart | 10000 events reconcile after pre-ack plugin crash | red |
-| Plugin crash redelivery | Restart cannot become ready | correlia_server/test/plugin/plugin_delivery_test.dart | failed restart retains immutable pending events | red |
+| Bounded acknowledged delivery | Receiver withholds acknowledgements | correlia_server/test/plugin/plugin_delivery_test.dart | withheld acknowledgements bound sends to credits | green |
+| Bounded acknowledged delivery | Invalid acknowledgement | correlia_server/test/plugin/plugin_delivery_test.dart | invalid acknowledgements cannot complete work or create credits | green |
+| Bounded acknowledged delivery | Receiver never acknowledges | correlia_server/test/plugin/plugin_delivery_test.dart | stalled receiver times out retaining outstanding work | green |
+| Plugin crash redelivery | Ten thousand events with an uncertain batch | correlia_server/test/plugin/plugin_delivery_test.dart | 10000 events reconcile after pre-ack plugin crash | green |
+| Plugin crash redelivery | Restart cannot become ready | correlia_server/test/plugin/plugin_delivery_test.dart | failed restart retains immutable pending events | green |
 | Child lifetime and shutdown | Host is killed | correlia_server/test/plugin/plugin_lifecycle_test.dart | host SIGKILL yields verified stdin-EOF child exit | red |
 | Child lifetime and shutdown | Shutdown does not cooperate | correlia_server/test/plugin/plugin_lifecycle_test.dart | uncooperative child is forcibly stopped and reaped | red |
 | Reproducible spike verdict | All runtime criteria pass | correlia_server/test/plugin/plugin_gate_test.dart | gate report reconciles four observed passing criteria without owner approval | red |
@@ -48,11 +48,11 @@ Paths are relative to the code repository. Missing new behavior starts red; task
 
 ## 3. Bounded delivery and plugin-crash recovery
 
-- [ ] 3.1 Write failing real-process tests for the five plugin_delivery_test.dart rows. Use a bounded lazy canonical-event producer, withheld/malformed/stale/duplicate ack modes, an injected ack-progress deadline, and a journal-flushed pre-ack barrier. Verify failures exercise missing flow control/recovery rather than fixture startup; retain separate failed security evidence if TLS feasibility prevents execution.
-- [ ] 3.2 Implement immutable event admission, byte/count-bounded partial-batch flush, epoch/sequence acknowledgements and credit-controlled sends under the sole delivery owner. Verify the three bounded-delivery rows pass, cancellation/stop release blocked admissions with errors, stale callbacks cannot mutate new epochs, and invalid acknowledgements create neither completion nor credits; turn those mapped rows green.
-- [ ] 3.3 Implement explicit restart and atomic retirement of a failed generation, retaining exactly its unacknowledged bytes. Verify the 10,000-event crash test reconciles exact unique ids and SHA-256 payload digests, observes the uncertain batch's allowed duplicate, never replays acknowledged work, and rejects torn journal evidence. Verify failed restart retains work, and turn both crash-redelivery rows green.
-- [ ] 3.4 Exercise documented queue, message, journal and log caps using focused boundary cases; verify overflow is rejected or backpressured, logs remain bounded, the child does not block on stdout/stderr, and healthy progressing delivery is not ended by a whole-stream deadline. Document the resulting at-least-once and surviving-host-only guarantees with the delivery API; targeted analysis and tests must pass.
-- [ ] 3.5 [evidence] Capture the credit-window maximum, 10,000-event reconciliation, pre-ack crash point, duplicate accounting, retained pending work on failed restart and selected security mode; record actual results rather than inferring durability across host death → evidence/stream-and-redelivery.md
+- [x] 3.1 Write real-process tests for the five plugin_delivery_test.dart rows. Use a bounded lazy canonical-event producer, withheld/malformed/stale/duplicate ack modes, an injected ack-progress deadline, and a journal-flushed pre-ack barrier. Capture the three missing flow-control behaviors red before fixing; record both recovery checks as initially green, as approved by the owner without changing their behavioral acceptance. Verify missing-behavior failures exercise flow control/recovery rather than fixture startup; retain separate failed security evidence if TLS feasibility prevents execution.
+- [x] 3.2 Implement immutable event admission, byte/count-bounded partial-batch flush, epoch/sequence acknowledgements and credit-controlled sends under the sole delivery owner. Verify the three bounded-delivery rows pass, cancellation/stop release blocked admissions with errors, stale callbacks cannot mutate new epochs, and invalid acknowledgements create neither completion nor credits; turn those mapped rows green.
+- [x] 3.3 Implement explicit restart and atomic retirement of a failed generation, retaining exactly its unacknowledged bytes. Verify the 10,000-event crash test reconciles exact unique ids and SHA-256 payload digests, observes the uncertain batch's allowed duplicate, never replays acknowledged work, and rejects torn journal evidence. Verify failed restart retains work, and turn both crash-redelivery rows green.
+- [x] 3.4 Exercise documented queue, message, journal and log caps using focused boundary cases; verify overflow is rejected or backpressured, logs remain bounded, the child does not block on stdout/stderr, and healthy progressing delivery is not ended by a whole-stream deadline. Document the resulting at-least-once and surviving-host-only guarantees with the delivery API; targeted analysis and tests must pass.
+- [x] 3.5 [evidence] Capture the credit-window maximum, 10,000-event reconciliation, pre-ack crash point, duplicate accounting, retained pending work on failed restart and selected security mode; record actual results rather than inferring durability across host death → evidence/stream-and-redelivery.md
 
 ## 4. Host-death and shutdown proof
 

@@ -27,6 +27,15 @@ func Run(config Config, watchStdin bool) error {
 	case StartupStall:
 		waitForSignal()
 		return nil
+	case StartupDiagnosticFlood:
+		chunk := strings.Repeat("x", 4096)
+		for range 1024 {
+			if _, err := io.WriteString(os.Stderr, chunk); err != nil {
+				return err
+			}
+		}
+		_, err := io.WriteString(os.Stdout, "not-a-handshake\n")
+		return err
 	case StartupMalformed:
 		_, err := io.WriteString(os.Stdout, "not-a-handshake\n")
 		return err
@@ -60,7 +69,7 @@ func Run(config Config, watchStdin bool) error {
 		}
 		waitForSignal()
 		return nil
-	case StartupServe, StartupStallHealth:
+	case StartupServe, StartupStallHealth, StartupDiagnosticFloodAfterHandshake:
 	default:
 		return fmt.Errorf("unsupported startup mode %q", config.Startup)
 	}
@@ -86,18 +95,11 @@ func Run(config Config, watchStdin bool) error {
 	}
 	defer journal.Close()
 
-	barrierArmed := config.ArmBarrier
-	if barrierArmed {
-		var err error
-		barrierArmed, err = ClaimBarrierArm(config.ControlSocket)
-		if err != nil {
-			return err
-		}
-	}
 	receiver := &OutputReceiver{
-		Journal: journal,
-		Barrier: NewControlBarrier(config.ControlSocket, barrierArmed),
-		Ack:     config.Ack,
+		Journal:   journal,
+		Barrier:   NewControlBarrier(config.ControlSocket, config.ArmBarrier),
+		Ack:       config.Ack,
+		FloodLogs: config.Startup == StartupDiagnosticFloodAfterHandshake,
 	}
 
 	if watchStdin {

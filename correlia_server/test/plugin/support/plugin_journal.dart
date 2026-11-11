@@ -35,9 +35,19 @@ final class PluginJournalRecord {
 /// ignored. Duplicate event ids remain visible so reconciliation can apply
 /// the at-least-once accounting rules.
 List<PluginJournalRecord> readPluginJournal(File file) {
-  final bytes = file.readAsBytesSync();
-  if (bytes.length > pluginJournalMaxBytes) {
+  final length = file.lengthSync();
+  if (length > pluginJournalMaxBytes) {
     throw StateError('plugin journal exceeds its 32 MiB bound');
+  }
+  final handle = file.openSync();
+  final List<int> bytes;
+  try {
+    bytes = handle.readSync(length + 1);
+  } finally {
+    handle.closeSync();
+  }
+  if (bytes.length > length) {
+    throw StateError('plugin journal changed while reading');
   }
   if (bytes.isEmpty) return const <PluginJournalRecord>[];
 
@@ -68,8 +78,13 @@ PluginJournalRecord _decodeRecord(String line) {
       sequence is! int) {
     throw const FormatException('plugin journal record is incomplete');
   }
-  if (digest.length != 64) {
-    throw const FormatException('plugin journal digest is not SHA-256 hex');
+  if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(digest) ||
+      id.isEmpty ||
+      epoch.isEmpty ||
+      sequence <= 0) {
+    throw const FormatException(
+      'plugin journal record has invalid identity or digest',
+    );
   }
   return PluginJournalRecord(
     id: id,

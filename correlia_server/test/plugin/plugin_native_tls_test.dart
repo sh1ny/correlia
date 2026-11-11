@@ -37,6 +37,79 @@ void main() {
   tearDownAll(() => suite.dispose());
 
   test(
+    'oversize plaintext source chunks are rejected before admission',
+    () async {
+      const limit = 256 * 1024;
+      final peer = await _Peer.start(suite, credentials, 'echo');
+      OpenSslSocket? socket;
+      StreamSubscription<List<int>>? incoming;
+      late ObservedRawSocket raw;
+      final received = Completer<void>();
+      unawaited(
+        received.future.then<void>(
+          (_) {},
+          onError: (Object _, StackTrace _) {},
+        ),
+      );
+      var count = 0;
+      try {
+        socket = await peer.connect(
+          certificate,
+          key,
+          controls: PluginTlsTestControls(
+            socketConnector: (address, port) async =>
+                raw = ObservedRawSocket(await RawSocket.connect(address, port)),
+          ),
+        );
+        await peer.expectLine('authenticated');
+        incoming = socket.incoming.listen(
+          (bytes) {
+            for (final byte in bytes) {
+              if (count >= limit || byte != _byteAt(count)) {
+                if (!received.isCompleted) {
+                  received.completeError(
+                    StateError('unexpected plaintext at $count'),
+                  );
+                }
+                return;
+              }
+              count++;
+            }
+            if (count == limit && !received.isCompleted) received.complete();
+          },
+          onError: (Object error, StackTrace stack) {
+            if (!received.isCompleted) received.completeError(error, stack);
+          },
+        );
+        final before = raw.bytesWritten;
+        await expectLater(
+          socket.addStream(Stream<List<int>>.value(Uint8List(limit + 1))),
+          throwsArgumentError,
+        );
+        expect(socket.queuedPlaintextBytes, 0);
+        expect(
+          raw.bytesWritten,
+          before,
+          reason: 'rejected input must not reach the OS',
+        );
+        final accepted = Uint8List(limit);
+        for (var index = 0; index < limit; index++) {
+          accepted[index] = _byteAt(index);
+        }
+        peer.release();
+        await peer.expectLine('reading');
+        await socket.addStream(Stream<List<int>>.value(accepted));
+        await received.future.timeout(const Duration(seconds: 5));
+        expect(count, limit);
+      } finally {
+        socket?.destroy();
+        await incoming?.cancel();
+        await peer.stop();
+      }
+    },
+  );
+
+  test(
     'native TLS backpressures a bounded producer and preserves bytes across partial writes',
     () async {
       final peer = await _Peer.start(suite, credentials, 'echo');
@@ -102,16 +175,18 @@ void main() {
           (bytes) {
             for (final byte in bytes) {
               if (byte != _byteAt(receivedBytes)) {
-                if (!received.isCompleted)
+                if (!received.isCompleted) {
                   received.completeError(
                     StateError('byte mismatch at $receivedBytes'),
                   );
+                }
                 return;
               }
               receivedBytes++;
             }
-            if (receivedBytes == _totalBytes && !received.isCompleted)
+            if (receivedBytes == _totalBytes && !received.isCompleted) {
               received.complete();
+            }
           },
           onError: (Object error, StackTrace stack) {
             if (!received.isCompleted) received.completeError(error, stack);
@@ -273,8 +348,9 @@ void main() {
       remote = await accepted.future;
       remoteEvents = remote.listen(
         (event) {
-          if (event == RawSocketEvent.readClosed && !closed.isCompleted)
+          if (event == RawSocketEvent.readClosed && !closed.isCompleted) {
             closed.complete();
+          }
         },
         onDone: () {
           if (!closed.isCompleted) closed.complete();
@@ -351,8 +427,9 @@ void main() {
           (bytes) {
             for (final byte in bytes) {
               if (byte != _byteAt(count)) {
-                if (!all.isCompleted)
+                if (!all.isCompleted) {
                   all.completeError(StateError('byte mismatch at $count'));
+                }
                 return;
               }
               count++;
@@ -436,8 +513,9 @@ final class _Peer {
       process.stdout.transform(utf8.decoder).transform(const LineSplitter()),
     );
     try {
-      if (!await lines.moveNext().timeout(const Duration(seconds: 10)))
+      if (!await lines.moveNext().timeout(const Duration(seconds: 10))) {
         throw StateError('peer exited before certificate');
+      }
       return _Peer(
         process,
         lines,
@@ -469,8 +547,9 @@ final class _Peer {
   void release() => process.stdin.writeln('continue');
 
   Future<String> nextLine() async {
-    if (!await lines.moveNext())
+    if (!await lines.moveNext()) {
       throw StateError('peer exited before expected barrier');
+    }
     return lines.current;
   }
 

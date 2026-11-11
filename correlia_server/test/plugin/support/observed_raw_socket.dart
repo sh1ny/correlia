@@ -9,6 +9,7 @@ final class ObservedRawSocket extends Stream<RawSocketEvent>
 
   final RawSocket _socket;
   int bytesRead = 0;
+  int bytesWritten = 0;
   int partialWrites = 0;
   int partialWriteRequested = 0;
   int partialWriteAccepted = 0;
@@ -24,6 +25,7 @@ final class ObservedRawSocket extends Stream<RawSocketEvent>
   int write(List<int> buffer, [int offset = 0, int? count]) {
     final requested = count ?? buffer.length - offset;
     final accepted = _socket.write(buffer, offset, count);
+    bytesWritten += accepted;
     if (accepted > 0 && accepted < requested) {
       partialWrites++;
       partialWriteRequested = requested;

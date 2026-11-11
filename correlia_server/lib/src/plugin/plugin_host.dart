@@ -3,6 +3,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:grpc/grpc.dart';
+
+import '../plugin_generated/correlia/plugin/spike/v1/output.pbgrpc.dart';
 import 'plugin_rpc_connection.dart';
 import 'plugin_tls.dart';
 
@@ -49,6 +52,20 @@ PluginHost createPluginHostForTesting(
   PluginHostConfig config, {
   PluginHostTestControls controls = const PluginHostTestControls(),
 }) => PluginHost._(config, controls);
+
+/// Opens the owned experimental stream without a whole-stream deadline.
+///
+/// This internal helper is deliberately absent from the public export list.
+ResponseStream<DeliverResponse> openPluginDeliver(
+  PluginHost host,
+  Stream<DeliverRequest> requests,
+) {
+  final connection = host._connection;
+  if (host._state is! _Ready || connection == null) {
+    throw StateError('Plugin is not ready');
+  }
+  return connection.outputClient.deliver(requests);
+}
 
 /// Configuration for one experimental plugin process.
 final class PluginHostConfig {
@@ -224,8 +241,9 @@ final class PluginHost {
         r'^Umask:\s+([0-7]+)',
         multiLine: true,
       ).firstMatch(uidText);
-      if (umaskMatch == null)
+      if (umaskMatch == null) {
         throw StateError('Cannot determine inherited umask');
+      }
       _inheritedUmask = int.parse(umaskMatch.group(1)!, radix: 8);
       _effectiveUmask = switch (_controls.launchUmask) {
         PluginLaunchUmask.restrictive0177 => 0x7f,

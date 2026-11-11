@@ -78,8 +78,9 @@ void main() {
         subscription = directory.parent
             .watch(events: FileSystemEvent.delete)
             .listen((event) {
-              if (event.path == directory.path && !deleted.isCompleted)
+              if (event.path == directory.path && !deleted.isCompleted) {
                 deleted.complete();
+              }
             });
         release.complete();
         await deleted.future.timeout(const Duration(seconds: 5));

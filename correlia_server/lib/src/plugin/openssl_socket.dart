@@ -74,8 +74,9 @@ final class OpenSslSocket implements StreamSink<List<int>> {
       socket = OpenSslSocket._(raw, engine);
       socket._pump();
       final remaining = timeout - deadline.elapsed;
-      if (remaining <= Duration.zero)
+      if (remaining <= Duration.zero) {
         throw TimeoutException('TLS handshake timed out', timeout);
+      }
       await socket._handshake.future.timeout(remaining);
       return socket;
     } on Object {
@@ -139,8 +140,9 @@ final class OpenSslSocket implements StreamSink<List<int>> {
 
   @override
   void add(List<int> data) {
-    if (_closed || _closing || _addingStream)
+    if (_closed || _closing || _addingStream) {
       throw StateError('socket sink is closed or busy');
+    }
     _admit(data);
   }
 
@@ -166,14 +168,23 @@ final class OpenSslSocket implements StreamSink<List<int>> {
 
   @override
   Future<void> addStream(Stream<List<int>> stream) async {
-    if (_closed || _closing || _addingStream)
+    if (_closed || _closing || _addingStream) {
       throw StateError('socket sink is closed or busy');
+    }
     _addingStream = true;
     final source = StreamIterator<List<int>>(stream);
     _source = source;
     try {
       while (await source.moveNext()) {
         final data = source.current;
+        if (data.length > 256 * 1024) {
+          throw RangeError.range(
+            data.length,
+            0,
+            256 * 1024,
+            'source chunk length',
+          );
+        }
         var offset = 0;
         while (offset < data.length) {
           // Cancellation retires this writer; native failures are already
@@ -213,22 +224,24 @@ final class OpenSslSocket implements StreamSink<List<int>> {
 
   void _event(RawSocketEvent event) {
     if (event == RawSocketEvent.readClosed || event == RawSocketEvent.closed) {
-      if (!_closed)
+      if (!_closed) {
         _fail(
           const SocketException('TLS socket closed by peer'),
           StackTrace.current,
         );
+      }
       return;
     }
     _pump();
   }
 
   void _rawDone() {
-    if (!_closed)
+    if (!_closed) {
       _fail(
         const SocketException('TLS socket ended unexpectedly'),
         StackTrace.current,
       );
+    }
   }
 
   void _pump() {
@@ -317,8 +330,9 @@ final class OpenSslSocket implements StreamSink<List<int>> {
             _cipherCount = _engine.takeCipher(_cipher);
             if (_cipherCount > 0) progress = true;
           }
-          if (_closing && _queue.isEmpty && _cipherOffset == _cipherCount)
+          if (_closing && _queue.isEmpty && _cipherOffset == _cipherCount) {
             _finish();
+          }
         }
         if (!_closed) {
           _raw.readEventsEnabled =

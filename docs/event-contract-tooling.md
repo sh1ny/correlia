@@ -43,6 +43,19 @@ go-plugin schemas enter Buf: compatibility RPC descriptors are handwritten
 Dart, outside the Correlia-owned proto module. The probe is not a stable SDK
 (ADR 0023, superseding ADR 0022).
 
+The Buf workspace uses STANDARD lint rules and FILE breaking rules. The
+committed `contracts/baselines/event-v1.0.binpb` is the one v1.0 descriptor
+baseline. `proto:check` fails when it is missing and never rebuilds it
+automatically. In addition to Buf's structural checks, the command compares
+existing standard validation-rule objects, explicit JSON names, presence and
+enum domains exactly. Optional additions pass; changing or widening an
+existing domain and adding a required field or oneof fail and name the change.
+
+Before publishing any v1.1 contract, that change must extend compatibility
+coverage to the newly published contract while retaining the existing schemas.
+The initial baseline does not protect fields that exist only in a future
+minor.
+
 ## Experimental plugin startup
 
 `package:correlia_server/plugin.dart` exports only authenticated `PluginHost`
@@ -134,18 +147,98 @@ Neither runtime success nor explicit diagnostics grant production adoption.
 The plain-stock fixture makes no host-death guarantee; only the distinct
 stdin-watched fixture is intended to prove EOF-driven exit.
 
-The Buf workspace uses STANDARD lint rules and FILE breaking rules. The
-committed `contracts/baselines/event-v1.0.binpb` is the one v1.0 descriptor
-baseline. `proto:check` fails when it is missing and never rebuilds it
-automatically. In addition to Buf's structural checks, the command compares
-existing standard validation-rule objects, explicit JSON names, presence and
-enum domains exactly. Optional additions pass; changing or widening an
-existing domain and adding a required field or oneof fail and name the change.
+## Experimental acknowledged delivery
 
-Before publishing any v1.1 contract, that change must extend compatibility
-coverage to the newly published contract while retaining the existing schemas.
-The initial baseline does not protect fields that exist only in a future
-minor.
+`PluginDelivery` is the sole owner of a surviving host's pending events and
+outstanding batch map. Admission accepts validated `CloudEvent` objects and
+reuses their cached immutable structured JSON bytes and derived event ids.
+No second event codec, database queue or production supervisor is introduced.
+`PluginDeliveryPolicy` validates positive limits:
+
+| Budget | Default |
+|---|---:|
+| Pending events | 1,024 |
+| Pending canonical bytes, including in-flight work | 16 MiB |
+| Events per batch | 64 |
+| Encoded protobuf request | 1 MiB |
+| Outstanding batches | 4 |
+| Acknowledgement-progress deadline | 10 seconds |
+
+Available credits are derived from the current epoch's outstanding map, never
+an independent counter. Partial batches flush at the end of available input;
+`Deliver` opens only when nonempty work exists. Single-event fit reserves the
+maximum sequence-header width so admitted bytes stay batchable as sequences
+grow. Sequence exhaustion fails visibly and retains work for an explicit
+restart rather than wrapping or reusing a sequence.
+
+`admit` waits for count/byte capacity and returns a `PluginDeliveryReceipt`.
+Its `acknowledged` future completes only on a valid whole-batch acknowledgement,
+not on admission or sending. `PluginDeliveryCancellation` cancels a waiting
+admission before ownership transfers; it does not retract admitted work.
+`stop` rejects/wakes waiting admissions, errors remaining receipts and discards
+the explicitly stopped owner's in-memory queue.
+
+Wrong-epoch/unknown/repeated acknowledgements from the live stream fail that
+generation without false completion or credits. Callbacks belonging to a
+retired generation are fenced. The first terminal event retires its in-flight
+map once; all unacknowledged canonical bytes remain pending. `whenFailed`
+returns the cause; only an explicit `restart` creates a new host/epoch and
+re-batches retained work. Failed startup/authentication on restart preserves
+the same pending ids/bytes. An acknowledged event is never replayed by the owner.
+
+The progress timer runs only while batches are outstanding and is renewed by
+valid acknowledgements. There is no whole-stream gRPC deadline or idle timeout
+when nothing is outstanding. A simple finite producer can fail promptly while
+the separate observer/supervisor decides whether to restart:
+
+```dart
+import 'dart:async';
+import 'package:correlia_server/event.dart';
+import 'package:correlia_server/plugin.dart';
+
+Future<void> sendEvents(
+  Iterable<CloudEvent> events,
+  PluginHostConfig Function(int attempt) configuration,
+) async {
+  final delivery = PluginDelivery(
+    createHost: (attempt) => PluginHost(configuration(attempt)),
+  );
+  try {
+    await delivery.start();
+    final sending = () async {
+      for (final event in events) {
+        await delivery.admit(event);
+      }
+      await delivery.drain();
+    }();
+    await Future.any<void>([
+      sending,
+      delivery.whenFailed.then<void>((cause) => throw cause),
+    ]);
+  } finally {
+    await delivery.stop();
+  }
+}
+```
+
+The fixture flushes and syncs its acceptance journal before acknowledging.
+Its first-launch-only barrier applies to the first nonempty batch; restarts
+omit the flag. A crash after recording and before acknowledgement permits
+duplicates of that uncertain work. The proven guarantee is **at least once
+while this Dart owner survives**, not exactly once or durability across host
+death. The separate second-crash check proves acknowledged work is not replayed.
+See the [delivery evidence](../openspec/changes/plugin-host-spike/evidence/stream-and-redelivery.md).
+
+Resource-boundary checks also reject an oversized native plaintext source chunk
+before any admission/network write; an exact 256 KiB chunk remains usable.
+The journal is capped at 32 MiB, retains its accepted prefix on overflow and
+rejects torn/invalid evidence. A 4 MiB stderr flood must reach its subsequent
+malformed handshake with a bounded retained tail, not merely time out on a
+blocked pipe. A separate post-handshake mode floods four MiB across stdout/stderr
+before recording and acknowledging a canonical event, proving both output paths
+drain during normal authenticated delivery. All runtime results here use stock
+AutoMTLS.
+
 
 ## Schema validation and runtime validation
 

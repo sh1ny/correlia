@@ -103,8 +103,9 @@ final class PluginRpcConnection {
     final result = PluginRpcConnection._(channel, connector, timeout);
     try {
       final remaining = timeout - watch.elapsed;
-      if (remaining <= Duration.zero)
+      if (remaining <= Duration.zero) {
         throw TimeoutException('plugin startup deadline');
+      }
       final status = await result._compat.health(remaining);
       if (status != 1) {
         throw StateError('plugin health is not SERVING: $status');
@@ -216,8 +217,9 @@ final class _SocketConnector implements ClientTransportConnector {
     final watch = Stopwatch()..start();
     Duration remaining() {
       final value = timeout - watch.elapsed;
-      if (value <= Duration.zero)
+      if (value <= Duration.zero) {
         throw TimeoutException('plugin transport startup deadline');
+      }
       return value;
     }
 

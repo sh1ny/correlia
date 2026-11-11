@@ -303,8 +303,9 @@ final class NativeTlsEngine {
     if (_backend != null) return;
     final backend = _OpenSsl();
     backend.resolve();
-    if (backend.majorVersion() != 3)
+    if (backend.majorVersion() != 3) {
       throw UnsupportedError('OpenSSL 3 is required');
+    }
     _backend = backend;
   }
 
@@ -339,8 +340,9 @@ final class NativeTlsEngine {
     List<int>? key,
     PluginTlsTestControls controls,
   ) {
-    if ((cert == null) != (key == null))
+    if ((cert == null) != (key == null)) {
       throw HandshakeException('Both client certificate and key are required');
+    }
     _api.clearError();
     _ctx = _api.ctxNew(_api.clientMethod());
     _require(_ctx != nullptr, 'Creating TLS context');
@@ -507,8 +509,9 @@ final class NativeTlsEngine {
 
   void _checkReady() {
     _checkOpen();
-    if (!_handshaken)
+    if (!_handshaken) {
       throw StateError('TLS handshake has not been authenticated');
+    }
   }
 
   Never _fail(String operation, int error) {
@@ -528,16 +531,18 @@ final class NativeTlsEngine {
     _checkOpen();
     if (encrypted.length > _chunk ||
         encrypted.length > receiveCapacity ||
-        encrypted.any((v) => v < 0 || v > 255))
+        encrypted.any((v) => v < 0 || v > 255)) {
       throw ArgumentError(
         'Ciphertext exceeds available capacity or contains invalid bytes',
       );
+    }
     if (encrypted.isEmpty) return;
     _input.asTypedList(encrypted.length).setAll(0, encrypted);
     _api.clearError();
     if (_api.bioWrite(_external, _input.cast(), encrypted.length) !=
-        encrypted.length)
+        encrypted.length) {
       _fail('Writing ciphertext to BIO', 0);
+    }
   }
 
   /// Drains pending ciphertext into [destination].
@@ -670,21 +675,25 @@ final class NativeTlsEngine {
   int writePlain(List<int> bytes, int offset, int length) {
     _checkReady();
     RangeError.checkValidRange(offset, offset + length, bytes.length);
-    if (length < 0 || length > _chunk)
+    if (length < 0 || length > _chunk) {
       throw RangeError.range(length, 0, _chunk, 'length');
+    }
     if (_pendingOffset != null) {
-      if (offset != _pendingOffset || length != _pendingLength)
+      if (offset != _pendingOffset || length != _pendingLength) {
         throw StateError('Inconsistent TLS write retry');
+      }
       for (var i = 0; i < length; i++) {
-        if (bytes[offset + i] != _writeBuffer[i])
+        if (bytes[offset + i] != _writeBuffer[i]) {
           throw StateError('Changed TLS write retry');
+        }
       }
     } else {
       if (length == 0) return 0;
       for (var i = 0; i < length; i++) {
         final byte = bytes[offset + i];
-        if (byte < 0 || byte > 255)
+        if (byte < 0 || byte > 255) {
           throw ArgumentError('Invalid plaintext byte');
+        }
         _writeBuffer[i] = byte;
       }
       _pendingOffset = offset;

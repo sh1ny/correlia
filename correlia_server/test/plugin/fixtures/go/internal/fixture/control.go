@@ -32,29 +32,6 @@ func NewControlBarrier(socketPath string, armed bool) *ControlBarrier {
 	return &ControlBarrier{socketPath: socketPath, armed: armed}
 }
 
-// ClaimBarrierArm grants the barrier only to the first process.
-//
-// The claim file lives beside the control socket and is created exclusively.
-// A restarted fixture using the same scratch directory therefore cannot arm
-// the same crash point again, even if the launch arguments are copied.
-func ClaimBarrierArm(socketPath string) (bool, error) {
-	if socketPath == "" {
-		return false, errors.New("control socket path is required")
-	}
-	claimPath := socketPath + ".armed"
-	claim, err := os.OpenFile(claimPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	if errors.Is(err, os.ErrExist) {
-		return false, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("claim control barrier: %w", err)
-	}
-	if err := claim.Close(); err != nil {
-		return false, fmt.Errorf("close control barrier claim: %w", err)
-	}
-	return true, nil
-}
-
 // BarrierFrame describes a batch paused immediately before acknowledgement.
 type BarrierFrame struct {
 	Type     string `json:"type"`

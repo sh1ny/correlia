@@ -45,7 +45,13 @@ enum PluginFixtureStartupMode {
   stallHealth('stall-health'),
 
   /// Bind a real socket owned by namespace UID 1.
-  foreignOwner('foreign-owner');
+  foreignOwner('foreign-owner'),
+
+  /// Emit four MiB of diagnostics before a malformed handshake.
+  diagnosticFlood('diagnostic-flood'),
+
+  /// Emit four MiB across stdout/stderr during the first application RPC.
+  diagnosticFloodAfterHandshake('diagnostic-flood-after-handshake');
 
   const PluginFixtureStartupMode(this.argument);
 

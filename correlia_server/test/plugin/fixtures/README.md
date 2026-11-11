@@ -50,7 +50,8 @@ Both plugin executables accept the following explicit test-only arguments:
 - `--ack-mode MODE`: `normal`, `withhold`, `invalid-epoch`,
   `invalid-sequence`, or `duplicate`;
 - `--startup-mode MODE`: `serve`, `exit`, `stall`, `malformed`, `oversized`,
-  `incomplete`, `stall-health`, or `foreign-owner`;
+  `incomplete`, `stall-health`, `foreign-owner`, `diagnostic-flood`, or
+  `diagnostic-flood-after-handshake`;
 - `--tls-mode MODE`: `stock`, `plaintext`, or `required`;
 - `--lifecycle-mode MODE`: `cooperative` or `uncooperative`;
 - `--arm-barrier`: arm exactly one pre-ack control barrier in this process.
@@ -62,6 +63,12 @@ fallback. `required` fails startup when the client certificate is absent.
 The uncooperative lifecycle mode keeps the process alive after the stock
 controller stops serving, so the host must exercise its bounded forced-stop
 path.
+
+The diagnostic flood modes are distinct: one fills stderr before a malformed
+handshake, while the other serves stock AutoMTLS and writes four MiB across
+stdout/stderr during its first application call. A successful canonical
+acknowledgement after that call proves both output paths were drained; the
+host-death fixture uses neither flood mode.
 
 The foreign-owner negative test uses `unshare --user --map-root-user
 --map-auto`, working subordinate UID/GID ranges, and the `newuidmap` /
@@ -85,12 +92,13 @@ acknowledgement. The journal is owner-only and bounded to 32 MiB. A trailing
 torn JSON line is rejected during reconciliation; all complete earlier lines
 remain usable.
 
-When `--arm-barrier` is present, the fixture journals and syncs the first
-batch, then sends one bounded JSON barrier frame to the control socket and
-waits for one bounded release frame. Only the explicitly armed first process
-uses this barrier: the fixture creates an exclusive claim file beside the
-control socket, so a restarted fixture cannot block at the same crash point
-even if the launch arguments are copied.
+When `--arm-barrier` is present, the fixture journals and syncs its first
+**nonempty** batch, then sends one bounded JSON barrier frame to the control
+socket and waits for one bounded release frame. Empty health/application probes
+do not consume the barrier. The observer arms only the first launch and omits
+the flag on restart; there is no claim-file compatibility path. The unknown
+sequence mode uses sequence zero so it cannot accidentally acknowledge another
+outstanding batch.
 
 ## Stdin EOF contract
 
