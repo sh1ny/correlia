@@ -124,3 +124,20 @@ controller regression first observed the incorrect order `[3, 2, 1, 4]` instead
 of `[1, 4, 2, 3]`. The comparator now places unknown firing times last and uses
 the entity id for equal/unknown times. All 18 controller and widget tests passed
 after correction.
+
+## Final corrected-code acceptance run
+
+A clean-tree run at code commit `633357a7e951a1cb7fc6981238c18576cc6042f5`
+passed all three acceptance commands after every reported review correction:
+
+- `mise run check`: strict OpenSpec validation (9 items), toolchain doctor,
+  workspace and Flutter analysis, formatting (208 files unchanged), generated
+  code and protocol compatibility checks, 138 fast server tests, 64 tool tests,
+  and 18 Flutter controller/widget tests.
+- `mise run test:all`: 288 server tests passed across the fast, database, e2e
+  and plugin tiers. The manual load tier was not selected.
+- `mise run build:web`: production bundle built successfully; Wasm dry run
+  succeeded.
+
+Task coverage still reports all 20 tasks covered exactly once, with no missing
+evidence or pending task groups. OpenSpec apply reports `all_done` (20/20).
