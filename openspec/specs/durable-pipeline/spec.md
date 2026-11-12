@@ -32,7 +32,7 @@ A raw row SHALL durably pin the active immutable configuration version before it
 
 ### Requirement: Atomic raw processing outcome
 
-Processing SHALL atomically commit observation keys, canonical events, alert state changes, activity entries, output intents and raw done. Validation/batch-bound errors SHALL commit only failed raw and sanitized failure evidence. Serialization, deadlock, lock-timeout and connection-unavailable errors SHALL retry without spending the internal-error budget. Other internal errors SHALL fail after five attempts as processing_exhausted, retaining pin/raw without partial effects. Counters SHALL reflect committed outcomes.
+Processing SHALL atomically commit observation keys, events, alert changes, activity, output intents and raw done. Validation/batch-bound errors SHALL commit only failed raw and sanitized evidence. Serialization, deadlock, lock-timeout and connection-unavailable errors SHALL retry without spending the internal-error budget. Other internal errors SHALL fail after five attempts as processing_exhausted, retaining pin/raw without partial effects. Counters SHALL reflect committed outcomes.
 
 #### Scenario: DUR-1 outbox failure rolls back event work
 - **WHEN** inserting an output intent hits a transient database failure after event insertion and the alert state change, repeatedly beyond five transient retries
@@ -48,7 +48,7 @@ Processing SHALL atomically commit observation keys, canonical events, alert sta
 
 ### Requirement: Durable observation deduplication and quarantine
 
-Before event/output effects, processing SHALL enforce durable event-id uniqueness independent of transport deduplication and keep original ordering evidence. Duplicate observations SHALL not emit events or output intents. A duplicate of an eligible observation SHALL advance only its alert's `last_observed_at`; a duplicate of a late or future-dated observation SHALL change no alert state. Source times beyond the future limit SHALL be stored as future_dated without observation keys, outputs or state; late observations SHALL be stored as late without outputs or state. Classification SHALL use the accepted lateness/skew/future policy, never clamped identity evidence.
+Processing SHALL enforce durable event-id uniqueness with original ordering evidence before effects. Duplicates SHALL emit no events/outputs and advance only eligible alerts' `last_observed_at`, never late/future alerts. Beyond-limit source times SHALL be stored as future_dated without keys/outputs/state; late observations SHALL be stored as late without outputs/state. Classification SHALL use accepted lateness/skew/future policy, never clamped identity evidence.
 
 #### Scenario: ORD-5b rebatching and expired transport window
 - **WHEN** equal observations arrive in different bodies concurrently or after transport dedup expiry
