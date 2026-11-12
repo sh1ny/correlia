@@ -74,12 +74,12 @@ Tiers: `unit/` fast, `db/` db, `plugin/` plugin, `e2e/` e2e.
 | output-delivery → Signing key availability before acquisition (MODIFIED) | Loaded historical signing reference | S/db/output_relay_test.dart | loaded_historical_signing_reference | red |
 | output-delivery → Signing key availability before acquisition (MODIFIED) | Unloaded live signing reference | S/db/output_relay_test.dart | unloaded_live_signing_reference | green |
 | output-delivery → Signing key availability before acquisition (MODIFIED) | Plugin intents need no signing reference | S/db/plugin_relay_test.dart | plugin_intents_need_no_signing_reference | red |
-| workspace-tooling → Reproducible plugin protocol generation | Current protocol outputs | T/proto_command_test.dart | plugin_protocol_outputs_current | red |
-| workspace-tooling → Reproducible plugin protocol generation | Stale protocol output | T/proto_command_test.dart | stale_plugin_protocol_output | red |
-| workspace-tooling → Pinned plugin and NATS tool builds | Plugin tier on a clean clone | T/plugin_build_test.dart | plugin_tier_on_clean_clone | red |
-| workspace-tooling → Pinned plugin and NATS tool builds | Module checksum mismatch | T/plugin_build_test.dart | module_checksum_mismatch | red |
-| workspace-tooling → Tests use only their own NATS server | Test-owned server | S/plugin/natsdev_test.dart | test_owned_server | red |
-| workspace-tooling → Tests use only their own NATS server | Server fails to start | S/plugin/natsdev_test.dart | server_fails_to_start | red |
+| workspace-tooling → Reproducible plugin protocol generation | Current protocol outputs | T/proto_command_test.dart | plugin_protocol_outputs_current | green |
+| workspace-tooling → Reproducible plugin protocol generation | Stale protocol output | T/proto_command_test.dart | stale_plugin_protocol_output | green |
+| workspace-tooling → Pinned plugin and NATS tool builds | Plugin tier on a clean clone | T/plugin_build_test.dart | plugin_tier_on_clean_clone | green |
+| workspace-tooling → Pinned plugin and NATS tool builds | Module checksum mismatch | T/plugin_build_test.dart | module_checksum_mismatch | green |
+| workspace-tooling → Tests use only their own NATS server | Test-owned server | S/plugin/natsdev_test.dart | test_owned_server | green |
+| workspace-tooling → Tests use only their own NATS server | Server fails to start | S/plugin/natsdev_test.dart | server_fails_to_start | green |
 
 ## 1. Decision records
 
@@ -88,11 +88,11 @@ Tiers: `unit/` fast, `db/` db, `plugin/` plugin, `e2e/` e2e.
 
 ## 2. Protocol, Go layout and NATS tooling
 
-- [ ] 2.1 Write failing `T/proto_command_test.dart` cases `plugin_protocol_outputs_current` and `stale_plugin_protocol_output`; verify they fail because `proto/correlia/plugin/v1/` does not exist yet.
-- [ ] 2.2 Add `proto/correlia/plugin/v1/plugin.proto` (D1: `PluginService`, `OutputService.Deliver`, error-class pattern) and extend `mise run proto` / `proto:check` and `buf lint` to generate the Dart and Go code; verify the 2.1 tests pass, the event-v1.0 baseline is byte-identical, and flip their rows green.
-- [ ] 2.3 Write failing `T/plugin_build_test.dart` cases `plugin_tier_on_clean_clone` and `module_checksum_mismatch`; verify they fail on the missing `plugins:build` task.
-- [ ] 2.4 Create the Go modules `plugins/` (`github.com/sh1ny/correlia/plugins`, output-nats skeleton on stock `plugin.Serve()` with the ADR 0018 stdin watcher) and `tool/natsdev/` (`serve`/`stream`/`sub`, pinned `nats-server` and `nats.go` with `go.sum`); add mise tasks `plugins:build`, `nats:dev`, `nats:stream`, `nats:sub`, and make the `plugin` and `e2e` tiers build first (D12, D13); verify the 2.3 tests pass and flip their rows green.
-- [ ] 2.5 Write failing `S/plugin/natsdev_test.dart` cases `test_owned_server` and `server_fails_to_start`, then add the test support that starts `natsdev serve` on a free loopback port with private scratch storage and removes it on teardown; verify both pass, that no other NATS is contacted, and flip their rows green.
+- [x] 2.1 Write failing `T/proto_command_test.dart` cases `plugin_protocol_outputs_current` and `stale_plugin_protocol_output`; verify they fail because `proto/correlia/plugin/v1/` does not exist yet.
+- [x] 2.2 Add `proto/correlia/plugin/v1/plugin.proto` (D1: `PluginService`, `OutputService.Deliver`, error-class pattern) and extend `mise run proto` / `proto:check` and `buf lint` to generate the Dart and Go code; verify the 2.1 tests pass, the event-v1.0 baseline is byte-identical, and flip their rows green.
+- [x] 2.3 Write failing `T/plugin_build_test.dart` cases `plugin_tier_on_clean_clone` and `module_checksum_mismatch`; verify they fail on the missing `plugins:build` task.
+- [x] 2.4 Create the Go modules `plugins/` (`github.com/sh1ny/correlia/plugins`, output-nats skeleton on stock `plugin.Serve()` with the ADR 0018 stdin watcher) and `tool/natsdev/` (`serve`/`stream`/`sub`, pinned `nats-server` and `nats.go` with `go.sum`); add mise tasks `plugins:build`, `nats:dev`, `nats:stream`, `nats:sub`, and make the `plugin` and `e2e` tiers build first (D12, D13); verify the 2.3 tests pass and flip their rows green.
+- [x] 2.5 Write failing `S/plugin/natsdev_test.dart` cases `test_owned_server` and `server_fails_to_start`, then add the test support that starts `natsdev serve` on a free loopback port with private scratch storage and removes it on teardown; verify both pass, that no other NATS is contacted, and flip their rows green.
 
 ## 3. Outbox schema, bootstrap and secrets
 

@@ -24,7 +24,11 @@ test support only; none of it is a production plugin host.
   the paused receiver through one bounded frame in each direction;
 - `readPluginJournal` parses the receiver journal and rejects torn records;
 - `PluginFixtureDiagnostics` drains process output into a bounded retained
-  tail.
+  tail;
+- `NatsTestServer` starts the built `natsdev` on a free loopback port with
+  private scratch storage, then closes its stdin, waits for that exact process,
+  and removes its scratch directory. Startup failures never fall back to an
+  external server.
 
 `plugin_fixture_support.dart` exports the complete support surface.
 

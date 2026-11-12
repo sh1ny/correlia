@@ -2,6 +2,9 @@
 
 ## 1.0.0
 
+- Generate and check the production plugin protocol independently of the spike.
+- Build pinned plugin and embedded JetStream tooling before plugin and e2e tiers.
+
 - Added reproducible generation for the canonical event Dart messages, strict
   bundled payload JSON Schema and generated validation bounds.
 - Added a committed v1.0 Buf descriptor baseline and compatibility checks for

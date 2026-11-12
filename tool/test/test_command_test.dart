@@ -210,6 +210,53 @@ void main() {
     });
   });
 
+  for (final arguments in [
+    ['--tags', 'plugin'],
+    ['--tags=e2e'],
+    ['--all'],
+  ]) {
+    test('builds before tier ${arguments.join(' ')}', () async {
+      final calls = <String>[];
+      final runner = CommandRunner<int>('tool', 'test')
+        ..addCommand(
+          TestCommand(
+            packageDirectory: _fixture(),
+            launch: (_, _) async {
+              calls.add('test');
+              return 0;
+            },
+            buildPlugins: () async {
+              calls.add('build');
+              return 0;
+            },
+            err: StringBuffer(),
+          ),
+        );
+      expect(await runner.run(['test', ...arguments]), 0);
+      expect(calls, ['build', 'test']);
+    });
+  }
+
+  test('does not launch tests after a failed tier build', () async {
+    var launched = false;
+    final errors = StringBuffer();
+    final runner = CommandRunner<int>('tool', 'test')
+      ..addCommand(
+        TestCommand(
+          packageDirectory: _fixture(),
+          launch: (_, _) async {
+            launched = true;
+            return 0;
+          },
+          buildPlugins: () async => 1,
+          err: errors,
+        ),
+      );
+    expect(await runner.run(['test', '-t', 'e2e']), 1);
+    expect(launched, isFalse);
+    expect(errors.toString(), contains('plugins:build'));
+  });
+
   test('the fast preset also excludes the integration guard tag', () {
     final server = File(
       '${Directory.current.parent.path}/correlia_server/dart_test.yaml',

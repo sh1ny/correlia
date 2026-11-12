@@ -8,6 +8,20 @@ import 'package:args/command_runner.dart';
 typedef DartTestLauncher =
     Future<int> Function(List<String> args, Directory workingDirectory);
 
+/// Builds the binaries required by plugin and end-to-end test tiers.
+typedef PluginBuildLauncher = Future<int> Function();
+
+/// Builds the first-party plugin binaries through the pinned mise task.
+Future<int> launchPluginBuild(Directory repoRoot) async {
+  final process = await Process.start(
+    'mise',
+    ['run', 'plugins:build'],
+    workingDirectory: repoRoot.path,
+    mode: ProcessStartMode.inheritStdio,
+  );
+  return process.exitCode;
+}
+
 /// Launches the running Dart SDK's `dart test`, sharing this process' stdio.
 Future<int> launchDartTest(
   List<String> args,
@@ -76,6 +90,7 @@ class TestCommand extends Command<int> {
     required this.packageDirectory,
     required this.launch,
     required this.err,
+    this.buildPlugins,
   });
 
   /// The package whose tests run (`correlia_server` in the repository).
@@ -83,6 +98,9 @@ class TestCommand extends Command<int> {
 
   /// Starts `dart test`; defaults are provided by [launchDartTest].
   final DartTestLauncher launch;
+
+  /// Builds tier dependencies when provided.
+  final PluginBuildLauncher? buildPlugins;
 
   /// Receives failures of the command itself.
   final StringSink err;
@@ -109,6 +127,17 @@ class TestCommand extends Command<int> {
     if (!packageDirectory.existsSync()) {
       err.writeln('FAIL no such package directory: ${packageDirectory.path}');
       return 1;
+    }
+    final selections = _tagSelections(rest);
+    if (buildPlugins != null &&
+        (all ||
+            selections.any(_namesTag('plugin')) ||
+            selections.any(_namesTag('e2e')))) {
+      final result = await buildPlugins!();
+      if (result != 0) {
+        err.writeln('FAIL plugins:build failed; tests were not run');
+        return result;
+      }
     }
     return launch(buildDartTestArguments(rest, all: all), packageDirectory);
   }

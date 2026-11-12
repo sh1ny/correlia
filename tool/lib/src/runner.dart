@@ -48,6 +48,7 @@ CommandRunner<int> buildRunner({
       TestCommand(
         packageDirectory: Directory('${repoRoot.path}/correlia_server'),
         launch: launchDartTest,
+        buildPlugins: () => launchPluginBuild(repoRoot),
         err: err,
       ),
     )

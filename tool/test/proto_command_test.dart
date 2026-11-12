@@ -142,6 +142,52 @@ void main() {
   const timeout = Timeout(Duration(minutes: 5));
 
   test(
+    'plugin_protocol_outputs_current',
+    () async {
+      expect(
+        File('${repo.path}/proto/correlia/plugin/v1/plugin.proto').existsSync(),
+        isTrue,
+        reason: 'production plugin protocol must exist',
+      );
+      final result = await _runTool(repo, ['proto:check']);
+      expect(result.exit, 0, reason: '${result.out}${result.err}');
+      expect(await _status(repo), isEmpty);
+    },
+    timeout: timeout,
+  );
+
+  test(
+    'stale_plugin_protocol_output',
+    () async {
+      expect(
+        File('${repo.path}/proto/correlia/plugin/v1/plugin.proto').existsSync(),
+        isTrue,
+        reason: 'production plugin protocol must exist',
+      );
+      final dart = File(
+        '${repo.path}/correlia_server/lib/src/plugin_generated/'
+        'correlia/plugin/v1/plugin.pb.dart',
+      );
+      final go = File(
+        '${repo.path}/plugins/protocol/correlia/plugin/v1/plugin.pb.go',
+      );
+      dart.writeAsStringSync('${dart.readAsStringSync()}\n// stale\n');
+      go.writeAsStringSync('${go.readAsStringSync()}\n// stale\n');
+      final before = await _status(repo);
+      final result = await _runTool(repo, ['proto:check']);
+      expect(result.exit, 1);
+      expect(result.err, contains('correlia/plugin/v1/plugin.pb.dart'));
+      expect(
+        result.err,
+        contains('plugins/protocol/correlia/plugin/v1/plugin.pb.go'),
+      );
+      expect(result.err, contains('mise run proto'));
+      expect(await _status(repo), before);
+    },
+    timeout: timeout,
+  );
+
+  test(
     'Generate in a fresh clone',
     () async {
       final first = await _runTool(repo, ['proto']);
