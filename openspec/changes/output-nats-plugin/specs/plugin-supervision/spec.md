@@ -77,11 +77,7 @@ The supervisor SHALL run instances only for definitions with due work, within 16
 - **THEN** one of the failing instances yields its slot, the active definition's work is delivered, and the historical intents keep zero new attempts
 
 ### Requirement: Durable supervision history
-A definition's backoff step, crash window and circuit state SHALL survive its instance leaving a slot, so that readmission continues them instead of starting fresh, and SHALL be kept outside memory once the instance stops.
-
-The owning supervisor SHALL prune its health rows only when no queued or delivering work remains. Another host's health SHALL be removed by status cleanup only after its last status row expires following more than 24 h without a heartbeat; a stopped row older than 60 s SHALL NOT authorize cross-host deletion.
-
-Owner-local stopped-row expiry SHALL retain a status row while its host/output/definition key has a health row, preserving the anchor for later cross-host expiry.
+A definition's backoff step, crash window and circuit state SHALL persist outside memory across slot eviction. The owner SHALL prune health only without queued/delivering work and keep a stopped status row while its key has health. Cross-host health deletion SHALL require expiry of the host's last status row after >24 h silence, never merely a stopped row older than 60 s.
 
 #### Scenario: Failing definitions cycle through slots
 - **WHEN** 40 definitions whose plugins fail startup take turns in 16 slots, measured on the injected clock
@@ -96,16 +92,7 @@ Owner-local stopped-row expiry SHALL retain a status row while its host/output/d
 - **THEN** the owner's prune keeps both rows, and the later cross-host prune removes both status and health without removing queued work
 
 ### Requirement: Persisted plugin status
-The supervisor SHALL keep one status row per running plugin instance with:
-- output, definition digest, worker process identity and state;
-- plugin name, version and process id;
-- restart count, last error class and a heartbeat.
-
-Ready instances and waiting definitions SHALL refresh their rows at least every 15 s. Starting SHALL be written at launch; backoff, degraded and stopped rows SHALL be written on transitions and MAY age while their worker remains alive.
-
-Every 60 s, a supervisor SHALL prune its own stopped rows older than 60 s only when the same host/output/definition key has no health row. Another host's rows SHALL expire only after more than 24 h without a heartbeat.
-
-A row whose heartbeat is older than 60 s SHALL read as stale.
+The supervisor SHALL persist one row per host/output/definition with state, plugin name/version/pid, restart count, last error class and heartbeat. Ready/waiting rows SHALL refresh within 15 s; starting updates at launch, others on transitions and may age while alive. Heartbeats >60 s old SHALL read stale. Every 60 s the supervisor SHALL prune own stopped rows >60 s old only without health for that key; other hosts' rows expire only after >24 h silence.
 
 #### Scenario: Status of a ready plugin
 - **WHEN** a plugin instance is ready
