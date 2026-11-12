@@ -120,6 +120,10 @@ directly from `.claude/skills/<name>/SKILL.md`.
 - **specwright#140 workaround:** `.claude/agents/specwright-implementer*.md` add `ToolSearch, mcp__dart__*`
   to `tools:` so implementers can use the Dart MCP. **Every Specwright update overwrites this; re-apply it
   after each update.** OMP implementers fall back to the mise tasks.
+- **specwright#222 workaround:** `specwright-review/scripts/review-run.sh` (both `.claude/skills/` and
+  `.agents/skills/`) starts OMP with `--tools read,grep,glob`; upstream passes `read,grep,find,glob`, and
+  OMP 18.18+ has no `find` tool, so the OMP review route exits 2 before reviewing. **Every Specwright update
+  overwrites this; re-apply it after each update** until upstream fixes it.
 - `finish: local` while nothing is pushed. Switch to `pr` when the owner enables GitHub.
 - Vendored Dart/Flutter/Serverpod skills: provenance in `.claude/skills/UPSTREAM.json`. Same copies in
   `.agents/skills/` for Codex.
