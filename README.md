@@ -8,6 +8,9 @@ worked in a Flutter web console. Built on Dart, Serverpod and PostgreSQL.
 alert-state/live-console, signed webhook output and the NATS JetStream output are implemented.
 Milestone acceptance remains separate; see `openspec/roadmap.md` and `docs/plan/`.
 
+For an illustrated walkthrough of the implemented alert lifecycle, open
+[`docs/project-preview.html`](docs/project-preview.html) in a browser (self-contained, offline).
+
 The earlier Python implementation is kept on the local branch `legacy/python`.
 
 The canonical event payload contract is generated and checked with
