@@ -115,3 +115,12 @@ source time and the alert fence at the five-minute clamp.
 The combined watermark, alert-state and ordering test files passed 26 tests after
 correction. Strict OpenSpec validation passed all 9 items; scoped feed `dart fix`
 reported nothing to fix.
+
+## Client ordering correction
+
+The next review found that the client used freshness as a fallback sort key for
+unknown firing times, unlike the server's nulls-last snapshot order. The new
+controller regression first observed the incorrect order `[3, 2, 1, 4]` instead
+of `[1, 4, 2, 3]`. The comparator now places unknown firing times last and uses
+the entity id for equal/unknown times. All 18 controller and widget tests passed
+after correction.

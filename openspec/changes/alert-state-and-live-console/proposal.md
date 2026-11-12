@@ -166,4 +166,5 @@ Adds authoritative alert state and a live development console.
 - Lists awaiting bounded reconciliation do not claim an omitted count of zero.
 - Flutter driver tooling remains a development dependency.
 - Wake-up streams subscribed during startup begin polling when the subsystem starts.
+- Client alert ordering matches the snapshot's nulls-last firing-time order.
 

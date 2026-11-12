@@ -44,14 +44,18 @@ final class AlertFeedController extends ChangeNotifier {
   int get omittedCount => _omittedCount;
   bool get partial => _omittedCount > 0 || _alerts.length > snapshotLimit;
 
-  /// The held firing alerts, in severity and newest-firing order.
+  /// The firing alerts by severity and newest firing, with unknown times last.
   List<AlertView> get alerts => _alerts.values.toList()
     ..sort((a, b) {
       final severity = _rank(a.severity).compareTo(_rank(b.severity));
       if (severity != 0) return severity;
-      final time = (b.firingSince ?? b.lastObservedAt).compareTo(
-        a.firingSince ?? a.lastObservedAt,
-      );
+      final aTime = a.firingSince;
+      final bTime = b.firingSince;
+      if (aTime == null) {
+        return bTime == null ? a.id.compareTo(b.id) : 1;
+      }
+      if (bTime == null) return -1;
+      final time = bTime.compareTo(aTime);
       return time == 0 ? a.id.compareTo(b.id) : time;
     });
 

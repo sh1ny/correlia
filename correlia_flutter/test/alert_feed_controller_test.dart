@@ -32,6 +32,25 @@ void main() {
     expect(controller.alerts.single.summary, 'Disk full');
   });
 
+  test('unknown_firing_times_sort_last_without_using_freshness', () async {
+    final known = alertView(1);
+    final older = alertView(4).copyWith(
+      firingSince: testNow.subtract(const Duration(hours: 2)),
+    );
+    final unknown = alertView(2).copyWith(firingSince: null);
+    final fresherUnknown = alertView(3).copyWith(
+      firingSince: null,
+      lastObservedAt: testNow.add(const Duration(hours: 1)),
+    );
+    api.initial = AlertSnapshot(
+      alerts: [fresherUnknown, older, unknown, known],
+      omittedCount: 0,
+      cursor: 'v1.1.0',
+    );
+    await controller.start();
+    expect(controller.alerts.map((alert) => alert.id), [1, 4, 2, 3]);
+  });
+
   test('older_version_after_newer_one', () async {
     api.initial = AlertSnapshot(
       alerts: [alertView(1, version: 3, severity: 'critical')],

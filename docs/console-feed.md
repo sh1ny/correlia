@@ -10,7 +10,8 @@ those hosts. These checks also apply to WebSocket streams. Worker processes and
 all other modes refuse console access; webhook ingress is unaffected.
 
 `snapshot()` returns up to 500 firing alerts, ordered by severity and newest
-firing time, with an `omittedCount` and an opaque cursor. Snapshot rows and the
+firing time, with unknown firing times last, then id as a deterministic tie-breaker.
+It includes an `omittedCount` and an opaque cursor. Snapshot rows and the
 cursor come from the same repeatable-read database snapshot. `feed(cursor,
 limit)` returns activity summaries in transaction-ID and sequence-ID order,
 alongside current views of the affected alerts. The server clamps the page limit
