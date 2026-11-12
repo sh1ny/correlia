@@ -57,23 +57,23 @@ Tiers: `unit/` fast, `db/` db, `plugin/` plugin, `e2e/` e2e.
 | output-delivery → Validated plugin output definitions | Invalid plugin output | S/unit/ingest/bootstrap_test.dart | invalid_plugin_output | green |
 | output-delivery → Plugin secret values | Secret file sizes | S/unit/ingest/bootstrap_file_test.dart | secret_file_sizes | green |
 | output-delivery → Plugin secret values | Long plugin secret | S/unit/ingest/bootstrap_test.dart | long_plugin_secret | green |
-| output-delivery → Readiness-gated plugin acquisition | Plugin degraded while work is queued | S/db/plugin_relay_test.dart | plugin_degraded_while_work_queued | red |
-| output-delivery → Readiness-gated plugin acquisition | Plugin becomes ready again | S/db/plugin_relay_test.dart | plugin_becomes_ready_again | red |
-| output-delivery → Readiness-gated plugin acquisition | Older unavailable definition beside a ready one | S/db/plugin_relay_test.dart | older_unavailable_beside_ready | red |
-| output-delivery → Readiness-gated plugin acquisition | Instance leaves ready between selection and claim | S/db/plugin_relay_test.dart | instance_leaves_ready_before_permit | red |
-| output-delivery → Readiness-gated plugin acquisition | Plugin exit observed while the claim is still open | S/db/plugin_relay_test.dart | plugin_exit_observed_during_open_claim | red |
+| output-delivery → Readiness-gated plugin acquisition | Plugin degraded while work is queued | S/db/plugin_relay_test.dart | plugin_degraded_while_work_queued | green |
+| output-delivery → Readiness-gated plugin acquisition | Plugin becomes ready again | S/db/plugin_relay_test.dart | plugin_becomes_ready_again | green |
+| output-delivery → Readiness-gated plugin acquisition | Older unavailable definition beside a ready one | S/db/plugin_relay_test.dart | older_unavailable_beside_ready | green |
+| output-delivery → Readiness-gated plugin acquisition | Instance leaves ready between selection and claim | S/db/plugin_relay_test.dart | instance_leaves_ready_before_permit | green |
+| output-delivery → Readiness-gated plugin acquisition | Plugin exit observed while the claim is still open | S/db/plugin_relay_test.dart | plugin_exit_observed_during_open_claim | green |
 | output-delivery → Pinned plugin definition delivery | NATS stream changed with work pending | S/e2e/nats_pinning_e2e_test.dart | nats_server_changed_with_work_pending | red |
 | output-delivery → Pinned plugin definition delivery | Pinned definition cannot run | S/plugin/plugin_supervision_test.dart | pinned_definition_cannot_run | red |
-| output-delivery → Batched plugin delivery with per-event completion | Batch with one bad event | S/db/plugin_relay_test.dart | batch_with_one_bad_event | red |
+| output-delivery → Batched plugin delivery with per-event completion | Batch with one bad event | S/db/plugin_relay_test.dart | batch_with_one_bad_event | green |
 | output-delivery → Batched plugin delivery with per-event completion | Plugin dies with the batch unanswered | S/plugin/plugin_supervision_test.dart | plugin_dies_with_batch_unanswered | red |
-| output-delivery → Batched plugin delivery with per-event completion | Full batch completed within its budget | S/db/plugin_relay_test.dart | full_batch_within_budget | red |
+| output-delivery → Batched plugin delivery with per-event completion | Full batch completed within its budget | S/db/plugin_relay_test.dart | full_batch_within_budget | green |
 | output-delivery → Batched plugin delivery with per-event completion | Batch over its deadline | S/plugin/nats_relay_deadline_test.dart | batch_over_its_deadline | red |
-| output-delivery → Batched plugin delivery with per-event completion | Stale batch completion | S/db/plugin_relay_test.dart | stale_batch_completion | red |
+| output-delivery → Batched plugin delivery with per-event completion | Stale batch completion | S/db/plugin_relay_test.dart | stale_batch_completion | green |
 | output-delivery → No loss across worker death | Kill -9 during a 1,000-alert burst | S/e2e/nats_burst_e2e_test.dart | Kill -9 during a 1,000-alert burst | red |
 | output-delivery → No loss across worker death | Worker killed before any delivery | S/e2e/nats_burst_e2e_test.dart | worker_killed_before_any_delivery | red |
-| output-delivery → Signing key availability before acquisition (MODIFIED) | Loaded historical signing reference | S/db/output_relay_test.dart | loaded_historical_signing_reference | red |
+| output-delivery → Signing key availability before acquisition (MODIFIED) | Loaded historical signing reference | S/db/output_relay_test.dart | loaded_historical_signing_reference | green |
 | output-delivery → Signing key availability before acquisition (MODIFIED) | Unloaded live signing reference | S/db/output_relay_test.dart | unloaded_live_signing_reference | green |
-| output-delivery → Signing key availability before acquisition (MODIFIED) | Plugin intents need no signing reference | S/db/plugin_relay_test.dart | plugin_intents_need_no_signing_reference | red |
+| output-delivery → Signing key availability before acquisition (MODIFIED) | Plugin intents need no signing reference | S/db/plugin_relay_test.dart | plugin_intents_need_no_signing_reference | green |
 | workspace-tooling → Reproducible plugin protocol generation | Current protocol outputs | T/proto_command_test.dart | plugin_protocol_outputs_current | green |
 | workspace-tooling → Reproducible plugin protocol generation | Stale protocol output | T/proto_command_test.dart | stale_plugin_protocol_output | green |
 | workspace-tooling → Pinned plugin and NATS tool builds | Plugin tier on a clean clone | T/plugin_build_test.dart | plugin_tier_on_clean_clone | green |
@@ -122,8 +122,8 @@ languages and rerun design review before implementing this amendment.
 
 ## 5. Relay: ready digests, permits, deadline and batch completion
 
-- [ ] 5.1 Write `S/db/plugin_relay_test.dart` cases `plugin_degraded_while_work_queued`, `plugin_becomes_ready_again`, `older_unavailable_beside_ready`, `instance_leaves_ready_before_permit`, `plugin_exit_observed_during_open_claim` (barrier inside the claim transaction after the permit is granted), `batch_with_one_bad_event`, `full_batch_within_budget`, `stale_batch_completion` and `plugin_intents_need_no_signing_reference`, plus `loaded_historical_signing_reference` in `S/db/output_relay_test.dart`; verify each scenario's assertions run against the real API, with no placeholder or skipped case, under the 2026-11-12 sequencing exception.
-- [ ] 5.2 Implement `claim(outputId, limit, readyDigests)`, the generation-checked delivery permit checked last before COMMIT (D5), the 27 s batch deadline with per-statement remaining-time timeouts, and `completeBatch` in one transaction fenced by `claim_id`, status and `lease_until > clock_timestamp()` with an exact row count (D4); keep webhook claims at limit 1; verify the 5.1 tests pass, existing `S/db/output_relay_test.dart` cases (including `unloaded_live_signing_reference`) stay green, and flip the rows green.
+- [x] 5.1 Write `S/db/plugin_relay_test.dart` cases `plugin_degraded_while_work_queued`, `plugin_becomes_ready_again`, `older_unavailable_beside_ready`, `instance_leaves_ready_before_permit`, `plugin_exit_observed_during_open_claim` (barrier inside the claim transaction after the permit is granted), `batch_with_one_bad_event`, `full_batch_within_budget`, `stale_batch_completion` and `plugin_intents_need_no_signing_reference`, plus `loaded_historical_signing_reference` in `S/db/output_relay_test.dart`; verify each scenario's assertions run against the real API, with no placeholder or skipped case, under the 2026-11-12 sequencing exception.
+- [x] 5.2 Implement `claim(outputId, limit, readyDigests)`, the generation-checked delivery permit checked last before COMMIT (D5), the 27 s batch deadline with per-statement remaining-time timeouts, and `completeBatch` in one transaction fenced by `claim_id`, status and `lease_until > clock_timestamp()` with an exact row count (D4); keep webhook claims at limit 1; verify the 5.1 tests pass, existing `S/db/output_relay_test.dart` cases (including `unloaded_live_signing_reference`) stay green, and flip the rows green.
 
 ## 6. Supervisor
 

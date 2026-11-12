@@ -54,7 +54,7 @@ void main() {
           (ref) => ref == 'key' ? key : null,
           loadedReferences: {'key'},
         );
-        final old = (await repository.claim(output))!;
+        final old = (await repository.claim(output))!.claims.single;
         await session.db.unsafeSimpleExecute(
           "UPDATE outbox SET lease_until=now()-interval '1 second'",
         );
@@ -62,7 +62,7 @@ void main() {
         await session.db.unsafeSimpleExecute(
           'UPDATE outbox SET next_attempt_at=now()',
         );
-        final current = (await repository.claim(output))!;
+        final current = (await repository.claim(output))!.claims.single;
         expect(
           await repository.complete(old, const DeliveryAcknowledged()),
           isFalse,
@@ -147,7 +147,7 @@ void main() {
           first.claim(output),
           second.claim(output),
         ]);
-        expect(claims.whereType<DeliveryClaim>(), hasLength(1));
+        expect(claims.whereType<DeliveryBatch>(), hasLength(1));
       });
       test('discovery_skips_busy_and_unavailable_lanes', () async {
         final session = builder.build();
@@ -203,6 +203,32 @@ void main() {
           await session.db.unsafeQuery('SELECT 1 FROM delivery_attempts'),
           isEmpty,
         );
+      });
+      test('loaded_historical_signing_reference', () async {
+        final session = builder.build();
+        await seed(session, ref: 'historical');
+        final currentKey = Uint8List.fromList(List.filled(32, 8));
+        final repository = OutputRelayRepository(
+          session,
+          (ref) => switch (ref) {
+            'historical' => key,
+            'current' => currentKey,
+            _ => null,
+          },
+          loadedReferences: {'historical', 'current'},
+        );
+        final claim = (await repository.claim(output))!.claims.single;
+        expect(claim.key, orderedEquals(key));
+        expect(
+          await repository.complete(claim, const DeliveryAcknowledged()),
+          isTrue,
+        );
+        final row = (await session.db.unsafeQuery(
+          'SELECT status,signing_key_ref,signing_key_commitment FROM outbox',
+        )).single.toColumnMap();
+        expect(row['status'], 'delivered');
+        expect(row['signing_key_ref'], 'historical');
+        expect(row['signing_key_commitment'], sha256.convert(key).toString());
       });
       test('unloaded_live_signing_reference', () async {
         final session = builder.build();

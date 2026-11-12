@@ -132,6 +132,14 @@ FROM pipeline_failures;
 
 Use both time and id when joining raw/event/output evidence. Raw payloads remain private operational data; never paste them into diagnostics. Accepted bytes are not silently discarded, and no retention/replay scheduler is implemented in this slice. Provision disk headroom until M2 retention/backpressure work.
 
+## Plugin batch delivery
+
+Plugin rows are eligible only while a local instance serves their pinned definition. The relay takes a generation-checked permit before claiming; its last transaction step rechecks that permit before commit. Observed readiness loss before that boundary rolls back acquisition without spending attempts. Unavailable historical definitions do not block ready definitions of the same output. Voluntary stops drain outstanding permits; loss after the boundary makes unanswered events retryable with `plugin_connection_lost`.
+
+One output has at most one delivering set across workers. A plugin batch contains at most 64 events and 1 MiB, further limited by the plugin's negotiated bounds, all from one definition. A monotonic 27-second budget starts before claiming; claim commit is limited to five seconds, delivery to at most twenty seconds while reserving completion time, and each SQL statement/lock timeout to the remaining budget capped at five seconds. The database sets the shared lease to thirty seconds from its own clock.
+
+All per-event outcomes complete in one transaction. Both outbox and attempt updates require the current claim, delivering status, an unexpired `clock_timestamp()` lease and exact affected-row counts; any mismatch rolls everything back. Over-budget completion writes nothing and lease recovery records interruption. Webhooks retain one-row acquisition and their original signing behavior. As with webhooks, every started plugin attempt consumes the twenty-attempt budget; the destination must deduplicate redelivery by event id.
+
 ## Signed webhook delivery and recovery
 
 Every routed intent stores its original structured CloudEvents bytes, event id, destination, snapshot and signing-key commitment. Rotation never redirects or re-encodes old work. Relays POST `Content-Type: application/cloudevents+json`, `Idempotency-Key: <event-id>` and `X-Correlia-Signature: sha256=<lowercase HMAC-SHA256 hex over the exact body>`. Receivers must deduplicate the event id: delivery is at least once, not exactly once or ordered per alert. HMAC authenticates bytes, not freshness.

@@ -6,6 +6,8 @@ import '../ingest/bootstrap.dart';
 import '../runtime/process_options.dart';
 import '../runtime/subsystem.dart';
 import 'output_relay.dart';
+import 'plugin_output_router.dart';
+import 'relay_deadline.dart';
 import 'webhook_output.dart';
 
 /// Runs bounded independent output lanes for a worker process.
@@ -17,6 +19,7 @@ final class RelaySubsystem extends Subsystem {
     required String runMode,
     this.beforeAcquire,
     this.onUnavailable,
+    this.pluginRouter,
     this.pollInterval = const Duration(milliseconds: 250),
   }) : _webhook = WebhookOutput(runMode: runMode);
   final Serverpod pod;
@@ -27,6 +30,9 @@ final class RelaySubsystem extends Subsystem {
 
   /// Receives fixed unavailable-key diagnostics without secret material.
   final void Function(String, String)? onUnavailable;
+
+  /// Optional supervisor-backed router for plugin output definitions.
+  final PluginOutputRouter? pluginRouter;
   final Duration pollInterval;
   final WebhookOutput _webhook;
   final Set<String> _busy = {};
@@ -62,7 +68,10 @@ final class RelaySubsystem extends Subsystem {
         }
         try {
           await repository.recoverExpired();
-          final available = await repository.discover(_busy);
+          final available = await repository.discover(
+            _busy,
+            readyDefinitions: pluginRouter?.readyDefinitions ?? {},
+          );
           for (final output in available) {
             if (_stopped.isCompleted ||
                 _lanes.length >= 64 ||
@@ -99,10 +108,40 @@ final class RelaySubsystem extends Subsystem {
         bootstrap.secret,
         loadedReferences: bootstrap.loadedReferences,
       );
-      final claim = await repository.claim(output);
-      if (claim == null || _stopped.isCompleted) return;
-      final outcome = await _webhook.send(claim.intent, claim.key);
-      if (!_stopped.isCompleted) await repository.complete(claim, outcome);
+      final router = pluginRouter;
+      final digests = router?.readyDefinitions[output] ?? <String>{};
+      final digest = await repository.oldestReadyDigest(output, digests);
+      if (digest != null && router != null) {
+        final permit = router.tryAcquire(output, digest);
+        if (permit == null) return;
+        try {
+          final deadline = RelayDeadline();
+          final batch = await repository.claim(
+            output,
+            limit: router.eventLimit(output, digest).clamp(1, 64),
+            byteLimit: router.byteLimit(output, digest).clamp(1, 1024 * 1024),
+            readyDigests: {digest},
+            permit: permit,
+            deadline: deadline,
+          );
+          if (batch == null) return;
+          final outcomes = await deliverPluginBatch(router, permit, batch);
+          await repository.completeBatch(batch, outcomes);
+        } finally {
+          permit.release();
+        }
+      } else {
+        final deadline = RelayDeadline();
+        final batch = await repository.claim(output, deadline: deadline);
+        if (batch == null || _stopped.isCompleted) return;
+        final claim = batch.claims.single;
+        final outcome = await _webhook
+            .send(claim.intent!, claim.key!)
+            .timeout(deadline.deliveryBudget);
+        if (!_stopped.isCompleted) {
+          await repository.complete(claim, outcome, deadline: deadline);
+        }
+      }
     } catch (_) {
       // A started claim remains durable and will be recovered after its lease.
     } finally {
