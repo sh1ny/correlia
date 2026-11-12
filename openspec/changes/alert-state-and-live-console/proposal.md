@@ -89,8 +89,10 @@ proven by automated widget and e2e tests, and adds no `[user]` task.
   wake-up), generated.
 - **Console (`correlia_flutter`):** the alert list screen, a feed-following controller and widget tests.
   No routing or state-management package is added.
+- **Direct Dart dependencies:** `url_launcher` opens generator links in the browser; `relic_core`
+  provides the HTTP request and peer context used by the development-only console access guard.
 - **Docs:** `docs/` notes on the feed contract and the development-only console exposure.
-- **Unaffected:** no new external dependency; output delivery and NATS.
+- **Unaffected:** no new external services; output delivery and NATS remain unchanged.
 
 ## Decision Making
 
