@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:grpc/grpc.dart';
 import 'package:http2/transport.dart';
@@ -8,6 +9,12 @@ const int pluginGrpcMessageLimit = 2 * 1024 * 1024;
 
 /// Incrementally validates gRPC message envelopes without buffering bodies.
 final class GrpcFrameGuard {
+  /// Creates a guard with the maximum encoded message size.
+  GrpcFrameGuard({this.limit = pluginGrpcMessageLimit});
+
+  /// The maximum encoded message body size.
+  final int limit;
+
   int _prefixBytes = 0;
   int _length = 0;
   int _remaining = 0;
@@ -34,8 +41,8 @@ final class GrpcFrameGuard {
       }
       _prefixBytes++;
       if (_prefixBytes == 5) {
-        if (_length > pluginGrpcMessageLimit) {
-          throw const FormatException('gRPC message exceeds 2 MiB');
+        if (_length > limit) {
+          throw FormatException('gRPC message exceeds $limit bytes');
         }
         _remaining = _length;
         _prefixBytes = 0;
@@ -59,9 +66,12 @@ final class BoundedPluginConnector implements ClientTransportConnector {
   /// The underlying socket connector.
   final ClientTransportConnector delegate;
 
+  /// The last rejected gRPC frame, when one has been observed.
+  FormatException? frameFailure;
+
   @override
   Future<ClientTransportConnection> connect() async =>
-      _Connection(await delegate.connect());
+      _Connection(await delegate.connect(), this);
   @override
   Future<void> get done async {
     await delegate.done;
@@ -74,15 +84,33 @@ final class BoundedPluginConnector implements ClientTransportConnector {
 }
 
 final class _Connection implements ClientTransportConnection {
-  _Connection(this._delegate);
+  _Connection(this._delegate, this._owner);
   final ClientTransportConnection _delegate;
+  final BoundedPluginConnector _owner;
   @override
   bool get isOpen => _delegate.isOpen;
   @override
   ClientTransportStream makeRequest(
     List<Header> headers, {
     bool endStream = false,
-  }) => _Stream(_delegate.makeRequest(headers, endStream: endStream));
+  }) {
+    var responseLimit = pluginGrpcMessageLimit;
+    for (final header in headers) {
+      if (ascii.decode(header.name) != ':path') continue;
+      final path = ascii.decode(header.value);
+      if (path == '/correlia.plugin.v1.PluginService/GetMetadata' ||
+          path == '/correlia.plugin.v1.PluginService/Configure') {
+        responseLimit = 64 * 1024;
+      }
+      break;
+    }
+    return _Stream(
+      _delegate.makeRequest(headers, endStream: endStream),
+      responseLimit,
+      _owner,
+    );
+  }
+
   @override
   Future<void> ping() async {
     await _delegate.ping();
@@ -110,7 +138,8 @@ final class _Connection implements ClientTransportConnection {
 }
 
 final class _Stream implements ClientTransportStream {
-  _Stream(this._delegate) {
+  _Stream(this._delegate, int responseLimit, this._owner)
+    : _guard = GrpcFrameGuard(limit: responseLimit) {
     _outgoing = _GuardedSink(_delegate, _fail);
     _incoming = StreamController<StreamMessage>(
       onListen: _listen,
@@ -123,12 +152,14 @@ final class _Stream implements ClientTransportStream {
     );
   }
   final ClientTransportStream _delegate;
+  final BoundedPluginConnector _owner;
   late final _GuardedSink _outgoing;
   late final StreamController<StreamMessage> _incoming;
   StreamSubscription<StreamMessage>? _subscription;
-  final GrpcFrameGuard _guard = GrpcFrameGuard();
+  final GrpcFrameGuard _guard;
 
   void _fail(Object error, [StackTrace? stackTrace]) {
+    if (error is FormatException) _owner.frameFailure = error;
     _delegate.terminate();
     if (!_incoming.isClosed) {
       _incoming.addError(error, stackTrace);

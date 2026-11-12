@@ -108,14 +108,16 @@ final class IngestConfigRepository {
           transaction: transaction,
         );
         for (final output in input.outputs) {
-          await session.db.unsafeExecute(
-            'INSERT INTO ingest_secret_commitment (reference,digest) VALUES (@reference,@digest) ON CONFLICT (reference) DO NOTHING',
-            parameters: QueryParameters.named({
-              'reference': output.signingKeyRef,
-              'digest': output.signingKeyCommitment,
-            }),
-            transaction: transaction,
-          );
+          for (final entry in output.commitments.entries) {
+            await session.db.unsafeExecute(
+              'INSERT INTO ingest_secret_commitment (reference,digest) VALUES (@reference,@digest) ON CONFLICT (reference) DO NOTHING',
+              parameters: QueryParameters.named({
+                'reference': entry.key,
+                'digest': entry.value,
+              }),
+              transaction: transaction,
+            );
+          }
         }
         // Publication obtains exclusive source locks; admission uses shared locks.
         await session.db.unsafeExecute(
@@ -176,7 +178,7 @@ final class IngestConfigRepository {
   }) async {
     final refs = await session.db.unsafeQuery(
       '''SELECT DISTINCT signing_key_ref,signing_key_commitment
-      FROM outbox WHERE status IN ('queued','delivering')''',
+      FROM outbox WHERE output_kind = 'webhook' AND status IN ('queued','delivering')''',
       transaction: transaction,
       timeoutInSeconds: 5,
     );

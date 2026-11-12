@@ -451,6 +451,21 @@ void main() {
           expect(await pipeline.count(session, 'activity'), 1);
         }
       });
+      test('ORD-5e future-dated observation is quarantined', () async {
+        final session = builder.build();
+        await deliver(session, [firing('2026-11-13T12:00:00Z')], base);
+        expect(await pipeline.count(session, 'alerts'), 0);
+        expect(await pipeline.count(session, 'observation_keys'), 0);
+        expect(await pipeline.count(session, 'activity'), 0);
+        expect(await pipeline.count(session, 'outbox'), 0);
+        final evidence = (await rows(
+          session,
+          'SELECT source_time, disposition FROM events',
+        )).single;
+        expect(evidence['source_time'], DateTime.utc(2026, 11, 13, 12));
+        expect(evidence['disposition'], 'future_dated');
+        expect((await latestOutcome(session))['future_dated'], 1);
+      });
       test('source_clock_ahead_within_future_limit', () async {
         final session = builder.build();
         await deliver(session, [firing('2026-11-10T14:00:00Z')], base);

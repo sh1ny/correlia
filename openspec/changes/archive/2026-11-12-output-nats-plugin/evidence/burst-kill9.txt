@@ -1,0 +1,24 @@
+output-nats-plugin — task 8.2
+Run: 2026-11-12, Linux / Europe/Sofia
+
+Command (repository root):
+  mise run test -- --tags e2e --plain-name 'Kill -9 during a 1,000-alert burst' test/e2e/nats_burst_e2e_test.dart
+
+Actual stdout:
+  burst accepted=1000 stream=1000 dead=0 held=50 interrupted=50 stored_before_kill=100 plugin_pid=454865 independent_stderr_marker=stdin_eof exactchild_exited=true
+  02:04 +1: All tests passed!
+  Finished in 130.58s
+Exit: 0
+
+The test held completion after at least 100 real JetStream acknowledgements,
+verified a live delivering claim in SQL, and SIGKILLed the worker. Before the
+kill it opened an independent observer on plugin PID 454865's original stderr
+and a pidfd for that exact child identity. The observer received the plugin's
+stdin_eof marker and observed that child exit; no supervisor emitted the marker
+and no plugin signal substituted for stdin EOF.
+
+After replacement, reconciliation checked the exact accepted event-id set,
+byte-identical payloads, disjoint delivered/dead sets, retried held events and
+interrupted attempts. The test expires the killed worker's lease through SQL
+before replacement recovery; the separate deadline test covers lease fencing.
+Services, scratch data and the independent observer were closed by teardown.

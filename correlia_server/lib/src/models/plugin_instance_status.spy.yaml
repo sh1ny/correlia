@@ -1,0 +1,21 @@
+class: PluginInstanceStatus
+table: plugin_instance_status
+serverOnly: true
+fields:
+  hostInstanceId: String
+  outputId: String
+  definitionDigest: String
+  state: String
+  pluginName: String?
+  pluginVersion: String?
+  pid: int?
+  restartCount: int
+  crashesInWindow: int
+  lastErrorClass: String?
+  lastPluginErrorClass: String?
+  version: int
+  heartbeatAt: DateTime
+indexes:
+  plugin_instance_status_owner_definition_idx:
+    fields: hostInstanceId, outputId, definitionDigest
+    unique: true

@@ -30,20 +30,27 @@ final class PluginClientIdentity {
 
 /// An authenticated, bounded connection to one stock plugin.
 final class PluginRpcConnection {
-  PluginRpcConnection._(this._channel, this._connector, this._timeout)
-    : outputClient = OutputServiceClient(_channel),
-      _compat = _CompatibilityClient(_channel);
+  PluginRpcConnection._(
+    this._channel,
+    this._connector,
+    this._bounded,
+    this._timeout,
+  ) : _compat = _CompatibilityClient(_channel);
 
   final ClientTransportConnectorChannel _channel;
   final _SocketConnector _connector;
+  final BoundedPluginConnector _bounded;
   final Duration _timeout;
+
+  /// The authenticated channel shared by application protocol clients.
+  ClientTransportConnectorChannel get channel => _channel;
+
+  /// The last rejected gRPC frame.
+  FormatException? get frameFailure => _bounded.frameFailure;
   final _CompatibilityClient _compat;
   StreamSubscription<List<int>>? _stdio;
   ResponseStream<List<int>>? _stdioCall;
   bool _closed = false;
-
-  /// The experimental application client, without a whole-stream deadline.
-  final OutputServiceClient outputClient;
 
   /// The observed native TLS facts, retained after closing the connection.
   PluginTlsEvidence? get tlsEvidence => _connector.tlsEvidence;
@@ -96,11 +103,12 @@ final class PluginRpcConnection {
           : const ChannelCredentials.insecure(authority: 'localhost'),
       connectTimeout: timeout,
     );
+    final bounded = BoundedPluginConnector(connector);
     final channel = ClientTransportConnectorChannel(
-      BoundedPluginConnector(connector),
+      bounded,
       options: options,
     );
-    final result = PluginRpcConnection._(channel, connector, timeout);
+    final result = PluginRpcConnection._(channel, connector, bounded, timeout);
     try {
       final remaining = timeout - watch.elapsed;
       if (remaining <= Duration.zero) {
@@ -115,24 +123,6 @@ final class PluginRpcConnection {
     } on Object catch (error, stack) {
       await result.close();
       Error.throwWithStackTrace(connector.failure ?? error, stack);
-    }
-  }
-
-  /// Checks the protected output service using a fresh epoch and exact ack.
-  Future<void> probe() async {
-    final epoch = const Uuid().v4();
-    final sequence = Int64.ONE;
-    final call = outputClient.deliver(
-      Stream.value(DeliverRequest(epoch: epoch, sequence: sequence)),
-      options: CallOptions(timeout: _timeout),
-    );
-    try {
-      final response = await call.single;
-      if (response.epoch != epoch || response.sequence != sequence) {
-        throw StateError('plugin returned an incorrect probe acknowledgement');
-      }
-    } finally {
-      await call.cancel();
     }
   }
 
@@ -159,6 +149,30 @@ final class PluginRpcConnection {
     } on TimeoutException {
       _connector.shutdown();
       rethrow;
+    }
+  }
+}
+
+/// Spike-only RPC operations, separate from the authenticated transport.
+extension PluginSpikeRpc on PluginRpcConnection {
+  /// The experimental application client, without a whole-stream deadline.
+  OutputServiceClient get outputClient => OutputServiceClient(_channel);
+
+  /// Checks the protected output service using a fresh epoch and exact ack.
+  Future<void> probe() async {
+    final epoch = const Uuid().v4();
+    final sequence = Int64.ONE;
+    final call = outputClient.deliver(
+      Stream.value(DeliverRequest(epoch: epoch, sequence: sequence)),
+      options: CallOptions(timeout: _timeout),
+    );
+    try {
+      final response = await call.single;
+      if (response.epoch != epoch || response.sequence != sequence) {
+        throw StateError('plugin returned an incorrect probe acknowledgement');
+      }
+    } finally {
+      await call.cancel();
     }
   }
 }

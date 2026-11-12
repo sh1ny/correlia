@@ -1,26 +1,26 @@
-# Plugin host spike fixtures
+# Plugin host fixtures
 
-This directory owns the test-only Go fixtures for the `plugin-host-spike`
-change. It contains no production plugin implementation.
+This directory owns test-only Go and native fixtures for the experimental
+plugin host and production output protocol. It contains no production plugin.
 
 ## Module boundary
 
 `go/` is an independent Go module named `correlia.local/pluginspike`. It pins
-stock `github.com/hashicorp/go-plugin` v1.8.0 without a fork, patch, replace
-directive, or vendored copy. The generated `OutputService` bindings under
-`go/gen/` are Correlia-owned output from `proto/correlia/plugin/spike/v1/` and
-are never edited by hand.
+stock `github.com/hashicorp/go-plugin` v1.8.0 without a fork, patch, replacement
+or vendored copy. A local module replacement supplies Correlia's generated
+production protocol from `plugins/`; the experimental bindings under `go/gen/`
+are generated from `proto/correlia/plugin/spike/v1/` and never edited by hand.
 
 The module pins these generators through Go tool directives:
 
-- `protoc-gen-go` v1.36.11;
+- `protoc-gen-go` v1.36.12;
 - `protoc-gen-go-grpc` v1.6.0.
 
 `go.sum` is the checksum boundary for every resolved module and generator.
 
 ## Executables
 
-The Dart suite builds these four programs once per suite into an owned
+The Dart suite builds these programs once per suite into an owned
 scratch directory:
 
 - `cmd/plain-stock`: stock `plugin.Serve()` only. It deliberately does not
@@ -33,8 +33,11 @@ scratch directory:
   identity with a `localhost` SAN in an owner-only directory. It is a test
   helper, not a production certificate dependency;
 - `cmd/native-tls-peer`: an original P-521 mutual-TLS byte peer with controlled
-  read/write and readiness barriers. It proves native adapter backpressure and
-  deadlines only, never replaces the stock plugin compatibility checks.
+  read/write and readiness barriers;
+- `cmd/output-production`: stock go-plugin serving the production output
+  protocol with selectable malformed and delayed responses;
+- `cmd/identity-inspect`: checks in-memory PEM identity material received over
+  stdin using Go's independent X.509 parser, without writing the key to disk.
 
 The plain-stock and stdin-watched executables share
 `internal/fixture/plugin.go`; only the presence of the stdin watcher differs.
@@ -120,6 +123,9 @@ never enter the normal host or the test runner. This verification requires a C
 compiler and OpenSSL development headers; the host runtime needs only OpenSSL 3
 shared libraries. The test-only real socket observer records actual short writes
 and ciphertext reads while pressure tests preserve every original byte.
+`native/identity_allocation_child.dart` separately checks repeated production
+identity minting against warmed native allocation counts.
+
 
 ## Original-code boundary
 

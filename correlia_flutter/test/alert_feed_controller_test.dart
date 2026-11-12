@@ -32,6 +32,36 @@ void main() {
     expect(controller.alerts.single.summary, 'Disk full');
   });
 
+  test('plugin_activity_does_not_modify_alert_list', () async {
+    api.initial = AlertSnapshot(
+      alerts: [alertView(1)],
+      omittedCount: 0,
+      cursor: 'v1.1.0',
+    );
+    await controller.start();
+    api.pages.add(
+      FeedPage(
+        entries: [
+          FeedEntry(
+            entityKind: 'plugin',
+            entityId: 1,
+            entityVersion: 99,
+            changeKind: 'plugin_degraded',
+            occurredAt: testNow,
+          ),
+        ],
+        alerts: [],
+        nextCursor: 'v1.2.1',
+        more: false,
+        heldBack: false,
+      ),
+    );
+    await controller.pull();
+    expect(controller.alerts.single.id, 1);
+    expect(controller.alerts.single.version, 1);
+    expect(controller.cursor, 'v1.2.1');
+  });
+
   test('unknown_firing_times_sort_last_without_using_freshness', () async {
     final known = alertView(1);
     final older = alertView(4).copyWith(

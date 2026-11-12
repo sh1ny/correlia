@@ -1,0 +1,180 @@
+output-nats-plugin — task 8.6
+Run: 2026-11-12, Linux
+
+Reproducibility:
+- Prepared an isolated snapshot from code commit 78abb858c6dfe35ffabc4813d1babcc22c9dfc5d
+  plus the complete group-8 source/docs and fatal-info fixes. No pre-existing user edits copied.
+- Verification-only snapshot commit: de4dc87dce5712139b5b89ff95bcc9a6252d728e.
+  It is not a delivered change-branch commit and does not claim task coverage.
+- Fresh clone: /tmp/correlia-output-nats-gate/clean2.
+- Ran flutter pub get through mise. VCS state was clean before and after both gates.
+  Tracking ticks and these evidence records are added after the runtime proof.
+
+Commands (fresh-clone root, using process-scoped mise trust for this owned clone):
+  mise run check
+  mise run test:all
+Combined exit: 0
+
+Actual check summaries:
+  Totals: 12 passed, 0 failed (12 items)
+  dart analyze --fatal-infos: No issues found!
+  flutter analyze --no-pub --fatal-infos correlia_flutter: No issues found!
+  Formatted 253 files (0 changed) in 0.45 seconds.
+  generated code is current
+  canonical event contract is compatible and current
+  server fast: 00:01 +154: All tests passed!
+  tooling: 01:05 +72: All tests passed!
+  Flutter: 00:00 +19: All tests passed!
+  [check] Finished in 139.11s
+
+Actual non-load suite build:
+  install -d -m 700 build/plugins
+  go -C plugins build -mod=readonly -trimpath -o ../build/plugins/output-nats ./output-nats
+  chmod 700 build/plugins/output-nats
+  go -C tool/natsdev build -mod=readonly -trimpath -o ../../build/plugins/natsdev .
+Both builds completed before tests ran. No prebuilt binaries were copied into the clone.
+
+Actual NATS-backed proof stdout:
+  Demo CLI: mise run nats:dev; mise run nats:stream -- --url nats://127.0.0.1:38127; mise run run; mise run nats:sub -- --url nats://127.0.0.1:38127
+  burst accepted=1000 stream=1000 dead=0 held=50 interrupted=50 stored_before_kill=100 plugin_pid=469965 independent_stderr_marker=stdin_eof exactchild_exited=true
+  plugin_pid=471711 independent_stderr_marker=stdin_eof exactchild_exited=true
+  06:43 +377: All tests passed!
+  Finished in 406.87s
+
+The non-load suite includes database, plugin and real-process e2e cases: DUR-3,
+DUR-8 crash/restart and circuit budget, pinned destinations, batch deadline,
+graceful shutdown, pre-delivery kill, stale heartbeat and orphan exit. Its NATS
+services and PostgreSQL databases are test-owned; no external NATS or PostgreSQL
+was used. The owner's real-Alertmanager milestone check remains separate.
+
+Verified toolchain:
+  Dart 3.13.7; Flutter 3.47.9; Go 1.27.3; buf 1.75.0;
+  OpenSpec 1.16.0; Serverpod CLI 4.1.0.
+
+An earlier snapshot stopped at fatal analyzer infos; the final snapshot above
+includes the fixes and passed without weakening analyzer or test settings.
+
+Source identity: all 23 overlaid source/document paths matched the deliverable's
+text bytes after the run. Sorted path/content-SHA-256 manifest digest:
+  e6f782c9333a7e1ca36a8c808a1156b70dea18b0ed275d5f9cd33bc71d8fa410
+
+Pre-ship round 1 follow-up — user-authorized F1/F2 fixes
+-----------------------------------------------------
+The full gate and source manifest above describe group-8 commit 42fb5f5,
+before these review fixes. Full suites were not rerun after the fixes;
+the following focused verification covers the changed behavior.
+
+F1: A controlled claim-commit barrier starts relay.stop() before releasing
+the claim. Before the guard, the real relay test failed:
+  Expected: empty
+    Actual: [Instance of 'DeliveryBatch']
+After the post-claim shutdown check, the test proves no batch was sent,
+the started claim remains durable, expiry records interruption, and a
+replacement attempt delivers successfully.
+
+Dart MCP run_tests, tags=db, reporter=expanded:
+  test/db/plugin_relay_shutdown_test.dart
+  test/db/plugin_relay_test.dart
+  test/db/plugin_status_persistence_test.dart
+  00:03 +13: All tests passed!
+
+F2: Replaced the test-local SQL CASE and timestamp backdating with the
+same pure freshness policy used by PluginStatusRepository.isStale.
+The exact killed host's stored heartbeat stays unchanged across sixteen
+one-second samples; injected now verifies strict 60/61-second classification.
+
+Command:
+  mise run test -- --tags e2e --plain-name worker_killed_status_goes_stale test/e2e/nats_burst_e2e_test.dart
+Actual stdout:
+  00:35 +1: All tests passed!
+  Finished in 39.20s
+Exit: 0
+
+Final source analysis:
+  mise exec -- dart analyze --fatal-infos
+  Analyzing correlia...
+  No issues found!
+Dart formatting completed with zero remaining changes.
+
+Pre-ship round 2 follow-up — user-authorized voluntary-draining fix
+-----------------------------------------------------------------
+Three real-plugin regressions first failed because voluntary idle release
+and shutdown invalidated an already-held permit (expected true, actual false).
+Retirement now refuses new acquisitions through the existing stopping gates,
+waits for held permits to drain, and only then retires the generation. Held
+deliveries may finish while the instance is voluntarily stopping. Observed
+connection loss still invalidates immediately, including during draining.
+
+The idle and shutdown cases deliver a committed batch with one acknowledged
+attempt and no spurious retry. The failure-during-drain case kills the exact
+owned plugin identity and proves immediate invalidation and one genuine retry.
+
+Command:
+  mise run test -- --tags 'plugin || db' test/plugin/plugin_supervision_test.dart test/db/plugin_relay_test.dart test/db/plugin_relay_shutdown_test.dart
+Actual stdout:
+  00:15 +22: All tests passed!
+  Finished in 19.01s
+Exit: 0
+
+  mise exec -- dart analyze --fatal-infos
+  Analyzing correlia...
+  No issues found!
+Dart formatting completed for both changed source files.
+
+Pre-ship round 3 follow-up — owner authorized an additional fix round
+--------------------------------------------------------------------
+The oldest oversized event regression failed before the fix:
+  Expected: not null
+    Actual: null
+Claim acquisition now retains individually oversized plugin intents as dead
+with payload_too_large, preserving their payloads and prior attempt counts,
+without starting a transport attempt. Fitting events progress within the
+negotiated limit. An all-oversized transaction still commits its rejections;
+readiness loss before commit rolls them back. Aggregate overflow only defers
+an individually fitting event rather than rejecting it.
+
+Dart MCP run_tests, tags=db, reporter=expanded:
+  test/db/plugin_relay_test.dart
+  test/db/output_relay_test.dart
+  test/db/plugin_relay_shutdown_test.dart
+  00:02 +21: All tests passed!
+The four new cases cover an oversized queue head, a terminal-only acquisition,
+readiness-loss rollback, and aggregate-limit deferral.
+
+  mise exec -- dart analyze --fatal-infos
+  Analyzing correlia...
+  No issues found!
+Dart formatting completed for both changed source files.
+
+Design review 10 correction verification (task 6.5, 2026-11-12)
+-------------------------------------------------------------
+The historical clean-clone gates above were not rerun after this correction.
+This is focused verification of the changed repository/pruning behavior.
+
+Dart MCP run_tests, tags=db, reporter=expanded, new-case name filter:
+  test/db/plugin_status_persistence_test.dart
+  live_host_with_only_stopped_rows_keeps_health:
+    Expected saved backoff step 1, one failure, next start, circuit and class.
+    Actual: [] (cross-host cleanup erased the health row).
+  dead_host_health_expires_after_self_prune:
+    Expected: ['stopped']
+    Actual: [] (owner-local cleanup removed the expiry anchor).
+  00:02 +0 -2: Some tests failed.
+
+After owner-local no-health qualification and 24-hour cross-host expiry:
+Dart MCP run_tests, tags=db, reporter=expanded:
+  test/db/plugin_status_persistence_test.dart
+  test/db/plugin_health_test.dart
+  test/db/plugin_admission_test.dart
+  00:04 +11: All tests passed!
+The new cases prove unchanged live-host history, retained owner-local anchors,
+eventual cross-host status/health expiry, and queued-work preservation.
+The bounded-batch test uses 25-hour dead rows and preserves 61-second live rows;
+the owner-local test exercises the status/health sweep's next-tick cleanup.
+
+Dart MCP dart_fix: Nothing to fix!
+Dart MCP dart_format: Formatted 2 files (0 changed).
+  mise exec -- dart analyze --fatal-infos
+  Analyzing correlia...
+  No issues found!
+Serverpod hot reload completed.

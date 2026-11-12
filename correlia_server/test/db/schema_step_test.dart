@@ -197,6 +197,13 @@ void main() {
         await initializeIngestSchema(session);
         await _expectCompositeCatalog(session);
         await _expectActivityCatalog(session);
+        final pluginColumns = await session.db.unsafeQuery(
+          "SELECT column_name FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='outbox' AND column_name IN ('output_kind','definition_digest')",
+        );
+        expect(
+          pluginColumns.map((row) => row[0]),
+          containsAll(['output_kind', 'definition_digest']),
+        );
         final rows = await session.db.unsafeQuery(
           "SELECT to_regclass('raw_inbox') AS raw, to_regclass('events') AS events, to_regclass('outbox') AS outbox",
         );
@@ -294,7 +301,58 @@ VALUES
         final versions = await session.db.unsafeQuery(
           'SELECT version FROM correlia_schema_versions ORDER BY version',
         );
-        expect(versions.map((row) => row.toColumnMap()['version']), [1, 2]);
+        expect(versions.map((row) => row.toColumnMap()['version']), [1, 2, 3]);
+      });
+    },
+    rollbackDatabase: RollbackDatabase.disabled,
+    testGroupTagsOverride: ['db'],
+  );
+  withServerpod(
+    'Plugin output schema upgrade',
+    (sessionBuilder, _) {
+      test('plugin_schema_preserves_webhooks_and_enforces_kinds', () async {
+        final session = sessionBuilder.build();
+        await applySchemaSteps(session, schemaSteps.take(2).toList());
+        await session.db.unsafeSimpleExecute('''
+INSERT INTO outbox
+ (created_at,delivery_id,event_observed_at,event_id,event_disposition,output_id,
+  config_snapshot_id,target_url,signing_key_ref,signing_key_commitment,payload)
+VALUES (now(),gen_random_uuid(),now(),gen_random_uuid(),'ready',gen_random_uuid(),
+ 'old','https://example.com/events','key','digest',decode('01','hex'));
+''');
+        await applySchemaSteps(session, schemaSteps);
+        final old = (await session.db.unsafeQuery(
+          'SELECT output_kind,definition_digest,target_url FROM outbox',
+        )).single;
+        expect(old[0], 'webhook');
+        expect(old[1], isNull);
+        expect(old[2], 'https://example.com/events');
+        await session.db.unsafeSimpleExecute('''
+INSERT INTO outbox
+ (created_at,delivery_id,event_observed_at,event_id,event_disposition,output_id,
+  config_snapshot_id,output_kind,definition_digest,payload)
+VALUES (now(),gen_random_uuid(),now(),gen_random_uuid(),'ready',gen_random_uuid(),
+ 'new','plugin','digest',decode('01','hex'));
+''');
+        for (final sql in [
+          "UPDATE outbox SET output_kind='invalid' WHERE output_kind='plugin'",
+          "UPDATE outbox SET definition_digest=NULL WHERE output_kind='plugin'",
+          "UPDATE outbox SET target_url=NULL WHERE output_kind='webhook'",
+          "UPDATE outbox SET signing_key_ref=NULL WHERE output_kind='webhook'",
+          "UPDATE outbox SET signing_key_commitment=NULL WHERE output_kind='webhook'",
+        ]) {
+          await expectLater(
+            session.db.unsafeSimpleExecute(sql),
+            throwsA(anything),
+          );
+        }
+        final index = await session.db.unsafeQuery(
+          "SELECT indexdef FROM pg_indexes WHERE schemaname=current_schema() AND indexname='outbox_definition_status_idx'",
+        );
+        expect(
+          index.single[0],
+          contains('(output_id, definition_digest, status)'),
+        );
       });
     },
     rollbackDatabase: RollbackDatabase.disabled,

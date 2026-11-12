@@ -10,6 +10,7 @@ import '../event/cloud_event.dart';
 import '../event/event_timestamp.dart';
 import '../event/validation.dart';
 import '../ingest/alertmanager_decoder.dart';
+import '../ingest/bootstrap.dart' show sha256Digest;
 import '../runtime/process_options.dart';
 import '../runtime/subsystem.dart';
 import '../state/alert_state_service.dart';
@@ -102,9 +103,19 @@ final class _Raw {
   final String pin;
 }
 
-final class _Output {
-  const _Output(this.id, this.url, this.ref, this.commitment);
-  final String id, url, ref, commitment;
+sealed class _Output {
+  const _Output(this.id);
+  final String id;
+}
+
+final class _WebhookOutput extends _Output {
+  const _WebhookOutput(super.id, this.url, this.ref, this.commitment);
+  final String url, ref, commitment;
+}
+
+final class _PluginOutput extends _Output {
+  const _PluginOutput(super.id, this.digest);
+  final String digest;
 }
 
 final class _Prepared {
@@ -276,12 +287,19 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
         final outputs = <_Output>[
           for (final output in outputRows)
             if (outputIds.contains(output['id']))
-              _Output(
-                output['id'] as String,
-                output['url'] as String,
-                output['signing_key_ref'] as String,
-                output['signing_key_commitment'] as String,
-              ),
+              switch (output['kind']) {
+                'webhook' => _WebhookOutput(
+                  output['id'] as String,
+                  output['url'] as String,
+                  output['signing_key_ref'] as String,
+                  output['signing_key_commitment'] as String,
+                ),
+                'plugin' => _PluginOutput(
+                  output['id'] as String,
+                  sha256Digest(output),
+                ),
+                _ => throw StateError('Invalid pinned output kind'),
+              },
         ];
         if (outputs.length != outputIds.length) {
           throw StateError('Invalid pinned routing');
@@ -456,8 +474,8 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
               await _limits(tx, deadline);
               await session.db.unsafeExecute(
                 '''INSERT INTO outbox
-(created_at,delivery_id,event_observed_at,event_id,event_disposition,output_id,config_snapshot_id,target_url,signing_key_ref,signing_key_commitment,payload)
-VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposition,CAST(@output AS uuid),@pin,@url,@ref,@commitment,@payload)''',
+(created_at,delivery_id,event_observed_at,event_id,event_disposition,output_id,config_snapshot_id,output_kind,definition_digest,target_url,signing_key_ref,signing_key_commitment,payload)
+VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposition,CAST(@output AS uuid),@pin,@kind,@digest,@url,@ref,@commitment,@payload)''',
                 parameters: QueryParameters.named({
                   'created': created,
                   'delivery': const Uuid().v4(),
@@ -466,9 +484,26 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
                   'disposition': disposition,
                   'output': output.id,
                   'pin': raw.pin,
-                  'url': output.url,
-                  'ref': output.ref,
-                  'commitment': output.commitment,
+                  'kind': switch (output) {
+                    _WebhookOutput() => 'webhook',
+                    _PluginOutput() => 'plugin',
+                  },
+                  'digest': switch (output) {
+                    _WebhookOutput() => null,
+                    _PluginOutput(:final digest) => digest,
+                  },
+                  'url': switch (output) {
+                    _WebhookOutput(:final url) => url,
+                    _PluginOutput() => null,
+                  },
+                  'ref': switch (output) {
+                    _WebhookOutput(:final ref) => ref,
+                    _PluginOutput() => null,
+                  },
+                  'commitment': switch (output) {
+                    _WebhookOutput(:final commitment) => commitment,
+                    _PluginOutput() => null,
+                  },
                   'payload': item.payload,
                 }),
                 transaction: tx,

@@ -1,0 +1,107 @@
+syntax = "proto3";
+
+package correlia.plugin.v1;
+
+import "buf/validate/validate.proto";
+
+option go_package = "github.com/sh1ny/correlia/plugins/protocol/correlia/plugin/v1;pluginv1";
+
+// PluginService identifies, configures and monitors a plugin.
+service PluginService {
+  // GetMetadata returns the plugin's identity and configuration schema.
+  rpc GetMetadata(GetMetadataRequest) returns (GetMetadataResponse);
+  // Configure supplies configuration and separately resolved secrets.
+  rpc Configure(ConfigureRequest) returns (ConfigureResponse);
+  // CheckHealth reports the plugin's current serving state.
+  rpc CheckHealth(CheckHealthRequest) returns (CheckHealthResponse);
+}
+
+// OutputService delivers batches of immutable event snapshots.
+service OutputService {
+  // Deliver exchanges batches and per-event outcomes on one connection.
+  rpc Deliver(stream DeliverRequest) returns (stream DeliverResponse);
+}
+
+message GetMetadataRequest {}
+
+message GetMetadataResponse {
+  string name = 1;
+  string version = 2;
+  repeated string kinds = 3;
+  bytes config_schema_json = 4;
+  uint32 protocol_minor = 5;
+}
+
+// DeliveryLimits bounds batch size and outstanding batches.
+message DeliveryLimits {
+  uint32 max_events_per_batch = 1;
+  uint64 max_bytes_per_batch = 2;
+  uint32 max_outstanding_batches = 3;
+}
+
+message ConfigureRequest {
+  bytes config_json = 1;
+  map<string, bytes> secrets = 2;
+  DeliveryLimits limits = 3;
+}
+
+// FieldError identifies an invalid configuration or secret key without its value.
+message FieldError {
+  string field = 1;
+  string message = 2;
+}
+
+message ConfigureResponse {
+  bool accepted = 1;
+  DeliveryLimits limits = 2;
+  repeated FieldError field_errors = 3;
+  // Empty on acceptance; a bounded, value-free class on rejection.
+  string error_class = 4 [(buf.validate.field).string.pattern = "^$|^[a-z][a-z0-9_]{0,63}$"];
+  // Non-secret information returned only for accepted configurations.
+  map<string, string> configuration_info = 5 [
+    (buf.validate.field).map = {
+      max_pairs: 8
+      keys: {string: {pattern: "^[a-z][a-z0-9_]{0,63}$"}}
+      values: {string: {max_bytes: 256}}
+    }
+  ];
+}
+
+message CheckHealthRequest {}
+
+message CheckHealthResponse {
+  bool serving = 1;
+  string reason = 2 [(buf.validate.field).string.max_len = 256];
+}
+
+// Event contains the exact stored bytes and their stable event identifier.
+message Event {
+  string event_id = 1;
+  bytes payload = 2;
+}
+
+message DeliverRequest {
+  uint64 sequence = 1;
+  repeated Event events = 2;
+}
+
+// DeliveryOutcome distinguishes successful, transient and permanent results.
+enum DeliveryOutcome {
+  DELIVERY_OUTCOME_UNSPECIFIED = 0;
+  DELIVERY_OUTCOME_ACKNOWLEDGED = 1;
+  DELIVERY_OUTCOME_RETRYABLE = 2;
+  DELIVERY_OUTCOME_REJECTED = 3;
+}
+
+// EventResult is one event's outcome in a batch.
+message EventResult {
+  string event_id = 1;
+  DeliveryOutcome outcome = 2;
+  // Empty for acknowledged events; otherwise a bounded, value-free class.
+  string error_class = 3 [(buf.validate.field).string.pattern = "^$|^[a-z][a-z0-9_]{0,63}$"];
+}
+
+message DeliverResponse {
+  uint64 sequence = 1;
+  repeated EventResult results = 2;
+}

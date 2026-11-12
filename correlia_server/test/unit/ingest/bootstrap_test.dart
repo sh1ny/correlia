@@ -110,4 +110,63 @@ void main() {
       throwsA(isA<BootstrapError>()),
     );
   });
+  test('invalid_plugin_output', () {
+    Map<String, Object?> plugin() => {
+      'id': outputId,
+      'kind': 'plugin',
+      'plugin': 'output-nats',
+      'sha256': 'a' * 64,
+      'config': <String, Object?>{},
+      'secret_refs': {'token': 'output-v1'},
+    };
+    for (final (field, value) in <(String, Object?)>[
+      ('kind', 'unknown'),
+      ('plugin', '../escape'),
+      ('sha256', 'A' * 64),
+      ('config', {'large': 'x' * 16384}),
+      ('secret_refs', {'token': 'missing'}),
+    ]) {
+      final input = config()..['outputs'] = [plugin()..[field] = value];
+      expect(
+        () => IngestBootstrap.parse(input, secrets(), runMode: 'test'),
+        throwsA(
+          isA<BootstrapError>().having(
+            (error) => error.field,
+            'field',
+            contains(field),
+          ),
+        ),
+      );
+    }
+  });
+
+  test('long_plugin_secret', () {
+    final bytes = List<int>.generate(3072, (i) => i % 256);
+    final encoded = base64Url.encode(bytes).replaceAll('=', '');
+    final input = config()
+      ..['outputs'] = [
+        {
+          'id': outputId,
+          'kind': 'plugin',
+          'plugin': 'output-nats',
+          'sha256': 'a' * 64,
+          'config': <String, Object?>{},
+          'secret_refs': {'credentials': 'long'},
+        },
+      ];
+    final values = secrets()..['long'] = {'bytes': encoded};
+    final parsed = IngestBootstrap.parse(input, values, runMode: 'test');
+    expect(parsed.secret('long'), orderedEquals(bytes));
+    expect(parsed.publicJson, isNot(contains(encoded)));
+    for (final ref in ['source-v1', 'output-v1']) {
+      expect(
+        () => IngestBootstrap.parse(
+          config(),
+          secrets()..[ref] = {'bytes': encoded},
+          runMode: 'test',
+        ),
+        throwsA(isA<BootstrapError>()),
+      );
+    }
+  });
 }

@@ -79,6 +79,7 @@ class ProtoCommand extends Command<int> {
       'correlia_server/lib/src/plugin_generated';
   static const _pluginGoDirectory =
       'correlia_server/test/plugin/fixtures/go/gen';
+  static const _productionPluginGoDirectory = 'plugins/protocol';
 
   static const _maxProtoFiles = 256;
   static const _maxImageBytes = 16 * 1024 * 1024;
@@ -397,7 +398,7 @@ plugins:
         'generate',
         repoRoot.path,
         '--path',
-        '${repoRoot.path}/proto/correlia/plugin/spike/v1',
+        '${repoRoot.path}/proto/correlia/plugin',
         '--template',
         template.path,
       ],
@@ -421,7 +422,12 @@ plugins:
           );
         }
         final relative = entity.path.substring(directory.path.length + 1);
-        outputs['$outputRoot/$relative'] = entity.readAsStringSync();
+        final targetRoot =
+            scratchRoot == 'plugin_go' &&
+                !relative.startsWith('correlia/plugin/spike/')
+            ? _productionPluginGoDirectory
+            : outputRoot;
+        outputs['$targetRoot/$relative'] = entity.readAsStringSync();
       }
     }
     return result;
@@ -616,6 +622,7 @@ dev_dependencies:
       'contracts/schemas',
       _pluginDartDirectory,
       _pluginGoDirectory,
+      _productionPluginGoDirectory,
     ];
     for (final root in ownedRoots) {
       final directory = Directory('${repoRoot.path}/$root');
@@ -649,6 +656,7 @@ dev_dependencies:
       'contracts/schemas',
       _pluginDartDirectory,
       _pluginGoDirectory,
+      _productionPluginGoDirectory,
     ]) {
       final committedDirectory = Directory('${repoRoot.path}/$directory');
       if (!committedDirectory.existsSync()) continue;

@@ -18,7 +18,7 @@ Alertmanager's upstream fingerprint is retained in raw input and, when present, 
 
 ## Bootstrap and rotation
 
-Set `CORRELIA_INGEST_CONFIG` to a regular JSON file and `CORRELIA_INGEST_SECRETS` to a separate regular secret file. Each file is limited to 64 KiB. Secret files must belong to the process user and have mode 0600 or stricter; symlinks are rejected. Configuration and secret parsing errors expose only a fixed input kind, field path and code, not file content, credentials or destination URLs.
+Set `CORRELIA_INGEST_CONFIG` to a regular JSON file (at most 64 KiB) and `CORRELIA_INGEST_SECRETS` to a separate regular secret file (at most 512 KiB encoded, 256 KiB decoded across at most 128 entries). Secret files must belong to the process user and have mode 0600 or stricter; symlinks are rejected. Configuration and secret parsing errors expose only a fixed input kind, field path and code, not file content, credentials or destination URLs.
 
 Generate a separate 32-byte value for every source token and signing-key reference:
 
@@ -53,6 +53,12 @@ Correlia-owned, non-secret configuration example:
 ```
 
 The secret object needs `alertmanager-token-v1` and `webhook-signing-v1`, each mapped to its separately generated value. The registry permits at most 64 sources, 64 outputs, 128 secret references and eight distinct output ids per source. An empty output list is explicitly unrouted; an unknown output reference is an error, even if the output registry is empty. Source namespaces default to their UUID.
+
+Plugin outputs use exactly `id`, `"kind": "plugin"`, `plugin`, `sha256`, `config` and `secret_refs`. `plugin` is a filename matching `^[a-z0-9][a-z0-9._-]{0,63}$`; `sha256` is its 64-character lowercase executable digest. `config` is a JSON object of at most 16 KiB; `secret_refs` maps at most eight plugin secret names to references in the secret file. Workers require `CORRELIA_PLUGIN_DIR`, owned by the process user and not writable by group or others. Api-only processes validate the definition without requiring that directory. Executable safety and digest are checked again at every launch.
+
+A secret entry may instead be `{"bytes": "<unpadded base64url>"}`, holding 1 byte to 16 KiB decoded; this supports NATS tokens and credentials documents. Source credentials and webhook signing keys still require exactly 32 decoded bytes, whichever form holds them. Only reference commitments enter snapshots; plugins receive resolved bytes separately at Configure, never through their environment. Plugin secret references, like webhook signing references, cannot be rebound to different bytes: rotate under a new name.
+
+Every plugin intent pins its public definition digest and snapshot. Missing historical plugin secrets do not fail worker startup: that definition stays unavailable with its work queued and no new attempts, while other outputs progress. Missing historical webhook signing material still fails startup. Pending work is never redirected to a newer definition.
 
 Startup atomically publishes immutable public snapshots, token digests and the active pointer. Identical active input is a no-op. Every changed publication must be unseen and have a higher integer revision (1–2147483647). Stale or equal-conflicting input fails without changing active credentials or routes. To revert, republish the desired content under a new higher revision; restarting old files never rolls back configuration. Omitted sources become disabled.
 
@@ -125,6 +131,14 @@ FROM pipeline_failures;
 ```
 
 Use both time and id when joining raw/event/output evidence. Raw payloads remain private operational data; never paste them into diagnostics. Accepted bytes are not silently discarded, and no retention/replay scheduler is implemented in this slice. Provision disk headroom until M2 retention/backpressure work.
+
+## Plugin batch delivery
+
+Plugin rows are eligible only while a local instance serves their pinned definition. The relay takes a generation-checked permit before claiming; its last transaction step rechecks that permit before commit. Observed readiness loss before that boundary rolls back acquisition without spending attempts. Unavailable historical definitions do not block ready definitions of the same output. Voluntary stops drain outstanding permits; loss after the boundary makes unanswered events retryable with `plugin_connection_lost`.
+
+One output has at most one delivering set across workers. A plugin batch contains at most 64 events and 1 MiB, further limited by the plugin's negotiated bounds, all from one definition. A monotonic 27-second budget starts before claiming; claim commit is limited to five seconds, delivery to at most twenty seconds while reserving completion time, and each SQL statement/lock timeout to the remaining budget capped at five seconds. The database sets the shared lease to thirty seconds from its own clock.
+
+All per-event outcomes complete in one transaction. Both outbox and attempt updates require the current claim, delivering status, an unexpired `clock_timestamp()` lease and exact affected-row counts; any mismatch rolls everything back. Over-budget completion writes nothing and lease recovery records interruption. Webhooks retain one-row acquisition and their original signing behavior. As with webhooks, every started plugin attempt consumes the twenty-attempt budget; the destination must deduplicate redelivery by event id.
 
 ## Signed webhook delivery and recovery
 

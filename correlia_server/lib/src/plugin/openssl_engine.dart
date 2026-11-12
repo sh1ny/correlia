@@ -201,6 +201,106 @@ final class _OpenSsl {
         void Function(int, Pointer<Utf8>, int)
       >('ERR_error_string_n');
 
+  late final keyContextNew = crypto
+      .lookupFunction<
+        _P Function(_P, Pointer<Utf8>, Pointer<Utf8>),
+        _P Function(_P, Pointer<Utf8>, Pointer<Utf8>)
+      >('EVP_PKEY_CTX_new_from_name');
+  late final keyContextFree = crypto
+      .lookupFunction<Void Function(_P), void Function(_P)>(
+        'EVP_PKEY_CTX_free',
+      );
+  late final keygenInit = crypto
+      .lookupFunction<Int Function(_P), int Function(_P)>(
+        'EVP_PKEY_keygen_init',
+      );
+  late final keygenParam = crypto
+      .lookupFunction<
+        Int Function(_P, Pointer<Utf8>, Pointer<Utf8>),
+        int Function(_P, Pointer<Utf8>, Pointer<Utf8>)
+      >('EVP_PKEY_CTX_ctrl_str');
+  late final keygen = crypto
+      .lookupFunction<
+        Int Function(_P, Pointer<_P>),
+        int Function(_P, Pointer<_P>)
+      >('EVP_PKEY_generate');
+  late final certNew = crypto.lookupFunction<_P Function(), _P Function()>(
+    'X509_new',
+  );
+  late final certVersion = crypto
+      .lookupFunction<Int Function(_P, Long), int Function(_P, int)>(
+        'X509_set_version',
+      );
+  late final certSerial = crypto
+      .lookupFunction<_P Function(_P), _P Function(_P)>(
+        'X509_get_serialNumber',
+      );
+  late final integerSet = crypto
+      .lookupFunction<Int Function(_P, Long), int Function(_P, int)>(
+        'ASN1_INTEGER_set',
+      );
+  late final notBefore = crypto
+      .lookupFunction<_P Function(_P), _P Function(_P)>('X509_getm_notBefore');
+  late final notAfter = crypto.lookupFunction<_P Function(_P), _P Function(_P)>(
+    'X509_getm_notAfter',
+  );
+  late final timeAdjust = crypto
+      .lookupFunction<_P Function(_P, Long), _P Function(_P, int)>(
+        'X509_gmtime_adj',
+      );
+  late final certSetKey = crypto
+      .lookupFunction<Int Function(_P, _P), int Function(_P, _P)>(
+        'X509_set_pubkey',
+      );
+  late final certSubject = crypto
+      .lookupFunction<_P Function(_P), _P Function(_P)>(
+        'X509_get_subject_name',
+      );
+  late final nameAdd = crypto
+      .lookupFunction<
+        Int Function(_P, Pointer<Utf8>, Int, Pointer<Uint8>, Int, Int, Int),
+        int Function(_P, Pointer<Utf8>, int, Pointer<Uint8>, int, int, int)
+      >('X509_NAME_add_entry_by_txt');
+  late final certIssuer = crypto
+      .lookupFunction<Int Function(_P, _P), int Function(_P, _P)>(
+        'X509_set_issuer_name',
+      );
+  late final extensionNew = crypto
+      .lookupFunction<
+        _P Function(_P, _P, Int, Pointer<Utf8>),
+        _P Function(_P, _P, int, Pointer<Utf8>)
+      >('X509V3_EXT_conf_nid');
+  late final extensionAdd = crypto
+      .lookupFunction<Int Function(_P, _P, Int), int Function(_P, _P, int)>(
+        'X509_add_ext',
+      );
+  late final extensionFree = crypto
+      .lookupFunction<Void Function(_P), void Function(_P)>(
+        'X509_EXTENSION_free',
+      );
+  late final sha512 = crypto.lookupFunction<_P Function(), _P Function()>(
+    'EVP_sha512',
+  );
+  late final certSign = crypto
+      .lookupFunction<Int Function(_P, _P, _P), int Function(_P, _P, _P)>(
+        'X509_sign',
+      );
+  late final bioMethod = crypto.lookupFunction<_P Function(), _P Function()>(
+    'BIO_s_mem',
+  );
+  late final bioNew = crypto.lookupFunction<_P Function(_P), _P Function(_P)>(
+    'BIO_new',
+  );
+  late final writeCert = crypto
+      .lookupFunction<Int Function(_P, _P), int Function(_P, _P)>(
+        'PEM_write_bio_X509',
+      );
+  late final writeKey = crypto
+      .lookupFunction<
+        Int Function(_P, _P, _P, _P, Int, _P, _P),
+        int Function(_P, _P, _P, _P, int, _P, _P)
+      >('PEM_write_bio_PrivateKey');
+
   void resolve() {
     // Reading each lazy field resolves the complete ABI before socket acquisition.
     [
@@ -254,11 +354,127 @@ final class _OpenSsl {
       clearError,
       error,
       errorString,
+      keyContextNew,
+      keyContextFree,
+      keygenInit,
+      keygenParam,
+      keygen,
+      certNew,
+      certVersion,
+      certSerial,
+      integerSet,
+      notBefore,
+      notAfter,
+      timeAdjust,
+      certSetKey,
+      certSubject,
+      nameAdd,
+      certIssuer,
+      extensionNew,
+      extensionAdd,
+      extensionFree,
+      sha512,
+      certSign,
+      bioMethod,
+      bioNew,
+      writeCert,
+      writeKey,
     ];
   }
 }
 
 _OpenSsl? _backend;
+
+/// Mints a fresh in-memory P-521 client identity for one plugin launch.
+({Uint8List certificatePem, Uint8List privateKeyPem}) mintPluginIdentity() {
+  NativeTlsEngine.verifyBackend(const PluginTlsTestControls());
+  final api = _backend!;
+  return using((arena) {
+    var context = nullptr.cast<Void>();
+    var key = nullptr.cast<Void>();
+    var cert = nullptr.cast<Void>();
+    var extension = nullptr.cast<Void>();
+    var bio = nullptr.cast<Void>();
+    final keySlot = arena<_P>();
+    void require(bool success) {
+      if (!success) throw StateError('OpenSSL identity generation failed');
+    }
+
+    Uint8List extract() {
+      final size = api.bioPending(bio);
+      require(size > 0 && size <= 16384);
+      final buffer = arena<Uint8>(size);
+      require(api.bioRead(bio, buffer.cast<Void>(), size) == size);
+      return Uint8List.fromList(buffer.asTypedList(size));
+    }
+
+    try {
+      context = api.keyContextNew(
+        nullptr,
+        'EC'.toNativeUtf8(allocator: arena),
+        nullptr,
+      );
+      require(context != nullptr && api.keygenInit(context) == 1);
+      require(
+        api.keygenParam(
+              context,
+              'ec_paramgen_curve'.toNativeUtf8(allocator: arena),
+              'secp521r1'.toNativeUtf8(allocator: arena),
+            ) ==
+            1,
+      );
+      final generated = api.keygen(context, keySlot);
+      key = keySlot.value;
+      require(generated == 1 && key != nullptr);
+      cert = api.certNew();
+      require(cert != nullptr);
+      require(api.certVersion(cert, 2) == 1);
+      require(api.integerSet(api.certSerial(cert), 1) == 1);
+      require(api.timeAdjust(api.notBefore(cert), 0) != nullptr);
+      require(api.timeAdjust(api.notAfter(cert), 30 * 24 * 60 * 60) != nullptr);
+      require(api.certSetKey(cert, key) == 1);
+      final subject = api.certSubject(cert);
+      require(subject != nullptr);
+      require(
+        api.nameAdd(
+              subject,
+              'CN'.toNativeUtf8(allocator: arena),
+              0x1001,
+              'localhost'.toNativeUtf8(allocator: arena).cast<Uint8>(),
+              -1,
+              -1,
+              0,
+            ) ==
+            1,
+      );
+      require(api.certIssuer(cert, subject) == 1);
+      extension = api.extensionNew(
+        nullptr,
+        nullptr,
+        85,
+        'DNS:localhost'.toNativeUtf8(allocator: arena),
+      );
+      require(
+        extension != nullptr && api.extensionAdd(cert, extension, -1) == 1,
+      );
+      require(api.certSign(cert, key, api.sha512()) > 0);
+      bio = api.bioNew(api.bioMethod());
+      require(bio != nullptr && api.writeCert(bio, cert) == 1);
+      final certificate = extract();
+      require(
+        api.writeKey(bio, key, nullptr, nullptr, 0, nullptr, nullptr) == 1,
+      );
+      return (certificatePem: certificate, privateKeyPem: extract());
+    } finally {
+      if (bio != nullptr) api.bioFree(bio);
+      if (extension != nullptr) api.extensionFree(extension);
+      if (cert != nullptr) api.certFree(cert);
+      if (key != nullptr) api.keyFree(key);
+      if (context != nullptr) api.keyContextFree(context);
+    }
+  });
+}
+
 int _noPassword(Pointer<Uint8> buffer, int size, int writing, _P data) => 0;
 final _passwordCallback = Pointer.fromFunction<_Password>(_noPassword, 0);
 

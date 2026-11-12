@@ -41,7 +41,7 @@ description = "Install the pinned build-time payload schema validator from its n
 run = "npm ci --prefix tool/schema_validation --prefer-offline --ignore-scripts --no-audit --no-fund"
 
 [tasks.proto]
-description = "Generate event contract outputs and experimental plugin Dart/Go"
+description = "Generate event and plugin protocol Dart/Go outputs"
 run = "dart run tool/bin/tool.dart proto"
 depends = ["proto:setup"]
 
@@ -50,9 +50,32 @@ description = "Check event compatibility, event/plugin drift and payload fixture
 run = "dart run tool/bin/tool.dart proto:check"
 depends = ["proto:setup"]
 
+[tasks."plugins:build"]
+description = "Build the pinned plugin and embedded NATS tool"
+run = [
+  "install -d -m 700 build/plugins",
+  "go -C plugins build -mod=readonly -trimpath -o ../build/plugins/output-nats ./output-nats && chmod 700 build/plugins/output-nats || { echo 'FAIL module plugins' >&2; exit 1; }",
+  "go -C tool/natsdev build -mod=readonly -trimpath -o ../../build/plugins/natsdev . || { echo 'FAIL module tool/natsdev' >&2; exit 1; }",
+]
+
+[tasks."nats:dev"]
+description = "Start a loopback embedded JetStream server"
+run = "build/plugins/natsdev serve --store build/natsdev"
+depends = ["plugins:build"]
+
+[tasks."nats:stream"]
+description = "Create the Correlia event stream; pass --url"
+run = "build/plugins/natsdev stream"
+depends = ["plugins:build"]
+
+[tasks."nats:sub"]
+description = "Subscribe to Correlia event subjects; pass --url"
+run = "build/plugins/natsdev sub"
+depends = ["plugins:build"]
+
 [tasks.run]
 description = "Start the Correlia server"
-run = "dart run bin/main.dart"
+run = 'CORRELIA_PLUGIN_DIR="${CORRELIA_PLUGIN_DIR:-../build/plugins}" dart run bin/main.dart'
 dir = "correlia_server"
 depends = ["setup"]
 

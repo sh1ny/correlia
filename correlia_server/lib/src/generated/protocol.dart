@@ -28,6 +28,8 @@ import 'ingest_source.dart' as _inhmna33;
 import 'invalid_cursor_exception.dart' as _iil3cq3h;
 import 'observation_key.dart' as _ii70ink4;
 import 'pipeline_failure.dart' as _ir1rifdz;
+import 'plugin_definition_health.dart' as _iqfe2rop;
+import 'plugin_instance_status.dart' as _i5barlkw;
 import 'transport_key.dart' as _ix76ovok;
 export 'alert.dart';
 export 'alert_snapshot.dart';
@@ -44,6 +46,8 @@ export 'ingest_source.dart';
 export 'invalid_cursor_exception.dart';
 export 'observation_key.dart';
 export 'pipeline_failure.dart';
+export 'plugin_definition_health.dart';
+export 'plugin_instance_status.dart';
 export 'transport_key.dart';
 
 class Protocol extends _is.DatabaseSerializationManager
@@ -74,6 +78,8 @@ class Protocol extends _is.DatabaseSerializationManager
           _is.getType<_iil3cq3h.InvalidCursorException>,
           _is.getType<_ii70ink4.ObservationKeyRow>,
           _is.getType<_ir1rifdz.PipelineFailure>,
+          _is.getType<_iqfe2rop.PluginDefinitionHealth>,
+          _is.getType<_i5barlkw.PluginInstanceStatus>,
           _is.getType<_ix76ovok.TransportKey>,
           _is.getType<_iqmz6gj4.AlertRow?>,
           _is.getType<_iz3t21fy.AlertSnapshot?>,
@@ -90,6 +96,8 @@ class Protocol extends _is.DatabaseSerializationManager
           _is.getType<_iil3cq3h.InvalidCursorException?>,
           _is.getType<_ii70ink4.ObservationKeyRow?>,
           _is.getType<_ir1rifdz.PipelineFailure?>,
+          _is.getType<_iqfe2rop.PluginDefinitionHealth?>,
+          _is.getType<_i5barlkw.PluginInstanceStatus?>,
           _is.getType<_ix76ovok.TransportKey?>,
           _is.getType<List<_i897ft9c.AlertView>>,
           _is.getType<List<_iywqxrq6.FeedEntry>>,
@@ -111,6 +119,8 @@ class Protocol extends _is.DatabaseSerializationManager
           'InvalidCursorException',
           'ObservationKeyRow',
           'PipelineFailure',
+          'PluginDefinitionHealth',
+          'PluginInstanceStatus',
           'TransportKey',
         ],
       );
@@ -666,6 +676,218 @@ class Protocol extends _is.DatabaseSerializationManager
       managed: true,
     ),
     _isp.TableDefinition(
+      name: 'plugin_definition_health',
+      dartName: 'PluginDefinitionHealth',
+      schema: 'public',
+      module: 'correlia',
+      columns: [
+        _isp.ColumnDefinition(
+          name: 'id',
+          columnType: _isp.ColumnType.bigint,
+          isNullable: false,
+          dartType: 'int?',
+          columnDefault: 'serial',
+        ),
+        _isp.ColumnDefinition(
+          name: 'hostInstanceId',
+          columnType: _isp.ColumnType.text,
+          isNullable: false,
+          dartType: 'String',
+        ),
+        _isp.ColumnDefinition(
+          name: 'outputId',
+          columnType: _isp.ColumnType.text,
+          isNullable: false,
+          dartType: 'String',
+        ),
+        _isp.ColumnDefinition(
+          name: 'definitionDigest',
+          columnType: _isp.ColumnType.text,
+          isNullable: false,
+          dartType: 'String',
+        ),
+        _isp.ColumnDefinition(
+          name: 'failureTimes',
+          columnType: _isp.ColumnType.text,
+          isNullable: false,
+          dartType: 'String',
+        ),
+        _isp.ColumnDefinition(
+          name: 'backoffStep',
+          columnType: _isp.ColumnType.bigint,
+          isNullable: false,
+          dartType: 'int',
+        ),
+        _isp.ColumnDefinition(
+          name: 'nextStartAt',
+          columnType: _isp.ColumnType.timestampWithoutTimeZone,
+          isNullable: true,
+          dartType: 'DateTime?',
+        ),
+        _isp.ColumnDefinition(
+          name: 'circuit',
+          columnType: _isp.ColumnType.text,
+          isNullable: false,
+          dartType: 'String',
+        ),
+        _isp.ColumnDefinition(
+          name: 'nextProbeAt',
+          columnType: _isp.ColumnType.timestampWithoutTimeZone,
+          isNullable: true,
+          dartType: 'DateTime?',
+        ),
+        _isp.ColumnDefinition(
+          name: 'lastErrorClass',
+          columnType: _isp.ColumnType.text,
+          isNullable: true,
+          dartType: 'String?',
+        ),
+      ],
+      foreignKeys: [],
+      indexes: [
+        _isp.IndexDefinition(
+          indexName: 'plugin_definition_health_owner_definition_idx',
+          tableSpace: null,
+          elements: [
+            _isp.IndexElementDefinition(
+              type: _isp.IndexElementDefinitionType.column,
+              definition: 'hostInstanceId',
+            ),
+            _isp.IndexElementDefinition(
+              type: _isp.IndexElementDefinitionType.column,
+              definition: 'outputId',
+            ),
+            _isp.IndexElementDefinition(
+              type: _isp.IndexElementDefinitionType.column,
+              definition: 'definitionDigest',
+            ),
+          ],
+          type: 'btree',
+          isUnique: true,
+          isPrimary: false,
+        ),
+      ],
+      managed: true,
+    ),
+    _isp.TableDefinition(
+      name: 'plugin_instance_status',
+      dartName: 'PluginInstanceStatus',
+      schema: 'public',
+      module: 'correlia',
+      columns: [
+        _isp.ColumnDefinition(
+          name: 'id',
+          columnType: _isp.ColumnType.bigint,
+          isNullable: false,
+          dartType: 'int?',
+          columnDefault: 'serial',
+        ),
+        _isp.ColumnDefinition(
+          name: 'hostInstanceId',
+          columnType: _isp.ColumnType.text,
+          isNullable: false,
+          dartType: 'String',
+        ),
+        _isp.ColumnDefinition(
+          name: 'outputId',
+          columnType: _isp.ColumnType.text,
+          isNullable: false,
+          dartType: 'String',
+        ),
+        _isp.ColumnDefinition(
+          name: 'definitionDigest',
+          columnType: _isp.ColumnType.text,
+          isNullable: false,
+          dartType: 'String',
+        ),
+        _isp.ColumnDefinition(
+          name: 'state',
+          columnType: _isp.ColumnType.text,
+          isNullable: false,
+          dartType: 'String',
+        ),
+        _isp.ColumnDefinition(
+          name: 'pluginName',
+          columnType: _isp.ColumnType.text,
+          isNullable: true,
+          dartType: 'String?',
+        ),
+        _isp.ColumnDefinition(
+          name: 'pluginVersion',
+          columnType: _isp.ColumnType.text,
+          isNullable: true,
+          dartType: 'String?',
+        ),
+        _isp.ColumnDefinition(
+          name: 'pid',
+          columnType: _isp.ColumnType.bigint,
+          isNullable: true,
+          dartType: 'int?',
+        ),
+        _isp.ColumnDefinition(
+          name: 'restartCount',
+          columnType: _isp.ColumnType.bigint,
+          isNullable: false,
+          dartType: 'int',
+        ),
+        _isp.ColumnDefinition(
+          name: 'crashesInWindow',
+          columnType: _isp.ColumnType.bigint,
+          isNullable: false,
+          dartType: 'int',
+        ),
+        _isp.ColumnDefinition(
+          name: 'lastErrorClass',
+          columnType: _isp.ColumnType.text,
+          isNullable: true,
+          dartType: 'String?',
+        ),
+        _isp.ColumnDefinition(
+          name: 'lastPluginErrorClass',
+          columnType: _isp.ColumnType.text,
+          isNullable: true,
+          dartType: 'String?',
+        ),
+        _isp.ColumnDefinition(
+          name: 'version',
+          columnType: _isp.ColumnType.bigint,
+          isNullable: false,
+          dartType: 'int',
+        ),
+        _isp.ColumnDefinition(
+          name: 'heartbeatAt',
+          columnType: _isp.ColumnType.timestampWithoutTimeZone,
+          isNullable: false,
+          dartType: 'DateTime',
+        ),
+      ],
+      foreignKeys: [],
+      indexes: [
+        _isp.IndexDefinition(
+          indexName: 'plugin_instance_status_owner_definition_idx',
+          tableSpace: null,
+          elements: [
+            _isp.IndexElementDefinition(
+              type: _isp.IndexElementDefinitionType.column,
+              definition: 'hostInstanceId',
+            ),
+            _isp.IndexElementDefinition(
+              type: _isp.IndexElementDefinitionType.column,
+              definition: 'outputId',
+            ),
+            _isp.IndexElementDefinition(
+              type: _isp.IndexElementDefinitionType.column,
+              definition: 'definitionDigest',
+            ),
+          ],
+          type: 'btree',
+          isUnique: true,
+          isPrimary: false,
+        ),
+      ],
+      managed: true,
+    ),
+    _isp.TableDefinition(
       name: 'transport_keys',
       dartName: 'TransportKey',
       schema: 'public',
@@ -815,6 +1037,12 @@ class Protocol extends _is.DatabaseSerializationManager
     if (t == _ir1rifdz.PipelineFailure) {
       return _ir1rifdz.PipelineFailure.fromJson(data) as T;
     }
+    if (t == _iqfe2rop.PluginDefinitionHealth) {
+      return _iqfe2rop.PluginDefinitionHealth.fromJson(data) as T;
+    }
+    if (t == _i5barlkw.PluginInstanceStatus) {
+      return _i5barlkw.PluginInstanceStatus.fromJson(data) as T;
+    }
     if (t == _ix76ovok.TransportKey) {
       return _ix76ovok.TransportKey.fromJson(data) as T;
     }
@@ -881,6 +1109,18 @@ class Protocol extends _is.DatabaseSerializationManager
       return (data != null ? _ir1rifdz.PipelineFailure.fromJson(data) : null)
           as T;
     }
+    if (t == _is.getType<_iqfe2rop.PluginDefinitionHealth?>()) {
+      return (data != null
+              ? _iqfe2rop.PluginDefinitionHealth.fromJson(data)
+              : null)
+          as T;
+    }
+    if (t == _is.getType<_i5barlkw.PluginInstanceStatus?>()) {
+      return (data != null
+              ? _i5barlkw.PluginInstanceStatus.fromJson(data)
+              : null)
+          as T;
+    }
     if (t == _is.getType<_ix76ovok.TransportKey?>()) {
       return (data != null ? _ix76ovok.TransportKey.fromJson(data) : null) as T;
     }
@@ -926,6 +1166,8 @@ class Protocol extends _is.DatabaseSerializationManager
       _iil3cq3h.InvalidCursorException => 'InvalidCursorException',
       _ii70ink4.ObservationKeyRow => 'ObservationKeyRow',
       _ir1rifdz.PipelineFailure => 'PipelineFailure',
+      _iqfe2rop.PluginDefinitionHealth => 'PluginDefinitionHealth',
+      _i5barlkw.PluginInstanceStatus => 'PluginInstanceStatus',
       _ix76ovok.TransportKey => 'TransportKey',
       _ => null,
     };
@@ -971,6 +1213,10 @@ class Protocol extends _is.DatabaseSerializationManager
         return 'ObservationKeyRow';
       case _ir1rifdz.PipelineFailure():
         return 'PipelineFailure';
+      case _iqfe2rop.PluginDefinitionHealth():
+        return 'PluginDefinitionHealth';
+      case _i5barlkw.PluginInstanceStatus():
+        return 'PluginInstanceStatus';
       case _ix76ovok.TransportKey():
         return 'TransportKey';
     }
@@ -1032,6 +1278,12 @@ class Protocol extends _is.DatabaseSerializationManager
     if (dataClassName == 'PipelineFailure') {
       return deserialize<_ir1rifdz.PipelineFailure>(data['data']);
     }
+    if (dataClassName == 'PluginDefinitionHealth') {
+      return deserialize<_iqfe2rop.PluginDefinitionHealth>(data['data']);
+    }
+    if (dataClassName == 'PluginInstanceStatus') {
+      return deserialize<_i5barlkw.PluginInstanceStatus>(data['data']);
+    }
     if (dataClassName == 'TransportKey') {
       return deserialize<_ix76ovok.TransportKey>(data['data']);
     }
@@ -1069,6 +1321,10 @@ class Protocol extends _is.DatabaseSerializationManager
         return _ii70ink4.ObservationKeyRow.t;
       case _ir1rifdz.PipelineFailure:
         return _ir1rifdz.PipelineFailure.t;
+      case _iqfe2rop.PluginDefinitionHealth:
+        return _iqfe2rop.PluginDefinitionHealth.t;
+      case _i5barlkw.PluginInstanceStatus:
+        return _i5barlkw.PluginInstanceStatus.t;
       case _ix76ovok.TransportKey:
         return _ix76ovok.TransportKey.t;
     }

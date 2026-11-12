@@ -61,7 +61,7 @@ void main() {
   test(
     'rejects oversized files before parsing and never echoes bytes',
     () async {
-      await secrets.writeAsString('canary-secret' * 6000);
+      await secrets.writeAsString('canary-secret' * 41000);
       await expectLater(
         IngestBootstrap.load(environment(), runMode: 'test'),
         throwsA(
@@ -102,4 +102,95 @@ void main() {
       ),
     );
   });
+  test('secret_file_sizes', () async {
+    final encoded = base64Url
+        .encode(List<int>.filled(16384, 7))
+        .replaceAll('=', '');
+    await secrets.writeAsString(
+      jsonEncode({
+        for (var i = 0; i < 15; i++) 'secret-$i': {'bytes': encoded},
+      }),
+    );
+    expect((await secrets.length()), greaterThan(300 * 1024));
+    expect(
+      (await IngestBootstrap.load(environment(), runMode: 'test'))!.revision,
+      1,
+    );
+
+    await secrets.writeAsString(
+      jsonEncode({
+        for (var i = 0; i < 17; i++) 'secret-$i': {'bytes': encoded},
+      }),
+    );
+    await expectLater(
+      IngestBootstrap.load(environment(), runMode: 'test'),
+      throwsA(isA<BootstrapError>().having((e) => e.code, 'code', 'bound')),
+    );
+    await secrets.writeAsString(' ' * (512 * 1024 + 1));
+    await expectLater(
+      IngestBootstrap.load(environment(), runMode: 'test'),
+      throwsA(isA<BootstrapError>().having((e) => e.code, 'code', 'bound')),
+    );
+    await config.writeAsString(' ' * (64 * 1024 + 1));
+    await expectLater(
+      IngestBootstrap.load(environment(), runMode: 'test'),
+      throwsA(isA<BootstrapError>().having((e) => e.code, 'code', 'bound')),
+    );
+  });
+  test(
+    'plugin directory is required only for workers and must be safe',
+    () async {
+      await config.writeAsString(
+        jsonEncode({
+          'format_version': 1,
+          'revision': 1,
+          'sources': <Object?>[],
+          'outputs': [
+            {
+              'id': '22222222-2222-4222-8222-222222222222',
+              'kind': 'plugin',
+              'plugin': 'output-nats',
+              'sha256': 'a' * 64,
+              'config': <String, Object?>{},
+              'secret_refs': <String, Object?>{},
+            },
+          ],
+        }),
+      );
+      expect(
+        await IngestBootstrap.load(
+          environment(),
+          runMode: 'test',
+          requirePluginDirectory: false,
+        ),
+        isNotNull,
+      );
+      await expectLater(
+        IngestBootstrap.load(environment(), runMode: 'test'),
+        throwsA(
+          isA<BootstrapError>().having(
+            (e) => e.field,
+            'field',
+            'CORRELIA_PLUGIN_DIR',
+          ),
+        ),
+      );
+      final directory = await Directory('${root.path}/plugins').create();
+      final safe = await Process.run('/usr/bin/chmod', ['700', directory.path]);
+      expect(safe.exitCode, 0);
+      final env = {...environment(), 'CORRELIA_PLUGIN_DIR': directory.path};
+      expect(await IngestBootstrap.load(env, runMode: 'test'), isNotNull);
+      final result = await Process.run('/usr/bin/chmod', [
+        '777',
+        directory.path,
+      ]);
+      expect(result.exitCode, 0);
+      await expectLater(
+        IngestBootstrap.load(env, runMode: 'test'),
+        throwsA(
+          isA<BootstrapError>().having((e) => e.code, 'code', 'permissions'),
+        ),
+      );
+    },
+  );
 }

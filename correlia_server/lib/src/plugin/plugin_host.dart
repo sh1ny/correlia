@@ -148,14 +148,16 @@ final class PluginStartupException implements Exception {
   String toString() => 'PluginStartupException: $message';
 }
 
-/// Owns exactly one experimental plugin process and its connection.
-///
-/// The host holds stdin open without writing to it.
-final class PluginHost {
-  /// Creates an idle host.
-  PluginHost(this.config) : _controls = const PluginHostTestControls();
+/// Owns one authenticated plugin process independently of its application protocol.
+base class PluginLaunchCore {
+  /// Creates an idle launch core.
+  PluginLaunchCore(this.config, {this.cookieKey = 'CORRELIA_PLUGIN'})
+    : _controls = const PluginHostTestControls();
 
-  PluginHost._(this.config, this._controls);
+  PluginLaunchCore._(this.config, this._controls, this.cookieKey);
+
+  /// The handshake cookie environment key.
+  final String cookieKey;
 
   final PluginHostTestControls _controls;
 
@@ -175,6 +177,21 @@ final class PluginHost {
   Future<void> _serial = Future<void>.value();
   _HostState _state = const _Idle();
   int _discardedDiagnosticBytes = 0;
+
+  /// The authenticated application channel after startup.
+  ClientTransportConnectorChannel get channel {
+    final connection = _connection;
+    if (_state is! _Ready || connection == null) {
+      throw StateError('Plugin is not ready');
+    }
+    return connection.channel;
+  }
+
+  /// The last rejected gRPC frame while the connection is active.
+  FormatException? get frameFailure => _connection?.frameFailure;
+
+  /// The child exit code after a process has been started.
+  Future<int>? get onExit => _process?.exitCode;
 
   /// Facts obtained before TLS, including on authentication failure.
   PluginHandshakeEvidence? get evidence => _evidence;
@@ -261,7 +278,7 @@ final class PluginHost {
         throw StateError('Unsafe attempt directory');
       }
       final environment = <String, String>{
-        'CORRELIA_PLUGIN_COOKIE': config.cookie,
+        cookieKey: config.cookie,
         'PLUGIN_PROTOCOL_VERSIONS': config.versions,
         'PLUGIN_UNIX_SOCKET_DIR': directory,
         'PLUGIN_CLIENT_CERT':
@@ -443,29 +460,24 @@ final class PluginHost {
     }
   }
 
-  /// Performs a protected empty application batch and validates its acknowledgement.
-  Future<void> probe() async {
-    final connection = _connection;
-    if (_state is! _Ready || connection == null) {
-      throw StateError('Plugin is not ready');
-    }
-    await connection.probe();
-  }
-
   /// Requests shutdown, then forcibly terminates and reaps an uncooperative child.
-  Future<void> stop() => _serialize(() async {
+  Future<void> stop() => stopWithGrace(const Duration(seconds: 2));
+
+  /// Requests shutdown with the supplied grace period, then reaps the child.
+  Future<void> stopWithGrace(Duration grace) => _serialize(() async {
+    if (grace.isNegative) throw ArgumentError.value(grace, 'grace');
     if (_state is _Stopped) return;
     _state = const _Stopping();
     final watch = Stopwatch()..start();
     final connection = _connection;
     if (connection != null) {
       try {
-        await connection.requestShutdown().timeout(const Duration(seconds: 2));
+        await connection.requestShutdown().timeout(grace);
       } on Object {
         /* Forced cleanup follows. */
       }
     }
-    final remaining = const Duration(seconds: 2) - watch.elapsed;
+    final remaining = grace - watch.elapsed;
     await _cleanup(grace: remaining.isNegative ? Duration.zero : remaining);
     _state = const _Stopped();
   });
@@ -509,6 +521,24 @@ final class PluginHost {
       await directory.delete(recursive: true);
     }
     if (closeError != null) Error.throwWithStackTrace(closeError, closeStack!);
+  }
+}
+
+/// Owns exactly one experimental plugin process and its connection.
+final class PluginHost extends PluginLaunchCore {
+  /// Creates an idle experimental host.
+  PluginHost(super.config) : super(cookieKey: 'CORRELIA_PLUGIN_COOKIE');
+
+  PluginHost._(PluginHostConfig config, PluginHostTestControls controls)
+    : super._(config, controls, 'CORRELIA_PLUGIN_COOKIE');
+
+  /// Performs a protected empty application batch and validates its acknowledgement.
+  Future<void> probe() async {
+    final connection = _connection;
+    if (_state is! _Ready || connection == null) {
+      throw StateError('Plugin is not ready');
+    }
+    await connection.probe();
   }
 }
 

@@ -30,6 +30,7 @@ final class SchemaStepException implements Exception {
 List<SchemaStep> get schemaSteps => [
   SchemaStep(1, File('schema/0001_ingest.sql').readAsStringSync()),
   SchemaStep(2, File('schema/0002_activity.sql').readAsStringSync()),
+  SchemaStep(3, File('schema/0003_plugin_outputs.sql').readAsStringSync()),
 ];
 
 /// Applies each missing step under the shared transaction advisory lock.

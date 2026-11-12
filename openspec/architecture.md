@@ -97,12 +97,14 @@ run in every role unless they are switched off:
 | `events` (canonical) | Pipeline normalize/enrich stage | Retention (configurable, default 90 d), partitioned; kept while referenced by a pending or dead-lettered outbox row | Evidence, not state. Re-derivable from `raw_inbox` while that is retained | Postgres |
 | `alerts` (state per fingerprint, with ordering fence and `last_observed_at`) | `StateMutationService` | Firing: indefinite. Resolved: kept as tombstone at least the lateness horizon (default 7 d) | **Authoritative, never rebuilt** from events (ADR 0017) | Postgres |
 | `incidents`, `incident_alerts`, `threshold_contributions`, `incident_transitions` | `StateMutationService` only (pipeline, operator actions, expiry/reminder jobs, merge/split all call it) | Indefinite (archival policy later) | Not rebuilt; the activity ledger explains every change | Postgres |
-| `activity` ledger (also the change feed, cursor `(txid, id)`) | `StateMutationService`, endpoints | Indefinite (feed retention configurable; older cursors get `cursor_expired`) | Append-only | Postgres |
+| `activity` ledger (also the change feed, cursor `(txid, id)`) | `StateMutationService`, endpoints; supervisor for plugin degraded/recovered entries in the status transaction | Indefinite (feed retention configurable; older cursors get `cursor_expired`) | Append-only | Postgres |
 | Configuration versions (rules of every kind, source mappings, routing, plugin config) | M1 ingest publication repository; later endpoints and provisioning loader | Versioned forever | Immutable; M1 activation requires increasing revision; revert by publishing earlier content at a higher revision | Postgres; M1 bootstrap files are inputs |
 | Source instances and namespaces | M1 ingest publication repository; later endpoints (admin) | Until removed | Admission state atomically follows the active snapshot | Postgres (ADR 0024) |
-| `outbox`, `delivery_attempts` | Pipeline and `StateMutationService` (insert), relays (update) | M1 retains all rows; later retention applies to terminal work | Delivery replay (byte-identical) is later work | Postgres |
-| Plugin configs and secrets | M1 publication repository owns signing-key commitments; operator owns secret bytes in a local file; later endpoints own plugin configuration | Until changed | New reference for key rotation; M1 does not store signing secrets in Postgres | Postgres commitments and operator-owned secret file |
-| Plugin process state | Plugin host | Process lifetime | Restart and re-handshake | Memory; status mirrored to Postgres |
+| `outbox`, `delivery_attempts` | Pipeline and `StateMutationService` (insert), relays (update) | M1 retains all rows; later retention applies to terminal work | Only durable delivery queue; plugin batches pin one definition digest and complete atomically under claim/lease fences; individually oversized intents are retained dead before transport without a new attempt (ADR 0027); replay (byte-identical) is later work | Postgres |
+| Plugin configs and secrets | M1 publication repository owns webhook and plugin secret commitments; operator owns secret bytes in a local file; later endpoints own plugin configuration | Until changed | New reference for rotation; no secret values in Postgres; missing plugin material blocks only its definition, not startup | Postgres commitments and operator-owned secret file |
+| Plugin process state and admission cursor | Plugin supervisor | Process lifetime | Restart and re-handshake; memory holds only running instances and one keyset cursor | Memory |
+| `plugin_instance_status` | Supervisor of the named host; periodic cross-host expiry only after >24 h without a heartbeat | Every 60 s: own stopped rows >60 s old only without health for their key; other hosts' rows >24 h old | Transitions; ready/waiting rows every 15 s, starting at launch; >60 s heartbeats read stale, not proof of death | Postgres mirror |
+| `plugin_definition_health` | Supervisor of the named host | While failed definitions have queued/delivering work; cross-host expiry after >24 h silence and last status-row removal | Backoff, ≤6 failure times and circuit survive eviction; owning host prunes only without live work; stopped status rows with health remain as expiry anchors | Postgres |
 | Console view state | Console | Session | Re-fetch after a stream invalidation | Browser memory |
 
 ## Boundaries and contracts
@@ -118,9 +120,17 @@ run in every role unless they are switched off:
   while frozen protobuf backing retains unknown binary fields. Optional binary metadata controls scope;
   absent metadata means unknown scope, never an inferred minor. CloudEvents `type` carries the major
   version and `dataschema` the minor.
-- **Plugin protocol** `correlia.plugin.v1` (ADR 0020): `proto/correlia/plugin/v1/*.proto`. The handshake is
-  compatible with go-plugin. The protocol version is negotiated at the handshake. This is the production
-  target; the spike probe does not implement it.
+- **Plugin protocol** `correlia.plugin.v1` (ADRs 0020, [0025](../docs/adr/0025-plugin-protocol-v1-output-contract-and-supervision.md), [0026](../docs/adr/0026-plugin-configure-diagnostics.md)):
+  `proto/correlia/plugin/v1/plugin.proto` defines the production output subset: metadata, Configure with
+  separate secrets, health and credit-bounded delivery with per-event outcomes. Stock go-plugin handshake
+  negotiates application protocol 1 with cookie `CORRELIA_PLUGIN=correlia.plugin.v1`. One stream is one
+  epoch. Shared launch internals use the D24 transport; the spike remains experimental. Buf lint and
+  generated Dart/Go drift checks apply now; the breaking baseline freezes at 1.0.
+  Configure separates non-secret result information (≤ 8 entries, keys ≤ 64 ASCII bytes, values ≤
+  256 UTF-8 bytes) from a validated plugin error class. Response/frame checks (64 KiB) precede diagnostic
+  and accepted/rejected exclusivity checks. Host rejection stays `plugin_config_rejected`; the plugin
+  class is exposed separately and mirrored in status only after exact secret-byte scrubbing. Information
+  and field messages are not automatically logged or persisted.
 - **Experimental output probe** `correlia.plugin.spike.v1`
   ([0023](../docs/adr/0023-native-openssl-plugin-probe.md)): `proto/correlia/plugin/spike/v1/`. A
   Correlia-owned, unstable, output-only probe that carries immutable canonical event bytes in bounded
@@ -190,7 +200,7 @@ run in every role unless they are switched off:
 | Change feed | Watermark lag bounded by the transaction timeout | Feed waits for the watermark; wake-up pushed when it advances; 10 s safety pull | `cursor_expired` beyond feed retention, client re-snapshots | Metric: feed lag |
 | Ingest dedup | Window 10 min | Older retries are new deliveries; event ids still dedupe them downstream (ADR 0024) | n/a | M1 process-local duplicate counter, reset at restart |
 | Outbox per output | M1: at most 20 started attempts, exponential backoff capped at 300 s | Intent becomes dead in `outbox` | Durable attempt record with error class | SQL inspection; later console and replay |
-| Plugin process | Start timeout, health interval, crash budget | Circuit open: plugin `degraded` | Restart with backoff | Console plugin status; activity entry |
+| Plugin process | 16 starting/ready per worker, 4 per output; 10 s start, 5 s health interval / 2 s deadline; 3 failed checks count as a crash | Keyset round-robin; 60 s idle release and rotation in the blocking scope after the current ≤ 27 s batch; unfinished probes protected through startup and 60 s readiness | 1–60 s exponential backoff; > 5 failures / 10 min opens degraded circuit; 5 min probes; 5 s shutdown grace | SQL status with 15 s heartbeat / 60 s staleness; degraded/recovered activity; console page later |
 | Tables over time | Retention per table, configurable (defaults: raw `done` 30 d, events 90 d, delivered outbox 7 d), only terminal rows (ADR 0016) | Partitions dropped only when they hold no unfinished row; otherwise eligible rows deleted | Partition job failure alarm | Health endpoint + console system page |
 | Batch jobs (retention, partition maintenance, dead-letter expiry, reprocess-apply) | Short transactions over bounded batches (ADR 0016) | The next batch waits for the next transaction | Job retries from its last committed batch | Metrics: batch duration, feed lag |
 
@@ -242,6 +252,9 @@ Accepted ADRs only.
 | [0014](../docs/adr/0014-linux-first-platform.md) | Linux-first platform (owner, 2026-11-03): develop and test in WSL, CI on Linux, Windows not a target; embedded Postgres in tiers; never touch another Postgres | [0013](../docs/adr/0013-develop-and-test-in-wsl.md) |
 | [0021](../docs/adr/0021-canonical-event-v1-contract.md) | Additive v1 identity bytes/UUID namespace, strict wire and boundary validation, standard generation and single-baseline compatibility; parse-only future minors | none (clarifies 0004/0019) |
 | [0023](../docs/adr/0023-native-openssl-plugin-probe.md) | Restated unstable output probe and four independent runtime gates; in-process system OpenSSL 3/TLS 1.3/P-521 custom connector, authenticated-only public API, isolated diagnostics and bounded native/surviving-host ownership; D24, criterion-2 interpretation and production adoption stay owner-only | [0022](../docs/adr/0022-experimental-output-plugin-probe.md) |
+| [0025](../docs/adr/0025-plugin-protocol-v1-output-contract-and-supervision.md) | Production output protocol, readiness permits, atomic outbox batches, fair bounded instances, durable supervision history and kind-aware secret commitments | none |
+| [0026](../docs/adr/0026-plugin-configure-diagnostics.md) | Typed bounded Configure diagnostics, validation precedence and exclusivity; secret-scrubbed plugin class separate from host classification | 0025 D1 Configure response (partial); other 0025 decisions remain in force |
+| [0027](../docs/adr/0027-plugin-intent-byte-limit-admission.md) | Owner-chosen admission-time oversized-intent dead letters with unchanged bytes/counts, no new attempt, transactional readiness fencing and aggregate-only deferral | none (refines 0025 D4) |
 
 ### Superseded ADRs
 

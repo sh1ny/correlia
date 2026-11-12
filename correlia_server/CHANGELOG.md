@@ -1,5 +1,21 @@
 ## Unreleased
 
+- Add authenticated production output plugin connections with ephemeral in-memory identities,
+  separated configuration secrets, bounded batch credits, per-event results and health deadlines.
+- Supervise pinned plugin definitions with verified launches, durable crash budgets, fair bounded
+  worker slots, readiness-gated delivery and persisted heartbeat and circuit status.
+- Add the first-party NATS JetStream output with acknowledged, deduplicated publishes, exact
+  CloudEvents bodies and headers, operator-owned stream validation and secret-only authentication.
+  Document local tooling, configuration and supervision in `docs/runbooks/output-nats.md`.
+- Do not send a new plugin batch after relay shutdown starts, even when its claim was in progress;
+  retain unsent started claims for normal lease recovery.
+- Preserve held delivery permits while voluntarily retiring a plugin; refuse new acquisitions
+  without turning committed work into spurious retries, and still invalidate on observed failure.
+- Retain plugin intents larger than their negotiated batch limit as dead with `payload_too_large`,
+  without a transport attempt, so they cannot stall later fitting work.
+- Preserve live workers' crash history during cross-host pruning, retaining stopped status anchors
+  until owner-local health cleanup or the 24-hour cross-host expiry.
+
 - Add bounded authenticated Alertmanager webhook-v4 ingress with credential-safe session-independent
   routing, exact raw storage and atomic non-sliding transport deduplication.
 - Publish immutable bootstrap revisions and source credentials transactionally; keep signing material
@@ -10,8 +26,8 @@
 - Deliver exact structured CloudEvents through independent signed webhook relays with fenced leases,
   durable attempts, finite retries/dead letters and at-least-once crash recovery.
 - Gate admission on startup, compose api/worker/all ownership and stop acquisition/HTTP before database
-  shutdown. Document 1 MiB ingress, 1,000-alert/16 MiB batch bounds, no automatic retention/replay and the
-  later alert-state/live-console/NATS milestone boundary in `docs/ingest-pipeline.md`.
+  shutdown. Document 1 MiB ingress, 1,000-alert/16 MiB batch bounds and the lack of automatic
+  retention/replay in `docs/ingest-pipeline.md`.
 - Add deterministic v1 alert fingerprints, observation UUIDv5 and source-scoped transport keys.
   Preserve original nanosecond timestamp evidence, bound identity work, and publish independent
   vectors in `contracts/identity-vectors.json`. These pure helpers apply no durable dedup/state effects.
