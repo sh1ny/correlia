@@ -139,7 +139,7 @@ After a worker is killed and replaced, every accepted routed event for a plugin 
 
 ### Requirement: Signing key availability before acquisition
 
-Relays SHALL acquire only webhook intents whose signing reference is loaded and matches its stored commitment. A newly activated reference missing from a running worker SHALL leave its webhook intents queued without consuming attempts and emit a fixed sanitized availability diagnostic. Dead intents SHALL retain their key commitment but SHALL not require signing material until an explicit future replay operation. Plugin intents carry no signing reference; their secret availability is governed by plugin supervision.
+Relays SHALL acquire only webhook intents whose signing reference is loaded and matches its commitment. A newly activated reference missing from a running worker SHALL leave its webhook intents queued without consuming attempts and emit a fixed sanitized availability diagnostic. Dead intents SHALL retain their key commitment but SHALL not require signing material until explicit future replay. Plugin intents carry no signing reference; their secret availability is governed by plugin supervision.
 
 #### Scenario: Loaded historical signing reference
 - **WHEN** an intent retains an older output definition whose committed signing key is still loaded
