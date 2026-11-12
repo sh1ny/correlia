@@ -338,6 +338,156 @@ void main() {
         );
       });
 
+      test('oversized_oldest_does_not_block_definition', () async {
+        final session = builder.build();
+        await seedPlugin(session, count: 2);
+        await session.db.unsafeSimpleExecute(
+          '''UPDATE outbox SET payload=decode('010203','hex')
+          WHERE delivery_id=(SELECT delivery_id FROM outbox ORDER BY created_at,delivery_id LIMIT 1)''',
+        );
+        final permit = DeliveryPermitSource().acquire()!;
+        try {
+          final repo = repository(session);
+          final batch = await repo.claim(
+            output,
+            limit: 64,
+            byteLimit: 2,
+            readyDigests: {digestA},
+            permit: permit,
+          );
+          expect(batch, isNotNull);
+          expect(batch!.claims.single.payload, orderedEquals([123, 125]));
+          expect(
+            await repo.completeBatch(batch, [const DeliveryAcknowledged()]),
+            isTrue,
+          );
+          final state = await session.db.unsafeQuery(
+            "SELECT status,dead_reason,attempt_count,encode(payload,'hex') FROM outbox ORDER BY created_at,delivery_id",
+          );
+          expect(state.first.toList(), [
+            'dead',
+            'payload_too_large',
+            0,
+            '010203',
+          ]);
+          expect(state.last.toList(), ['delivered', null, 1, '7b7d']);
+          final attempts = await session.db.unsafeQuery(
+            'SELECT outcome FROM delivery_attempts',
+          );
+          expect(attempts.map((row) => row[0]), ['acknowledged']);
+        } finally {
+          permit.release();
+        }
+      });
+
+      test('only_oversized_commits_deadletters', () async {
+        final session = builder.build();
+        await seedPlugin(session);
+        await session.db.unsafeSimpleExecute(
+          "UPDATE outbox SET payload=decode('010203','hex')",
+        );
+        final permit = DeliveryPermitSource().acquire()!;
+        try {
+          final repo = repository(session);
+          expect(
+            await repo.claim(
+              output,
+              limit: 64,
+              byteLimit: 2,
+              readyDigests: {digestA},
+              permit: permit,
+            ),
+            isNull,
+          );
+          final state = await session.db.unsafeQuery(
+            "SELECT status,dead_reason,attempt_count,encode(payload,'hex') FROM outbox",
+          );
+          expect(state.single.toList(), [
+            'dead',
+            'payload_too_large',
+            0,
+            '010203',
+          ]);
+          expect(
+            await session.db.unsafeQuery('SELECT 1 FROM delivery_attempts'),
+            isEmpty,
+          );
+        } finally {
+          permit.release();
+        }
+      });
+
+      test('oversized_rejection_rolls_back_on_readiness_loss', () async {
+        final session = builder.build();
+        await seedPlugin(session);
+        await session.db.unsafeSimpleExecute(
+          "UPDATE outbox SET payload=decode('010203','hex')",
+        );
+        final source = DeliveryPermitSource();
+        final permit = source.acquire()!;
+        try {
+          final repo = repository(
+            session,
+            beforeClaimCommit: () async => source.invalidate(),
+          );
+          expect(
+            await repo.claim(
+              output,
+              byteLimit: 2,
+              readyDigests: {digestA},
+              permit: permit,
+            ),
+            isNull,
+          );
+          expect(permit.isValid, isFalse);
+          final state = (await rows(session)).single;
+          expect(state['status'], 'queued');
+          expect(state['dead_reason'], isNull);
+          expect(state['attempt_count'], 0);
+          expect(
+            await session.db.unsafeQuery('SELECT 1 FROM delivery_attempts'),
+            isEmpty,
+          );
+        } finally {
+          permit.release();
+        }
+      });
+
+      test('aggregate_limit_defers_fitting_event', () async {
+        final session = builder.build();
+        await seedPlugin(session, count: 2);
+        final permit = DeliveryPermitSource().acquire()!;
+        try {
+          final repo = repository(session);
+          for (var i = 0; i < 2; i++) {
+            final batch = (await repo.claim(
+              output,
+              limit: 64,
+              byteLimit: 3,
+              readyDigests: {digestA},
+              permit: permit,
+            ))!;
+            expect(batch.claims.single.payload, orderedEquals([123, 125]));
+            expect(
+              await repo.completeBatch(batch, [const DeliveryAcknowledged()]),
+              isTrue,
+            );
+          }
+          final state = await rows(session);
+          expect(
+            state.every(
+              (row) =>
+                  row['status'] == 'delivered' &&
+                  row['dead_reason'] == null &&
+                  row['attempt_count'] == 1,
+            ),
+            isTrue,
+          );
+        } finally {
+          permit.release();
+        }
+      });
+
       test('full_batch_within_budget', () async {
         final session = builder.build();
         await seedPlugin(session, count: 64);

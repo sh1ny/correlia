@@ -238,6 +238,9 @@ final class OutputRelayRepository {
   }
 
   /// Claims one webhook or a bounded batch of one ready plugin definition.
+  ///
+  /// Individually oversized plugin intents are retained as dead without starting
+  /// a transport attempt. A null result can therefore include terminal rejections.
   Future<DeliveryBatch?> claim(
     String outputId, {
     int limit = 1,
@@ -332,6 +335,21 @@ final class OutputRelayRepository {
           final bytes = data is ByteData
               ? data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes)
               : data as Uint8List;
+          if (plugin && bytes.length > byteLimit) {
+            await _timeout(tx, budget, claim: true);
+            await session.db.unsafeExecute(
+              '''UPDATE outbox SET status='dead',dead_reason='payload_too_large',
+              claim_id=NULL,lease_until=NULL,next_attempt_at=NULL
+              WHERE created_at=@created AND delivery_id=CAST(@id AS uuid) AND status='queued' ''',
+              parameters: QueryParameters.named({
+                'created': row[0],
+                'id': row[1],
+              }),
+              transaction: tx,
+              timeoutInSeconds: 5,
+            );
+            continue;
+          }
           if (total + bytes.length > byteLimit) break;
           total += bytes.length;
           final created = row[0] as DateTime;
@@ -387,11 +405,13 @@ final class OutputRelayRepository {
             ),
           );
         }
-        if (claims.isEmpty) return null;
+        if (claims.isEmpty && !plugin) return null;
         if (beforeClaimCommit != null) await beforeClaimCommit!();
         budget.checkClaim();
         if (plugin && !permit!.isValid) throw _RollbackClaim();
-        return DeliveryBatch(id, digest, claims, budget);
+        return claims.isEmpty
+            ? null
+            : DeliveryBatch(id, digest, claims, budget);
       });
     } on _RollbackClaim {
       return null;

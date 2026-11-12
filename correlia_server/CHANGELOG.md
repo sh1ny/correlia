@@ -11,6 +11,8 @@
   retain unsent started claims for normal lease recovery.
 - Preserve held delivery permits while voluntarily retiring a plugin; refuse new acquisitions
   without turning committed work into spurious retries, and still invalidate on observed failure.
+- Retain plugin intents larger than their negotiated batch limit as dead with `payload_too_large`,
+  without a transport attempt, so they cannot stall later fitting work.
 
 - Add bounded authenticated Alertmanager webhook-v4 ingress with credential-safe session-independent
   routing, exact raw storage and atomic non-sliding transport deduplication.

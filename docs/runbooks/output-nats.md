@@ -52,6 +52,11 @@ Subjects are `correlia.v1.ev.<tenant>.<kind>.<source_kind>.<severity>`. Each tok
 
 `nats_unavailable`, `publish_timeout` and `stream_mismatch` are retryable. `payload_too_large` and `invalid_subject_token` reject only the affected event. Investigate stream ownership and capture on mismatch, server/network availability on retryable failures, and the source data or NATS payload limit for rejected events. Health is serving only while connected.
 
+An intent whose stored payload alone exceeds the plugin's negotiated batch byte limit is retained
+as dead with `payload_too_large` during acquisition, without starting a transport attempt. Later
+fitting intents can proceed. Filling a batch's aggregate byte budget only defers another fitting
+event; it does not reject that event.
+
 Inspect the managed `plugin_instance_status` table through restricted SQL. Filter by `hostInstanceId`, `outputId` and `definitionDigest`: a replacement worker has a new host identity, while historical definitions remain pinned to their own work. Heartbeats refresh every 15 seconds; a row older than 60 seconds is stale regardless of its stored state. A killed worker's unchanged `ready` row is not evidence of a live instance.
 
 - `waiting` with `lastErrorClass = instance_limit` means fair slot admission is pending. Limits are sixteen instances per worker and four per output; idle release and rotation prevent historical definitions from starving newer work.

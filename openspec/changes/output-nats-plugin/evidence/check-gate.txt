@@ -120,3 +120,28 @@ Exit: 0
   Analyzing correlia...
   No issues found!
 Dart formatting completed for both changed source files.
+
+Pre-ship round 3 follow-up — owner authorized an additional fix round
+--------------------------------------------------------------------
+The oldest oversized event regression failed before the fix:
+  Expected: not null
+    Actual: null
+Claim acquisition now retains individually oversized plugin intents as dead
+with payload_too_large, preserving their payloads and prior attempt counts,
+without starting a transport attempt. Fitting events progress within the
+negotiated limit. An all-oversized transaction still commits its rejections;
+readiness loss before commit rolls them back. Aggregate overflow only defers
+an individually fitting event rather than rejecting it.
+
+Dart MCP run_tests, tags=db, reporter=expanded:
+  test/db/plugin_relay_test.dart
+  test/db/output_relay_test.dart
+  test/db/plugin_relay_shutdown_test.dart
+  00:02 +21: All tests passed!
+The four new cases cover an oversized queue head, a terminal-only acquisition,
+readiness-loss rollback, and aggregate-limit deferral.
+
+  mise exec -- dart analyze --fatal-infos
+  Analyzing correlia...
+  No issues found!
+Dart formatting completed for both changed source files.

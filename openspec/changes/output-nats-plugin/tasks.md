@@ -13,6 +13,7 @@ Tiers: `unit/` fast, `db/` db, `plugin/` plugin, `e2e/` e2e.
 | plugin-output-protocol → Configuration with separated secrets | Accepted configuration | S/plugin/plugin_protocol_test.dart | accepted_configuration | green |
 | plugin-output-protocol → Configuration with separated secrets | Rejected configuration | S/plugin/plugin_protocol_test.dart | rejected_configuration | green |
 | plugin-output-protocol → Credit-controlled batched delivery | Batches within limits | S/plugin/plugin_protocol_test.dart | batches_within_limits | green |
+| plugin-output-protocol → Credit-controlled batched delivery | Batches within limits | S/db/plugin_relay_test.dart | aggregate_limit_defers_fitting_event | green |
 | plugin-output-protocol → Credit-controlled batched delivery | Plugin advertises limits above the host bounds | S/plugin/plugin_protocol_test.dart | plugin_limits_above_host_bounds | green |
 | plugin-output-protocol → Per-event delivery outcome | Mixed outcomes in one batch | S/plugin/plugin_protocol_test.dart | mixed_outcomes_in_one_batch | green |
 | plugin-output-protocol → Per-event delivery outcome | Malformed batch answer | S/plugin/plugin_protocol_test.dart | malformed_batch_answer | green |
@@ -65,9 +66,12 @@ Tiers: `unit/` fast, `db/` db, `plugin/` plugin, `e2e/` e2e.
 | output-delivery → Readiness-gated plugin acquisition | Older unavailable definition beside a ready one | S/db/plugin_relay_test.dart | older_unavailable_beside_ready | green |
 | output-delivery → Readiness-gated plugin acquisition | Instance leaves ready between selection and claim | S/db/plugin_relay_test.dart | instance_leaves_ready_before_permit | green |
 | output-delivery → Readiness-gated plugin acquisition | Plugin exit observed while the claim is still open | S/db/plugin_relay_test.dart | plugin_exit_observed_during_open_claim | green |
+| output-delivery → Readiness-gated plugin acquisition | Plugin exit observed while the claim is still open | S/db/plugin_relay_test.dart | oversized_rejection_rolls_back_on_readiness_loss | green |
 | output-delivery → Pinned plugin definition delivery | NATS stream changed with work pending | S/e2e/nats_pinning_e2e_test.dart | nats_server_changed_with_work_pending | green |
 | output-delivery → Pinned plugin definition delivery | Pinned definition cannot run | S/plugin/plugin_supervision_test.dart | pinned_definition_cannot_run | green |
 | output-delivery → Batched plugin delivery with per-event completion | Batch with one bad event | S/db/plugin_relay_test.dart | batch_with_one_bad_event | green |
+| output-delivery → Batched plugin delivery with per-event completion | Batch with one bad event | S/db/plugin_relay_test.dart | oversized_oldest_does_not_block_definition | green |
+| output-delivery → Batched plugin delivery with per-event completion | Batch with one bad event | S/db/plugin_relay_test.dart | only_oversized_commits_deadletters | green |
 | output-delivery → Batched plugin delivery with per-event completion | Plugin dies with the batch unanswered | S/plugin/plugin_supervision_test.dart | plugin_dies_with_batch_unanswered | green |
 | output-delivery → Batched plugin delivery with per-event completion | Plugin dies with the batch unanswered | S/plugin/plugin_supervision_test.dart | held_permit_survives_voluntary_failure | green |
 | output-delivery → Batched plugin delivery with per-event completion | Full batch completed within its budget | S/db/plugin_relay_test.dart | full_batch_within_budget | green |
