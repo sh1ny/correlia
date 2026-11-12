@@ -82,6 +82,25 @@ An intent SHALL be delivered only by a plugin instance configured with its own p
 - **WHEN** an old definition's plugin executable no longer matches its pinned digest
 - **THEN** its intents stay queued with the `plugin_executable_rejected` state visible, and intents of the active definition keep delivering
 
+### Requirement: Plugin intent byte-limit admission
+The relay SHALL retain an individually oversized plugin intent as `dead` with `payload_too_large`, unchanged bytes and attempt count, and no transport attempt or attempt record. Rejections SHALL commit under the claim transaction's readiness and deadline fence, even without a remaining batch, and SHALL NOT block fitting work. Aggregate-only overflow SHALL defer fitting intents.
+
+#### Scenario: Intent larger than the negotiated batch limit
+- **WHEN** the oldest due intent of a selected ready definition alone exceeds its negotiated batch byte limit and a later intent fits
+- **THEN** the oversized intent is retained dead with `payload_too_large`, unchanged bytes and attempt count, and no attempt record, while the fitting intent can be claimed within the limit
+
+#### Scenario: Only oversized intents are eligible
+- **WHEN** every selected due intent exceeds the negotiated batch byte limit
+- **THEN** their terminal rejections commit even though no transport batch is returned, without starting attempts
+
+#### Scenario: Readiness loss before oversized rejection commits
+- **WHEN** the host has marked oversized intents dead in the open claim transaction and its delivery permit becomes invalid before commit
+- **THEN** those rejections roll back and the intents remain queued with unchanged payloads and attempt counts and no attempt records
+
+#### Scenario: Aggregate budget full for a fitting event
+- **WHEN** an intent fits the negotiated limit individually but would exceed the current batch's remaining aggregate byte budget
+- **THEN** it stays queued for a later batch without an attempt or a dead-letter classification
+
 ### Requirement: Batched plugin delivery with per-event completion
 A relay SHALL claim a bounded batch of one ready definition's due intents and finish claiming, delivering and completing it within one deadline that ends before the lease. It SHALL persist all outcomes of the batch in one transaction fenced against the current time, or none. Each event's own outcome decides its state, and a lost plugin connection makes unanswered intents retryable with `plugin_connection_lost`.
 

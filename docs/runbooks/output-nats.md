@@ -57,7 +57,13 @@ as dead with `payload_too_large` during acquisition, without starting a transpor
 fitting intents can proceed. Filling a batch's aggregate byte budget only defers another fitting
 event; it does not reject that event.
 
-Inspect the managed `plugin_instance_status` table through restricted SQL. Filter by `hostInstanceId`, `outputId` and `definitionDigest`: a replacement worker has a new host identity, while historical definitions remain pinned to their own work. Heartbeats refresh every 15 seconds; a row older than 60 seconds is stale regardless of its stored state. A killed worker's unchanged `ready` row is not evidence of a live instance.
+Inspect the managed `plugin_instance_status` table through restricted SQL. Filter by
+`hostInstanceId`, `outputId` and `definitionDigest`: a replacement worker has a new host identity,
+while historical definitions remain pinned to their own work. Ready instances refresh heartbeats
+every 15 seconds; starting rows are written at launch, and backoff/degraded rows are rewritten at
+transitions and the next start or probe. A row older than 60 seconds is stale by the freshness rule,
+but a non-ready row can legitimately age while its worker is alive. A stale row alone does not prove
+worker death. A killed worker's unchanged `ready` row is not evidence of a live instance.
 
 - `waiting` with `lastErrorClass = instance_limit` means fair slot admission is pending. Limits are sixteen instances per worker and four per output; idle release and rotation prevent historical definitions from starving newer work.
 - `backoff` means a launch or running instance failed. Restart delay doubles from one to sixty seconds and resets after ten minutes continuously ready.

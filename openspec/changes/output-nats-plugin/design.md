@@ -141,6 +141,12 @@ Read `proposal.md` for scope. The existing code this change builds on:
   - For plugin outputs the claim picks the oldest due row whose `definition_digest` is in `readyDigests`
     (M1), then claims up to 64 due rows and 1 MiB of payload of that one digest, oldest first. Rows of
     other digests are not touched and keep their attempt counts.
+  - **Oversized intent admission (owner-approved, Chosen by: user).** Before creating a transport
+    batch, an intent larger than the plugin's negotiated batch byte limit becomes `dead` with
+    `payload_too_large`, retaining its payload and prior attempt count and creating no attempt record.
+    This uses the same claim transaction, deadline and final readiness-permit check; readiness loss
+    rolls the rejection back. Rejections commit even if no transport batch remains. Later fitting
+    intents progress; aggregate-only overflow merely defers an individually fitting intent.
   - The batch shares one `claim_id` and lease and gets one `delivery_attempts` row per intent.
   - The existing rule of one delivering set per output (the advisory lock plus the "no delivering row"
     check) stays. So each output has at most one batch outstanding across all workers.
@@ -170,6 +176,8 @@ Read `proposal.md` for scope. The existing code this change builds on:
   lease expiry for recovery, while the memory copy could still be redelivered: two delivery state machines
   for one row. Also rejected: completing a batch row by row, which can run past the lease after a slow
   delivery (round 1 M3).
+  Also rejected for oversized intents: exceeding negotiated limits or leaving an unsendable queue
+  head to stall its definition indefinitely.
 - **Reversal cost:** medium.
 - **Important:** yes. Binds future changes, and is a data-loss risk.
 - **Chosen by:** agent.
@@ -533,7 +541,7 @@ Read `proposal.md` for scope. The existing code this change builds on:
 | D1 | Protocol shape | Per-event outcomes, stream = epoch, own cookie; typed bounded Configure information and plugin error class | Whole-batch acks; diagnostics in free text or discarded | medium | yes | agent (diagnostic amendment approved by user) |
 | D2 | Host structure | Shared launch core, two clients | Second launcher | low | no | agent |
 | D3 | Host identity | Ephemeral P-521 minted via libcrypto in memory | Go helper binary; pure-Dart crypto | low | yes | agent |
-| D4 | Batching | Relay batch claims of ready digests; one 27 s deadline over claim, delivery and one-transaction completion | Spike in-memory queue; per-row completion; per-statement budgets | medium | yes | agent |
+| D4 | Batching | Ready-digest batch claims; one 27 s deadline; oversized intents rejected before transport without an attempt | In-memory queue; per-row completion; separate budgets; oversized sends; stalled queue head | medium | yes | agent; oversized-intent policy: user |
 | D5 | Readiness gate | Generation-checked permit at the claim commit; later loss = retryable attempt | Fail fast and burn attempts; discover-only check | low | yes | agent |
 | D6 | Supervision values | Code constants, injectable | Config keys now | low | yes | agent |
 | D7 | Instances | Follow due work; slots 4/16 admitted round-robin by key cursor; idle release; rotation per blocking scope, probes protected | Re-pin old rows; always-warm active; publication bound; waiting table | medium | yes | agent |
@@ -642,6 +650,7 @@ read from `ingest_config_snapshot` through `config_snapshot_id`.
 | Executable replaced or unsafe | Launch refused | Backoff, then degraded | n/a | Status `plugin_executable_rejected`, rows queued with no attempts |
 | Secret missing | Configure not attempted; startup unaffected (D18) | Stays starting/backoff | n/a | Status `plugin_secret_unavailable` |
 | Instance leaves ready before the claim commits | Permit refused, or invalid at the commit check | Claim rolled back; rows stay queued, no attempt | Yes | Nothing changes |
+| Intent exceeds negotiated batch bytes | Host rejects before transport | Retained dead `payload_too_large`; no attempt; fitting work proceeds; readiness loss rolls rejection back | No automatic replay | Outbox dead reason and retained payload |
 | Batch over its deadline | Lane rolls back before the lease ends | Lease recovery, redelivery, JetStream dedup | Yes | Attempts `interrupted` |
 | Worker SIGKILL | Plugins exit on stdin EOF; claims expire | Replacement worker's `recoverExpired` gives rows `interrupted` and requeues them | Yes | Attempts `interrupted`; stale status rows |
 | Worker SIGTERM | Ordered stop (D16) | n/a | n/a | Status `stopped` |
@@ -653,7 +662,7 @@ read from `ingest_config_snapshot` through `config_snapshot_id`.
 
 | Queue / buffer / cache / transfer | Bound | At the bound | Timeout | At 10x / 100x |
 |---|---|---|---|---|
-| Plugin batch | 64 events and 1 MiB, and ≤ the plugin's accepted limits | Claim stops adding rows | Batch deadline 20 s, lease 30 s | 10k alerts is about 157 batches per output; 100x is a throughput question (measured in M10 load) |
+| Plugin batch | 64 events and 1 MiB, and ≤ the plugin's accepted limits | Individually oversized intents become retained dead before transport; aggregate fullness defers fitting work | Batch deadline 20 s, lease 30 s | 10k alerts is about 157 batches per output; 100x is a throughput question (measured in M10 load) |
 | Outstanding batches per output | 1 (existing per-output rule) | Lane waits | As above | Serial per output. Ledger: more lanes per output only on load evidence |
 | gRPC message | 2 MiB (spike `GrpcFrameGuard`) | Connection error | n/a | Fixed |
 | Plugin metadata / config answer | 64 KiB and valid frame, checked first; Configure information ≤ 8 entries, keys ≤ 64 ASCII bytes and values ≤ 256 UTF-8 bytes | Response/frame overflow: `plugin_metadata_invalid`; then diagnostic bounds, class or accepted/rejected exclusivity violation: `plugin_protocol_error` | Start timeout 10 s | Fixed |
