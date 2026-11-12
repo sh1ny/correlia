@@ -317,7 +317,9 @@ final class PluginSupervisor implements PluginOutputRouter {
         shutdownGrace: durations.shutdownGrace,
       );
       instance.connection = connection;
-      connection.failure.then((error) => _observeFailure(instance, error));
+      unawaited(
+        connection.failure.then((error) => _observeFailure(instance, error)),
+      );
       if (_stopped.isCompleted || instance.stopping) return;
       final remaining = durations.startTimeout - startWatch.elapsed;
       if (remaining <= Duration.zero) {

@@ -57,12 +57,14 @@ final class ChildServer {
     required Directory root,
     List<String> args = const ['--mode', 'test', '--apply-migrations'],
     Map<String, String> environment = const {},
+    List<String> vmArgs = const [],
     Duration readyTimeout = const Duration(seconds: 60),
   }) {
     root.createSync(recursive: true);
     return _spawn(
       serverDir: serverDir,
       args: args,
+      vmArgs: vmArgs,
       readyTimeout: readyTimeout,
       logs: Directory(p.join(root.path, 'logs')),
       environment: {
@@ -84,10 +86,12 @@ final class ChildServer {
     required SharedClusterDatabase database,
     List<String> args = const ['--mode', 'test', '--apply-migrations'],
     Map<String, String> environment = const {},
+    List<String> vmArgs = const [],
     Duration readyTimeout = const Duration(seconds: 60),
   }) => _spawn(
     serverDir: serverDir,
     args: args,
+    vmArgs: vmArgs,
     readyTimeout: readyTimeout,
     environment: {...database.environment, ...environment},
   );
@@ -95,6 +99,7 @@ final class ChildServer {
   static Future<ChildServer> _spawn({
     required Directory serverDir,
     required List<String> args,
+    required List<String> vmArgs,
     required Duration readyTimeout,
     required Map<String, String> environment,
     Directory? logs,
@@ -119,6 +124,7 @@ final class ChildServer {
         'sh',
         log.path,
         Platform.resolvedExecutable,
+        ...vmArgs,
         p.join('bin', 'main.dart'),
         ...args,
       ],

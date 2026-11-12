@@ -1,0 +1,59 @@
+output-nats-plugin — task 8.6
+Run: 2026-11-12, Linux
+
+Reproducibility:
+- Prepared an isolated snapshot from code commit 78abb858c6dfe35ffabc4813d1babcc22c9dfc5d
+  plus the complete group-8 source/docs and fatal-info fixes. No pre-existing user edits copied.
+- Verification-only snapshot commit: de4dc87dce5712139b5b89ff95bcc9a6252d728e.
+  It is not a delivered change-branch commit and does not claim task coverage.
+- Fresh clone: /tmp/correlia-output-nats-gate/clean2.
+- Ran flutter pub get through mise. VCS state was clean before and after both gates.
+  Tracking ticks and these evidence records are added after the runtime proof.
+
+Commands (fresh-clone root, using process-scoped mise trust for this owned clone):
+  mise run check
+  mise run test:all
+Combined exit: 0
+
+Actual check summaries:
+  Totals: 12 passed, 0 failed (12 items)
+  dart analyze --fatal-infos: No issues found!
+  flutter analyze --no-pub --fatal-infos correlia_flutter: No issues found!
+  Formatted 253 files (0 changed) in 0.45 seconds.
+  generated code is current
+  canonical event contract is compatible and current
+  server fast: 00:01 +154: All tests passed!
+  tooling: 01:05 +72: All tests passed!
+  Flutter: 00:00 +19: All tests passed!
+  [check] Finished in 139.11s
+
+Actual non-load suite build:
+  install -d -m 700 build/plugins
+  go -C plugins build -mod=readonly -trimpath -o ../build/plugins/output-nats ./output-nats
+  chmod 700 build/plugins/output-nats
+  go -C tool/natsdev build -mod=readonly -trimpath -o ../../build/plugins/natsdev .
+Both builds completed before tests ran. No prebuilt binaries were copied into the clone.
+
+Actual NATS-backed proof stdout:
+  Demo CLI: mise run nats:dev; mise run nats:stream -- --url nats://127.0.0.1:38127; mise run run; mise run nats:sub -- --url nats://127.0.0.1:38127
+  burst accepted=1000 stream=1000 dead=0 held=50 interrupted=50 stored_before_kill=100 plugin_pid=469965 independent_stderr_marker=stdin_eof exactchild_exited=true
+  plugin_pid=471711 independent_stderr_marker=stdin_eof exactchild_exited=true
+  06:43 +377: All tests passed!
+  Finished in 406.87s
+
+The non-load suite includes database, plugin and real-process e2e cases: DUR-3,
+DUR-8 crash/restart and circuit budget, pinned destinations, batch deadline,
+graceful shutdown, pre-delivery kill, stale heartbeat and orphan exit. Its NATS
+services and PostgreSQL databases are test-owned; no external NATS or PostgreSQL
+was used. The owner's real-Alertmanager milestone check remains separate.
+
+Verified toolchain:
+  Dart 3.13.7; Flutter 3.47.9; Go 1.27.3; buf 1.75.0;
+  OpenSpec 1.16.0; Serverpod CLI 4.1.0.
+
+An earlier snapshot stopped at fatal analyzer infos; the final snapshot above
+includes the fixes and passed without weakening analyzer or test settings.
+
+Source identity: all 23 overlaid source/document paths matched the deliverable's
+text bytes after the run. Sorted path/content-SHA-256 manifest digest:
+  e6f782c9333a7e1ca36a8c808a1156b70dea18b0ed275d5f9cd33bc71d8fa410

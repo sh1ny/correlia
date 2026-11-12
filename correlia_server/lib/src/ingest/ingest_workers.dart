@@ -46,6 +46,7 @@ final class IngestWorkers extends Subsystem {
       bootstrap: bootstrap,
       pluginDirectory: startup.environment['CORRELIA_PLUGIN_DIR'] ?? '',
       hostInstanceId: const Uuid().v4(),
+      beforeLaunch: gates.pluginLaunch?.beforeLaunch,
       log: log,
     );
     final pipeline = PipelineSubsystem(
@@ -62,6 +63,10 @@ final class IngestWorkers extends Subsystem {
       beforeAcquire: acquire == null
           ? null
           : () => awaitIngestTestGate(acquire, _stopping.future),
+      beforePluginComplete: gates.relayCompletion == null
+          ? null
+          : (count) =>
+                gates.relayCompletion!.beforeComplete(count, _stopping.future),
       onUnavailable: (output, reference) => log(
         'output-relay output=$output signing_reference=$reference unavailable',
       ),

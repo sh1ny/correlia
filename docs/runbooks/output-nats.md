@@ -62,3 +62,18 @@ Inspect the managed `plugin_instance_status` table through restricted SQL. Filte
 
 Missing or mismatched historical plugin secrets leave that definition unavailable and its intents queued without new attempts. Other outputs continue. Restore the matching secret reference or pinned executable; never redirect old rows to a new definition manually.
 
+## Alertmanager-to-console demonstration
+
+1. Complete the local stream setup above and keep the NATS server running.
+2. Set the bootstrap configuration and secret-file environment variables described in the ingest guide. Route the Alertmanager source to this plugin output, using the printed NATS URL and `CORRELIA_EVENTS`.
+3. With no other Correlia process occupying the configured ports, start the configured development instance:
+
+   ```sh
+   mise run run
+   ```
+
+4. Start the subscriber from the first section **before** sending an alert; it is live-only. Wait for its `ready` line.
+5. Point Alertmanager at `/hooks/alertmanager/<source-id>` on the instance's web listener, using the source bearer token as described in the ingest guide. Open the development console and send a firing alert.
+6. Verify the alert appears in the console feed and the subscriber prints its canonical event on the corresponding `correlia.v1.ev.…` subject. Resolving the alert updates the same console identity; downstream consumers deduplicate by event id, not arrival order.
+
+The automated demo test exercises the same ingress → persisted alert/feed → real `natsdev sub` path. The owner's real-Alertmanager milestone-close check remains separate.

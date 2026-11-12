@@ -327,9 +327,11 @@ final class OutputPluginConnection {
           ),
         ),
       );
-      connection._exit.then(
-        (_) => connection._fail(
-          const OutputPluginException('plugin_connection_lost'),
+      unawaited(
+        connection._exit.then(
+          (_) => connection._fail(
+            const OutputPluginException('plugin_connection_lost'),
+          ),
         ),
       );
       return connection;

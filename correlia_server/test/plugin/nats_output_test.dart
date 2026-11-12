@@ -92,10 +92,11 @@ final class _Nats {
                 .split('\r\n')
                 .skip(1)) {
           final split = entry.indexOf(':');
-          if (split > 0)
+          if (split > 0) {
             headers[entry.substring(0, split).toLowerCase()] = entry
                 .substring(split + 1)
                 .trim();
+          }
         }
       }
       return _Message(parts[1], headers, bytes.sublist(headerLength));
@@ -118,8 +119,9 @@ final class _Nats {
     socket.write('\r\n');
     final result =
         jsonDecode(utf8.decode((await message()).body)) as Map<String, Object?>;
-    if (result.containsKey('error'))
+    if (result.containsKey('error')) {
       throw StateError('stream setup failed: ${result['error']}');
+    }
   }
 
   Future<Map<String, Object?>> streamInfo() async {
@@ -215,13 +217,16 @@ void main() {
   }) {
     final envelope = eventFixture();
     if (trace) envelope['traceparent'] = _trace;
-    if (tenant != null)
+    if (tenant != null) {
       (envelope['data']! as Map<String, Object?>)['tenant'] = tenant;
-    if (padding != null)
+    }
+    if (padding != null) {
       (envelope['data']! as Map<String, Object?>)['summary'] = 'x' * padding;
-    if (critical)
+    }
+    if (critical) {
       (envelope['data']! as Map<String, Object?>)['severity'] =
           'EVENT_SEVERITY_CRITICAL';
+    }
     return OutputPluginEvent(
       envelope['id']! as String,
       utf8.encode(jsonEncode(envelope)),

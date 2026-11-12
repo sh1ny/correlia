@@ -18,6 +18,7 @@ final class RelaySubsystem extends Subsystem {
     required this.bootstrap,
     required String runMode,
     this.beforeAcquire,
+    this.beforePluginComplete,
     this.onUnavailable,
     this.pluginRouter,
     this.pollInterval = const Duration(milliseconds: 250),
@@ -27,6 +28,9 @@ final class RelaySubsystem extends Subsystem {
 
   /// Optional test barrier before acquisition; never used to configure delivery.
   final Future<void> Function()? beforeAcquire;
+
+  /// Optional test barrier after a plugin response and before its commit.
+  final Future<void> Function(int acknowledgedCount)? beforePluginComplete;
 
   /// Receives fixed unavailable-key diagnostics without secret material.
   final void Function(String, String)? onUnavailable;
@@ -126,6 +130,10 @@ final class RelaySubsystem extends Subsystem {
           );
           if (batch == null) return;
           final outcomes = await deliverPluginBatch(router, permit, batch);
+          final barrier = beforePluginComplete;
+          if (barrier != null) {
+            await barrier(outcomes.whereType<DeliveryAcknowledged>().length);
+          }
           await repository.completeBatch(batch, outcomes);
         } finally {
           permit.release();

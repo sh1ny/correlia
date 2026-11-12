@@ -115,6 +115,8 @@ final class OutputRelayRepository {
     this.resolveKey, {
     this.onUnavailable,
     this.beforeClaimCommit,
+    this.afterCompletionAttempts,
+    this.afterCompletionOutbox,
     Set<String> loadedReferences = const {},
   }) : _commitments = {
          for (final reference in loadedReferences)
@@ -129,6 +131,12 @@ final class OutputRelayRepository {
 
   /// Optional barrier immediately before the claim's commit-boundary check.
   final Future<void> Function()? beforeClaimCommit;
+
+  /// Optional test barrier after the completion attempt update.
+  final Future<void> Function()? afterCompletionAttempts;
+
+  /// Optional test barrier after the completion outbox update.
+  final Future<void> Function()? afterCompletionOutbox;
   final Map<String, DateTime> _lastDiagnostic = {};
   final Map<String, String> _commitments;
 
@@ -239,8 +247,9 @@ final class OutputRelayRepository {
     RelayDeadline? deadline,
   }) async {
     if (limit < 1 || limit > 64) throw ArgumentError.value(limit, 'limit');
-    if (byteLimit < 1 || byteLimit > 1024 * 1024)
+    if (byteLimit < 1 || byteLimit > 1024 * 1024) {
       throw ArgumentError.value(byteLimit, 'byteLimit');
+    }
     final budget = deadline ?? RelayDeadline();
     try {
       return await session.db.transaction((tx) async {
@@ -460,6 +469,7 @@ final class OutputRelayRepository {
           timeoutInSeconds: 5,
         );
         if (attempts != batch.claims.length) throw _RollbackCompletion();
+        if (afterCompletionAttempts != null) await afterCompletionAttempts!();
         await _timeout(tx, batch.deadline);
         final updated = await session.db.unsafeExecute(
           '''UPDATE outbox o SET status=x.status,claim_id=NULL,lease_until=NULL,
@@ -473,6 +483,7 @@ final class OutputRelayRepository {
           timeoutInSeconds: 5,
         );
         if (updated != batch.claims.length) throw _RollbackCompletion();
+        if (afterCompletionOutbox != null) await afterCompletionOutbox!();
         batch.deadline.check();
         return true;
       });

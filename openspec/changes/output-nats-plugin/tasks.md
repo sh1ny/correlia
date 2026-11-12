@@ -20,9 +20,9 @@ Tiers: `unit/` fast, `db/` db, `plugin/` plugin, `e2e/` e2e.
 | plugin-output-protocol → Plugin health reporting | Health call stalls | S/plugin/plugin_protocol_test.dart | health_call_stalls | green |
 | plugin-supervision → Verified plugin launch | Pinned executable launches | S/plugin/plugin_supervision_test.dart | pinned_executable_launches | green |
 | plugin-supervision → Verified plugin launch | Replaced or unsafe executable | S/plugin/plugin_supervision_test.dart | replaced_or_unsafe_executable | green |
-| plugin-supervision → Restart with backoff | DUR-8 plugin crashes mid-stream | S/e2e/nats_dur8_e2e_test.dart | DUR-8 plugin crashes mid-stream | red |
+| plugin-supervision → Restart with backoff | DUR-8 plugin crashes mid-stream | S/e2e/nats_dur8_e2e_test.dart | DUR-8 plugin crashes mid-stream | green |
 | plugin-supervision → Restart with backoff | Repeated startup failure grows the delay | S/unit/plugin/supervision_policy_test.dart | repeated_startup_failure_grows_delay | green |
-| plugin-supervision → Crash budget circuit | DUR-8 crash budget exceeded | S/e2e/nats_dur8_e2e_test.dart | DUR-8 crash budget exceeded | red |
+| plugin-supervision → Crash budget circuit | DUR-8 crash budget exceeded | S/e2e/nats_dur8_e2e_test.dart | DUR-8 crash budget exceeded | green |
 | plugin-supervision → Crash budget circuit | Degraded plugin recovers | S/unit/plugin/supervision_policy_test.dart | degraded_plugin_recovers | green |
 | plugin-supervision → Fair instance slots | More busy outputs than slots | S/unit/plugin/slot_scheduler_test.dart | more_busy_outputs_than_slots | green |
 | plugin-supervision → Fair instance slots | Idle active output releases its slot | S/unit/plugin/slot_scheduler_test.dart | idle_active_output_releases_slot | green |
@@ -33,21 +33,21 @@ Tiers: `unit/` fast, `db/` db, `plugin/` plugin, `e2e/` e2e.
 | plugin-supervision → Fair instance slots | Healthy definition behind unavailable historical ones | S/unit/plugin/slot_scheduler_test.dart | healthy_behind_unavailable_historical | green |
 | plugin-supervision → Durable supervision history | Failing definitions cycle through slots | S/db/plugin_health_test.dart | failing_definitions_cycle_through_slots | green |
 | plugin-supervision → Persisted plugin status | Status of a ready plugin | S/plugin/plugin_supervision_test.dart | status_of_a_ready_plugin | green |
-| plugin-supervision → Persisted plugin status | Worker killed | S/e2e/nats_burst_e2e_test.dart | worker_killed_status_goes_stale | red |
-| plugin-supervision → Bounded plugin shutdown | Graceful worker stop | S/e2e/nats_shutdown_e2e_test.dart | graceful_worker_stop | red |
+| plugin-supervision → Persisted plugin status | Worker killed | S/e2e/nats_burst_e2e_test.dart | worker_killed_status_goes_stale | green |
+| plugin-supervision → Bounded plugin shutdown | Graceful worker stop | S/e2e/nats_shutdown_e2e_test.dart | graceful_worker_stop | green |
 | plugin-supervision → Bounded plugin shutdown | Plugin ignores shutdown | S/plugin/plugin_supervision_test.dart | plugin_ignores_shutdown | green |
 | integration-nats → Event subject scheme | Alert event subject | S/plugin/nats_output_test.dart | alert_event_subject | green |
 | integration-nats → Event subject scheme | Unsafe subject token | S/plugin/nats_output_test.dart | unsafe_subject_token | green |
 | integration-nats → Exact body and identifying headers | Subscriber parses the event | S/plugin/nats_output_test.dart | subscriber_parses_the_event | green |
 | integration-nats → Exact body and identifying headers | Envelope without traceparent | S/plugin/nats_output_test.dart | envelope_without_traceparent | green |
-| integration-nats → Acknowledged and deduplicated publish | DUR-3 redelivery after the acknowledgement was lost | S/e2e/nats_dur3_e2e_test.dart | DUR-3 redelivery after the acknowledgement was lost | red |
+| integration-nats → Acknowledged and deduplicated publish | DUR-3 redelivery after the acknowledgement was lost | S/e2e/nats_dur3_e2e_test.dart | DUR-3 redelivery after the acknowledgement was lost | green |
 | integration-nats → Acknowledged and deduplicated publish | NATS unavailable | S/plugin/nats_output_test.dart | nats_unavailable | green |
 | integration-nats → Acknowledged and deduplicated publish | Payload too large | S/plugin/nats_output_test.dart | payload_too_large | green |
 | integration-nats → Operator-owned stream | Stream captures the subjects | S/plugin/nats_output_test.dart | stream_captures_the_subjects | green |
 | integration-nats → Operator-owned stream | No stream for the subjects | S/plugin/nats_output_test.dart | no_stream_for_the_subjects | green |
 | integration-nats → Credentials only from secrets | Token authentication | S/plugin/nats_output_test.dart | token_authentication | green |
 | integration-nats → Credentials only from secrets | Wrong credentials | S/plugin/nats_output_test.dart | wrong_credentials | green |
-| integration-nats → Exit when the host is gone | Worker killed with SIGKILL | S/e2e/nats_burst_e2e_test.dart | nats_plugin_exits_after_host_sigkill | red |
+| integration-nats → Exit when the host is gone | Worker killed with SIGKILL | S/e2e/nats_burst_e2e_test.dart | nats_plugin_exits_after_host_sigkill | green |
 | integration-nats → Exit when the host is gone | Stdin stays open | S/plugin/nats_output_test.dart | stdin_stays_open | green |
 | output-delivery → Kind-aware startup validation | Restart with pending unauthenticated plugin work | S/db/plugin_startup_secrets_test.dart | restart_with_pending_unauthenticated_plugin_work | green |
 | output-delivery → Kind-aware startup validation | Mixed live work with a missing plugin secret | S/db/plugin_startup_secrets_test.dart | mixed_live_work_missing_plugin_secret | green |
@@ -62,15 +62,15 @@ Tiers: `unit/` fast, `db/` db, `plugin/` plugin, `e2e/` e2e.
 | output-delivery → Readiness-gated plugin acquisition | Older unavailable definition beside a ready one | S/db/plugin_relay_test.dart | older_unavailable_beside_ready | green |
 | output-delivery → Readiness-gated plugin acquisition | Instance leaves ready between selection and claim | S/db/plugin_relay_test.dart | instance_leaves_ready_before_permit | green |
 | output-delivery → Readiness-gated plugin acquisition | Plugin exit observed while the claim is still open | S/db/plugin_relay_test.dart | plugin_exit_observed_during_open_claim | green |
-| output-delivery → Pinned plugin definition delivery | NATS stream changed with work pending | S/e2e/nats_pinning_e2e_test.dart | nats_server_changed_with_work_pending | red |
+| output-delivery → Pinned plugin definition delivery | NATS stream changed with work pending | S/e2e/nats_pinning_e2e_test.dart | nats_server_changed_with_work_pending | green |
 | output-delivery → Pinned plugin definition delivery | Pinned definition cannot run | S/plugin/plugin_supervision_test.dart | pinned_definition_cannot_run | green |
 | output-delivery → Batched plugin delivery with per-event completion | Batch with one bad event | S/db/plugin_relay_test.dart | batch_with_one_bad_event | green |
 | output-delivery → Batched plugin delivery with per-event completion | Plugin dies with the batch unanswered | S/plugin/plugin_supervision_test.dart | plugin_dies_with_batch_unanswered | green |
 | output-delivery → Batched plugin delivery with per-event completion | Full batch completed within its budget | S/db/plugin_relay_test.dart | full_batch_within_budget | green |
-| output-delivery → Batched plugin delivery with per-event completion | Batch over its deadline | S/plugin/nats_relay_deadline_test.dart | batch_over_its_deadline | red |
+| output-delivery → Batched plugin delivery with per-event completion | Batch over its deadline | S/plugin/nats_relay_deadline_test.dart | batch_over_its_deadline | green |
 | output-delivery → Batched plugin delivery with per-event completion | Stale batch completion | S/db/plugin_relay_test.dart | stale_batch_completion | green |
-| output-delivery → No loss across worker death | Kill -9 during a 1,000-alert burst | S/e2e/nats_burst_e2e_test.dart | Kill -9 during a 1,000-alert burst | red |
-| output-delivery → No loss across worker death | Worker killed before any delivery | S/e2e/nats_burst_e2e_test.dart | worker_killed_before_any_delivery | red |
+| output-delivery → No loss across worker death | Kill -9 during a 1,000-alert burst | S/e2e/nats_burst_e2e_test.dart | Kill -9 during a 1,000-alert burst | green |
+| output-delivery → No loss across worker death | Worker killed before any delivery | S/e2e/nats_burst_e2e_test.dart | worker_killed_before_any_delivery | green |
 | output-delivery → Signing key availability before acquisition (MODIFIED) | Loaded historical signing reference | S/db/output_relay_test.dart | loaded_historical_signing_reference | green |
 | output-delivery → Signing key availability before acquisition (MODIFIED) | Unloaded live signing reference | S/db/output_relay_test.dart | unloaded_live_signing_reference | green |
 | output-delivery → Signing key availability before acquisition (MODIFIED) | Plugin intents need no signing reference | S/db/plugin_relay_test.dart | plugin_intents_need_no_signing_reference | green |
@@ -144,12 +144,12 @@ The durable-health test retains its observed missing-table red. All scenario ass
 
 ## 8. Exit-criteria proofs
 
-- [ ] 8.1 Add the test-mode completion barrier (D17, compiled in only for run mode `test`), then write `S/e2e/nats_burst_e2e_test.dart` cases `Kill -9 during a 1,000-alert burst` (barrier hold, SQL check for a live delivering claim, SIGKILL, replacement worker, full reconciliation), `worker_killed_before_any_delivery`, `worker_killed_status_goes_stale` and `nats_plugin_exits_after_host_sigkill`; verify they pass and flip the rows green.
-- [ ] 8.2 [evidence] Capture the burst run's reconciliation counts and the plugin pid's stdin-exit marker (the NATS plugin's ADR 0020 criterion 4) → evidence/burst-kill9.txt
-- [ ] 8.3 Write `S/e2e/nats_dur3_e2e_test.dart`, `S/e2e/nats_dur8_e2e_test.dart`, `S/e2e/nats_pinning_e2e_test.dart`, `S/e2e/nats_shutdown_e2e_test.dart` and `S/plugin/nats_relay_deadline_test.dart` for their mapped rows (DUR-3, DUR-8, pinned NATS server change, graceful stop, batch over its deadline); verify they pass and flip the rows green.
-- [ ] 8.4 Add a test named `ORD-5e future-dated observation is quarantined` beside the existing future-dated coverage in `S/db/alert_state_test.dart`; verify it passes under that name.
-- [ ] 8.5 Add a demo-path e2e test (Alertmanager fixture body → feed endpoint shows the alert → `natsdev sub` receives it) and document the owner's demo steps (`mise run nats:dev`, `nats:stream`, `run`, `nats:sub`) in the runbook; verify the test passes.
-- [ ] 8.6 [evidence] Run `mise run check` and `mise run test:all` on a clean clone and capture the summaries, including the plugin build and the NATS-backed tests → evidence/check-gate.txt
+- [x] 8.1 Add the test-mode completion barrier (D17, compiled in only for run mode `test`), then write `S/e2e/nats_burst_e2e_test.dart` cases `Kill -9 during a 1,000-alert burst` (barrier hold, SQL check for a live delivering claim, SIGKILL, replacement worker, full reconciliation), `worker_killed_before_any_delivery`, `worker_killed_status_goes_stale` and `nats_plugin_exits_after_host_sigkill`; verify they pass and flip the rows green.
+- [x] 8.2 [evidence] Capture the burst run's reconciliation counts and the plugin pid's stdin-exit marker (the NATS plugin's ADR 0020 criterion 4) → evidence/burst-kill9.txt
+- [x] 8.3 Write `S/e2e/nats_dur3_e2e_test.dart`, `S/e2e/nats_dur8_e2e_test.dart`, `S/e2e/nats_pinning_e2e_test.dart`, `S/e2e/nats_shutdown_e2e_test.dart` and `S/plugin/nats_relay_deadline_test.dart` for their mapped rows (DUR-3, DUR-8, pinned NATS server change, graceful stop, batch over its deadline); verify they pass and flip the rows green.
+- [x] 8.4 Add a test named `ORD-5e future-dated observation is quarantined` beside the existing future-dated coverage in `S/db/alert_state_test.dart`; verify it passes under that name.
+- [x] 8.5 Add a demo-path e2e test (Alertmanager fixture body → feed endpoint shows the alert → `natsdev sub` receives it) and document the owner's demo steps (`mise run nats:dev`, `nats:stream`, `run`, `nats:sub`) in the runbook; verify the test passes.
+- [x] 8.6 [evidence] Run `mise run check` and `mise run test:all` on a clean clone and capture the summaries, including the plugin build and the NATS-backed tests → evidence/check-gate.txt
 
 ## Workflow follow-up
 
