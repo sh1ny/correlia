@@ -63,6 +63,35 @@ VALUES (now(), 'alert', 1, 1, 'created', 'pipeline')
           await poller.stop();
         }
       });
+      test('subscription_before_start_receives_readable_activity', () async {
+        final writer = builder.build();
+        await initializeIngestSchema(writer);
+        await writer.db.unsafeExecute('DELETE FROM activity');
+        final reader = FeedReader(builder.build());
+        final cursor = (await reader.snapshot()).cursor;
+        final wake = Completer<void>();
+        final poller = FeedWatermarkSubsystem(
+          openSession: () async => builder.build(),
+          pollInterval: const Duration(milliseconds: 20),
+          log: (_) {},
+        );
+        final subscription = poller.wakeUps().listen((_) {
+          if (!wake.isCompleted) wake.complete();
+        });
+        try {
+          await writer.db.unsafeExecute('''
+INSERT INTO activity (occurred_at, entity_kind, entity_id, entity_version, change_kind, actor_kind)
+VALUES (now(), 'alert', 42, 1, 'created', 'pipeline')
+''');
+          await poller.start();
+          await wake.future.timeout(const Duration(seconds: 3));
+          final page = await reader.feed(cursor, 10);
+          expect(page.entries.single.entityId, 42);
+        } finally {
+          await subscription.cancel();
+          await poller.stop();
+        }
+      });
     },
     rollbackDatabase: RollbackDatabase.disabled,
     testGroupTagsOverride: ['db'],

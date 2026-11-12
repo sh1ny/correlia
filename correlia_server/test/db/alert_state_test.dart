@@ -451,6 +451,23 @@ void main() {
           expect(await pipeline.count(session, 'activity'), 1);
         }
       });
+      test('source_clock_ahead_within_future_limit', () async {
+        final session = builder.build();
+        await deliver(session, [firing('2026-11-10T14:00:00Z')], base);
+        final alert = await state(session);
+        final event = (await session.db.unsafeQuery(
+          """SELECT source_time,
+          convert_from(payload, 'UTF8')::jsonb->'data'->>'source_time'
+          FROM events""",
+        )).single;
+        expect(event[0], base.add(const Duration(hours: 2)));
+        expect(event[1], '2026-11-10T14:00:00Z');
+        expect(
+          alert['fenceEffectiveSeconds'],
+          base.add(const Duration(minutes: 5)).millisecondsSinceEpoch ~/ 1000,
+        );
+        expect(alert['fenceEffectiveNanos'], 0);
+      });
     },
     rollbackDatabase: RollbackDatabase.disabled,
     testGroupTagsOverride: ['db'],

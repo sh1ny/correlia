@@ -29,7 +29,6 @@ void main() {
 
       expect(key.effectiveAt, _time(1300, 123));
       expect(key.observedAt, observed);
-      expect(source, _time(8200, 123));
       expect(key.compareTo(_key(1301, 1, high)), lessThan(0));
     });
 

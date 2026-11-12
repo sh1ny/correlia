@@ -25,7 +25,7 @@ Paths are relative to `correlia_server/` unless they start with `correlia_flutte
 | alert-state → Authoritative alert state per fingerprint | Concurrent first observations of one fingerprint | test/db/alert_state_test.dart | concurrent_first_observations_of_one_fingerprint | green |
 | alert-state → Ordering fence decides state changes | ORD-1 delayed recovery does not clear a newer problem | test/unit/state/transition_test.dart; test/db/alert_state_test.dart | ord_1_delayed_recovery_does_not_clear_newer_problem | green |
 | alert-state → Ordering fence decides state changes | ORD-2 stale problem does not resurrect a resolved alert | test/unit/state/transition_test.dart; test/db/alert_state_test.dart | ord_2_stale_problem_does_not_resurrect_resolved_alert | green |
-| alert-state → Ordering fence decides state changes | Source clock ahead within the future limit | test/unit/state/ordering_key_test.dart | source_clock_ahead_within_future_limit | green |
+| alert-state → Ordering fence decides state changes | Source clock ahead within the future limit | test/unit/state/ordering_key_test.dart; test/db/alert_state_test.dart | source_clock_ahead_within_future_limit | green |
 | alert-state → State converges in any processing order | ORD-3 equal source times are ordered deterministically | test/unit/state/transition_test.dart; test/db/alert_state_test.dart | ord_3_equal_source_times_ordered_deterministically | green |
 | alert-state → State converges in any processing order | Source times less than a microsecond apart | test/db/alert_state_test.dart | source_times_less_than_a_microsecond_apart | green |
 | alert-state → Applied observations update state in place | ID-7c severity changes in place | test/db/alert_state_test.dart | id_7c_severity_changes_in_place | green |
@@ -36,7 +36,7 @@ Paths are relative to `correlia_server/` unless they start with `correlia_flutte
 | alert-state → Last observed time advances monotonically | Late observation advances nothing | test/db/alert_state_test.dart | late_observation_advances_nothing | green |
 | alert-state → Single writer for alert state | Effect counts per raw row | test/db/alert_state_test.dart | effect_counts_per_raw_row | green |
 | alert-state → Single writer for alert state | Opposite fingerprint order in concurrent deliveries | test/db/alert_state_test.dart | opposite_fingerprint_order_in_concurrent_deliveries | green |
-| alert-state → Single writer for alert state | Informational observation | test/unit/state/transition_test.dart | informational_observation | green |
+| alert-state → Single writer for alert state | Informational observation | test/unit/state/transition_test.dart; test/db/alert_state_test.dart | informational_observation; informational_duplicates_leave_existing_state_unchanged | green |
 | change-feed → Append-only activity ledger | Firing then resolved writes two entries | test/db/activity_ledger_test.dart | firing_then_resolved_writes_two_entries | green |
 | change-feed → Append-only activity ledger | Rolled-back change leaves no entry | test/db/activity_ledger_test.dart | rolled_back_change_leaves_no_entry | green |
 | change-feed → Feed reads only below the watermark | UI-3a a late-committing transaction is never skipped | test/db/change_feed_test.dart | ui_3a_late_committing_transaction_never_skipped | green |
@@ -63,9 +63,9 @@ Paths are relative to `correlia_server/` unless they start with `correlia_flutte
 | operator-console → Responses applied in order by version | Older version arrives after a newer one | correlia_flutter/test/alert_feed_controller_test.dart | older_version_after_newer_one | green |
 | operator-console → Responses applied in order by version | Delayed older response after a resolution | correlia_flutter/test/alert_feed_controller_test.dart | delayed_older_response_after_resolution | green |
 | operator-console → Bounded partial snapshot | Snapshot bound exceeded | test/db/change_feed_test.dart; correlia_flutter/test/alert_list_page_test.dart | snapshot_bound_exceeded | green |
-| operator-console → Bounded partial snapshot | Complete list grows past the limit | correlia_flutter/test/alert_feed_controller_test.dart | complete_list_grows_past_limit | green |
+| operator-console → Bounded partial snapshot | Complete list grows past the limit | correlia_flutter/test/alert_feed_controller_test.dart; correlia_flutter/test/alert_list_page_test.dart | complete_list_grows_past_limit; growing_list_does_not_claim_zero_omitted_alerts | green |
 | operator-console → Bounded partial snapshot | Partial list refills after a resolution | correlia_flutter/test/alert_feed_controller_test.dart | partial_list_refills_after_resolution | green |
-| operator-console → Connection loss is visible and recovered | Server restart | correlia_flutter/test/alert_list_page_test.dart | server_restart_shows_disconnected_then_resumes | green |
+| operator-console → Connection loss is visible and recovered | Server restart | correlia_flutter/test/alert_list_page_test.dart; test/db/feed_watermark_test.dart | server_restart_shows_disconnected_then_resumes; subscription_before_start_receives_readable_activity | green |
 | operator-console → Connection loss is visible and recovered | Rejected cursor | correlia_flutter/test/alert_feed_controller_test.dart | rejected_cursor_takes_new_snapshot | green |
 | operator-console → Development-only unauthenticated read access | Local development access | test/e2e/live_feed_e2e_test.dart | local_development_access | green |
 | operator-console → Development-only unauthenticated read access | Production mode refuses | test/unit/console/console_access_policy_test.dart | production_mode_refuses | green |
@@ -74,8 +74,6 @@ Paths are relative to `correlia_server/` unless they start with `correlia_flutte
 | operator-console → Console usability baseline | Filter narrows the list | correlia_flutter/test/alert_list_page_test.dart | filter_narrows_the_list | green |
 | operator-console → Console usability baseline | Filter matches nothing | correlia_flutter/test/alert_list_page_test.dart | filter_matches_nothing | green |
 | operator-console → Console usability baseline | Generator link and selectable text | correlia_flutter/test/alert_list_page_test.dart | generator_link_and_selectable_text | green |
-| alert-state → Last observed time advances monotonically | Informational duplicate for an existing alert | test/db/alert_state_test.dart | informational_duplicates_leave_existing_state_unchanged | green |
-| operator-console → Bounded partial snapshot | Growing list does not claim an unknown omitted count | correlia_flutter/test/alert_list_page_test.dart | growing_list_does_not_claim_zero_omitted_alerts | green |
 
 ## 1. Alert table, activity ledger and schema step
 

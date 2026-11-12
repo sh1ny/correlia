@@ -33,3 +33,6 @@ are subscribed, each API instance polls the watermark at least every 500 ms and
 coalesces wake-ups; a transaction that wrote no activity can release held-back
 entries. Pull the feed on a wake-up and periodically even while the stream is
 connected. After a dropped stream, reconnect and resume from the last cursor.
+
+Streams opened while the API is still starting are retained: starting the
+watermark subsystem schedules polling for those existing subscribers too.

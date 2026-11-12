@@ -165,4 +165,5 @@ Adds authoritative alert state and a live development console.
 - Informational duplicates leave existing alert freshness unchanged.
 - Lists awaiting bounded reconciliation do not claim an omitted count of zero.
 - Flutter driver tooling remains a development dependency.
+- Wake-up streams subscribed during startup begin polling when the subsystem starts.
 

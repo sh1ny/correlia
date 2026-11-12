@@ -46,6 +46,7 @@ final class FeedWatermarkSubsystem extends Subsystem {
   @override
   Future<void> start() async {
     _stopped = false;
+    _schedule(Duration.zero);
   }
 
   /// Subscribes to coalesced wake-ups until cancellation.

@@ -99,3 +99,19 @@ growing list displayed an unsubstantiated zero omitted count. After correction:
 The 285-test all-tier and 16-test Flutter totals above describe the initial
 acceptance run; these follow-up regression tests add one database and one widget
 case without reclassifying or replacing that recorded run.
+
+## Follow-up review corrections
+
+A second review identified subscriptions accepted before the watermark subsystem
+started. The regression test subscribed first and then started the subsystem;
+before correction it timed out without a wake-up. Startup now schedules polling
+for already-connected subscribers as well.
+
+The test map attaches the new regressions to existing spec scenarios. A vacuous
+local-variable source-time assertion was removed and replaced by a database case
+that checks both the persisted event column/payload at the original two-hour-ahead
+source time and the alert fence at the five-minute clamp.
+
+The combined watermark, alert-state and ordering test files passed 26 tests after
+correction. Strict OpenSpec validation passed all 9 items; scoped feed `dart fix`
+reported nothing to fix.
