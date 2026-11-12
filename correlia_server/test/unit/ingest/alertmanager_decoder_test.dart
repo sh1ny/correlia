@@ -42,14 +42,19 @@ Map<String, Object?> groupOf(List<Object?> alerts, {int truncated = 0}) => {
 AlertmanagerBatch decode(
   Map<String, Object?> payload, {
   List<String> excluded = const [],
+  String rawRef = 'raw:fixture',
+  String rawSha256 =
+      '0000000000000000000000000000000000000000000000000000000000000000',
+  String observedAt = '2026-11-10T00:01:00Z',
+  String processedAt = '2026-11-10T00:02:00Z',
 }) => decodeAlertmanager(
   bytes: Uint8List.fromList(utf8.encode(jsonEncode(payload))),
   sourceInstance: '11111111-1111-4111-8111-111111111111',
   excludedLabels: excluded,
-  rawRef: 'raw:fixture',
-  rawSha256: '0' * 64,
-  observedAt: EventTimestamp.parse('2026-11-10T00:01:00Z'),
-  processedAt: EventTimestamp.parse('2026-11-10T00:02:00Z'),
+  rawRef: rawRef,
+  rawSha256: rawSha256,
+  observedAt: EventTimestamp.parse(observedAt),
+  processedAt: EventTimestamp.parse(processedAt),
   configVersion: 'snapshot-1',
 );
 
@@ -85,10 +90,6 @@ void main() {
         ...groupOf([alert()]),
         'version': '3',
       },
-      {
-        ...groupOf([alert()]),
-        'unexpected': true,
-      },
       groupOf([
         {...alert(), 'unexpected': true},
       ]),
@@ -112,6 +113,152 @@ void main() {
     for (final payload in cases) {
       expect(() => decode(payload), throwsA(isA<EventFieldError>()));
     }
+    for (final (key, value) in <(String, Object)>[
+      ('routeLabels', {'a': 1}),
+      ('routeLabels', <Object>[]),
+      ('notification_reason', 1),
+    ]) {
+      expect(
+        () => decode({
+          ...groupOf([alert()]),
+          key: value,
+        }),
+        throwsA(
+          isA<EventFieldError>()
+              .having((error) => error.path, 'path', key)
+              .having((error) => error.code, 'code', 'invalid_type'),
+        ),
+      );
+    }
+  });
+  test('group_metadata_of_a_current_release', () {
+    final original = groupOf([
+      alert(fingerprint: 'upstream', generatorUrl: 'https://example.org/graph'),
+      alert(status: 'resolved', endsAt: '2026-11-10T00:05:00Z'),
+    ])..remove('notification_reason');
+    final baseline = decode(original);
+    for (final event in baseline.events) {
+      expect(event.raw.ref, 'raw:fixture');
+      expect(event.raw.sha256, '0' * 64);
+      expect(event.raw.size, utf8.encode(jsonEncode(original)).length);
+      expect(event.observedAt, EventTimestamp.parse('2026-11-10T00:01:00Z'));
+      expect(event.processedAt, EventTimestamp.parse('2026-11-10T00:02:00Z'));
+    }
+    for (final labels in <Map<String, String>>[
+      {'team': 'operations'},
+      {},
+    ]) {
+      final payload = {
+        ...original,
+        'notification_reason': 'group_interval',
+        'routeLabels': labels,
+      };
+      final batch = decode(
+        payload,
+        rawRef: 'raw:metadata',
+        rawSha256: '1' * 64,
+        observedAt: '2026-11-10T00:03:00Z',
+        processedAt: '2026-11-10T00:04:00Z',
+      );
+      expect(batch.unknownTopLevelFields, isEmpty);
+      expect(batch.unknownTopLevelOverflow, 0);
+      expect(batch.events, hasLength(baseline.events.length));
+      for (var i = 0; i < batch.events.length; i++) {
+        final event = batch.events[i];
+        final expected = baseline.events[i];
+        expect(event.fingerprint, expected.fingerprint);
+        expect(event.eventId, expected.eventId);
+        expect(event.status, expected.status);
+        expect(event.labels, expected.labels);
+        expect(event.annotations, expected.annotations);
+        expect(event.severity, expected.severity);
+        expect(event.summary, expected.summary);
+        expect(
+          event.links
+              .map((link) => (link.href, link.relation, link.text))
+              .toList(),
+          expected.links
+              .map((link) => (link.href, link.relation, link.text))
+              .toList(),
+        );
+        expect(event.raw.ref, 'raw:metadata');
+        expect(event.raw.sha256, '1' * 64);
+        expect(event.raw.size, utf8.encode(jsonEncode(payload)).length);
+        expect(event.observedAt, EventTimestamp.parse('2026-11-10T00:03:00Z'));
+        expect(event.processedAt, EventTimestamp.parse('2026-11-10T00:04:00Z'));
+        expect(event.toJson(), isNot(contains('routeLabels')));
+        expect(event.toJson(), isNot(contains('notification_reason')));
+      }
+    }
+  });
+  test('external_url_link_is_kept', () {
+    final batch = decode(groupOf([alert(), alert()]));
+    for (final event in batch.events) {
+      expect(
+        event.links.any(
+          (link) =>
+              link.relation == 'alertmanager' &&
+              link.href == 'https://alerts.example/',
+        ),
+        isTrue,
+      );
+    }
+  });
+  test('unknown_field_inside_an_alert_stays_fatal', () {
+    expect(
+      () => decode(
+        groupOf([
+          alert(),
+          {...alert(), 'newField': true},
+        ]),
+      ),
+      throwsA(
+        isA<EventFieldError>()
+            .having((error) => error.path, 'path', 'alerts[1].newField')
+            .having((error) => error.code, 'code', 'unknown_field'),
+      ),
+    );
+  });
+  test('unknown_top_level_fields_are_tolerated', () {
+    final payload = groupOf([alert()]);
+    final expected = decode(payload).events.single;
+    for (final key in ['newField', 'unexpected']) {
+      final batch = decode({...payload, key: true});
+      expect(batch.unknownTopLevelFields, [key]);
+      expect(batch.unknownTopLevelOverflow, 0);
+      final event = batch.events.single;
+      expect(event.fingerprint, expected.fingerprint);
+      expect(event.eventId, expected.eventId);
+      expect(event.labels, expected.labels);
+      expect(event.annotations, expected.annotations);
+    }
+  });
+  test('many_or_oversized_unknown_top_level_fields_are_tolerated', () {
+    final fields = <String, Object?>{
+      for (var i = 18; i >= 0; i--) 'field${i.toString().padLeft(2, '0')}': i,
+      'x' * 300: true,
+    };
+    final batch = decode({
+      ...groupOf([alert()]),
+      ...fields,
+    });
+    expect(batch.events, hasLength(1));
+    expect(
+      batch.unknownTopLevelFields,
+      [for (var i = 0; i < 16; i++) 'field${i.toString().padLeft(2, '0')}'],
+    );
+    expect(batch.unknownTopLevelOverflow, 4);
+    final invalidNames = decode({
+      ...groupOf([]),
+      '': true,
+      'bad name': true,
+      'bad\nname': true,
+      'a' * 64: true,
+      'a' * 65: true,
+      'valid._-': true,
+    });
+    expect(invalidNames.unknownTopLevelFields, ['a' * 64, 'valid._-']);
+    expect(invalidNames.unknownTopLevelOverflow, 4);
   });
   test('recognized_fields_require_their_documented_types', () {
     for (final key in [
@@ -183,12 +330,7 @@ void main() {
       return {...groupOf([]), 'unknown': value};
     }
 
-    expect(
-      () => decode(nested(32)),
-      throwsA(
-        isA<EventFieldError>().having((e) => e.code, 'code', 'unknown_field'),
-      ),
-    );
+    expect(decode(nested(32)).events, isEmpty);
     expect(
       () => decode(nested(33)),
       throwsA(

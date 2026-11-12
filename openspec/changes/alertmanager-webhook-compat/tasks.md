@@ -10,16 +10,16 @@ Unit tests are in `correlia_server/test/unit/ingest/alertmanager_decoder_test.da
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
 | integration-alertmanager → Per alert webhook decoding | Mixed group and upstream truncation | `test/unit/ingest/alertmanager_decoder_test.dart` | `mixed_group_and_upstream_truncation` | green |
-| integration-alertmanager → Per alert webhook decoding | Unsupported version or malformed member | `test/unit/ingest/alertmanager_decoder_test.dart` | `unsupported_version_or_malformed_member` | red |
+| integration-alertmanager → Per alert webhook decoding | Unsupported version or malformed member | `test/unit/ingest/alertmanager_decoder_test.dart` | `unsupported_version_or_malformed_member` | green |
 | integration-alertmanager → Per alert webhook decoding | Empty group | `test/unit/ingest/alertmanager_decoder_test.dart` | `empty_group` | green |
-| integration-alertmanager → Recognised group metadata | Group metadata of a current release | `test/unit/ingest/alertmanager_decoder_test.dart` | `group_metadata_of_a_current_release` | red |
-| integration-alertmanager → Recognised group metadata | externalURL link is kept | `test/unit/ingest/alertmanager_decoder_test.dart` | `external_url_link_is_kept` | red |
+| integration-alertmanager → Recognised group metadata | Group metadata of a current release | `test/unit/ingest/alertmanager_decoder_test.dart` | `group_metadata_of_a_current_release` | green |
+| integration-alertmanager → Recognised group metadata | externalURL link is kept | `test/unit/ingest/alertmanager_decoder_test.dart` | `external_url_link_is_kept` | green |
 | integration-alertmanager → Recognised group metadata | Wrong-typed group metadata | `test/db/pipeline_unknown_fields_test.dart` | `wrong_typed_group_metadata` | red |
 | integration-alertmanager → Top-level field tolerance | A future Alertmanager adds a field | `test/db/pipeline_unknown_fields_test.dart` | `future_top_level_field_is_processed_and_flagged` | red |
 | integration-alertmanager → Top-level field tolerance | Credential-shaped unknown key | `test/db/pipeline_unknown_fields_test.dart` | `credential_shaped_unknown_key_never_logged` | red |
 | integration-alertmanager → Top-level field tolerance | Many or oversized unknown names | `test/db/pipeline_unknown_fields_test.dart` | `many_or_oversized_unknown_names` | red |
 | integration-alertmanager → Top-level field tolerance | Worker dies between commit and warning | `test/db/pipeline_unknown_fields_test.dart` | `warning_lost_after_commit_is_not_retried` | red |
-| integration-alertmanager → Top-level field tolerance | Unknown field inside an alert stays fatal | `test/unit/ingest/alertmanager_decoder_test.dart` | `unknown_field_inside_an_alert_stays_fatal` | red |
+| integration-alertmanager → Top-level field tolerance | Unknown field inside an alert stays fatal | `test/unit/ingest/alertmanager_decoder_test.dart` | `unknown_field_inside_an_alert_stays_fatal` | green |
 | integration-alertmanager → Supported Alertmanager releases | Every supported release decodes | `test/unit/ingest/alertmanager_versions_test.dart` | `every_supported_release_decodes` | red |
 | integration-alertmanager → Supported Alertmanager releases | Release without fingerprint or truncatedAlerts | `test/unit/ingest/alertmanager_versions_test.dart` | `release_without_fingerprint_or_truncated_alerts` | red |
 
@@ -29,7 +29,7 @@ meaning (it now decodes and is flagged); the case moves to the tolerance tests a
 
 ## 1. Decoder: recognised group metadata and top-level tolerance
 
-- [ ] 1.1 Write the failing decoder unit tests: `group_metadata_of_a_current_release` (string
+- [x] 1.1 Write the failing decoder unit tests: `group_metadata_of_a_current_release` (string
   `notification_reason`, `routeLabels` with values and `{}`; fingerprint, event id, status, labels, annotations,
   severity, summary and links equal those of the same group without the two fields; neither appears in the
   event), `external_url_link_is_kept`, `unknown_field_inside_an_alert_stays_fatal` (the error names the alert's
@@ -39,14 +39,14 @@ meaning (it now decodes and is flagged); the case moves to the tolerance tests a
   `routeLabels` (`{'a': 1}`, a list) and `notification_reason` (a number) cases to it, each failing with
   `EventFieldError` whose path is `routeLabels` or `notification_reason`. Verify with `mise run test` that they
   fail on `unknown_field` for the right reason.
-- [ ] 1.2 In `correlia_server/lib/src/ingest/alertmanager_decoder.dart`: add `routeLabels` to the top-level
+- [x] 1.2 In `correlia_server/lib/src/ingest/alertmanager_decoder.dart`: add `routeLabels` to the top-level
   allowlist, type-checked as a string map like `groupLabels` (D5); replace the top-level `_keys` failure with
   tolerance that collects unknown names, keeps the first 16 sorted names matching 1-64 characters of
   `[A-Za-z0-9_.-]` and counts the rest; add `unknownTopLevelFields` (a `List<String>`) and
   `unknownTopLevelOverflow` (an `int`) to `AlertmanagerBatch` (D1). Per-alert `_keys` stays fatal. Document the
   new members with `///`. Verify the 1.1 tests and the whole fast tier pass (`mise run test`) and flip their
   test-map rows green.
-- [ ] 1.3 Re-run `mixed_group_and_upstream_truncation` and `empty_group` unchanged and confirm they pass (rows
+- [x] 1.3 Re-run `mixed_group_and_upstream_truncation` and `empty_group` unchanged and confirm they pass (rows
   stay green).
 
 ## 2. Version matrix from real captures

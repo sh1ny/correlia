@@ -5,16 +5,27 @@ import '../event/canonical_event.dart';
 import '../event/identity.dart';
 import '../event_generated/correlia/event/v1/event_bounds.dart';
 
-/// The complete decoded delivery and its upstream omission count.
+/// The complete decoded delivery, upstream omissions, and unknown group fields.
 final class AlertmanagerBatch {
-  AlertmanagerBatch._(List<CanonicalEvent> events, this.upstreamOmissions)
-    : events = List.unmodifiable(events);
+  AlertmanagerBatch._(
+    List<CanonicalEvent> events,
+    this.upstreamOmissions,
+    List<String> unknownTopLevelFields,
+    this.unknownTopLevelOverflow,
+  ) : events = List.unmodifiable(events),
+      unknownTopLevelFields = List.unmodifiable(unknownTopLevelFields);
 
   /// The supplied alerts in their original order.
   final List<CanonicalEvent> events;
 
   /// The number of alerts omitted upstream, not fabricated by the decoder.
   final int upstreamOmissions;
+
+  /// The first 16 valid unknown top-level names in sorted order.
+  final List<String> unknownTopLevelFields;
+
+  /// The count of unknown names omitted from [unknownTopLevelFields].
+  final int unknownTopLevelOverflow;
 }
 
 /// Decodes one Alertmanager v4 delivery using the existing event identity codec.
@@ -41,7 +52,7 @@ AlertmanagerBatch decodeAlertmanager({
     throw const EventFieldError('body', 'invalid_json');
   }
   final group = _object(decoded, 'body');
-  _keys(group, const {
+  const knownGroupFields = {
     'version',
     'status',
     'alerts',
@@ -52,8 +63,32 @@ AlertmanagerBatch decodeAlertmanager({
     'commonAnnotations',
     'externalURL',
     'notification_reason',
+    'routeLabels',
     'truncatedAlerts',
-  }, '');
+  };
+  final unknownFields = <String>[];
+  var unknownOverflow = 0;
+  for (final name in group.keys) {
+    if (knownGroupFields.contains(name)) continue;
+    if (!_unknownNamePattern.hasMatch(name)) {
+      unknownOverflow++;
+      continue;
+    }
+    var index = 0;
+    while (index < unknownFields.length &&
+        unknownFields[index].compareTo(name) < 0) {
+      index++;
+    }
+    if (index < 16) {
+      unknownFields.insert(index, name);
+      if (unknownFields.length > 16) {
+        unknownFields.removeLast();
+        unknownOverflow++;
+      }
+    } else {
+      unknownOverflow++;
+    }
+  }
   if (_requiredString(group, 'version', '') != '4') {
     throw const EventFieldError('version', 'unsupported_version');
   }
@@ -68,6 +103,12 @@ AlertmanagerBatch decodeAlertmanager({
   }
   for (final name in ['groupLabels', 'commonLabels', 'commonAnnotations']) {
     if (group.containsKey(name)) _stringMap(group[name], name);
+  }
+  if (group.containsKey('routeLabels')) {
+    final labels = _object(group['routeLabels'], 'routeLabels');
+    for (final value in labels.values) {
+      _mapValue(value, 'routeLabels');
+    }
   }
   final omissions = group['truncatedAlerts'] ?? 0;
   if (omissions is! int ||
@@ -120,8 +161,10 @@ AlertmanagerBatch decodeAlertmanager({
       throw EventFieldError('$path.${error.path}', error.code);
     }
   }
-  return AlertmanagerBatch._(events, omissions);
+  return AlertmanagerBatch._(events, omissions, unknownFields, unknownOverflow);
 }
+
+final _unknownNamePattern = RegExp(r'^[A-Za-z0-9_.-]{1,64}$');
 
 CanonicalEvent _decodeAlert(
   Map<String, Object?> alert,
