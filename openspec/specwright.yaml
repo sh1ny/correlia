@@ -42,7 +42,7 @@ review:
   cross_model: true
   # Reviewer CLIs tried in order; the current harness is skipped, and the
   # first one installed (OMP: whose model resolves) runs the review. Owner: Claude first.
-  order: [claude, codex, omp]
+  order: [claude, omp, codex]
   # Model per route. Omit = the CLI's default; OMP takes a role (@slow) or a
   # provider/id, and defaults to @default.
   # models:
@@ -56,7 +56,7 @@ review:
   timeout: 20m
   # Pre-ship input bound, code and store diff together. Over it, no review
   # starts until you raise it or set preship: false.
-  max_diff_kb: 1024
+  max_diff_kb: 1280
   # true = review the finished change before its first PR or a local merge;
   # ship and the local merge wait for a pass. false = no pre-ship review.
   preship: true

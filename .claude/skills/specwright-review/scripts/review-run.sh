@@ -1063,7 +1063,7 @@ def command_line(route, exe, kind, cfg, work, prompt_path, session_dir, dirs=(),
         if level:
             cmd += ["--effort", level]
         return cmd, prompt_path
-    cmd = [exe, "-p", "--no-skills", "--no-extensions", "--no-rules", "--tools", "read,grep,find,glob",
+    cmd = [exe, "-p", "--no-skills", "--no-extensions", "--no-rules", "--tools", "read,grep,glob",
            "--session-dir", session_dir, "--mode", "json", "--model", model]
     if level and not model.startswith("@"):
         cmd += ["--thinking", level]
