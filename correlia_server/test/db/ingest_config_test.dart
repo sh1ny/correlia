@@ -4,6 +4,11 @@ import 'package:correlia_server/src/ingest/bootstrap.dart';
 import 'package:correlia_server/src/ingest/config_repository.dart';
 import 'package:serverpod/serverpod.dart';
 import 'package:test/test.dart';
+import 'package:crypto/crypto.dart';
+import 'package:correlia_server/src/pipeline/pipeline.dart';
+
+import '../unit/ingest/alertmanager_decoder_test.dart' as payload;
+import 'pipeline_test.dart' as pipeline_fixture;
 
 import '../integration/test_tools/serverpod_test_tools.dart';
 import '../support/ingest_schema.dart';
@@ -43,6 +48,34 @@ IngestBootstrap input(
   {'source-token': token(credential), keyRef: token(key)},
   runMode: 'test',
 );
+
+IngestBootstrap pluginInput(int revision, {int secret = 7}) =>
+    IngestBootstrap.parse(
+      {
+        'format_version': 1,
+        'revision': revision,
+        'sources': [
+          {
+            'id': sourceId,
+            'enabled': true,
+            'token_ref': 'source-token',
+            'output_ids': [outputId],
+          },
+        ],
+        'outputs': [
+          {
+            'id': outputId,
+            'kind': 'plugin',
+            'plugin': 'output-nats',
+            'sha256': 'a' * 64,
+            'config': {'subject': 'events'},
+            'secret_refs': {'token': 'plugin-token'},
+          },
+        ],
+      },
+      {'source-token': token(1), 'plugin-token': token(secret)},
+      runMode: 'test',
+    );
 
 void main() {
   withServerpod(
@@ -200,7 +233,8 @@ void main() {
         '$outputId',@config,'http://127.0.0.1:9099/events','key-v1',@commitment,decode('7b7d','hex'),'dead',20)''',
           parameters: QueryParameters.named({
             'config': first.snapshotId,
-            'commitment': first.outputs.single.signingKeyCommitment,
+            'commitment': (first.outputs.single as WebhookIngestOutput)
+                .signingKeyCommitment,
           }),
         );
         final rotated = input(2, keyRef: 'key-v2', key: 3);
@@ -264,7 +298,8 @@ void main() {
         FROM generate_series(1,64)''',
           parameters: QueryParameters.named({
             'config': first.snapshotId,
-            'commitment': first.outputs.single.signingKeyCommitment,
+            'commitment': (first.outputs.single as WebhookIngestOutput)
+                .signingKeyCommitment,
           }),
         );
         await expectLater(
@@ -274,6 +309,67 @@ void main() {
               (error) => error.code,
               'code',
               'retained_output_bound',
+            ),
+          ),
+        );
+        expect(
+          (await repository.activeSnapshot())!['snapshotId'],
+          first.snapshotId,
+        );
+      });
+      test('plugin_output_activates', () async {
+        final session = builder.build();
+        final repository = IngestConfigRepository(session);
+        final definition = pluginInput(1);
+        await repository.publish(definition);
+        final stored = await repository.snapshot(definition.snapshotId);
+        final text = jsonEncode(stored);
+        expect(
+          text,
+          contains(sha256.convert(base64Url.decode('${token(7)}=')).toString()),
+        );
+        expect(text, isNot(contains(token(7))));
+        await pipeline_fixture.seed(session, [
+          payload.alert(startsAt: '2026-11-10T12:00:00Z'),
+        ]);
+        final pipeline = PipelineRepository(
+          session,
+          clock: () => pipeline_fixture.now,
+        );
+        await pipeline.pinOne();
+        await pipeline.processOne();
+        final row = (await session.db.unsafeQuery(
+          'SELECT output_kind,definition_digest,config_snapshot_id,target_url FROM outbox',
+        )).single;
+        expect(row[0], 'plugin');
+        expect(
+          row[1],
+          (definition.outputs.single as PluginIngestOutput).definitionDigest,
+        );
+        expect(row[2], definition.snapshotId);
+        expect(row[3], isNull);
+      });
+      test('plugin_secret_reference_rebound', () async {
+        final repository = IngestConfigRepository(builder.build());
+        final first = pluginInput(1);
+        await repository.publish(first);
+        await expectLater(
+          repository.publish(pluginInput(2, secret: 8)),
+          throwsA(
+            isA<BootstrapError>().having(
+              (e) => e.code,
+              'code',
+              'reference_rebound',
+            ),
+          ),
+        );
+        await expectLater(
+          repository.publish(input(2, keyRef: 'plugin-token', key: 8)),
+          throwsA(
+            isA<BootstrapError>().having(
+              (e) => e.code,
+              'code',
+              'reference_rebound',
             ),
           ),
         );

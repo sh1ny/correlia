@@ -49,14 +49,14 @@ Tiers: `unit/` fast, `db/` db, `plugin/` plugin, `e2e/` e2e.
 | integration-nats → Credentials only from secrets | Wrong credentials | S/plugin/nats_output_test.dart | wrong_credentials | red |
 | integration-nats → Exit when the host is gone | Worker killed with SIGKILL | S/e2e/nats_burst_e2e_test.dart | nats_plugin_exits_after_host_sigkill | red |
 | integration-nats → Exit when the host is gone | Stdin stays open | S/plugin/nats_output_test.dart | stdin_stays_open | red |
-| output-delivery → Kind-aware startup validation | Restart with pending unauthenticated plugin work | S/db/plugin_startup_secrets_test.dart | restart_with_pending_unauthenticated_plugin_work | red |
-| output-delivery → Kind-aware startup validation | Mixed live work with a missing plugin secret | S/db/plugin_startup_secrets_test.dart | mixed_live_work_missing_plugin_secret | red |
-| output-delivery → Kind-aware startup validation | Missing webhook key still fails startup | S/db/plugin_startup_secrets_test.dart | missing_webhook_key_fails_startup | red |
-| output-delivery → Kind-aware startup validation | Plugin secret reference rebound | S/db/ingest_config_test.dart | plugin_secret_reference_rebound | red |
-| output-delivery → Validated plugin output definitions | Plugin output activates | S/db/ingest_config_test.dart | plugin_output_activates | red |
-| output-delivery → Validated plugin output definitions | Invalid plugin output | S/unit/ingest/bootstrap_test.dart | invalid_plugin_output | red |
-| output-delivery → Plugin secret values | Secret file sizes | S/unit/ingest/bootstrap_file_test.dart | secret_file_sizes | red |
-| output-delivery → Plugin secret values | Long plugin secret | S/unit/ingest/bootstrap_test.dart | long_plugin_secret | red |
+| output-delivery → Kind-aware startup validation | Restart with pending unauthenticated plugin work | S/db/plugin_startup_secrets_test.dart | restart_with_pending_unauthenticated_plugin_work | green |
+| output-delivery → Kind-aware startup validation | Mixed live work with a missing plugin secret | S/db/plugin_startup_secrets_test.dart | mixed_live_work_missing_plugin_secret | green |
+| output-delivery → Kind-aware startup validation | Missing webhook key still fails startup | S/db/plugin_startup_secrets_test.dart | missing_webhook_key_fails_startup | green |
+| output-delivery → Kind-aware startup validation | Plugin secret reference rebound | S/db/ingest_config_test.dart | plugin_secret_reference_rebound | green |
+| output-delivery → Validated plugin output definitions | Plugin output activates | S/db/ingest_config_test.dart | plugin_output_activates | green |
+| output-delivery → Validated plugin output definitions | Invalid plugin output | S/unit/ingest/bootstrap_test.dart | invalid_plugin_output | green |
+| output-delivery → Plugin secret values | Secret file sizes | S/unit/ingest/bootstrap_file_test.dart | secret_file_sizes | green |
+| output-delivery → Plugin secret values | Long plugin secret | S/unit/ingest/bootstrap_test.dart | long_plugin_secret | green |
 | output-delivery → Readiness-gated plugin acquisition | Plugin degraded while work is queued | S/db/plugin_relay_test.dart | plugin_degraded_while_work_queued | red |
 | output-delivery → Readiness-gated plugin acquisition | Plugin becomes ready again | S/db/plugin_relay_test.dart | plugin_becomes_ready_again | red |
 | output-delivery → Readiness-gated plugin acquisition | Older unavailable definition beside a ready one | S/db/plugin_relay_test.dart | older_unavailable_beside_ready | red |
@@ -96,10 +96,10 @@ Tiers: `unit/` fast, `db/` db, `plugin/` plugin, `e2e/` e2e.
 
 ## 3. Outbox schema, bootstrap and secrets
 
-- [ ] 3.1 Write failing `S/unit/ingest/bootstrap_test.dart` cases `invalid_plugin_output` and `long_plugin_secret`, and `S/unit/ingest/bootstrap_file_test.dart` case `secret_file_sizes` (real files through `IngestBootstrap.load`: 300 KiB encoded passes, decoded total and encoded limit fail `bound`); verify they fail for the right reason.
-- [ ] 3.2 Implement the plugin output keys and `CORRELIA_PLUGIN_DIR` checks (D9), the `{"bytes": ...}` secret form with the 16 KiB / 256 KiB bounds and 32-byte checks for source and webhook references, and the per-kind loader cap of 512 KiB for secrets while config stays 64 KiB; verify the 3.1 tests pass, existing bootstrap tests stay green, and flip the rows green.
-- [ ] 3.3 Write failing `S/db/ingest_config_test.dart` cases `plugin_output_activates` and `plugin_secret_reference_rebound`, and `S/db/plugin_startup_secrets_test.dart` cases `restart_with_pending_unauthenticated_plugin_work`, `mixed_live_work_missing_plugin_secret` and `missing_webhook_key_fails_startup`; verify they fail.
-- [ ] 3.4 Add schema step `0003_plugin_outputs.sql` (D8: `output_kind`, `definition_digest`, relaxed webhook columns with the check, index) with its fresh- and populated-database step tests in `S/db/schema_step_test.dart`; publish plugin secret commitments, validate rebinding across kinds, and restrict `validateLiveSecrets` to webhook rows (D18); verify the 3.3 tests and the schema step tests pass and flip the rows green.
+- [x] 3.1 Write failing `S/unit/ingest/bootstrap_test.dart` cases `invalid_plugin_output` and `long_plugin_secret`, and `S/unit/ingest/bootstrap_file_test.dart` case `secret_file_sizes` (real files through `IngestBootstrap.load`: 300 KiB encoded passes, decoded total and encoded limit fail `bound`); verify they fail for the right reason.
+- [x] 3.2 Implement the plugin output keys and `CORRELIA_PLUGIN_DIR` checks (D9), the `{"bytes": ...}` secret form with the 16 KiB / 256 KiB bounds and 32-byte checks for source and webhook references, and the per-kind loader cap of 512 KiB for secrets while config stays 64 KiB; verify the 3.1 tests pass, existing bootstrap tests stay green, and flip the rows green.
+- [x] 3.3 Write failing `S/db/ingest_config_test.dart` cases `plugin_output_activates` and `plugin_secret_reference_rebound`, and `S/db/plugin_startup_secrets_test.dart` cases `restart_with_pending_unauthenticated_plugin_work`, `mixed_live_work_missing_plugin_secret` and `missing_webhook_key_fails_startup`; verify they fail.
+- [x] 3.4 Add schema step `0003_plugin_outputs.sql` (D8: `output_kind`, `definition_digest`, relaxed webhook columns with the check, index) with its fresh- and populated-database step tests in `S/db/schema_step_test.dart`; publish plugin secret commitments, validate rebinding across kinds, and restrict `validateLiveSecrets` to webhook rows (D18); verify the 3.3 tests and the schema step tests pass and flip the rows green.
 
 ## 4. Production plugin host
 

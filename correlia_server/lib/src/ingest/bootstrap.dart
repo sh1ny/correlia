@@ -62,19 +62,36 @@ final class IngestSource {
   };
 }
 
+/// A validated output definition pinned in a configuration snapshot.
+sealed class IngestOutput {
+  const IngestOutput(this.id);
+
+  /// The output identity.
+  final String id;
+
+  /// The public definition, without secret bytes.
+  Map<String, Object?> toJson();
+
+  /// The reference commitments used by this definition.
+  Map<String, String> get commitments;
+}
+
 /// A validated immutable webhook destination.
-final class IngestOutput {
-  const IngestOutput({
-    required this.id,
+final class WebhookIngestOutput extends IngestOutput {
+  const WebhookIngestOutput({
+    required String id,
     required this.url,
     required this.signingKeyRef,
     required this.signingKeyCommitment,
-  });
-  final String id;
+  }) : super(id);
   final Uri url;
   final String signingKeyRef;
   final String signingKeyCommitment;
 
+  @override
+  Map<String, String> get commitments => {signingKeyRef: signingKeyCommitment};
+
+  @override
   Map<String, Object?> toJson() => {
     'id': id,
     'kind': 'webhook',
@@ -82,6 +99,71 @@ final class IngestOutput {
     'signing_key_ref': signingKeyRef,
     'signing_key_commitment': signingKeyCommitment,
   };
+}
+
+/// A secret reference and its digest, without secret material.
+final class PluginSecretReference {
+  const PluginSecretReference(this.reference, this.commitment);
+  final String reference;
+  final String commitment;
+}
+
+/// A validated plugin definition with canonical public configuration.
+final class PluginIngestOutput extends IngestOutput {
+  PluginIngestOutput({
+    required String id,
+    required this.plugin,
+    required this.sha256,
+    required Map<String, Object?> config,
+    required Map<String, PluginSecretReference> secretRefs,
+  }) : config = _canonical(config)! as Map<String, Object?>,
+       secretRefs = Map.unmodifiable(secretRefs),
+       super(id);
+  final String plugin;
+  final String sha256;
+  final Map<String, Object?> config;
+  final Map<String, PluginSecretReference> secretRefs;
+
+  @override
+  Map<String, String> get commitments => {
+    for (final ref in secretRefs.values) ref.reference: ref.commitment,
+  };
+
+  @override
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'kind': 'plugin',
+    'plugin': plugin,
+    'sha256': sha256,
+    'config': config,
+    'secret_refs': {
+      for (final entry in secretRefs.entries)
+        entry.key: {
+          'reference': entry.value.reference,
+          'commitment': entry.value.commitment,
+        },
+    },
+  };
+
+  /// The content address of the canonical public definition.
+  String get definitionDigest => sha256Digest(toJson());
+}
+
+/// Computes the SHA-256 of a canonical JSON value.
+String sha256Digest(Object? value) =>
+    sha256.convert(utf8.encode(jsonEncode(_canonical(value)))).toString();
+
+Object? _canonical(Object? value) {
+  if (value is Map<String, Object?>) {
+    final keys = value.keys.toList()..sort();
+    return Map<String, Object?>.unmodifiable({
+      for (final key in keys) key: _canonical(value[key]),
+    });
+  }
+  if (value is List<Object?>) {
+    return List<Object?>.unmodifiable(value.map(_canonical));
+  }
+  return value;
 }
 
 /// A validated publication input and process-local immutable signing material.
@@ -139,13 +221,13 @@ final class IngestBootstrap {
       final secretMap = _map(secretInput, 'secrets', r'$');
       if (secretMap.length > 128) _bad('secrets', r'$', 'bound');
       final secrets = <String, Uint8List>{};
+      var totalBytes = 0;
       for (final MapEntry(:key, :value) in secretMap.entries) {
         if (!_reference.hasMatch(key)) _bad('secrets', r'$', 'reference');
-        secrets[key] = decodeCredential(
-          value,
-          fileKind: 'secrets',
-          field: 'value',
-        );
+        final bytes = _decodeSecret(value);
+        totalBytes += bytes.length;
+        if (totalBytes > 256 * 1024) _bad('secrets', r'$', 'bound');
+        secrets[key] = bytes;
       }
       final outputs = <IngestOutput>[];
       final outputIds = <String>{};
@@ -156,27 +238,85 @@ final class IngestBootstrap {
       ).indexed) {
         final field = 'outputs[$index]';
         final row = _map(value, 'config', field);
-        _keys(row, {'id', 'kind', 'url', 'signing_key_ref'}, 'config', field);
         final id = _uuid(row['id'], '$field.id');
         if (!outputIds.add(id)) _bad('config', '$field.id', 'duplicate');
-        if (row['kind'] != 'webhook') _bad('config', '$field.kind', 'kind');
-        final ref = _ref(row['signing_key_ref'], '$field.signing_key_ref');
-        final key = secrets[ref];
-        if (key == null) {
-          _bad('config', '$field.signing_key_ref', 'missing_secret');
+        switch (row['kind']) {
+          case 'webhook':
+            _keys(
+              row,
+              {'id', 'kind', 'url', 'signing_key_ref'},
+              'config',
+              field,
+            );
+            final ref = _ref(row['signing_key_ref'], '$field.signing_key_ref');
+            final key = secrets[ref];
+            if (key == null) {
+              _bad('config', '$field.signing_key_ref', 'missing_secret');
+            }
+            if (key.length != 32) {
+              _bad('secrets', 'value', 'credential_encoding');
+            }
+            outputs.add(
+              WebhookIngestOutput(
+                id: id,
+                url: validateWebhookUrl(
+                  row['url'],
+                  runMode: runMode,
+                  field: '$field.url',
+                ),
+                signingKeyRef: ref,
+                signingKeyCommitment: sha256.convert(key).toString(),
+              ),
+            );
+          case 'plugin':
+            _keys(
+              row,
+              {'id', 'kind', 'plugin', 'sha256', 'config', 'secret_refs'},
+              'config',
+              field,
+            );
+            final name = _string(row['plugin'], 64, '$field.plugin');
+            if (!_pluginName.hasMatch(name))
+              _bad('config', '$field.plugin', 'plugin');
+            final digest = _string(row['sha256'], 64, '$field.sha256');
+            if (!_sha256Pattern.hasMatch(digest))
+              _bad('config', '$field.sha256', 'digest');
+            final pluginConfig = _map(row['config'], 'config', '$field.config');
+            if (utf8.encode(jsonEncode(pluginConfig)).length > 16384) {
+              _bad('config', '$field.config', 'bound');
+            }
+            final refs = _map(
+              row['secret_refs'],
+              'config',
+              '$field.secret_refs',
+            );
+            if (refs.length > 8) _bad('config', '$field.secret_refs', 'bound');
+            final references = <String, PluginSecretReference>{};
+            final names = refs.keys.toList()..sort();
+            for (final name in names) {
+              if (!_reference.hasMatch(name))
+                _bad('config', '$field.secret_refs', 'reference');
+              final ref = _ref(refs[name], '$field.secret_refs');
+              final bytes = secrets[ref];
+              if (bytes == null)
+                _bad('config', '$field.secret_refs', 'missing_secret');
+              references[name] = PluginSecretReference(
+                ref,
+                sha256.convert(bytes).toString(),
+              );
+            }
+            outputs.add(
+              PluginIngestOutput(
+                id: id,
+                plugin: name,
+                sha256: digest,
+                config: pluginConfig,
+                secretRefs: references,
+              ),
+            );
+          default:
+            _bad('config', '$field.kind', 'kind');
         }
-        outputs.add(
-          IngestOutput(
-            id: id,
-            url: validateWebhookUrl(
-              row['url'],
-              runMode: runMode,
-              field: '$field.url',
-            ),
-            signingKeyRef: ref,
-            signingKeyCommitment: sha256.convert(key).toString(),
-          ),
-        );
       }
       final sources = <IngestSource>[];
       final sourceIds = <String>{};
@@ -207,6 +347,7 @@ final class IngestBootstrap {
         final ref = _ref(row['token_ref'], '$field.token_ref');
         final token = secrets[ref];
         if (token == null) _bad('config', '$field.token_ref', 'missing_secret');
+        if (token.length != 32) _bad('secrets', 'value', 'credential_encoding');
         final namespace = row['namespace'] == null
             ? id
             : _string(row['namespace'], 1024, '$field.namespace');
@@ -266,6 +407,7 @@ final class IngestBootstrap {
   static Future<IngestBootstrap?> load(
     Map<String, String> environment, {
     required String runMode,
+    bool requirePluginDirectory = true,
   }) async {
     final configPath = environment['CORRELIA_INGEST_CONFIG'];
     final secretPath = environment['CORRELIA_INGEST_SECRETS'];
@@ -275,7 +417,12 @@ final class IngestBootstrap {
     }
     final config = await _readFile(configPath, 'config');
     final secrets = await _readFile(secretPath, 'secrets');
-    return parse(config, secrets, runMode: runMode);
+    final input = parse(config, secrets, runMode: runMode);
+    if (requirePluginDirectory &&
+        input.outputs.any((o) => o is PluginIngestOutput)) {
+      await _validatePluginDirectory(environment['CORRELIA_PLUGIN_DIR']);
+    }
+    return input;
   }
 }
 
@@ -284,6 +431,63 @@ final _uuidPattern = RegExp(
   r'^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$',
 );
 final _credential = RegExp(r'^[A-Za-z0-9_-]{43}$');
+final _pluginName = RegExp(r'^[a-z0-9][a-z0-9._-]{0,63}$');
+final _sha256Pattern = RegExp(r'^[a-f0-9]{64}$');
+final _base64url = RegExp(r'^[A-Za-z0-9_-]+$');
+
+Uint8List _decodeSecret(Object? value) {
+  if (value is String) {
+    return decodeCredential(value, fileKind: 'secrets', field: 'value');
+  }
+  if (value is! Map<String, Object?> ||
+      value.length != 1 ||
+      !value.containsKey('bytes')) {
+    _bad('secrets', 'value', 'credential_encoding');
+  }
+  final encoded = value['bytes'];
+  if (encoded is! String || !_base64url.hasMatch(encoded)) {
+    _bad('secrets', 'value', 'credential_encoding');
+  }
+  if (encoded.length > 21846) _bad('secrets', 'value', 'bound');
+  try {
+    final bytes = base64Url.decode(base64Url.normalize(encoded));
+    if (bytes.isEmpty || bytes.length > 16384)
+      _bad('secrets', 'value', 'bound');
+    if (base64Url.encode(bytes).replaceAll('=', '') != encoded) {
+      _bad('secrets', 'value', 'credential_encoding');
+    }
+    return bytes;
+  } on BootstrapError {
+    rethrow;
+  } catch (_) {
+    _bad('secrets', 'value', 'credential_encoding');
+  }
+}
+
+Future<void> _validatePluginDirectory(String? path) async {
+  try {
+    if (path == null ||
+        path.isEmpty ||
+        await FileSystemEntity.type(path, followLinks: false) !=
+            FileSystemEntityType.directory) {
+      _bad('config', 'CORRELIA_PLUGIN_DIR', 'directory');
+    }
+    final stat = await Directory(path).stat();
+    if ((stat.mode & 0x12) != 0)
+      _bad('config', 'CORRELIA_PLUGIN_DIR', 'permissions');
+    final owner = await Process.run('/usr/bin/stat', ['-c', '%u', '--', path]);
+    final user = await Process.run('/usr/bin/id', ['-u']);
+    if (owner.exitCode != 0 ||
+        user.exitCode != 0 ||
+        owner.stdout.toString().trim() != user.stdout.toString().trim()) {
+      _bad('config', 'CORRELIA_PLUGIN_DIR', 'owner');
+    }
+  } on BootstrapError {
+    rethrow;
+  } catch (_) {
+    _bad('config', 'CORRELIA_PLUGIN_DIR', 'directory');
+  }
+}
 
 /// Decodes exactly 32 bytes in canonical unpadded base64url form.
 Uint8List decodeCredential(
@@ -351,7 +555,8 @@ Future<Object?> _readFile(String path, String kind) async {
     }
     final file = File(path);
     final stat = await file.stat();
-    if (stat.size > 65536) _bad(kind, r'$', 'bound');
+    final cap = kind == 'secrets' ? 512 * 1024 : 64 * 1024;
+    if (stat.size > cap) _bad(kind, r'$', 'bound');
     if (kind == 'secrets') {
       if ((stat.mode & 0x7f) != 0) _bad(kind, r'$', 'permissions');
       final owner = await Process.run('/usr/bin/stat', [
@@ -369,7 +574,7 @@ Future<Object?> _readFile(String path, String kind) async {
     }
     final bytes = BytesBuilder(copy: false);
     await for (final chunk in file.openRead()) {
-      if (bytes.length + chunk.length > 65536) _bad(kind, r'$', 'bound');
+      if (bytes.length + chunk.length > cap) _bad(kind, r'$', 'bound');
       bytes.add(chunk);
     }
     return jsonDecode(utf8.decode(bytes.takeBytes()));

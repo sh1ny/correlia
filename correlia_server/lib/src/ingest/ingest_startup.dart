@@ -32,7 +32,11 @@ final class IngestStartup extends Subsystem {
   @override
   Future<void> start() async {
     ready = false;
-    final input = await IngestBootstrap.load(environment, runMode: runMode);
+    final input = await IngestBootstrap.load(
+      environment,
+      runMode: runMode,
+      requirePluginDirectory: role != ProcessRole.api,
+    );
     final session = await pod.createSession(enableLogging: false);
     try {
       final repository = IngestConfigRepository(session);

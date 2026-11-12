@@ -18,7 +18,7 @@ Alertmanager's upstream fingerprint is retained in raw input and, when present, 
 
 ## Bootstrap and rotation
 
-Set `CORRELIA_INGEST_CONFIG` to a regular JSON file and `CORRELIA_INGEST_SECRETS` to a separate regular secret file. Each file is limited to 64 KiB. Secret files must belong to the process user and have mode 0600 or stricter; symlinks are rejected. Configuration and secret parsing errors expose only a fixed input kind, field path and code, not file content, credentials or destination URLs.
+Set `CORRELIA_INGEST_CONFIG` to a regular JSON file (at most 64 KiB) and `CORRELIA_INGEST_SECRETS` to a separate regular secret file (at most 512 KiB encoded, 256 KiB decoded across at most 128 entries). Secret files must belong to the process user and have mode 0600 or stricter; symlinks are rejected. Configuration and secret parsing errors expose only a fixed input kind, field path and code, not file content, credentials or destination URLs.
 
 Generate a separate 32-byte value for every source token and signing-key reference:
 
@@ -53,6 +53,12 @@ Correlia-owned, non-secret configuration example:
 ```
 
 The secret object needs `alertmanager-token-v1` and `webhook-signing-v1`, each mapped to its separately generated value. The registry permits at most 64 sources, 64 outputs, 128 secret references and eight distinct output ids per source. An empty output list is explicitly unrouted; an unknown output reference is an error, even if the output registry is empty. Source namespaces default to their UUID.
+
+Plugin outputs use exactly `id`, `"kind": "plugin"`, `plugin`, `sha256`, `config` and `secret_refs`. `plugin` is a filename matching `^[a-z0-9][a-z0-9._-]{0,63}$`; `sha256` is its 64-character lowercase executable digest. `config` is a JSON object of at most 16 KiB; `secret_refs` maps at most eight plugin secret names to references in the secret file. Workers require `CORRELIA_PLUGIN_DIR`, owned by the process user and not writable by group or others. Api-only processes validate the definition without requiring that directory. Executable safety and digest are checked again at every launch.
+
+A secret entry may instead be `{"bytes": "<unpadded base64url>"}`, holding 1 byte to 16 KiB decoded; this supports NATS tokens and credentials documents. Source credentials and webhook signing keys still require exactly 32 decoded bytes, whichever form holds them. Only reference commitments enter snapshots; plugins receive resolved bytes separately at Configure, never through their environment. Plugin secret references, like webhook signing references, cannot be rebound to different bytes: rotate under a new name.
+
+Every plugin intent pins its public definition digest and snapshot. Missing historical plugin secrets do not fail worker startup: that definition stays unavailable with its work queued and no new attempts, while other outputs progress. Missing historical webhook signing material still fails startup. Pending work is never redirected to a newer definition.
 
 Startup atomically publishes immutable public snapshots, token digests and the active pointer. Identical active input is a no-op. Every changed publication must be unseen and have a higher integer revision (1–2147483647). Stale or equal-conflicting input fails without changing active credentials or routes. To revert, republish the desired content under a new higher revision; restarting old files never rolls back configuration. Omitted sources become disabled.
 
