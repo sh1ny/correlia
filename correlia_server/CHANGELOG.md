@@ -4,6 +4,9 @@
   separated configuration secrets, bounded batch credits, per-event results and health deadlines.
 - Supervise pinned plugin definitions with verified launches, durable crash budgets, fair bounded
   worker slots, readiness-gated delivery and persisted heartbeat and circuit status.
+- Add the first-party NATS JetStream output with acknowledged, deduplicated publishes, exact
+  CloudEvents bodies and headers, operator-owned stream validation and secret-only authentication.
+  Document local tooling, configuration and supervision in `docs/runbooks/output-nats.md`.
 
 - Add bounded authenticated Alertmanager webhook-v4 ingress with credential-safe session-independent
   routing, exact raw storage and atomic non-sliding transport deduplication.
@@ -15,8 +18,8 @@
 - Deliver exact structured CloudEvents through independent signed webhook relays with fenced leases,
   durable attempts, finite retries/dead letters and at-least-once crash recovery.
 - Gate admission on startup, compose api/worker/all ownership and stop acquisition/HTTP before database
-  shutdown. Document 1 MiB ingress, 1,000-alert/16 MiB batch bounds, no automatic retention/replay and the
-  later alert-state/live-console/NATS milestone boundary in `docs/ingest-pipeline.md`.
+  shutdown. Document 1 MiB ingress, 1,000-alert/16 MiB batch bounds and the lack of automatic
+  retention/replay in `docs/ingest-pipeline.md`.
 - Add deterministic v1 alert fingerprints, observation UUIDv5 and source-scoped transport keys.
   Preserve original nanosecond timestamp evidence, bound identity work, and publish independent
   vectors in `contracts/identity-vectors.json`. These pure helpers apply no durable dedup/state effects.

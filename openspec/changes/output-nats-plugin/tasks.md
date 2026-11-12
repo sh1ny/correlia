@@ -36,19 +36,19 @@ Tiers: `unit/` fast, `db/` db, `plugin/` plugin, `e2e/` e2e.
 | plugin-supervision → Persisted plugin status | Worker killed | S/e2e/nats_burst_e2e_test.dart | worker_killed_status_goes_stale | red |
 | plugin-supervision → Bounded plugin shutdown | Graceful worker stop | S/e2e/nats_shutdown_e2e_test.dart | graceful_worker_stop | red |
 | plugin-supervision → Bounded plugin shutdown | Plugin ignores shutdown | S/plugin/plugin_supervision_test.dart | plugin_ignores_shutdown | green |
-| integration-nats → Event subject scheme | Alert event subject | S/plugin/nats_output_test.dart | alert_event_subject | red |
-| integration-nats → Event subject scheme | Unsafe subject token | S/plugin/nats_output_test.dart | unsafe_subject_token | red |
-| integration-nats → Exact body and identifying headers | Subscriber parses the event | S/plugin/nats_output_test.dart | subscriber_parses_the_event | red |
-| integration-nats → Exact body and identifying headers | Envelope without traceparent | S/plugin/nats_output_test.dart | envelope_without_traceparent | red |
+| integration-nats → Event subject scheme | Alert event subject | S/plugin/nats_output_test.dart | alert_event_subject | green |
+| integration-nats → Event subject scheme | Unsafe subject token | S/plugin/nats_output_test.dart | unsafe_subject_token | green |
+| integration-nats → Exact body and identifying headers | Subscriber parses the event | S/plugin/nats_output_test.dart | subscriber_parses_the_event | green |
+| integration-nats → Exact body and identifying headers | Envelope without traceparent | S/plugin/nats_output_test.dart | envelope_without_traceparent | green |
 | integration-nats → Acknowledged and deduplicated publish | DUR-3 redelivery after the acknowledgement was lost | S/e2e/nats_dur3_e2e_test.dart | DUR-3 redelivery after the acknowledgement was lost | red |
-| integration-nats → Acknowledged and deduplicated publish | NATS unavailable | S/plugin/nats_output_test.dart | nats_unavailable | red |
-| integration-nats → Acknowledged and deduplicated publish | Payload too large | S/plugin/nats_output_test.dart | payload_too_large | red |
-| integration-nats → Operator-owned stream | Stream captures the subjects | S/plugin/nats_output_test.dart | stream_captures_the_subjects | red |
-| integration-nats → Operator-owned stream | No stream for the subjects | S/plugin/nats_output_test.dart | no_stream_for_the_subjects | red |
-| integration-nats → Credentials only from secrets | Token authentication | S/plugin/nats_output_test.dart | token_authentication | red |
-| integration-nats → Credentials only from secrets | Wrong credentials | S/plugin/nats_output_test.dart | wrong_credentials | red |
+| integration-nats → Acknowledged and deduplicated publish | NATS unavailable | S/plugin/nats_output_test.dart | nats_unavailable | green |
+| integration-nats → Acknowledged and deduplicated publish | Payload too large | S/plugin/nats_output_test.dart | payload_too_large | green |
+| integration-nats → Operator-owned stream | Stream captures the subjects | S/plugin/nats_output_test.dart | stream_captures_the_subjects | green |
+| integration-nats → Operator-owned stream | No stream for the subjects | S/plugin/nats_output_test.dart | no_stream_for_the_subjects | green |
+| integration-nats → Credentials only from secrets | Token authentication | S/plugin/nats_output_test.dart | token_authentication | green |
+| integration-nats → Credentials only from secrets | Wrong credentials | S/plugin/nats_output_test.dart | wrong_credentials | green |
 | integration-nats → Exit when the host is gone | Worker killed with SIGKILL | S/e2e/nats_burst_e2e_test.dart | nats_plugin_exits_after_host_sigkill | red |
-| integration-nats → Exit when the host is gone | Stdin stays open | S/plugin/nats_output_test.dart | stdin_stays_open | red |
+| integration-nats → Exit when the host is gone | Stdin stays open | S/plugin/nats_output_test.dart | stdin_stays_open | green |
 | output-delivery → Kind-aware startup validation | Restart with pending unauthenticated plugin work | S/db/plugin_startup_secrets_test.dart | restart_with_pending_unauthenticated_plugin_work | green |
 | output-delivery → Kind-aware startup validation | Mixed live work with a missing plugin secret | S/db/plugin_startup_secrets_test.dart | mixed_live_work_missing_plugin_secret | green |
 | output-delivery → Kind-aware startup validation | Missing webhook key still fails startup | S/db/plugin_startup_secrets_test.dart | missing_webhook_key_fails_startup | green |
@@ -138,9 +138,9 @@ The durable-health test retains its observed missing-table red. All scenario ass
 
 ## 7. output-nats plugin
 
-- [ ] 7.1 Write failing `S/plugin/nats_output_test.dart` cases for the integration-nats scenarios mapped there (11 rows) against a test-owned `natsdev` server; verify they fail on the plugin skeleton.
-- [ ] 7.2 Implement subjects, exact body and headers, `PublishMsgAsync` with `WithMsgID` and `WithExpectStream` under the 10 s deadline, per-event error mapping, stream lookup without creation, and credentials from Configure secrets only (D14); add Go unit tests for subject token validation in `plugins/output-nats/`; verify the 7.1 tests and `go test` through mise pass, and flip the rows green.
-- [ ] 7.3 Write `docs/runbooks/output-nats.md`: stream setup with `natsdev stream` or an operator-owned stream, the duplicate window against the lease, the tested NATS version, and secret forms; verify every command in it runs against a test-owned server.
+- [x] 7.1 Write failing `S/plugin/nats_output_test.dart` cases for the integration-nats scenarios mapped there (11 rows) against a test-owned `natsdev` server; verify they fail on the plugin skeleton.
+- [x] 7.2 Implement subjects, exact body and headers, `PublishMsgAsync` with `WithMsgID` and `WithExpectStream` under the 10 s deadline, per-event error mapping, stream lookup without creation, and credentials from Configure secrets only (D14); add Go unit tests for subject token validation in `plugins/output-nats/`; verify the 7.1 tests and `go test` through mise pass, and flip the rows green.
+- [x] 7.3 Write `docs/runbooks/output-nats.md`: stream setup with `natsdev stream` or an operator-owned stream, the duplicate window against the lease, the tested NATS version, and secret forms; verify every command in it runs against a test-owned server.
 
 ## 8. Exit-criteria proofs
 

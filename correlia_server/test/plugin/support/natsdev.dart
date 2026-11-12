@@ -30,7 +30,11 @@ final class NatsTestServer {
   ///
   /// [storePath] overrides the storage path for startup failure tests. The
   /// caller owns that path; only this server's private scratch is removed.
-  static Future<NatsTestServer> start({String? storePath}) async {
+  static Future<NatsTestServer> start({
+    String? storePath,
+    String? token,
+    int? maxPayload,
+  }) async {
     final created = Process.runSync('mktemp', [
       '-d',
       '${Directory.systemTemp.path}/correlia-nats-XXXXXXXX',
@@ -53,6 +57,8 @@ final class NatsTestServer {
           '0',
           '--store',
           storePath ?? '${scratch.path}/store',
+          if (token != null) ...['--token', token],
+          if (maxPayload != null) ...['--max-payload', '$maxPayload'],
         ],
         environment: const <String, String>{},
         includeParentEnvironment: false,

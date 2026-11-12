@@ -53,8 +53,8 @@ depends = ["proto:setup"]
 [tasks."plugins:build"]
 description = "Build the pinned plugin and embedded NATS tool"
 run = [
-  "mkdir -p build/plugins",
-  "go -C plugins build -mod=readonly -trimpath -o ../build/plugins/output-nats ./output-nats || { echo 'FAIL module plugins' >&2; exit 1; }",
+  "install -d -m 700 build/plugins",
+  "go -C plugins build -mod=readonly -trimpath -o ../build/plugins/output-nats ./output-nats && chmod 700 build/plugins/output-nats || { echo 'FAIL module plugins' >&2; exit 1; }",
   "go -C tool/natsdev build -mod=readonly -trimpath -o ../../build/plugins/natsdev . || { echo 'FAIL module tool/natsdev' >&2; exit 1; }",
 ]
 
@@ -75,7 +75,7 @@ depends = ["plugins:build"]
 
 [tasks.run]
 description = "Start the Correlia server"
-run = "dart run bin/main.dart"
+run = 'CORRELIA_PLUGIN_DIR="${CORRELIA_PLUGIN_DIR:-../build/plugins}" dart run bin/main.dart'
 dir = "correlia_server"
 depends = ["setup"]
 

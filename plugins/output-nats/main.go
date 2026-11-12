@@ -3,6 +3,12 @@ package main
 import (
 	"context"
 	"errors"
+	"os"
+	"sync"
+
+	"github.com/hashicorp/go-hclog"
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/hashicorp/go-plugin"
 	pluginv1 "github.com/sh1ny/correlia/plugins/protocol/correlia/plugin/v1"
@@ -16,6 +22,10 @@ type outputPlugin struct {
 type outputServices struct {
 	pluginv1.UnimplementedPluginServiceServer
 	pluginv1.UnimplementedOutputServiceServer
+	mu     sync.RWMutex
+	conn   *nats.Conn
+	js     jetstream.JetStream
+	stream string
 }
 
 func (*outputPlugin) GRPCServer(_ *plugin.GRPCBroker, server *grpc.Server) error {
@@ -33,11 +43,12 @@ func main() {
 	watchStdin()
 	plugin.Serve(&plugin.ServeConfig{
 		HandshakeConfig: plugin.HandshakeConfig{
-			ProtocolVersion: 1,
-			MagicCookieKey: "CORRELIA_PLUGIN",
+			ProtocolVersion:  1,
+			MagicCookieKey:   "CORRELIA_PLUGIN",
 			MagicCookieValue: "correlia.plugin.v1",
 		},
-		Plugins: plugin.PluginSet{"output": &outputPlugin{}},
+		Plugins:    plugin.PluginSet{"output": &outputPlugin{}},
+		Logger:     hclog.New(&hclog.LoggerOptions{Output: os.Stderr, JSONFormat: true, Level: hclog.Warn}),
 		GRPCServer: plugin.DefaultGRPCServer,
 	})
 }
