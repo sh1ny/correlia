@@ -79,15 +79,23 @@ The supervisor SHALL run instances only for definitions with due work, within 16
 ### Requirement: Durable supervision history
 A definition's backoff step, crash window and circuit state SHALL survive its instance leaving a slot, so that readmission continues them instead of starting fresh, and SHALL be kept outside memory once the instance stops.
 
+The owning supervisor SHALL prune its health rows only when no queued or delivering work remains. Another host's health SHALL be removed by status cleanup only after its last status row expires following more than 24 h without a heartbeat; a stopped row older than 60 s SHALL NOT authorize cross-host deletion.
+
 #### Scenario: Failing definitions cycle through slots
 - **WHEN** 40 definitions whose plugins fail startup take turns in 16 slots, measured on the injected clock
 - **THEN** each one's restart delays keep doubling across readmissions, a definition that fails 6 times within 10 minutes opens its circuit even though the failures happened in different slots, and the supervisor holds in memory only the instances that are running
+
+#### Scenario: Live host with only stopped instances
+- **WHEN** a host has only stopped status rows older than 60 s but less than 24 h, and its definition has queued work and saved non-zero backoff and crash history, and another host prunes status
+- **THEN** the first host's status and supervision history survive unchanged for readmission
 
 ### Requirement: Persisted plugin status
 The supervisor SHALL keep one status row per running plugin instance with:
 - output, definition digest, worker process identity and state;
 - plugin name, version and process id;
-- restart count, last error class and a heartbeat refreshed at least every 15 s.
+- restart count, last error class and a heartbeat.
+
+Ready instances and waiting definitions SHALL refresh their rows at least every 15 s. Starting SHALL be written at launch; backoff, degraded and stopped rows SHALL be written on transitions and MAY age while their worker remains alive. Every 60 s, a supervisor SHALL prune its own stopped rows older than 60 s; another host's rows SHALL expire only after more than 24 h without a heartbeat.
 
 A row whose heartbeat is older than 60 s SHALL read as stale.
 

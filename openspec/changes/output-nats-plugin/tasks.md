@@ -34,6 +34,7 @@ Tiers: `unit/` fast, `db/` db, `plugin/` plugin, `e2e/` e2e.
 | plugin-supervision → Fair instance slots | Healthy definition at the end of a long queue | S/unit/plugin/slot_scheduler_test.dart | healthy_definition_at_end_of_long_queue | green |
 | plugin-supervision → Fair instance slots | Healthy definition behind unavailable historical ones | S/unit/plugin/slot_scheduler_test.dart | healthy_behind_unavailable_historical | green |
 | plugin-supervision → Durable supervision history | Failing definitions cycle through slots | S/db/plugin_health_test.dart | failing_definitions_cycle_through_slots | green |
+| plugin-supervision → Durable supervision history | Live host with only stopped instances | S/db/plugin_status_persistence_test.dart | live_host_with_only_stopped_rows_keeps_health | pending |
 | plugin-supervision → Persisted plugin status | Status of a ready plugin | S/plugin/plugin_supervision_test.dart | status_of_a_ready_plugin | green |
 | plugin-supervision → Persisted plugin status | Worker killed | S/e2e/nats_burst_e2e_test.dart | worker_killed_status_goes_stale | green |
 | plugin-supervision → Bounded plugin shutdown | Graceful worker stop | S/e2e/nats_shutdown_e2e_test.dart | graceful_worker_stop | green |
@@ -93,6 +94,7 @@ Tiers: `unit/` fast, `db/` db, `plugin/` plugin, `e2e/` e2e.
 
 - [x] 1.1 Write `docs/adr/0025-plugin-protocol-v1-output-contract-and-supervision.md` (Status: accepted) covering D1, D4, D5, D6 as policy, D7, D12, D15, D18 and D19, each with its rejected alternative and reversal cost; verify by `mise run spec:validate` and a read-back against design.md's Decision summary.
 - [x] 1.2 Update `openspec/architecture.md`: the Boundaries plugin-protocol bullet, the outbox, plugin status and plugin health ownership rows, the plugin-process resource bound, and ADR 0025 in the in-force index; verify by `mise run check` (validate step) passing.
+- [ ] 1.3 Write accepted ADR `docs/adr/0027-plugin-intent-byte-limit-admission.md`, refining ADR 0025 D4 without editing it, and update architecture's outbox ownership row and in-force index for the owner-chosen admission-time rejection policy; verify by `mise run spec:validate` and read-back against D4.
 
 ## 2. Protocol, Go layout and NATS tooling
 
@@ -143,6 +145,7 @@ The durable-health test retains its observed missing-table red. All scenario ass
 - [x] 6.2 Write `S/unit/plugin/slot_scheduler_test.dart` cases for the six in-memory Fair instance slots scenarios; implement admission by key cursor, waiting demand per blocking scope, idle release, rotation and probe protection (D7) over an injected clock and in-memory demand under the owner-approved API-first exception; verify every scenario's real assertions pass without skips or placeholders and flip the rows green.
 - [x] 6.3 Write `S/db/plugin_admission_test.dart` case `pinned_generations_beyond_one_page` (real post-pin barrier, activate B before A's work creates rows) under the API-first exception, and red-confirm `S/db/plugin_health_test.dart` case `failing_definitions_cycle_through_slots`; add managed health/status models, forward migrations, admission and waiting-demand keyset queries, and pruning (D11, D19); verify both scenarios pass and flip the rows green.
 - [x] 6.4 Write failing `S/plugin/plugin_supervision_test.dart` cases `pinned_executable_launches`, `replaced_or_unsafe_executable`, `status_of_a_ready_plugin`, `plugin_ignores_shutdown`, `pinned_definition_cannot_run` and `plugin_dies_with_batch_unanswered`; wire the supervisor to verified launches, health checks, status rows with heartbeat, `plugin_degraded`/`plugin_recovered` activity entries and the relay's ready set, inside `IngestWorkers` in the D16 order; verify they pass, a test proves the console alert list ignores plugin activity entries, and flip the rows green.
+- [ ] 6.5 Red-confirm `S/db/plugin_status_persistence_test.dart` case `live_host_with_only_stopped_rows_keeps_health`, then restrict the 60 s stopped-row expiry to the owning host and retain the 24 h cross-host expiry; align architecture's status/health ownership rows with periodic pruning and state-specific heartbeats; verify the status, health and admission database tests pass and flip the row green.
 
 ## 7. output-nats plugin
 
