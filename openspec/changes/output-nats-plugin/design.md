@@ -180,7 +180,7 @@ Read `proposal.md` for scope. The existing code this change builds on:
   head to stall its definition indefinitely.
 - **Reversal cost:** medium.
 - **Important:** yes. Binds future changes, and is a data-loss risk.
-- **Chosen by:** agent.
+- **Chosen by:** agent; oversized-intent policy: user.
 
 ### D5: Plugin rows are acquired only while a ready instance serves their definition
 
@@ -358,9 +358,10 @@ Read `proposal.md` for scope. The existing code this change builds on:
   definitions refresh their rows every 15 s; starting is written at launch. Backoff, degraded and stopped
   rows are written on transitions and may age while their worker remains alive.
   - A row read with a heartbeat older than 60 s is stale; this alone does not prove worker death.
-  - Every 60 s a supervisor prunes its own stopped rows older than 60 s. It may prune another host's
-    rows only after their heartbeat is more than 24 h old, regardless of state. This periodic cleanup
-    is the only cross-process status write; the short stopped-row expiry is strictly owner-local.
+  - Every 60 s a supervisor prunes its own stopped rows older than 60 s only if the same host/output/digest
+    has no health row. A row with health remains as the expiry anchor if the host disappears.
+  - Another host's rows expire only after their heartbeat is more than 24 h old, regardless of state.
+    This periodic cleanup is the only cross-process status write; the short expiry is owner-local.
 
   Transitions into and out of `degraded` write one activity entry each (`entity_kind = 'plugin'`,
   `entity_id` = the status row id, `change_kind` `plugin_degraded` or `plugin_recovered`, `actor_kind`
@@ -524,8 +525,9 @@ Read `proposal.md` for scope. The existing code this change builds on:
   So a definition that cycles through slots keeps its backoff step and crash budget instead of starting
   fresh. Every 60 s the supervisor prunes its own health rows only when their definition has no queued
   or delivering rows. Another host's health rows are removed only when that host's last remaining status
-  row is pruned after more than 24 h of silence (D11); a live host's stopped rows older than 60 s do not
-  authorize cross-host deletion. The table grows with failed live definitions on disk, not in memory.
+  row is pruned after more than 24 h of silence (D11). Owner-local stopped-row expiry retains any key
+  with a health row, so it cannot orphan history and defeat later cross-host expiry. A live host's stopped
+  rows older than 60 s do not authorize cross-host deletion. History stays on disk, not in memory.
 - **Rejected:** Keeping evicted state in memory, which is unbounded once live definitions are, and
   dropping it, which resets the crash budget and breaks D6 and DUR-8. Also rejected: deriving it from the
   status row, which is a mirror, not an authority.
@@ -631,7 +633,7 @@ read from `ingest_config_snapshot` through `config_snapshot_id`.
 |---|---|---|---|---|
 | `outbox` rows incl. new columns | Pipeline (insert), relay (status, claim, attempts) | As today (M1 retains all) | Unchanged | Postgres |
 | `delivery_attempts` | Relay | As today | Append-only | Postgres |
-| `plugin_instance_status` row | Its named host's supervisor; periodic cross-host cleanup only after >24 h without a heartbeat | Own stopped rows expire after >60 s; other hosts' rows after >24 h | Transitions; ready and waiting rows every 15 s; starting at launch | Postgres (mirror of memory) |
+| `plugin_instance_status` row | Its named host's supervisor; periodic cross-host cleanup only after >24 h without a heartbeat | Own stopped rows expire after >60 s only without health for their key; other hosts' rows after >24 h | Transitions; ready and waiting rows every 15 s; starting at launch | Postgres (mirror of memory) |
 | `activity` plugin entries | Supervisor, in the status transaction | Indefinite (append-only) | Never | Postgres |
 | Running instance state (≤ 16) | Supervisor | Instance lifetime | Rebuilt from config and the outbox at start | Memory |
 | `plugin_definition_health` row | Supervisor of its host | While the definition has live rows; cross-host expiry only after >24 h silence and removal of the host's last status row | Failure, circuit and backoff updates; owner-local no-live-work pruning | Postgres |
@@ -672,7 +674,7 @@ read from `ingest_config_snapshot` through `config_snapshot_id`.
 | Plugin metadata / config answer | 64 KiB and valid frame, checked first; Configure information ≤ 8 entries, keys ≤ 64 ASCII bytes and values ≤ 256 UTF-8 bytes | Response/frame overflow: `plugin_metadata_invalid`; then diagnostic bounds, class or accepted/rejected exclusivity violation: `plugin_protocol_error` | Start timeout 10 s | Fixed |
 | Instances | 4 per output, 16 per worker; a slot only while starting or ready | Round-robin key cursor; release after 60 s idle; rotation in the blocking scope (worker or output) after 60 s held, never of an unfinished probe; status `instance_limit` | Start 10 s | N waiting definitions each admitted within N admissions; latency grows and stays visible |
 | Plugin stderr capture | Spike's bounded log capture | Drops beyond the bound, counted | n/a | Fixed |
-| Status rows | One per (host, output, digest) | Every 60 s: own stopped rows older than 60 s; other hosts' rows older than 24 h | Ready/waiting heartbeat 15 s; other states at launch/transitions | Workers × live definitions plus recent host history; disk only |
+| Status rows | One per (host, output, digest) | Every 60 s: own stopped rows older than 60 s without a health row; other hosts' rows older than 24 h | Ready/waiting heartbeat 15 s; other states at launch/transitions | Workers × live definitions plus recent host history; disk only |
 | Activity plugin entries | Two per degraded episode; the circuit reopens at most every 5 min | n/a | n/a | At most about 576 per instance per day |
 | JetStream publish in flight (plugin) | One batch (64) | n/a | 10 s | Fixed |
 | Admission query | `LIMIT 1` keyset after the cursor, one wrap, per free slot | No runnable definition: nothing starts | 5 s statement | Index on `(output_id, definition_digest, status)` |
@@ -755,7 +757,8 @@ read from `ingest_config_snapshot` through `config_snapshot_id`.
   - **Byte-limit amendment:** task 1.3 writes accepted ADR 0027, "Plugin intent byte-limit admission",
     refining ADR 0025 D4 without editing it. It records the owner's admission-time oversized-intent
     policy, unchanged payload and prior attempt count, no new attempt record, the shared claim
-    transaction/deadline/final permit fence, terminal-only commits and aggregate-overflow deferral.
+    transaction/deadline/final permit fence, terminal-only commits and aggregate-overflow deferral,
+    with D4's rejected oversized-intent alternatives and medium reversal cost.
 
 
 ## Open Questions
