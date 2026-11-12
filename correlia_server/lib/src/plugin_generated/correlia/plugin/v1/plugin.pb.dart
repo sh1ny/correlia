@@ -414,11 +414,17 @@ class ConfigureResponse extends $pb.GeneratedMessage {
     $core.bool? accepted,
     DeliveryLimits? limits,
     $core.Iterable<FieldError>? fieldErrors,
+    $core.String? errorClass,
+    $core.Iterable<$core.MapEntry<$core.String, $core.String>>?
+        configurationInfo,
   }) {
     final result = ConfigureResponse._();
     if (accepted != null) result.accepted = accepted;
     if (limits != null) result.limits = limits;
     if (fieldErrors != null) result.fieldErrors.addAll(fieldErrors);
+    if (errorClass != null) result.errorClass = errorClass;
+    if (configurationInfo != null)
+      result.configurationInfo.addEntries(configurationInfo);
     return result;
   }
 
@@ -441,6 +447,13 @@ class ConfigureResponse extends $pb.GeneratedMessage {
         subBuilder: DeliveryLimits.$_createMessage)
     ..pPM<FieldError>(3, _omitFieldNames ? '' : 'fieldErrors',
         subBuilder: FieldError.$_createMessage)
+    ..aOS(4, _omitFieldNames ? '' : 'errorClass')
+    ..m<$core.String, $core.String>(
+        5, _omitFieldNames ? '' : 'configurationInfo',
+        entryClassName: 'ConfigureResponse.ConfigurationInfoEntry',
+        keyFieldType: $pb.PbFieldType.OS,
+        valueFieldType: $pb.PbFieldType.OS,
+        packageName: const $pb.PackageName('correlia.plugin.v1'))
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -487,6 +500,20 @@ class ConfigureResponse extends $pb.GeneratedMessage {
 
   @$pb.TagNumber(3)
   $pb.PbList<FieldError> get fieldErrors => $_getList(2);
+
+  /// Empty on acceptance; a bounded, value-free class on rejection.
+  @$pb.TagNumber(4)
+  $core.String get errorClass => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set errorClass($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasErrorClass() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearErrorClass() => $_clearField(4);
+
+  /// Non-secret information returned only for accepted configurations.
+  @$pb.TagNumber(5)
+  $pb.PbMap<$core.String, $core.String> get configurationInfo => $_getMap(4);
 }
 
 class CheckHealthRequest extends $pb.GeneratedMessage {

@@ -179,7 +179,28 @@ const ConfigureResponse$json = {
       '6': '.correlia.plugin.v1.FieldError',
       '10': 'fieldErrors'
     },
+    {'1': 'error_class', '3': 4, '4': 1, '5': 9, '8': {}, '10': 'errorClass'},
+    {
+      '1': 'configuration_info',
+      '3': 5,
+      '4': 3,
+      '5': 11,
+      '6': '.correlia.plugin.v1.ConfigureResponse.ConfigurationInfoEntry',
+      '8': {},
+      '10': 'configurationInfo'
+    },
   ],
+  '3': [ConfigureResponse_ConfigurationInfoEntry$json],
+};
+
+@$core.Deprecated('Use configureResponseDescriptor instead')
+const ConfigureResponse_ConfigurationInfoEntry$json = {
+  '1': 'ConfigurationInfoEntry',
+  '2': [
+    {'1': 'key', '3': 1, '4': 1, '5': 9, '10': 'key'},
+    {'1': 'value', '3': 2, '4': 1, '5': 9, '10': 'value'},
+  ],
+  '7': {'7': true},
 };
 
 /// Descriptor for `ConfigureResponse`. Decode as a `google.protobuf.DescriptorProto`.
@@ -187,7 +208,12 @@ final $typed_data.Uint8List configureResponseDescriptor = $convert.base64Decode(
     'ChFDb25maWd1cmVSZXNwb25zZRIaCghhY2NlcHRlZBgBIAEoCFIIYWNjZXB0ZWQSOgoGbGltaX'
     'RzGAIgASgLMiIuY29ycmVsaWEucGx1Z2luLnYxLkRlbGl2ZXJ5TGltaXRzUgZsaW1pdHMSQQoM'
     'ZmllbGRfZXJyb3JzGAMgAygLMh4uY29ycmVsaWEucGx1Z2luLnYxLkZpZWxkRXJyb3JSC2ZpZW'
-    'xkRXJyb3Jz');
+    'xkRXJyb3JzEkEKC2Vycm9yX2NsYXNzGAQgASgJQiC6SB1yGzIZXiR8XlthLXpdW2EtejAtOV9d'
+    'ezAsNjN9JFIKZXJyb3JDbGFzcxKYAQoSY29uZmlndXJhdGlvbl9pbmZvGAUgAygLMjwuY29ycm'
+    'VsaWEucGx1Z2luLnYxLkNvbmZpZ3VyZVJlc3BvbnNlLkNvbmZpZ3VyYXRpb25JbmZvRW50cnlC'
+    'K7pIKJoBJRAIIhpyGDIWXlthLXpdW2EtejAtOV9dezAsNjN9JCoFcgMogAJSEWNvbmZpZ3VyYX'
+    'Rpb25JbmZvGkQKFkNvbmZpZ3VyYXRpb25JbmZvRW50cnkSEAoDa2V5GAEgASgJUgNrZXkSFAoF'
+    'dmFsdWUYAiABKAlSBXZhbHVlOgI4AQ==');
 
 @$core.Deprecated('Use checkHealthRequestDescriptor instead')
 const CheckHealthRequest$json = {

@@ -135,6 +135,12 @@ final class PluginFixtureSuite {
     _binaries[PluginFixtureBinary.nativeTlsPeer] = File(
       p.join(outputDirectory.path, 'native-tls-peer'),
     );
+    _binaries[PluginFixtureBinary.outputProduction] = File(
+      p.join(outputDirectory.path, 'output-production'),
+    );
+    _binaries[PluginFixtureBinary.identityInspect] = File(
+      p.join(outputDirectory.path, 'identity-inspect'),
+    );
 
     return PluginFixtureBuild(
       binaries: Map.unmodifiable(_binaries),
@@ -236,6 +242,12 @@ enum PluginFixtureBinary {
 
   /// The controlled mutual-TLS byte-stream peer.
   nativeTlsPeer,
+
+  /// The production output protocol fixture.
+  outputProduction,
+
+  /// The independent PEM identity inspector.
+  identityInspect,
 }
 
 /// The result of building the fixture binaries once per suite.

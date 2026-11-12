@@ -362,12 +362,16 @@ func (x *FieldError) GetMessage() string {
 }
 
 type ConfigureResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Accepted      bool                   `protobuf:"varint,1,opt,name=accepted,proto3" json:"accepted,omitempty"`
-	Limits        *DeliveryLimits        `protobuf:"bytes,2,opt,name=limits,proto3" json:"limits,omitempty"`
-	FieldErrors   []*FieldError          `protobuf:"bytes,3,rep,name=field_errors,json=fieldErrors,proto3" json:"field_errors,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Accepted    bool                   `protobuf:"varint,1,opt,name=accepted,proto3" json:"accepted,omitempty"`
+	Limits      *DeliveryLimits        `protobuf:"bytes,2,opt,name=limits,proto3" json:"limits,omitempty"`
+	FieldErrors []*FieldError          `protobuf:"bytes,3,rep,name=field_errors,json=fieldErrors,proto3" json:"field_errors,omitempty"`
+	// Empty on acceptance; a bounded, value-free class on rejection.
+	ErrorClass string `protobuf:"bytes,4,opt,name=error_class,json=errorClass,proto3" json:"error_class,omitempty"`
+	// Non-secret information returned only for accepted configurations.
+	ConfigurationInfo map[string]string `protobuf:"bytes,5,rep,name=configuration_info,json=configurationInfo,proto3" json:"configuration_info,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *ConfigureResponse) Reset() {
@@ -417,6 +421,20 @@ func (x *ConfigureResponse) GetLimits() *DeliveryLimits {
 func (x *ConfigureResponse) GetFieldErrors() []*FieldError {
 	if x != nil {
 		return x.FieldErrors
+	}
+	return nil
+}
+
+func (x *ConfigureResponse) GetErrorClass() string {
+	if x != nil {
+		return x.ErrorClass
+	}
+	return ""
+}
+
+func (x *ConfigureResponse) GetConfigurationInfo() map[string]string {
+	if x != nil {
+		return x.ConfigurationInfo
 	}
 	return nil
 }
@@ -755,11 +773,17 @@ const file_correlia_plugin_v1_plugin_proto_rawDesc = "" +
 	"\n" +
 	"FieldError\x12\x14\n" +
 	"\x05field\x18\x01 \x01(\tR\x05field\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\"\xae\x01\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\xd2\x03\n" +
 	"\x11ConfigureResponse\x12\x1a\n" +
 	"\baccepted\x18\x01 \x01(\bR\baccepted\x12:\n" +
 	"\x06limits\x18\x02 \x01(\v2\".correlia.plugin.v1.DeliveryLimitsR\x06limits\x12A\n" +
-	"\ffield_errors\x18\x03 \x03(\v2\x1e.correlia.plugin.v1.FieldErrorR\vfieldErrors\"\x14\n" +
+	"\ffield_errors\x18\x03 \x03(\v2\x1e.correlia.plugin.v1.FieldErrorR\vfieldErrors\x12A\n" +
+	"\verror_class\x18\x04 \x01(\tB \xbaH\x1dr\x1b2\x19^$|^[a-z][a-z0-9_]{0,63}$R\n" +
+	"errorClass\x12\x98\x01\n" +
+	"\x12configuration_info\x18\x05 \x03(\v2<.correlia.plugin.v1.ConfigureResponse.ConfigurationInfoEntryB+\xbaH(\x9a\x01%\x10\b\"\x1ar\x182\x16^[a-z][a-z0-9_]{0,63}$*\x05r\x03(\x80\x02R\x11configurationInfo\x1aD\n" +
+	"\x16ConfigurationInfoEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x14\n" +
 	"\x12CheckHealthRequest\"Q\n" +
 	"\x13CheckHealthResponse\x12\x18\n" +
 	"\aserving\x18\x01 \x01(\bR\aserving\x12 \n" +
@@ -803,7 +827,7 @@ func file_correlia_plugin_v1_plugin_proto_rawDescGZIP() []byte {
 }
 
 var file_correlia_plugin_v1_plugin_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_correlia_plugin_v1_plugin_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_correlia_plugin_v1_plugin_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_correlia_plugin_v1_plugin_proto_goTypes = []any{
 	(DeliveryOutcome)(0),        // 0: correlia.plugin.v1.DeliveryOutcome
 	(*GetMetadataRequest)(nil),  // 1: correlia.plugin.v1.GetMetadataRequest
@@ -819,28 +843,30 @@ var file_correlia_plugin_v1_plugin_proto_goTypes = []any{
 	(*EventResult)(nil),         // 11: correlia.plugin.v1.EventResult
 	(*DeliverResponse)(nil),     // 12: correlia.plugin.v1.DeliverResponse
 	nil,                         // 13: correlia.plugin.v1.ConfigureRequest.SecretsEntry
+	nil,                         // 14: correlia.plugin.v1.ConfigureResponse.ConfigurationInfoEntry
 }
 var file_correlia_plugin_v1_plugin_proto_depIdxs = []int32{
 	13, // 0: correlia.plugin.v1.ConfigureRequest.secrets:type_name -> correlia.plugin.v1.ConfigureRequest.SecretsEntry
 	3,  // 1: correlia.plugin.v1.ConfigureRequest.limits:type_name -> correlia.plugin.v1.DeliveryLimits
 	3,  // 2: correlia.plugin.v1.ConfigureResponse.limits:type_name -> correlia.plugin.v1.DeliveryLimits
 	5,  // 3: correlia.plugin.v1.ConfigureResponse.field_errors:type_name -> correlia.plugin.v1.FieldError
-	9,  // 4: correlia.plugin.v1.DeliverRequest.events:type_name -> correlia.plugin.v1.Event
-	0,  // 5: correlia.plugin.v1.EventResult.outcome:type_name -> correlia.plugin.v1.DeliveryOutcome
-	11, // 6: correlia.plugin.v1.DeliverResponse.results:type_name -> correlia.plugin.v1.EventResult
-	1,  // 7: correlia.plugin.v1.PluginService.GetMetadata:input_type -> correlia.plugin.v1.GetMetadataRequest
-	4,  // 8: correlia.plugin.v1.PluginService.Configure:input_type -> correlia.plugin.v1.ConfigureRequest
-	7,  // 9: correlia.plugin.v1.PluginService.CheckHealth:input_type -> correlia.plugin.v1.CheckHealthRequest
-	10, // 10: correlia.plugin.v1.OutputService.Deliver:input_type -> correlia.plugin.v1.DeliverRequest
-	2,  // 11: correlia.plugin.v1.PluginService.GetMetadata:output_type -> correlia.plugin.v1.GetMetadataResponse
-	6,  // 12: correlia.plugin.v1.PluginService.Configure:output_type -> correlia.plugin.v1.ConfigureResponse
-	8,  // 13: correlia.plugin.v1.PluginService.CheckHealth:output_type -> correlia.plugin.v1.CheckHealthResponse
-	12, // 14: correlia.plugin.v1.OutputService.Deliver:output_type -> correlia.plugin.v1.DeliverResponse
-	11, // [11:15] is the sub-list for method output_type
-	7,  // [7:11] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	14, // 4: correlia.plugin.v1.ConfigureResponse.configuration_info:type_name -> correlia.plugin.v1.ConfigureResponse.ConfigurationInfoEntry
+	9,  // 5: correlia.plugin.v1.DeliverRequest.events:type_name -> correlia.plugin.v1.Event
+	0,  // 6: correlia.plugin.v1.EventResult.outcome:type_name -> correlia.plugin.v1.DeliveryOutcome
+	11, // 7: correlia.plugin.v1.DeliverResponse.results:type_name -> correlia.plugin.v1.EventResult
+	1,  // 8: correlia.plugin.v1.PluginService.GetMetadata:input_type -> correlia.plugin.v1.GetMetadataRequest
+	4,  // 9: correlia.plugin.v1.PluginService.Configure:input_type -> correlia.plugin.v1.ConfigureRequest
+	7,  // 10: correlia.plugin.v1.PluginService.CheckHealth:input_type -> correlia.plugin.v1.CheckHealthRequest
+	10, // 11: correlia.plugin.v1.OutputService.Deliver:input_type -> correlia.plugin.v1.DeliverRequest
+	2,  // 12: correlia.plugin.v1.PluginService.GetMetadata:output_type -> correlia.plugin.v1.GetMetadataResponse
+	6,  // 13: correlia.plugin.v1.PluginService.Configure:output_type -> correlia.plugin.v1.ConfigureResponse
+	8,  // 14: correlia.plugin.v1.PluginService.CheckHealth:output_type -> correlia.plugin.v1.CheckHealthResponse
+	12, // 15: correlia.plugin.v1.OutputService.Deliver:output_type -> correlia.plugin.v1.DeliverResponse
+	12, // [12:16] is the sub-list for method output_type
+	8,  // [8:12] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_correlia_plugin_v1_plugin_proto_init() }
@@ -854,7 +880,7 @@ func file_correlia_plugin_v1_plugin_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_correlia_plugin_v1_plugin_proto_rawDesc), len(file_correlia_plugin_v1_plugin_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   13,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

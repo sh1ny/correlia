@@ -1,5 +1,8 @@
 ## Unreleased
 
+- Add authenticated production output plugin connections with ephemeral in-memory identities,
+  separated configuration secrets, bounded batch credits, per-event results and health deadlines.
+
 - Add bounded authenticated Alertmanager webhook-v4 ingress with credential-safe session-independent
   routing, exact raw storage and atomic non-sliding transport deduplication.
 - Publish immutable bootstrap revisions and source credentials transactionally; keep signing material

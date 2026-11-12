@@ -120,12 +120,17 @@ run in every role unless they are switched off:
   while frozen protobuf backing retains unknown binary fields. Optional binary metadata controls scope;
   absent metadata means unknown scope, never an inferred minor. CloudEvents `type` carries the major
   version and `dataschema` the minor.
-- **Plugin protocol** `correlia.plugin.v1` (ADRs 0020, [0025](../docs/adr/0025-plugin-protocol-v1-output-contract-and-supervision.md)):
+- **Plugin protocol** `correlia.plugin.v1` (ADRs 0020, [0025](../docs/adr/0025-plugin-protocol-v1-output-contract-and-supervision.md), [0026](../docs/adr/0026-plugin-configure-diagnostics.md)):
   `proto/correlia/plugin/v1/plugin.proto` defines the production output subset: metadata, Configure with
   separate secrets, health and credit-bounded delivery with per-event outcomes. Stock go-plugin handshake
   negotiates application protocol 1 with cookie `CORRELIA_PLUGIN=correlia.plugin.v1`. One stream is one
   epoch. Shared launch internals use the D24 transport; the spike remains experimental. Buf lint and
   generated Dart/Go drift checks apply now; the breaking baseline freezes at 1.0.
+  Configure separates non-secret result information (≤ 8 entries, keys ≤ 64 ASCII bytes, values ≤
+  256 UTF-8 bytes) from a validated plugin error class. Response/frame checks (64 KiB) precede diagnostic
+  and accepted/rejected exclusivity checks. Host rejection stays `plugin_config_rejected`; the plugin
+  class is exposed separately and mirrored in status only after exact secret-byte scrubbing. Information
+  and field messages are not automatically logged or persisted.
 - **Experimental output probe** `correlia.plugin.spike.v1`
   ([0023](../docs/adr/0023-native-openssl-plugin-probe.md)): `proto/correlia/plugin/spike/v1/`. A
   Correlia-owned, unstable, output-only probe that carries immutable canonical event bytes in bounded
@@ -248,6 +253,7 @@ Accepted ADRs only.
 | [0021](../docs/adr/0021-canonical-event-v1-contract.md) | Additive v1 identity bytes/UUID namespace, strict wire and boundary validation, standard generation and single-baseline compatibility; parse-only future minors | none (clarifies 0004/0019) |
 | [0023](../docs/adr/0023-native-openssl-plugin-probe.md) | Restated unstable output probe and four independent runtime gates; in-process system OpenSSL 3/TLS 1.3/P-521 custom connector, authenticated-only public API, isolated diagnostics and bounded native/surviving-host ownership; D24, criterion-2 interpretation and production adoption stay owner-only | [0022](../docs/adr/0022-experimental-output-plugin-probe.md) |
 | [0025](../docs/adr/0025-plugin-protocol-v1-output-contract-and-supervision.md) | Production output protocol, readiness permits, atomic outbox batches, fair bounded instances, durable supervision history and kind-aware secret commitments | none |
+| [0026](../docs/adr/0026-plugin-configure-diagnostics.md) | Typed bounded Configure diagnostics, validation precedence and exclusivity; secret-scrubbed plugin class separate from host classification | 0025 D1 Configure response (partial); other 0025 decisions remain in force |
 
 ### Superseded ADRs
 

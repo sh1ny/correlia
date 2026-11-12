@@ -7,17 +7,17 @@ Tiers: `unit/` fast, `db/` db, `plugin/` plugin, `e2e/` e2e.
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| plugin-output-protocol → Versioned plugin identification | Output plugin identifies itself | S/plugin/plugin_protocol_test.dart | output_plugin_identifies_itself | red |
-| plugin-output-protocol → Versioned plugin identification | Plugin without the output kind | S/plugin/plugin_protocol_test.dart | plugin_without_output_kind | red |
-| plugin-output-protocol → Versioned plugin identification | Spike probe cookie | S/plugin/plugin_protocol_test.dart | spike_probe_cookie_rejected | red |
-| plugin-output-protocol → Configuration with separated secrets | Accepted configuration | S/plugin/plugin_protocol_test.dart | accepted_configuration | red |
-| plugin-output-protocol → Configuration with separated secrets | Rejected configuration | S/plugin/plugin_protocol_test.dart | rejected_configuration | red |
-| plugin-output-protocol → Credit-controlled batched delivery | Batches within limits | S/plugin/plugin_protocol_test.dart | batches_within_limits | red |
-| plugin-output-protocol → Credit-controlled batched delivery | Plugin advertises limits above the host bounds | S/plugin/plugin_protocol_test.dart | plugin_limits_above_host_bounds | red |
-| plugin-output-protocol → Per-event delivery outcome | Mixed outcomes in one batch | S/plugin/plugin_protocol_test.dart | mixed_outcomes_in_one_batch | red |
-| plugin-output-protocol → Per-event delivery outcome | Malformed batch answer | S/plugin/plugin_protocol_test.dart | malformed_batch_answer | red |
-| plugin-output-protocol → Plugin health reporting | Plugin reports serving | S/plugin/plugin_protocol_test.dart | plugin_reports_serving | red |
-| plugin-output-protocol → Plugin health reporting | Health call stalls | S/plugin/plugin_protocol_test.dart | health_call_stalls | red |
+| plugin-output-protocol → Versioned plugin identification | Output plugin identifies itself | S/plugin/plugin_protocol_test.dart | output_plugin_identifies_itself | green |
+| plugin-output-protocol → Versioned plugin identification | Plugin without the output kind | S/plugin/plugin_protocol_test.dart | plugin_without_output_kind | green |
+| plugin-output-protocol → Versioned plugin identification | Spike probe cookie | S/plugin/plugin_protocol_test.dart | spike_probe_cookie_rejected | green |
+| plugin-output-protocol → Configuration with separated secrets | Accepted configuration | S/plugin/plugin_protocol_test.dart | accepted_configuration | green |
+| plugin-output-protocol → Configuration with separated secrets | Rejected configuration | S/plugin/plugin_protocol_test.dart | rejected_configuration | green |
+| plugin-output-protocol → Credit-controlled batched delivery | Batches within limits | S/plugin/plugin_protocol_test.dart | batches_within_limits | green |
+| plugin-output-protocol → Credit-controlled batched delivery | Plugin advertises limits above the host bounds | S/plugin/plugin_protocol_test.dart | plugin_limits_above_host_bounds | green |
+| plugin-output-protocol → Per-event delivery outcome | Mixed outcomes in one batch | S/plugin/plugin_protocol_test.dart | mixed_outcomes_in_one_batch | green |
+| plugin-output-protocol → Per-event delivery outcome | Malformed batch answer | S/plugin/plugin_protocol_test.dart | malformed_batch_answer | green |
+| plugin-output-protocol → Plugin health reporting | Plugin reports serving | S/plugin/plugin_protocol_test.dart | plugin_reports_serving | green |
+| plugin-output-protocol → Plugin health reporting | Health call stalls | S/plugin/plugin_protocol_test.dart | health_call_stalls | green |
 | plugin-supervision → Verified plugin launch | Pinned executable launches | S/plugin/plugin_supervision_test.dart | pinned_executable_launches | red |
 | plugin-supervision → Verified plugin launch | Replaced or unsafe executable | S/plugin/plugin_supervision_test.dart | replaced_or_unsafe_executable | red |
 | plugin-supervision → Restart with backoff | DUR-8 plugin crashes mid-stream | S/e2e/nats_dur8_e2e_test.dart | DUR-8 plugin crashes mid-stream | red |
@@ -115,10 +115,10 @@ exclusivity, secret scrubbing and separate host/plugin classification. Task 4.4 
 the architecture update; 6.4 mirrors the scrubbed plugin class separately in status. Regenerate both
 languages and rerun design review before implementing this amendment.
 
-- [ ] 4.1 Write `S/plugin/plugin_protocol_test.dart` cases for every plugin-output-protocol scenario (11 rows), driven by Go fixture plugins added under `correlia_server/test/plugin/fixtures/go/`; verify each scenario's assertions run against the real API, with no placeholder or skipped case, under the 2026-11-12 sequencing exception.
-- [ ] 4.2 Extract the protocol-neutral launch core shared by the spike and production clients (D2), and add the libcrypto bindings that mint the ephemeral P-521 host identity in memory (D3), with a plugin-tier test of the certificate's group, SAN, validity and key match plus a repeated-minting allocation check; verify the spike tests in `S/plugin/` still pass.
-- [ ] 4.3 Implement the `correlia.plugin.v1` client: metadata validation, Configure with separated secrets, credit-bounded batches, per-event outcomes and health calls; verify the 4.1 tests pass and flip their rows green.
-- [ ] 4.4 Write accepted ADR `docs/adr/0026-plugin-configure-diagnostics.md`, superseding only ADR 0025 D1's Configure response without editing that immutable ADR, and update the architecture protocol boundary and in-force index for diagnostic fields, bounds, exclusivity, secret scrubbing and separate host/plugin classification; verify by `mise run spec:validate` and read-back against D1.
+- [x] 4.1 Write `S/plugin/plugin_protocol_test.dart` cases for every plugin-output-protocol scenario (11 rows), driven by Go fixture plugins added under `correlia_server/test/plugin/fixtures/go/`; verify each scenario's assertions run against the real API, with no placeholder or skipped case, under the 2026-11-12 sequencing exception.
+- [x] 4.2 Extract the protocol-neutral launch core shared by the spike and production clients (D2), and add the libcrypto bindings that mint the ephemeral P-521 host identity in memory (D3), with a plugin-tier test of the certificate's group, SAN, validity and key match plus a repeated-minting allocation check; verify the spike tests in `S/plugin/` still pass.
+- [x] 4.3 Implement the `correlia.plugin.v1` client: metadata validation, Configure with separated secrets, credit-bounded batches, per-event outcomes and health calls; verify the 4.1 tests pass and flip their rows green.
+- [x] 4.4 Write accepted ADR `docs/adr/0026-plugin-configure-diagnostics.md`, superseding only ADR 0025 D1's Configure response without editing that immutable ADR, and update the architecture protocol boundary and in-force index for diagnostic fields, bounds, exclusivity, secret scrubbing and separate host/plugin classification; verify by `mise run spec:validate` and read-back against D1.
 
 ## 5. Relay: ready digests, permits, deadline and batch completion
 

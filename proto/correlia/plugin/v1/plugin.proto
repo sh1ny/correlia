@@ -55,6 +55,16 @@ message ConfigureResponse {
   bool accepted = 1;
   DeliveryLimits limits = 2;
   repeated FieldError field_errors = 3;
+  // Empty on acceptance; a bounded, value-free class on rejection.
+  string error_class = 4 [(buf.validate.field).string.pattern = "^$|^[a-z][a-z0-9_]{0,63}$"];
+  // Non-secret information returned only for accepted configurations.
+  map<string, string> configuration_info = 5 [
+    (buf.validate.field).map = {
+      max_pairs: 8
+      keys: {string: {pattern: "^[a-z][a-z0-9_]{0,63}$"}}
+      values: {string: {max_bytes: 256}}
+    }
+  ];
 }
 
 message CheckHealthRequest {}
