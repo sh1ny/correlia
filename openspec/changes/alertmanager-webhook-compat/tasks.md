@@ -115,8 +115,8 @@ meaning (it now decodes and is flagged); the case moves to the tolerance tests a
 
 ## 5. Integration and the exit criterion
 
-- [ ] 5.1 Run `mise run check` and `mise run test:all`; both pass. Verify by their exit status and test counts.
-- [ ] 5.2 [evidence] Follow the runbook's end-to-end check against Alertmanager 0.35.0 and an older release
+- [x] 5.1 Run `mise run check` and `mise run test:all`; both pass. Verify by their exit status and test counts.
+- [x] 5.2 [evidence] Follow the runbook's end-to-end check against Alertmanager 0.35.0 and an older release
   (0.27): the alerts reach the console's alert list and the NATS subscriber, the raw rows show no unknown fields,
   and everything started is torn down → evidence/e2e-alertmanager-0.35.md
 - [ ] 5.3 [user] The owner points a real Alertmanager 0.35 at a dev instance, following
