@@ -1,0 +1,17 @@
+class: PluginDefinitionHealth
+table: plugin_definition_health
+serverOnly: true
+fields:
+  hostInstanceId: String
+  outputId: String
+  definitionDigest: String
+  failureTimes: String
+  backoffStep: int
+  nextStartAt: DateTime?
+  circuit: String
+  nextProbeAt: DateTime?
+  lastErrorClass: String?
+indexes:
+  plugin_definition_health_owner_definition_idx:
+    fields: hostInstanceId, outputId, definitionDigest
+    unique: true

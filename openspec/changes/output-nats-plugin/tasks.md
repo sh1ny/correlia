@@ -18,24 +18,24 @@ Tiers: `unit/` fast, `db/` db, `plugin/` plugin, `e2e/` e2e.
 | plugin-output-protocol → Per-event delivery outcome | Malformed batch answer | S/plugin/plugin_protocol_test.dart | malformed_batch_answer | green |
 | plugin-output-protocol → Plugin health reporting | Plugin reports serving | S/plugin/plugin_protocol_test.dart | plugin_reports_serving | green |
 | plugin-output-protocol → Plugin health reporting | Health call stalls | S/plugin/plugin_protocol_test.dart | health_call_stalls | green |
-| plugin-supervision → Verified plugin launch | Pinned executable launches | S/plugin/plugin_supervision_test.dart | pinned_executable_launches | red |
-| plugin-supervision → Verified plugin launch | Replaced or unsafe executable | S/plugin/plugin_supervision_test.dart | replaced_or_unsafe_executable | red |
+| plugin-supervision → Verified plugin launch | Pinned executable launches | S/plugin/plugin_supervision_test.dart | pinned_executable_launches | green |
+| plugin-supervision → Verified plugin launch | Replaced or unsafe executable | S/plugin/plugin_supervision_test.dart | replaced_or_unsafe_executable | green |
 | plugin-supervision → Restart with backoff | DUR-8 plugin crashes mid-stream | S/e2e/nats_dur8_e2e_test.dart | DUR-8 plugin crashes mid-stream | red |
-| plugin-supervision → Restart with backoff | Repeated startup failure grows the delay | S/unit/plugin/supervision_policy_test.dart | repeated_startup_failure_grows_delay | red |
+| plugin-supervision → Restart with backoff | Repeated startup failure grows the delay | S/unit/plugin/supervision_policy_test.dart | repeated_startup_failure_grows_delay | green |
 | plugin-supervision → Crash budget circuit | DUR-8 crash budget exceeded | S/e2e/nats_dur8_e2e_test.dart | DUR-8 crash budget exceeded | red |
-| plugin-supervision → Crash budget circuit | Degraded plugin recovers | S/unit/plugin/supervision_policy_test.dart | degraded_plugin_recovers | red |
-| plugin-supervision → Fair instance slots | More busy outputs than slots | S/unit/plugin/slot_scheduler_test.dart | more_busy_outputs_than_slots | red |
-| plugin-supervision → Fair instance slots | Idle active output releases its slot | S/unit/plugin/slot_scheduler_test.dart | idle_active_output_releases_slot | red |
-| plugin-supervision → Fair instance slots | More live definitions than one sweep page | S/db/plugin_admission_test.dart | pinned_generations_beyond_one_page | red |
-| plugin-supervision → Fair instance slots | Five busy definitions of one output | S/unit/plugin/slot_scheduler_test.dart | five_busy_definitions_of_one_output | red |
-| plugin-supervision → Fair instance slots | Probe under slot contention | S/unit/plugin/slot_scheduler_test.dart | probe_under_slot_contention | red |
-| plugin-supervision → Fair instance slots | Healthy definition at the end of a long queue | S/unit/plugin/slot_scheduler_test.dart | healthy_definition_at_end_of_long_queue | red |
-| plugin-supervision → Fair instance slots | Healthy definition behind unavailable historical ones | S/unit/plugin/slot_scheduler_test.dart | healthy_behind_unavailable_historical | red |
-| plugin-supervision → Durable supervision history | Failing definitions cycle through slots | S/db/plugin_health_test.dart | failing_definitions_cycle_through_slots | red |
-| plugin-supervision → Persisted plugin status | Status of a ready plugin | S/plugin/plugin_supervision_test.dart | status_of_a_ready_plugin | red |
+| plugin-supervision → Crash budget circuit | Degraded plugin recovers | S/unit/plugin/supervision_policy_test.dart | degraded_plugin_recovers | green |
+| plugin-supervision → Fair instance slots | More busy outputs than slots | S/unit/plugin/slot_scheduler_test.dart | more_busy_outputs_than_slots | green |
+| plugin-supervision → Fair instance slots | Idle active output releases its slot | S/unit/plugin/slot_scheduler_test.dart | idle_active_output_releases_slot | green |
+| plugin-supervision → Fair instance slots | More live definitions than one sweep page | S/db/plugin_admission_test.dart | pinned_generations_beyond_one_page | green |
+| plugin-supervision → Fair instance slots | Five busy definitions of one output | S/unit/plugin/slot_scheduler_test.dart | five_busy_definitions_of_one_output | green |
+| plugin-supervision → Fair instance slots | Probe under slot contention | S/unit/plugin/slot_scheduler_test.dart | probe_under_slot_contention | green |
+| plugin-supervision → Fair instance slots | Healthy definition at the end of a long queue | S/unit/plugin/slot_scheduler_test.dart | healthy_definition_at_end_of_long_queue | green |
+| plugin-supervision → Fair instance slots | Healthy definition behind unavailable historical ones | S/unit/plugin/slot_scheduler_test.dart | healthy_behind_unavailable_historical | green |
+| plugin-supervision → Durable supervision history | Failing definitions cycle through slots | S/db/plugin_health_test.dart | failing_definitions_cycle_through_slots | green |
+| plugin-supervision → Persisted plugin status | Status of a ready plugin | S/plugin/plugin_supervision_test.dart | status_of_a_ready_plugin | green |
 | plugin-supervision → Persisted plugin status | Worker killed | S/e2e/nats_burst_e2e_test.dart | worker_killed_status_goes_stale | red |
 | plugin-supervision → Bounded plugin shutdown | Graceful worker stop | S/e2e/nats_shutdown_e2e_test.dart | graceful_worker_stop | red |
-| plugin-supervision → Bounded plugin shutdown | Plugin ignores shutdown | S/plugin/plugin_supervision_test.dart | plugin_ignores_shutdown | red |
+| plugin-supervision → Bounded plugin shutdown | Plugin ignores shutdown | S/plugin/plugin_supervision_test.dart | plugin_ignores_shutdown | green |
 | integration-nats → Event subject scheme | Alert event subject | S/plugin/nats_output_test.dart | alert_event_subject | red |
 | integration-nats → Event subject scheme | Unsafe subject token | S/plugin/nats_output_test.dart | unsafe_subject_token | red |
 | integration-nats → Exact body and identifying headers | Subscriber parses the event | S/plugin/nats_output_test.dart | subscriber_parses_the_event | red |
@@ -63,9 +63,9 @@ Tiers: `unit/` fast, `db/` db, `plugin/` plugin, `e2e/` e2e.
 | output-delivery → Readiness-gated plugin acquisition | Instance leaves ready between selection and claim | S/db/plugin_relay_test.dart | instance_leaves_ready_before_permit | green |
 | output-delivery → Readiness-gated plugin acquisition | Plugin exit observed while the claim is still open | S/db/plugin_relay_test.dart | plugin_exit_observed_during_open_claim | green |
 | output-delivery → Pinned plugin definition delivery | NATS stream changed with work pending | S/e2e/nats_pinning_e2e_test.dart | nats_server_changed_with_work_pending | red |
-| output-delivery → Pinned plugin definition delivery | Pinned definition cannot run | S/plugin/plugin_supervision_test.dart | pinned_definition_cannot_run | red |
+| output-delivery → Pinned plugin definition delivery | Pinned definition cannot run | S/plugin/plugin_supervision_test.dart | pinned_definition_cannot_run | green |
 | output-delivery → Batched plugin delivery with per-event completion | Batch with one bad event | S/db/plugin_relay_test.dart | batch_with_one_bad_event | green |
-| output-delivery → Batched plugin delivery with per-event completion | Plugin dies with the batch unanswered | S/plugin/plugin_supervision_test.dart | plugin_dies_with_batch_unanswered | red |
+| output-delivery → Batched plugin delivery with per-event completion | Plugin dies with the batch unanswered | S/plugin/plugin_supervision_test.dart | plugin_dies_with_batch_unanswered | green |
 | output-delivery → Batched plugin delivery with per-event completion | Full batch completed within its budget | S/db/plugin_relay_test.dart | full_batch_within_budget | green |
 | output-delivery → Batched plugin delivery with per-event completion | Batch over its deadline | S/plugin/nats_relay_deadline_test.dart | batch_over_its_deadline | red |
 | output-delivery → Batched plugin delivery with per-event completion | Stale batch completion | S/db/plugin_relay_test.dart | stale_batch_completion | green |
@@ -131,10 +131,10 @@ Owner-approved extension (2026-11-12): the API-first sequencing exception also c
 the new admission API in 6.3. No pre-implementation behavioral red was observed for those APIs.
 The durable-health test retains its observed missing-table red. All scenario assertions remain required.
 
-- [ ] 6.1 Write `S/unit/plugin/supervision_policy_test.dart` cases `repeated_startup_failure_grows_delay` and `degraded_plugin_recovers` on an injected clock; implement the pure-Dart state machine with the D6 constants under the owner-approved API-first exception; verify both scenarios' real assertions pass without skips or placeholders and flip the rows green.
-- [ ] 6.2 Write `S/unit/plugin/slot_scheduler_test.dart` cases for the six in-memory Fair instance slots scenarios; implement admission by key cursor, waiting demand per blocking scope, idle release, rotation and probe protection (D7) over an injected clock and in-memory demand under the owner-approved API-first exception; verify every scenario's real assertions pass without skips or placeholders and flip the rows green.
-- [ ] 6.3 Write `S/db/plugin_admission_test.dart` case `pinned_generations_beyond_one_page` (real post-pin barrier, activate B before A's work creates rows) under the API-first exception, and red-confirm `S/db/plugin_health_test.dart` case `failing_definitions_cycle_through_slots`; add managed health/status models, forward migrations, admission and waiting-demand keyset queries, and pruning (D11, D19); verify both scenarios pass and flip the rows green.
-- [ ] 6.4 Write failing `S/plugin/plugin_supervision_test.dart` cases `pinned_executable_launches`, `replaced_or_unsafe_executable`, `status_of_a_ready_plugin`, `plugin_ignores_shutdown`, `pinned_definition_cannot_run` and `plugin_dies_with_batch_unanswered`; wire the supervisor to verified launches, health checks, status rows with heartbeat, `plugin_degraded`/`plugin_recovered` activity entries and the relay's ready set, inside `IngestWorkers` in the D16 order; verify they pass, a test proves the console alert list ignores plugin activity entries, and flip the rows green.
+- [x] 6.1 Write `S/unit/plugin/supervision_policy_test.dart` cases `repeated_startup_failure_grows_delay` and `degraded_plugin_recovers` on an injected clock; implement the pure-Dart state machine with the D6 constants under the owner-approved API-first exception; verify both scenarios' real assertions pass without skips or placeholders and flip the rows green.
+- [x] 6.2 Write `S/unit/plugin/slot_scheduler_test.dart` cases for the six in-memory Fair instance slots scenarios; implement admission by key cursor, waiting demand per blocking scope, idle release, rotation and probe protection (D7) over an injected clock and in-memory demand under the owner-approved API-first exception; verify every scenario's real assertions pass without skips or placeholders and flip the rows green.
+- [x] 6.3 Write `S/db/plugin_admission_test.dart` case `pinned_generations_beyond_one_page` (real post-pin barrier, activate B before A's work creates rows) under the API-first exception, and red-confirm `S/db/plugin_health_test.dart` case `failing_definitions_cycle_through_slots`; add managed health/status models, forward migrations, admission and waiting-demand keyset queries, and pruning (D11, D19); verify both scenarios pass and flip the rows green.
+- [x] 6.4 Write failing `S/plugin/plugin_supervision_test.dart` cases `pinned_executable_launches`, `replaced_or_unsafe_executable`, `status_of_a_ready_plugin`, `plugin_ignores_shutdown`, `pinned_definition_cannot_run` and `plugin_dies_with_batch_unanswered`; wire the supervisor to verified launches, health checks, status rows with heartbeat, `plugin_degraded`/`plugin_recovered` activity entries and the relay's ready set, inside `IngestWorkers` in the D16 order; verify they pass, a test proves the console alert list ignores plugin activity entries, and flip the rows green.
 
 ## 7. output-nats plugin
 

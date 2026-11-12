@@ -42,8 +42,9 @@ final class RelayDeadline {
   Duration get deliveryBudget {
     check();
     final remaining = const Duration(seconds: 22) - _spent;
-    if (remaining <= Duration.zero)
+    if (remaining <= Duration.zero) {
       throw TimeoutException('relay delivery deadline');
+    }
     return remaining < const Duration(seconds: 20)
         ? remaining
         : const Duration(seconds: 20);

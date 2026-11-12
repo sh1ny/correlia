@@ -276,11 +276,13 @@ final class IngestBootstrap {
               field,
             );
             final name = _string(row['plugin'], 64, '$field.plugin');
-            if (!_pluginName.hasMatch(name))
+            if (!_pluginName.hasMatch(name)) {
               _bad('config', '$field.plugin', 'plugin');
+            }
             final digest = _string(row['sha256'], 64, '$field.sha256');
-            if (!_sha256Pattern.hasMatch(digest))
+            if (!_sha256Pattern.hasMatch(digest)) {
               _bad('config', '$field.sha256', 'digest');
+            }
             final pluginConfig = _map(row['config'], 'config', '$field.config');
             if (utf8.encode(jsonEncode(pluginConfig)).length > 16384) {
               _bad('config', '$field.config', 'bound');
@@ -294,12 +296,14 @@ final class IngestBootstrap {
             final references = <String, PluginSecretReference>{};
             final names = refs.keys.toList()..sort();
             for (final name in names) {
-              if (!_reference.hasMatch(name))
+              if (!_reference.hasMatch(name)) {
                 _bad('config', '$field.secret_refs', 'reference');
+              }
               final ref = _ref(refs[name], '$field.secret_refs');
               final bytes = secrets[ref];
-              if (bytes == null)
+              if (bytes == null) {
                 _bad('config', '$field.secret_refs', 'missing_secret');
+              }
               references[name] = PluginSecretReference(
                 ref,
                 sha256.convert(bytes).toString(),
@@ -451,8 +455,9 @@ Uint8List _decodeSecret(Object? value) {
   if (encoded.length > 21846) _bad('secrets', 'value', 'bound');
   try {
     final bytes = base64Url.decode(base64Url.normalize(encoded));
-    if (bytes.isEmpty || bytes.length > 16384)
+    if (bytes.isEmpty || bytes.length > 16384) {
       _bad('secrets', 'value', 'bound');
+    }
     if (base64Url.encode(bytes).replaceAll('=', '') != encoded) {
       _bad('secrets', 'value', 'credential_encoding');
     }
@@ -473,8 +478,9 @@ Future<void> _validatePluginDirectory(String? path) async {
       _bad('config', 'CORRELIA_PLUGIN_DIR', 'directory');
     }
     final stat = await Directory(path).stat();
-    if ((stat.mode & 0x12) != 0)
+    if ((stat.mode & 0x12) != 0) {
       _bad('config', 'CORRELIA_PLUGIN_DIR', 'permissions');
+    }
     final owner = await Process.run('/usr/bin/stat', ['-c', '%u', '--', path]);
     final user = await Process.run('/usr/bin/id', ['-u']);
     if (owner.exitCode != 0 ||

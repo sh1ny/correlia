@@ -2,6 +2,8 @@
 
 - Add authenticated production output plugin connections with ephemeral in-memory identities,
   separated configuration secrets, bounded batch credits, per-event results and health deadlines.
+- Supervise pinned plugin definitions with verified launches, durable crash budgets, fair bounded
+  worker slots, readiness-gated delivery and persisted heartbeat and circuit status.
 
 - Add bounded authenticated Alertmanager webhook-v4 ingress with credential-safe session-independent
   routing, exact raw storage and atomic non-sliding transport deduplication.

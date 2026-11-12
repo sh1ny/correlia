@@ -188,16 +188,18 @@ final class OutputPluginConnection {
     Duration shutdownGrace = const Duration(seconds: 5),
   }) async {
     if (timeout <= Duration.zero) throw ArgumentError.value(timeout, 'timeout');
-    if (shutdownGrace.isNegative)
+    if (shutdownGrace.isNegative) {
       throw ArgumentError.value(shutdownGrace, 'shutdownGrace');
+    }
     final deadline = timeout < const Duration(seconds: 10)
         ? timeout
         : const Duration(seconds: 10);
     final watch = Stopwatch()..start();
     Duration remaining() {
       final left = deadline - watch.elapsed;
-      if (left <= Duration.zero)
+      if (left <= Duration.zero) {
         throw const OutputPluginException('plugin_start_timeout');
+      }
       return left;
     }
 
@@ -246,8 +248,9 @@ final class OutputPluginConnection {
         ),
         options: CallOptions(timeout: remaining()),
       );
-      if (configured.writeToBuffer().length > 65536)
+      if (configured.writeToBuffer().length > 65536) {
         throw const OutputPluginException('plugin_metadata_invalid');
+      }
       final pluginClass = configured.errorClass;
       final info = configured.configurationInfo;
       if ((pluginClass.isNotEmpty && !_errorClass.hasMatch(pluginClass)) ||
@@ -290,8 +293,9 @@ final class OutputPluginConnection {
       final events = math.min(64, advertised.maxEventsPerBatch);
       final bytes = math.min(1048576, advertised.maxBytesPerBatch.toInt());
       final outstanding = math.min(4, advertised.maxOutstandingBatches);
-      if (events <= 0 || bytes <= 0 || outstanding <= 0)
+      if (events <= 0 || bytes <= 0 || outstanding <= 0) {
         throw const OutputPluginException('plugin_protocol_error');
+      }
       final connection = OutputPluginConnection._(
         core,
         client,
@@ -333,8 +337,9 @@ final class OutputPluginConnection {
       final frameFailure = core.frameFailure;
       await core.stop();
       if (error is OutputPluginException) rethrow;
-      if (frameFailure != null)
+      if (frameFailure != null) {
         throw const OutputPluginException('plugin_metadata_invalid');
+      }
       if (error is TimeoutException ||
           error is GrpcError && error.code == StatusCode.deadlineExceeded) {
         throw const OutputPluginException('plugin_start_timeout');
@@ -354,8 +359,9 @@ final class OutputPluginConnection {
     final deadline = timeout < const Duration(seconds: 2)
         ? timeout
         : const Duration(seconds: 2);
-    if (_stopped || _failure.isCompleted)
+    if (_stopped || _failure.isCompleted) {
       throw const OutputPluginException('plugin_connection_lost');
+    }
     try {
       final response = await _client
           .checkHealth(
@@ -371,30 +377,35 @@ final class OutputPluginConnection {
     } on TimeoutException {
       throw const OutputPluginException('plugin_health_timeout');
     } on GrpcError catch (error) {
-      if (error.code == StatusCode.deadlineExceeded)
+      if (error.code == StatusCode.deadlineExceeded) {
         throw const OutputPluginException('plugin_health_timeout');
+      }
       throw const OutputPluginException('plugin_connection_lost');
     }
   }
 
   /// Sends one batch when a negotiated credit is available.
   Future<List<OutputPluginResult>> deliver(List<OutputPluginEvent> events) {
-    if (_stopped || _failure.isCompleted)
+    if (_stopped || _failure.isCompleted) {
       throw const OutputPluginException('plugin_connection_lost');
-    if (_pending.length >= limits.maxOutstanding)
+    }
+    if (_pending.length >= limits.maxOutstanding) {
       throw StateError('Plugin delivery credit exhausted');
+    }
     final indexed = <String, OutputPluginEvent>{};
     var bytes = 0;
     for (final event in events) {
-      if (event.id.isEmpty || indexed.containsKey(event.id))
+      if (event.id.isEmpty || indexed.containsKey(event.id)) {
         throw ArgumentError('Invalid event identifiers');
+      }
       indexed[event.id] = event;
       bytes += event.payload.length;
     }
     if (events.isEmpty ||
         events.length > limits.maxEvents ||
-        bytes > limits.maxBytes)
+        bytes > limits.maxBytes) {
       throw ArgumentError('Batch exceeds negotiated limits');
+    }
     final sequence = ++_sequence;
     final request = v1.DeliverRequest(
       sequence: Int64(sequence),
@@ -403,8 +414,9 @@ final class OutputPluginConnection {
           v1.Event(eventId: event.id, payload: event.payload),
       ],
     );
-    if (request.writeToBuffer().length > 2 * 1024 * 1024)
+    if (request.writeToBuffer().length > 2 * 1024 * 1024) {
       throw ArgumentError('Batch exceeds gRPC limit');
+    }
     final pending = _Pending(indexed);
     _pending[sequence] = pending;
     _requests.add(request);
@@ -466,8 +478,9 @@ final class OutputPluginConnection {
   /// Cancels outstanding work and gracefully stops or forcibly reaps the child.
   Future<void> stop({Duration? grace}) async {
     final effectiveGrace = grace ?? _shutdownGrace;
-    if (effectiveGrace.isNegative)
+    if (effectiveGrace.isNegative) {
       throw ArgumentError.value(effectiveGrace, 'grace');
+    }
     if (_stopped) return;
     _fail(
       const OutputPluginException('plugin_connection_lost'),

@@ -10,8 +10,9 @@ void main(List<String> args) {
   final live = library.lookupFunction<Uint64 Function(), int Function()>(
     'probe_live_allocations',
   );
-  if (install() != 1)
+  if (install() != 1) {
     throw StateError('OpenSSL allocation hooks installed too late');
+  }
   for (var i = 0; i < 20; i++) {
     mintPluginIdentity();
   }
@@ -20,6 +21,7 @@ void main(List<String> args) {
     mintPluginIdentity();
   }
   final after = live();
-  if (before != after)
+  if (before != after) {
     throw StateError('OpenSSL identity allocations changed: $before -> $after');
+  }
 }

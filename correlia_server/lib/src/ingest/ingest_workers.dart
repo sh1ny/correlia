@@ -4,6 +4,7 @@ import 'package:serverpod/serverpod.dart';
 
 import '../output/relay_subsystem.dart';
 import '../pipeline/pipeline.dart';
+import '../plugin/plugin_supervisor.dart';
 import '../runtime/process_options.dart';
 import '../runtime/subsystem.dart';
 import 'ingest_startup.dart';
@@ -26,6 +27,7 @@ final class IngestWorkers extends Subsystem {
   final _stopping = Completer<void>();
   PipelineSubsystem? _pipeline;
   RelaySubsystem? _relay;
+  PluginSupervisor? _supervisor;
 
   @override
   String get name => 'ingest-workers';
@@ -39,6 +41,13 @@ final class IngestWorkers extends Subsystem {
     if (bootstrap == null) return;
     final pin = gates.pipelinePin;
     final acquire = gates.relayAcquire;
+    final supervisor = PluginSupervisor(
+      openSession: () => pod.createSession(enableLogging: false),
+      bootstrap: bootstrap,
+      pluginDirectory: startup.environment['CORRELIA_PLUGIN_DIR'] ?? '',
+      hostInstanceId: const Uuid().v4(),
+      log: log,
+    );
     final pipeline = PipelineSubsystem(
       openSession: () => pod.createSession(enableLogging: false),
       afterPin: pin == null
@@ -49,6 +58,7 @@ final class IngestWorkers extends Subsystem {
       pod: pod,
       bootstrap: bootstrap,
       runMode: runMode,
+      pluginRouter: supervisor,
       beforeAcquire: acquire == null
           ? null
           : () => awaitIngestTestGate(acquire, _stopping.future),
@@ -56,14 +66,21 @@ final class IngestWorkers extends Subsystem {
         'output-relay output=$output signing_reference=$reference unavailable',
       ),
     );
-    await pipeline.start();
-    _pipeline = pipeline;
+    await supervisor.start();
+    _supervisor = supervisor;
     try {
-      await relay.start();
-      _relay = relay;
+      await pipeline.start();
+      _pipeline = pipeline;
+      try {
+        await relay.start();
+        _relay = relay;
+      } catch (_) {
+        if (!_stopping.isCompleted) _stopping.complete();
+        await pipeline.stop();
+        rethrow;
+      }
     } catch (_) {
-      if (!_stopping.isCompleted) _stopping.complete();
-      await pipeline.stop();
+      await supervisor.stop();
       rethrow;
     }
   }
@@ -72,10 +89,14 @@ final class IngestWorkers extends Subsystem {
   Future<void> stop() async {
     startup.ready = false;
     if (!_stopping.isCompleted) _stopping.complete();
-    // Signal both owners before awaiting either; neither may acquire new work.
-    await Future.wait([
-      if (_relay case final relay?) relay.stop(),
-      if (_pipeline case final pipeline?) pipeline.stop(),
-    ]);
+    try {
+      if (_relay case final relay?) await relay.stop();
+    } finally {
+      try {
+        if (_pipeline case final pipeline?) await pipeline.stop();
+      } finally {
+        if (_supervisor case final supervisor?) await supervisor.stop();
+      }
+    }
   }
 }
