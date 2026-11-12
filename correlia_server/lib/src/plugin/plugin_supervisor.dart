@@ -181,7 +181,6 @@ final class PluginSupervisor implements PluginOutputRouter {
         _scheduler.due(instance.key);
       } else if (_scheduler.idleForRelease(instance.key)) {
         instance.stopping = true;
-        instance.permit.invalidate();
         _track(_remove(instance));
       }
     }
@@ -237,7 +236,6 @@ final class PluginSupervisor implements PluginOutputRouter {
         final instance = _instances[victim]!;
         if (!instance.stopping) {
           instance.stopping = true;
-          instance.permit.invalidate();
           _track(_remove(instance));
         }
       }
@@ -358,13 +356,12 @@ final class PluginSupervisor implements PluginOutputRouter {
   }
 
   void _observeFailure(_Instance instance, OutputPluginException error) {
-    if (instance.stopping || _stopped.isCompleted || instance.failure != null) {
-      return;
-    }
+    if (instance.failure != null) return;
+    instance.permit.invalidate();
+    if (instance.stopping || _stopped.isCompleted) return;
     if (instance.recoveryPending || instance.policy.tick()) {
       instance.recoveryBeforeFailure = true;
     }
-    instance.permit.invalidate();
     instance.failure = error;
   }
 
@@ -457,8 +454,9 @@ final class PluginSupervisor implements PluginOutputRouter {
   Future<void> _remove(_Instance instance, {bool failed = false}) async {
     try {
       if (!instance.removalPrepared) {
-        instance.permit.invalidate();
+        // Voluntary retirement refuses new acquisitions but preserves held permits.
         await instance.permit.drain();
+        instance.permit.invalidate();
         final connection = instance.connection;
         if (connection != null) {
           await connection.stop(grace: durations.shutdownGrace);
@@ -501,6 +499,7 @@ final class PluginSupervisor implements PluginOutputRouter {
 
   @override
   Map<String, Set<String>> get readyDefinitions {
+    if (_stopped.isCompleted) return const {};
     final ready = <String, Set<String>>{};
     for (final instance in _instances.values) {
       if (!instance.stopping &&
@@ -514,6 +513,7 @@ final class PluginSupervisor implements PluginOutputRouter {
 
   @override
   DeliveryPermit? tryAcquire(String outputId, String digest) {
+    if (_stopped.isCompleted) return null;
     final instance = _instances[PluginKey(outputId, digest)];
     return instance == null ||
             instance.stopping ||
@@ -540,8 +540,7 @@ final class PluginSupervisor implements PluginOutputRouter {
     final instance = _instances.values.singleWhere(
       (value) =>
           value.key.digest == batch.definitionDigest &&
-          value.policy.state == PluginState.ready &&
-          !value.stopping,
+          value.policy.state == PluginState.ready,
     );
     late final List<OutputPluginResult> results;
     try {

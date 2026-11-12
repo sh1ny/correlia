@@ -26,6 +26,7 @@ Tiers: `unit/` fast, `db/` db, `plugin/` plugin, `e2e/` e2e.
 | plugin-supervision → Crash budget circuit | Degraded plugin recovers | S/unit/plugin/supervision_policy_test.dart | degraded_plugin_recovers | green |
 | plugin-supervision → Fair instance slots | More busy outputs than slots | S/unit/plugin/slot_scheduler_test.dart | more_busy_outputs_than_slots | green |
 | plugin-supervision → Fair instance slots | Idle active output releases its slot | S/unit/plugin/slot_scheduler_test.dart | idle_active_output_releases_slot | green |
+| plugin-supervision → Fair instance slots | Idle active output releases its slot | S/plugin/plugin_supervision_test.dart | held_permit_survives_voluntary_idle | green |
 | plugin-supervision → Fair instance slots | More live definitions than one sweep page | S/db/plugin_admission_test.dart | pinned_generations_beyond_one_page | green |
 | plugin-supervision → Fair instance slots | Five busy definitions of one output | S/unit/plugin/slot_scheduler_test.dart | five_busy_definitions_of_one_output | green |
 | plugin-supervision → Fair instance slots | Probe under slot contention | S/unit/plugin/slot_scheduler_test.dart | probe_under_slot_contention | green |
@@ -36,6 +37,7 @@ Tiers: `unit/` fast, `db/` db, `plugin/` plugin, `e2e/` e2e.
 | plugin-supervision → Persisted plugin status | Worker killed | S/e2e/nats_burst_e2e_test.dart | worker_killed_status_goes_stale | green |
 | plugin-supervision → Bounded plugin shutdown | Graceful worker stop | S/e2e/nats_shutdown_e2e_test.dart | graceful_worker_stop | green |
 | plugin-supervision → Bounded plugin shutdown | Graceful worker stop | S/db/plugin_relay_shutdown_test.dart | does not send a committed claim and recovers it | green |
+| plugin-supervision → Bounded plugin shutdown | Graceful worker stop | S/plugin/plugin_supervision_test.dart | held_permit_survives_voluntary_shutdown | green |
 | plugin-supervision → Bounded plugin shutdown | Plugin ignores shutdown | S/plugin/plugin_supervision_test.dart | plugin_ignores_shutdown | green |
 | integration-nats → Event subject scheme | Alert event subject | S/plugin/nats_output_test.dart | alert_event_subject | green |
 | integration-nats → Event subject scheme | Unsafe subject token | S/plugin/nats_output_test.dart | unsafe_subject_token | green |
@@ -67,6 +69,7 @@ Tiers: `unit/` fast, `db/` db, `plugin/` plugin, `e2e/` e2e.
 | output-delivery → Pinned plugin definition delivery | Pinned definition cannot run | S/plugin/plugin_supervision_test.dart | pinned_definition_cannot_run | green |
 | output-delivery → Batched plugin delivery with per-event completion | Batch with one bad event | S/db/plugin_relay_test.dart | batch_with_one_bad_event | green |
 | output-delivery → Batched plugin delivery with per-event completion | Plugin dies with the batch unanswered | S/plugin/plugin_supervision_test.dart | plugin_dies_with_batch_unanswered | green |
+| output-delivery → Batched plugin delivery with per-event completion | Plugin dies with the batch unanswered | S/plugin/plugin_supervision_test.dart | held_permit_survives_voluntary_failure | green |
 | output-delivery → Batched plugin delivery with per-event completion | Full batch completed within its budget | S/db/plugin_relay_test.dart | full_batch_within_budget | green |
 | output-delivery → Batched plugin delivery with per-event completion | Batch over its deadline | S/plugin/nats_relay_deadline_test.dart | batch_over_its_deadline | green |
 | output-delivery → Batched plugin delivery with per-event completion | Stale batch completion | S/db/plugin_relay_test.dart | stale_batch_completion | green |

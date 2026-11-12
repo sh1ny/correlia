@@ -9,6 +9,8 @@
   Document local tooling, configuration and supervision in `docs/runbooks/output-nats.md`.
 - Do not send a new plugin batch after relay shutdown starts, even when its claim was in progress;
   retain unsent started claims for normal lease recovery.
+- Preserve held delivery permits while voluntarily retiring a plugin; refuse new acquisitions
+  without turning committed work into spurious retries, and still invalidate on observed failure.
 
 - Add bounded authenticated Alertmanager webhook-v4 ingress with credential-safe session-independent
   routing, exact raw storage and atomic non-sliding transport deduplication.

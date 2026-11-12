@@ -10,6 +10,10 @@ import 'package:correlia_server/src/ingest/config_repository.dart';
 import 'package:correlia_server/src/ingest/ingest_startup.dart';
 import 'package:correlia_server/src/ingest/ingest_test_gates.dart';
 import 'package:correlia_server/src/ingest/ingest_workers.dart';
+import 'package:correlia_server/src/output/delivery_permit.dart';
+import 'package:correlia_server/src/output/output_relay.dart';
+import 'package:correlia_server/src/output/plugin_output_router.dart';
+import 'package:correlia_server/src/plugin/plugin_supervisor.dart';
 import 'package:correlia_server/src/runtime/process_options.dart';
 import 'package:crypto/crypto.dart';
 import 'package:serverpod/serverpod.dart';
@@ -428,6 +432,114 @@ void main() {
         );
         expect(failed.single[0], 2);
       }, timeout: const Timeout(Duration(seconds: 90)));
+
+      for (final stopMode in ['idle', 'shutdown', 'failure']) {
+        test('held_permit_survives_voluntary_$stopMode', () async {
+          var now = DateTime.now().toUtc();
+          final definition = bootstrap.outputs.single as PluginIngestOutput;
+          final supervisor = PluginSupervisor(
+            openSession: () =>
+                session.serverpod.createSession(enableLogging: false),
+            bootstrap: bootstrap,
+            pluginDirectory: testDirectory.path,
+            hostInstanceId: 'drain-$stopMode',
+            clock: () => now,
+            log: (_) {},
+          );
+          DeliveryPermit? held;
+          Future<void>? stopping;
+          try {
+            await session.db.unsafeSimpleExecute(
+              "UPDATE outbox SET payload=convert_to('bytes-' || event_id::text,'UTF8')",
+            );
+            await supervisor.start();
+            await Stream<void>.periodic(const Duration(milliseconds: 1))
+                .firstWhere(
+                  (_) =>
+                      supervisor.readyDefinitions[output]?.contains(
+                        definition.definitionDigest,
+                      ) ??
+                      false,
+                )
+                .timeout(const Duration(seconds: 15));
+            held = supervisor.tryAcquire(output, definition.definitionDigest)!;
+            final repo = OutputRelayRepository(
+              session,
+              bootstrap.secret,
+              loadedReferences: bootstrap.loadedReferences,
+            );
+            final batch = (await repo.claim(
+              output,
+              limit: 1,
+              readyDigests: {definition.definitionDigest},
+              permit: held,
+            ))!;
+            if (stopMode == 'shutdown') {
+              stopping = supervisor.stop();
+              final extra = supervisor.tryAcquire(
+                output,
+                definition.definitionDigest,
+              );
+              extra?.release();
+              expect(extra, isNull);
+            } else {
+              now = now.add(const Duration(seconds: 61));
+            }
+            await Stream<void>.periodic(const Duration(milliseconds: 1))
+                .firstWhere(
+                  (_) =>
+                      !(supervisor.readyDefinitions[output]?.contains(
+                            definition.definitionDigest,
+                          ) ??
+                          false),
+                )
+                .timeout(const Duration(seconds: 15));
+            expect(
+              supervisor.tryAcquire(output, definition.definitionDigest),
+              isNull,
+            );
+            expect(held.isValid, isTrue);
+            if (stopMode == 'failure') {
+              final row = (await session.db.unsafeQuery(
+                'SELECT pid FROM plugin_instance_status WHERE "hostInstanceId"=@host',
+                parameters: QueryParameters.named({'host': 'drain-$stopMode'}),
+              )).single;
+              final identity = PluginProcessIdentity.read(row[0] as int)!;
+              expect(identity.signalIfExact(ProcessSignal.sigkill), isTrue);
+              await Stream<void>.periodic(const Duration(milliseconds: 1))
+                  .firstWhere((_) => !held!.isValid)
+                  .timeout(const Duration(seconds: 15));
+            }
+            final outcomes = await deliverPluginBatch(supervisor, held, batch);
+            expect(
+              outcomes.single,
+              stopMode == 'failure'
+                  ? isA<DeliveryRetryable>()
+                  : isA<DeliveryAcknowledged>(),
+            );
+            expect(await repo.completeBatch(batch, outcomes), isTrue);
+            stopping ??= supervisor.stop();
+            held.release();
+            held = null;
+            await stopping;
+            final row = (await session.db.unsafeQuery(
+              'SELECT status,attempt_count FROM outbox',
+            )).single;
+            expect(row[0], stopMode == 'failure' ? 'queued' : 'delivered');
+            expect(row[1], 1);
+            final attempts = await session.db.unsafeQuery(
+              '''SELECT a.outcome FROM delivery_attempts a JOIN outbox o
+                ON a."deliveryId"=o.delivery_id AND a."outboxCreatedAt"=o.created_at''',
+            );
+            expect(attempts.map((row) => row[0]), [
+              stopMode == 'failure' ? 'retryable' : 'acknowledged',
+            ]);
+          } finally {
+            held?.release();
+            await (stopping ?? supervisor.stop());
+          }
+        });
+      }
     },
     rollbackDatabase: RollbackDatabase.disabled,
     testGroupTagsOverride: ['plugin'],
