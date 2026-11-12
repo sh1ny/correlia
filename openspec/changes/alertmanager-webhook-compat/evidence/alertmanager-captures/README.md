@@ -8,4 +8,5 @@ data) was posted to its `/api/v2/alerts` API, then resolved by posting it again 
 Changes after capture: the JSON is pretty-printed with sorted keys, and `externalURL` (the capture host's name
 and port) is replaced with `http://alertmanager.example:9093`. Nothing else was changed.
 
-The procedure and its scripts are in `docs/runbooks/alertmanager-compatibility.md` (written by this change).
+See the [compatibility runbook](../../../../../docs/runbooks/alertmanager-compatibility.md) for the
+capture script, adding a release, and the real-Alertmanager end-to-end check.

@@ -95,7 +95,7 @@ meaning (it now decodes and is flagged); the case moves to the tolerance tests a
 
 ## 4. Reproducible capture tooling and runbook
 
-- [ ] 4.1 Write `tool/alertmanager_capture.sh` (bash, Linux, Docker): for each requested release it writes an
+- [x] 4.1 Write `tool/alertmanager_capture.sh` (bash, Linux, Docker): for each requested release it writes an
   Alertmanager config (`group_wait: 1s`, `group_interval: 2s`, webhook to a local receiver, `send_resolved:
   true`), runs `prom/alertmanager:<v>` on host networking with `--cluster.listen-address=` on its own port,
   fires one alert through `/api/v2/alerts`, resolves it with `endsAt`, saves both notifications pretty-printed
@@ -104,7 +104,7 @@ meaning (it now decodes and is flagged); the case moves to the tolerance tests a
   tool, bound to 127.0.0.1. Verify by running it for `v0.35.0` and one old release (`v0.16.2`) into a temporary
   directory and diffing against the fixtures (only timestamps may
   differ), then confirming with `docker ps -a` that no `amcap-*` container is left.
-- [ ] 4.2 Write `docs/runbooks/alertmanager-compatibility.md`: how the compatibility captures were made (Docker
+- [x] 4.2 Write `docs/runbooks/alertmanager-compatibility.md`: how the compatibility captures were made (Docker
   image per minor, config, ports, firing and resolving through the API, the receiver, sanitising), how to add a
   new release's fixture with `tool/alertmanager_capture.sh`, and the real-Alertmanager end-to-end check used for
   the M1 exit criterion (natsdev serve/stream/sub, ingest config with the `output-nats` plugin and its sha256, a
