@@ -20,8 +20,8 @@ Unit tests are in `correlia_server/test/unit/ingest/alertmanager_decoder_test.da
 | integration-alertmanager → Top-level field tolerance | Many or oversized unknown names | `test/db/pipeline_unknown_fields_test.dart` | `many_or_oversized_unknown_names` | red |
 | integration-alertmanager → Top-level field tolerance | Worker dies between commit and warning | `test/db/pipeline_unknown_fields_test.dart` | `warning_lost_after_commit_is_not_retried` | red |
 | integration-alertmanager → Top-level field tolerance | Unknown field inside an alert stays fatal | `test/unit/ingest/alertmanager_decoder_test.dart` | `unknown_field_inside_an_alert_stays_fatal` | green |
-| integration-alertmanager → Supported Alertmanager releases | Every supported release decodes | `test/unit/ingest/alertmanager_versions_test.dart` | `every_supported_release_decodes` | red |
-| integration-alertmanager → Supported Alertmanager releases | Release without fingerprint or truncatedAlerts | `test/unit/ingest/alertmanager_versions_test.dart` | `release_without_fingerprint_or_truncated_alerts` | red |
+| integration-alertmanager → Supported Alertmanager releases | Every supported release decodes | `test/unit/ingest/alertmanager_versions_test.dart` | `every_supported_release_decodes` | green |
+| integration-alertmanager → Supported Alertmanager releases | Release without fingerprint or truncatedAlerts | `test/unit/ingest/alertmanager_versions_test.dart` | `release_without_fingerprint_or_truncated_alerts` | green |
 
 `unsupported_version_or_malformed_member` starts red because its `'unexpected': true` top-level case changes
 meaning (it now decodes and is flagged); the case moves to the tolerance tests and the test gains a wrong-typed
@@ -51,11 +51,11 @@ meaning (it now decodes and is flagged); the case moves to the tolerance tests a
 
 ## 2. Version matrix from real captures
 
-- [ ] 2.1 Copy the 40 files of `openspec/changes/alertmanager-webhook-compat/evidence/alertmanager-captures/*.json`
+- [x] 2.1 Copy the 40 files of `openspec/changes/alertmanager-webhook-compat/evidence/alertmanager-captures/*.json`
   into `correlia_server/test/unit/ingest/fixtures/alertmanager/`, with a short `README.md` saying where they came
   from (Correlia's own captures from `tool/alertmanager_capture.sh`, see the runbook) (D6). Verify with
   `ls ... | wc -l` (40 JSON files plus the README).
-- [ ] 2.2 Write `correlia_server/test/unit/ingest/alertmanager_versions_test.dart`: one test per fixture under
+- [x] 2.2 Write `correlia_server/test/unit/ingest/alertmanager_versions_test.dart`: one test per fixture under
   `every_supported_release_decodes` (status matches the file name, zero unknown top-level fields and overflow 0,
   and the canonical fingerprint of the alert is the same for every release) and
   `release_without_fingerprint_or_truncated_alerts` (0.16-0.18 fixtures: zero upstream omissions and identity
