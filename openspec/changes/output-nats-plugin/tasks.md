@@ -83,8 +83,8 @@ Tiers: `unit/` fast, `db/` db, `plugin/` plugin, `e2e/` e2e.
 
 ## 1. Decision records
 
-- [ ] 1.1 Write `docs/adr/0025-plugin-protocol-v1-output-contract-and-supervision.md` (Status: accepted) covering D1, D4, D5, D6 as policy, D7, D12, D15, D18 and D19, each with its rejected alternative and reversal cost; verify by `mise run spec:validate` and a read-back against design.md's Decision summary.
-- [ ] 1.2 Update `openspec/architecture.md`: the Boundaries plugin-protocol bullet, the outbox, plugin status and plugin health ownership rows, the plugin-process resource bound, and ADR 0025 in the in-force index; verify by `mise run check` (validate step) passing.
+- [x] 1.1 Write `docs/adr/0025-plugin-protocol-v1-output-contract-and-supervision.md` (Status: accepted) covering D1, D4, D5, D6 as policy, D7, D12, D15, D18 and D19, each with its rejected alternative and reversal cost; verify by `mise run spec:validate` and a read-back against design.md's Decision summary.
+- [x] 1.2 Update `openspec/architecture.md`: the Boundaries plugin-protocol bullet, the outbox, plugin status and plugin health ownership rows, the plugin-process resource bound, and ADR 0025 in the in-force index; verify by `mise run check` (validate step) passing.
 
 ## 2. Protocol, Go layout and NATS tooling
 
