@@ -1,5 +1,7 @@
 import 'package:serverpod/serverpod.dart';
 
+import '../feed/feed_runtime.dart';
+import '../feed/feed_watermark_subsystem.dart';
 import '../ingest/ingest_startup.dart';
 import '../ingest/ingest_test_gates.dart';
 import '../ingest/ingest_workers.dart';
@@ -24,6 +26,12 @@ List<Subsystem> buildSubsystemRegistry({
     runMode: runMode,
     environment: environment,
   );
+  final watermark = FeedWatermarkSubsystem(
+    openSession: () => pod.createSession(enableLogging: false),
+    log: log,
+  );
+  FeedRuntime.role = role;
+  FeedRuntime.watermark = role == ProcessRole.worker ? null : watermark;
   return [
     ingest,
     IngressSubsystem(
@@ -39,5 +47,6 @@ List<Subsystem> buildSubsystemRegistry({
       gates: IngestTestGates.fromEnvironment(runMode, environment),
       log: log,
     ),
+    watermark,
   ];
 }

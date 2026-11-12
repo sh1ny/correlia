@@ -50,6 +50,8 @@ void main() {
         final session = builder.build();
         await initializeIngestSchema(session);
         for (final table in [
+          'activity',
+          'alerts',
           'pipeline_failures',
           'observation_keys',
           'outbox',
@@ -107,6 +109,8 @@ LANGUAGE plpgsql AS \$\$ BEGIN RAISE EXCEPTION 'test failure' USING ERRCODE='400
             expect(await count(session, 'events'), 0);
             expect(await count(session, 'observation_keys'), 0);
             expect(await count(session, 'outbox'), 0);
+            expect(await count(session, 'alerts'), 0);
+            expect(await count(session, 'activity'), 0);
             final row = (await session.db.unsafeQuery(
               'SELECT status,attempt_count,config_snapshot_id FROM raw_inbox',
             )).single;
@@ -127,6 +131,8 @@ LANGUAGE plpgsql AS \$\$ BEGIN RAISE EXCEPTION 'test failure' USING ERRCODE='400
         }
         await repo().processOne();
         expect(await count(session, 'events'), 1);
+        expect(await count(session, 'alerts'), 1);
+        expect(await count(session, 'activity'), 1);
       });
 
       test('invalid_member_after_valid_member', () async {
@@ -136,6 +142,8 @@ LANGUAGE plpgsql AS \$\$ BEGIN RAISE EXCEPTION 'test failure' USING ERRCODE='400
         expect(await count(session, 'events'), 0);
         expect(await count(session, 'observation_keys'), 0);
         expect(await count(session, 'outbox'), 0);
+        expect(await count(session, 'alerts'), 0);
+        expect(await count(session, 'activity'), 0);
         expect(await count(session, 'pipeline_failures'), 1);
         final failure = (await session.db.unsafeQuery(
           'SELECT "rawId"::text,"configSnapshotId","errorClass","fieldPath" FROM pipeline_failures',
@@ -173,6 +181,8 @@ LANGUAGE plpgsql AS \$\$ BEGIN RAISE EXCEPTION 'test failure' USING ERRCODE='400
         expect(await count(session, 'events'), 1);
         expect(await count(session, 'observation_keys'), 0);
         expect(await count(session, 'outbox'), 0);
+        expect(await count(session, 'alerts'), 0);
+        expect(await count(session, 'activity'), 0);
         final outcomes = await session.db.unsafeQuery(
           'SELECT outcome_json FROM raw_inbox',
         );
@@ -188,6 +198,8 @@ LANGUAGE plpgsql AS \$\$ BEGIN RAISE EXCEPTION 'test failure' USING ERRCODE='400
         await process();
         expect(await count(session, 'observation_keys'), 1);
         expect(await count(session, 'outbox'), 1);
+        expect(await count(session, 'alerts'), 1);
+        expect(await count(session, 'activity'), 1);
       });
 
       test('concurrent_equal_observed_quarantine_collision', () async {
@@ -230,6 +242,8 @@ LANGUAGE plpgsql AS \$\$ BEGIN RAISE EXCEPTION 'test failure' USING ERRCODE='400
         );
         expect(await count(session, 'observation_keys'), 1);
         expect(await count(session, 'outbox'), 0);
+        expect(await count(session, 'alerts'), 0);
+        expect(await count(session, 'activity'), 0);
       });
 
       test('source_omitted_at_first_pin_fails_without_effects', () async {

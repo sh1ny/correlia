@@ -10,7 +10,7 @@ The database test helper `test/support/ingest_schema.dart` must receive a non-ro
 
 ## Repair migrations
 
-Serverpod's repair diff sees SQL-owned tables as extraneous and may propose destructive changes. Before applying any generated repair, inspect its entire SQL against the current schema and **remove all operations that drop or alter** `raw_inbox`, `events`, `outbox`, `correlia_schema_versions`, their indexes, constraints and time-qualified references. Review related cascades as well. Preserve data and the version table; never force a destructive repair merely to silence drift. Inspect any other unmanaged exceptions individually. If the desired SQL-owned schema itself needs correction, write a new forward schema step, not an edit to an applied step or a generated definition. Review the resulting repair and schema step together on a populated copy before production use.
+Serverpod's repair diff sees SQL-owned tables as extraneous and may propose destructive changes. Before applying any generated repair, inspect its entire SQL against the current schema and **remove all operations that drop or alter** `raw_inbox`, `events`, `outbox`, `activity`, `correlia_schema_versions`, their indexes, constraints and time-qualified references. Review related cascades as well. Preserve data and the version table; never force a destructive repair merely to silence drift. Inspect any other unmanaged exceptions individually. If the desired SQL-owned schema itself needs correction, write a new forward schema step, not an edit to an applied step or a generated definition. Review the resulting repair and schema step together on a populated copy before production use.
 
 ## Identity evidence
 
@@ -104,9 +104,11 @@ The decoder permits at most 1,000 alerts and JSON depth 32. Canonical map/count/
 
 A worker first commits the active immutable configuration pin, then decodes and processes under a separate raw-row lock. A killed worker retains the pin; replacements never substitute the current configuration. If that first-pinned snapshot omits/disables the source, the raw row fails as `source_not_configured`, retaining its bytes.
 
-Processing validates the complete batch before effects, folds repeated observations and inserts observation keys in stable event-id order. Keys, event evidence, unique routed output intents and raw completion commit together. Invalid siblings or fanout beyond 16 MiB—including every event and intent payload copy—produce a failed raw delivery without partial effects.
+Processing validates the complete batch before effects, folds repeated observations and inserts observation keys in stable event-id order. It then locks distinct alert fingerprints in ascending order before evaluating state, and finally writes event evidence and unique routed output intents in event-id order. Keys, alert state, activity, output intents and raw completion commit together. Invalid siblings or fanout beyond 16 MiB—including every event and intent payload copy—produce a failed raw delivery without partial effects.
 
-Future-dated evidence (more than 24 hours ahead) has no observation key or output. Identical quarantined evidence at equal observed time collapses on the events key and increments `duplicate_quarantine`, not the error budget. Late evidence (older than seven days) retains a key and event but has no output. Eligible duplicates preserve first evidence and produce no additional event/output effects. Empty routes record an unrouted event with no intent. Raw outcome JSON records committed, unrouted, upstream-omitted, duplicate-observation, future, duplicate-quarantine and late counts.
+The authoritative alert row is keyed by tenant and fingerprint. Its fence compares effective source time, receipt time and event id at canonical nanosecond precision; effective time is capped at receipt plus five minutes. An observation at or below the fence is stale and cannot change state. Applied observations advance the fence; only visible changes increment the version and append activity. `lastObservedAt` advances monotonically for applied or stale observations and duplicates of originally ready observations, without changing the version or writing activity.
+
+Future-dated evidence (more than 24 hours ahead) has no observation key, state or output. Identical quarantined evidence at equal observed time collapses on the events key and increments `duplicate_quarantine`, not the error budget. Late evidence (older than seven days) retains a key and event but changes no state or output, including on duplicate delivery. Eligible duplicates preserve first evidence and produce no additional event/output effects. Empty routes record an unrouted event with no intent. Raw outcome JSON records committed, applied, stale, unrouted, upstream-omitted, duplicate-observation, future, duplicate-quarantine and late counts.
 
 Serialization, deadlock, lock-timeout and connection-unavailable errors retry indefinitely with capped one-to-thirty-second backoff without spending the internal-error budget. Other internal failures consume five attempts, then produce `processing_exhausted`. Scheduling hints are bounded and process-local; database eligibility, raw bytes, pins and the internal-error budget remain durable. A ten-second total transaction deadline and five-second statement/lock bounds limit work.
 
@@ -122,7 +124,7 @@ SELECT "rawObservedAt", "rawId", "configSnapshotId", "errorClass", "fieldPath"
 FROM pipeline_failures;
 ```
 
-Use both time and id when joining raw/event/output evidence. Raw payloads remain private operational data; never paste them into diagnostics. Accepted bytes are not silently discarded, and no retention/replay scheduler is implemented in this slice. Provision disk headroom until M2 retention/backpressure work. Alert freshness/state, complete ORD-5 and the full DUR-1 state-mutation extension belong to the following roadmap change; this slice has no placeholder state writer.
+Use both time and id when joining raw/event/output evidence. Raw payloads remain private operational data; never paste them into diagnostics. Accepted bytes are not silently discarded, and no retention/replay scheduler is implemented in this slice. Provision disk headroom until M2 retention/backpressure work.
 
 ## Signed webhook delivery and recovery
 

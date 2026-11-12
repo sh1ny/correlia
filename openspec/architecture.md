@@ -157,9 +157,13 @@ run in every role unless they are switched off:
   - owns only the listed exception tables, which managed tables do not reference by foreign key.
 
   Each exception is a reviewed one listed here:
-  - `activity`: the `txid xid8 DEFAULT pg_current_xact_id()` column (ADR 0017; future work);
+  - `activity`: schema step 0002 creates the ledger with its
+    `txid xid8 DEFAULT pg_current_xact_id()` column (ADR 0017);
   - `events`, `raw_inbox`, `outbox`: SQL-owned time-qualified composite primary keys, initially ordinary
-    tables, with partition maintenance deferred to M2 (ADR 0016).
+    tables, with partition maintenance deferred to M2 (ADR 0016). Schema step 0002 adds nullable
+    `events.state_outcome` to distinguish applied and stale observations.
+
+  `alerts` is a Serverpod-managed table with a unique tenant/fingerprint index.
 
   Every migration is forward-only and tested against a populated database. Serverpod repair migrations try
   to drop tables outside the migration system. Review every repair and remove operations against SQL-owned
