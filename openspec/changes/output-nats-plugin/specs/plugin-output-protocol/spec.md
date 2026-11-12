@@ -23,15 +23,15 @@ A plugin SHALL serve `correlia.plugin.v1` over the go-plugin-compatible handshak
 - **THEN** the handshake fails with a cookie or version error and no delivery stream opens
 
 ### Requirement: Configuration with separated secrets
-The host SHALL send each plugin its non-secret config and its resolved secrets as separate fields before any delivery. The plugin SHALL accept or reject the whole configuration. A rejection SHALL return field errors that name config or secret keys, never secret values, and SHALL leave the plugin unable to deliver.
+The host SHALL send config and secrets separately before delivery. Configure SHALL accept or reject the whole config with value-free field errors. Accepted answers SHALL have no error class or field errors; rejected answers SHALL have no configuration information. Bounded information and plugin classes SHALL be validated before rejection is classified as `plugin_config_rejected`, with a sanitized plugin class exposed separately. Invalid diagnostics SHALL fail as `plugin_protocol_error`.
 
 #### Scenario: Accepted configuration
 - **WHEN** a plugin receives a valid config and the secrets it requires
-- **THEN** it reports acceptance with its delivery limits and the host may open a delivery stream
+- **THEN** it reports acceptance with its delivery limits and immutable non-secret configuration information and the host may open a stream; a response or frame over 64 KiB first fails with `plugin_metadata_invalid`, otherwise information beyond its entry/key/value bounds, an invalid diagnostic class or accepted-response error fields fail with `plugin_protocol_error`
 
 #### Scenario: Rejected configuration
 - **WHEN** a plugin receives a config with an unknown field or a missing required secret
-- **THEN** it returns field errors naming those keys without any secret value, the host records error class `plugin_config_rejected`, and no delivery stream opens
+- **THEN** it returns field errors naming keys without secret values and the host records `plugin_config_rejected` with the validated plugin class separately; within the response/frame bounds, rejected answers with configuration information or an invalid class instead fail with `plugin_protocol_error`; any class containing non-empty resolved secret bytes is silently dropped, and no delivery stream opens
 
 ### Requirement: Credit-controlled batched delivery
 Delivery SHALL use one bidirectional stream per plugin connection. The host SHALL send batches with increasing sequence numbers. Each event SHALL carry its event id and its exact stored bytes. The host SHALL keep the outstanding batches and their events and bytes within the smaller of its own bounds and the limits the plugin accepted at configuration.

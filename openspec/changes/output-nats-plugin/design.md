@@ -67,7 +67,8 @@ Read `proposal.md` for scope. The existing code this change builds on:
 - **Choice:** New protobuf package `correlia.plugin.v1` in `proto/correlia/plugin/v1/`:
   - `PluginService.GetMetadata`: name, version, kinds, config JSON Schema and protocol minor.
   - `PluginService.Configure`: config JSON bytes, a `map<string, bytes>` of secrets, and a host limits
-    proposal. The answer is accepted plus the plugin's limits, or field errors.
+    proposal. The answer is accepted plus the plugin's limits and non-secret configuration information,
+    or field errors with an optional plugin error class.
   - `PluginService.CheckHealth`: serving or not serving, with a bounded reason.
   - `OutputService.Deliver`: a bidirectional stream.
     - Requests: `Batch{sequence, events[{event_id, payload}]}`.
@@ -77,6 +78,26 @@ Read `proposal.md` for scope. The existing code this change builds on:
   One stream is one connection epoch, so no epoch field is needed. The go-plugin magic cookie is
   `CORRELIA_PLUGIN` / `correlia.plugin.v1`, distinct from the spike's. Application protocol version is 1.
   Error classes match `^[a-z][a-z0-9_]{0,63}$`.
+
+  **Configure diagnostics (owner-approved amendment, 2026-11-12).** `ConfigureResponse.error_class`
+  is empty or matches the error-class pattern above. `configuration_info` is a map of at most eight
+  entries: keys match the same pattern (at most 64 ASCII bytes) and values are at most 256 UTF-8 bytes
+  each. The 64 KiB response and frame checks run first: exceeding either gives
+  `plugin_metadata_invalid`. Within those transport bounds, information or class validation and
+  accepted/rejected exclusivity are checked before classifying acceptance or rejection; any violation
+  gives `plugin_protocol_error`, without logging diagnostic content. Accepted responses have no error
+  class or field errors; rejected responses have no configuration information. The host preserves its
+  `plugin_config_rejected` classification and exposes the validated plugin class as `pluginErrorClass`.
+  It silently drops that class if its ASCII bytes contain any non-empty resolved secret's exact bytes.
+  Field error messages and configuration information are never automatically logged or persisted.
+  Successful information is exposed as an immutable map to the caller. NATS reports keys
+  `stream` (capturing stream name) and `duplicate_window_ms` (decimal milliseconds). Its rejected Configure
+  response carries `stream_missing` or `nats_auth_failed` as appropriate.
+
+  Rejected: encoding machine-readable classes in free-text field messages or the health reason, or
+  dropping the required NATS diagnostics. Typed fields preserve sanitization and distinguish the host's
+  classification from the plugin's. This is additive before the D15 compatibility freeze; reversal cost
+  remains medium.
 - **Rejected:** Whole-batch acknowledgements as in the spike probe. One oversized or unroutable event would
   hold its whole batch in retry until the batch dead-letters, and output-delivery requires per-intent dead
   letters.
@@ -320,7 +341,9 @@ Read `proposal.md` for scope. The existing code this change builds on:
 - **Choice:** A managed model `plugin_instance_status` with:
   - `id`, `outputId`, `definitionDigest`, `hostInstanceId` (a random UUID per worker process) and `state`;
   - `pluginName`, `pluginVersion` and `pid`;
-  - `restartCount`, `crashesInWindow`, `lastErrorClass`, `version` and `heartbeatAt`.
+  - `restartCount`, `crashesInWindow`, `lastErrorClass`, nullable `lastPluginErrorClass`, `version` and
+    `heartbeatAt`. On Configure rejection, `lastErrorClass` remains `plugin_config_rejected`;
+    `lastPluginErrorClass` holds only the separately validated and secret-scrubbed plugin class (D1).
 
   There is a unique index on `(hostInstanceId, outputId, definitionDigest)`. Each process's supervisor is
   the sole writer of its own rows, and writes them on each state change and every 15 s.
@@ -390,8 +413,10 @@ Read `proposal.md` for scope. The existing code this change builds on:
   - payloads over `MaxPayload` are REJECTED `payload_too_large`;
   - invalid tokens are REJECTED `invalid_subject_token`.
 
-  Configure connects, checks the stream with `StreamNameBySubject` for the prefix, and reports its
-  duplicate window. CheckHealth reports serving only while connected.
+  Configure connects, checks the stream with `StreamNameBySubject` for the prefix, and returns its name
+  and duplicate window in the bounded `configuration_info` fields specified in D1. A rejected Configure
+  returns the validated plugin class separately from the host's generic rejection classification.
+  CheckHealth reports serving only while connected.
 
   Logs are JSON on stderr, with no payloads or credentials. The host captures stderr bounded, as in the
   spike.
@@ -480,7 +505,8 @@ Read `proposal.md` for scope. The existing code this change builds on:
   output_id, definition_digest)`, holds what must survive an instance leaving its slot:
   - the failure times in the current 10 min window (at most 6 kept);
   - the backoff step and `next_start_at`;
-  - the circuit state (`closed`, `open` or `probing`), the next probe time, and the last error class.
+  - the circuit state (`closed`, `open` or `probing`), the next probe time, and the last host error class.
+    Plugin diagnostic classes are mirrored only in status, not used by health or admission policy.
 
   The supervisor writes it on every launch failure, crash, circuit change and backoff reset, before it
   frees the slot, and reads it in the admission query. Memory holds only the up to 16 running instances.
@@ -504,7 +530,7 @@ Read `proposal.md` for scope. The existing code this change builds on:
 | S3 | NATS subjects | Event subjects only | Incident subjects before incidents exist | low | no | agent |
 | S4 | Owner demo | Judged at M1 close; runbook + e2e here | `[user]` task in this change | low | yes | agent |
 | S5 | Status visibility | SQL status rows + activity entries | Console plugin page now | low | yes | agent |
-| D1 | Protocol shape | Per-event outcomes, stream = epoch, own cookie | Whole-batch acks | medium | yes | agent |
+| D1 | Protocol shape | Per-event outcomes, stream = epoch, own cookie; typed bounded Configure information and plugin error class | Whole-batch acks; diagnostics in free text or discarded | medium | yes | agent (diagnostic amendment approved by user) |
 | D2 | Host structure | Shared launch core, two clients | Second launcher | low | no | agent |
 | D3 | Host identity | Ephemeral P-521 minted via libcrypto in memory | Go helper binary; pure-Dart crypto | low | yes | agent |
 | D4 | Batching | Relay batch claims of ready digests; one 27 s deadline over claim, delivery and one-transaction completion | Spike in-memory queue; per-row completion; per-statement budgets | medium | yes | agent |
@@ -612,7 +638,7 @@ read from `ingest_config_snapshot` through `config_snapshot_id`.
 | Plugin hangs (no answer) | Batch deadline of 20 s | Connection failed; rows retryable; instance restarted | Yes | Attempt error class; status |
 | Plugin health fails | 3 consecutive failures | Restart | Yes | Status `lastErrorClass` |
 | NATS down | Publishes fail retryable; health not serving | Relay backoff per row; after 3 failed health checks, restart | Yes | Attempt error classes; status; after 20 attempts, dead letters with reason |
-| Stream missing or no longer capturing | Configure rejects, or publish `stream_mismatch` | Backoff until the operator fixes it, then degraded | Yes | Status `stream_missing`; activity on degraded |
+| Stream missing or no longer capturing | Configure rejects, or publish `stream_mismatch` | Backoff until the operator fixes it, then degraded | Yes | Status `plugin_config_rejected` with separate scrubbed plugin class `stream_missing`; activity on degraded |
 | Executable replaced or unsafe | Launch refused | Backoff, then degraded | n/a | Status `plugin_executable_rejected`, rows queued with no attempts |
 | Secret missing | Configure not attempted; startup unaffected (D18) | Stays starting/backoff | n/a | Status `plugin_secret_unavailable` |
 | Instance leaves ready before the claim commits | Permit refused, or invalid at the commit check | Claim rolled back; rows stay queued, no attempt | Yes | Nothing changes |
@@ -630,7 +656,7 @@ read from `ingest_config_snapshot` through `config_snapshot_id`.
 | Plugin batch | 64 events and 1 MiB, and ≤ the plugin's accepted limits | Claim stops adding rows | Batch deadline 20 s, lease 30 s | 10k alerts is about 157 batches per output; 100x is a throughput question (measured in M10 load) |
 | Outstanding batches per output | 1 (existing per-output rule) | Lane waits | As above | Serial per output. Ledger: more lanes per output only on load evidence |
 | gRPC message | 2 MiB (spike `GrpcFrameGuard`) | Connection error | n/a | Fixed |
-| Plugin metadata / config answer | 64 KiB | `plugin_metadata_invalid` | Start timeout 10 s | Fixed |
+| Plugin metadata / config answer | 64 KiB and valid frame, checked first; Configure information ≤ 8 entries, keys ≤ 64 ASCII bytes and values ≤ 256 UTF-8 bytes | Response/frame overflow: `plugin_metadata_invalid`; then diagnostic bounds, class or accepted/rejected exclusivity violation: `plugin_protocol_error` | Start timeout 10 s | Fixed |
 | Instances | 4 per output, 16 per worker; a slot only while starting or ready | Round-robin key cursor; release after 60 s idle; rotation in the blocking scope (worker or output) after 60 s held, never of an unfinished probe; status `instance_limit` | Start 10 s | N waiting definitions each admitted within N admissions; latency grows and stays visible |
 | Plugin stderr capture | Spike's bounded log capture | Drops beyond the bound, counted | n/a | Fixed |
 | Status rows | One per (host, output, digest) | Pruned when stopped and stale or 24 h stale | Heartbeat 15 s | Workers × instances; small |
@@ -709,6 +735,11 @@ read from `ingest_config_snapshot` through `config_snapshot_id`.
   - the state ownership rows for the outbox and plugin status;
   - the resource bounds row for plugin processes;
   - the in-force index.
+  - **Configure amendment:** task 4.4 writes ADR 0026, superseding only the Configure-response portion
+    of ADR 0025 D1, and updates the architecture boundary/index. Accepted ADR 0025 remains immutable;
+    its other decisions remain in force. This records the typed diagnostics, validation precedence,
+    exclusivity, secret scrubbing and separate host/plugin classification.
+
 
 ## Open Questions
 

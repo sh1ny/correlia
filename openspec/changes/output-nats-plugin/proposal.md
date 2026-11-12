@@ -32,7 +32,8 @@ the same path, Alertmanager payload → console feed → NATS subscriber, with a
 - **Production plugin protocol `correlia.plugin.v1` (output subset).** A new protobuf contract under
   `proto/correlia/plugin/v1/` with:
   - metadata (name, version, kinds, config schema);
-  - configure (non-secret config plus referenced secrets);
+  - configure (non-secret config plus referenced secrets; bounded non-secret result information and a
+    validated plugin error class distinct from the host's rejection classification);
   - health;
   - a batched bidirectional delivery stream with a credit window, sequences and a per-event outcome:
     acknowledged, retryable or rejected, each with an error class.

@@ -103,20 +103,37 @@ Tiers: `unit/` fast, `db/` db, `plugin/` plugin, `e2e/` e2e.
 
 ## 4. Production plugin host
 
-- [ ] 4.1 Write failing `S/plugin/plugin_protocol_test.dart` cases for every plugin-output-protocol scenario (11 rows), driven by Go fixture plugins added under `correlia_server/test/plugin/fixtures/go/`; verify they fail on the missing production client.
+Owner-approved sequencing exception (2026-11-12): for groups 4 and 5, real API implementation may
+precede the first behavioral test run because no callable baseline exists. No placeholders are allowed;
+every specified scenario still requires verification. Do not claim a pre-implementation behavioral red
+for these groups. Thereafter, failures follow red/fix/green.
+
+Configure diagnostics amendment (2026-11-12, approved by owner): tasks 4.1–4.4, 6.4 and 7.1–7.2 also
+cover D1's typed, validated plugin error class and bounded configuration information. The existing
+accepted and rejected configuration scenarios include diagnostic bounds, validation precedence,
+exclusivity, secret scrubbing and separate host/plugin classification. Task 4.4 records ADR 0026 and
+the architecture update; 6.4 mirrors the scrubbed plugin class separately in status. Regenerate both
+languages and rerun design review before implementing this amendment.
+
+- [ ] 4.1 Write `S/plugin/plugin_protocol_test.dart` cases for every plugin-output-protocol scenario (11 rows), driven by Go fixture plugins added under `correlia_server/test/plugin/fixtures/go/`; verify each scenario's assertions run against the real API, with no placeholder or skipped case, under the 2026-11-12 sequencing exception.
 - [ ] 4.2 Extract the protocol-neutral launch core shared by the spike and production clients (D2), and add the libcrypto bindings that mint the ephemeral P-521 host identity in memory (D3), with a plugin-tier test of the certificate's group, SAN, validity and key match plus a repeated-minting allocation check; verify the spike tests in `S/plugin/` still pass.
 - [ ] 4.3 Implement the `correlia.plugin.v1` client: metadata validation, Configure with separated secrets, credit-bounded batches, per-event outcomes and health calls; verify the 4.1 tests pass and flip their rows green.
+- [ ] 4.4 Write accepted ADR `docs/adr/0026-plugin-configure-diagnostics.md`, superseding only ADR 0025 D1's Configure response without editing that immutable ADR, and update the architecture protocol boundary and in-force index for diagnostic fields, bounds, exclusivity, secret scrubbing and separate host/plugin classification; verify by `mise run spec:validate` and read-back against D1.
 
 ## 5. Relay: ready digests, permits, deadline and batch completion
 
-- [ ] 5.1 Write failing `S/db/plugin_relay_test.dart` cases `plugin_degraded_while_work_queued`, `plugin_becomes_ready_again`, `older_unavailable_beside_ready`, `instance_leaves_ready_before_permit`, `plugin_exit_observed_during_open_claim` (barrier inside the claim transaction after the permit is granted), `batch_with_one_bad_event`, `full_batch_within_budget`, `stale_batch_completion` and `plugin_intents_need_no_signing_reference`, plus `loaded_historical_signing_reference` in `S/db/output_relay_test.dart`; verify the new plugin cases fail.
+- [ ] 5.1 Write `S/db/plugin_relay_test.dart` cases `plugin_degraded_while_work_queued`, `plugin_becomes_ready_again`, `older_unavailable_beside_ready`, `instance_leaves_ready_before_permit`, `plugin_exit_observed_during_open_claim` (barrier inside the claim transaction after the permit is granted), `batch_with_one_bad_event`, `full_batch_within_budget`, `stale_batch_completion` and `plugin_intents_need_no_signing_reference`, plus `loaded_historical_signing_reference` in `S/db/output_relay_test.dart`; verify each scenario's assertions run against the real API, with no placeholder or skipped case, under the 2026-11-12 sequencing exception.
 - [ ] 5.2 Implement `claim(outputId, limit, readyDigests)`, the generation-checked delivery permit checked last before COMMIT (D5), the 27 s batch deadline with per-statement remaining-time timeouts, and `completeBatch` in one transaction fenced by `claim_id`, status and `lease_until > clock_timestamp()` with an exact row count (D4); keep webhook claims at limit 1; verify the 5.1 tests pass, existing `S/db/output_relay_test.dart` cases (including `unloaded_live_signing_reference`) stay green, and flip the rows green.
 
 ## 6. Supervisor
 
-- [ ] 6.1 Write failing `S/unit/plugin/supervision_policy_test.dart` cases `repeated_startup_failure_grows_delay` and `degraded_plugin_recovers` on an injected clock; implement the pure-Dart state machine with the D6 constants; verify they pass and flip the rows green.
-- [ ] 6.2 Write failing `S/unit/plugin/slot_scheduler_test.dart` cases for the six in-memory Fair instance slots scenarios; implement admission by key cursor, waiting demand per blocking scope, idle release, rotation and probe protection (D7) over an injected clock and an in-memory demand source; verify they pass and flip the rows green.
-- [ ] 6.3 Write failing `S/db/plugin_admission_test.dart` case `pinned_generations_beyond_one_page` (post-pin barrier, activate B before A's work creates rows) and `S/db/plugin_health_test.dart` case `failing_definitions_cycle_through_slots`; add the managed `plugin_definition_health` and `plugin_instance_status` models with their migration, the admission and waiting-demand keyset queries, and pruning (D11, D19); verify both pass and flip the rows green.
+Owner-approved extension (2026-11-12): the API-first sequencing exception also covers 6.1, 6.2 and
+the new admission API in 6.3. No pre-implementation behavioral red was observed for those APIs.
+The durable-health test retains its observed missing-table red. All scenario assertions remain required.
+
+- [ ] 6.1 Write `S/unit/plugin/supervision_policy_test.dart` cases `repeated_startup_failure_grows_delay` and `degraded_plugin_recovers` on an injected clock; implement the pure-Dart state machine with the D6 constants under the owner-approved API-first exception; verify both scenarios' real assertions pass without skips or placeholders and flip the rows green.
+- [ ] 6.2 Write `S/unit/plugin/slot_scheduler_test.dart` cases for the six in-memory Fair instance slots scenarios; implement admission by key cursor, waiting demand per blocking scope, idle release, rotation and probe protection (D7) over an injected clock and in-memory demand under the owner-approved API-first exception; verify every scenario's real assertions pass without skips or placeholders and flip the rows green.
+- [ ] 6.3 Write `S/db/plugin_admission_test.dart` case `pinned_generations_beyond_one_page` (real post-pin barrier, activate B before A's work creates rows) under the API-first exception, and red-confirm `S/db/plugin_health_test.dart` case `failing_definitions_cycle_through_slots`; add managed health/status models, forward migrations, admission and waiting-demand keyset queries, and pruning (D11, D19); verify both scenarios pass and flip the rows green.
 - [ ] 6.4 Write failing `S/plugin/plugin_supervision_test.dart` cases `pinned_executable_launches`, `replaced_or_unsafe_executable`, `status_of_a_ready_plugin`, `plugin_ignores_shutdown`, `pinned_definition_cannot_run` and `plugin_dies_with_batch_unanswered`; wire the supervisor to verified launches, health checks, status rows with heartbeat, `plugin_degraded`/`plugin_recovered` activity entries and the relay's ready set, inside `IngestWorkers` in the D16 order; verify they pass, a test proves the console alert list ignores plugin activity entries, and flip the rows green.
 
 ## 7. output-nats plugin
