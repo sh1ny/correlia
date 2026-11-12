@@ -14,11 +14,11 @@ Unit tests are in `correlia_server/test/unit/ingest/alertmanager_decoder_test.da
 | integration-alertmanager → Per alert webhook decoding | Empty group | `test/unit/ingest/alertmanager_decoder_test.dart` | `empty_group` | green |
 | integration-alertmanager → Recognised group metadata | Group metadata of a current release | `test/unit/ingest/alertmanager_decoder_test.dart` | `group_metadata_of_a_current_release` | green |
 | integration-alertmanager → Recognised group metadata | externalURL link is kept | `test/unit/ingest/alertmanager_decoder_test.dart` | `external_url_link_is_kept` | green |
-| integration-alertmanager → Recognised group metadata | Wrong-typed group metadata | `test/db/pipeline_unknown_fields_test.dart` | `wrong_typed_group_metadata` | red |
-| integration-alertmanager → Top-level field tolerance | A future Alertmanager adds a field | `test/db/pipeline_unknown_fields_test.dart` | `future_top_level_field_is_processed_and_flagged` | red |
-| integration-alertmanager → Top-level field tolerance | Credential-shaped unknown key | `test/db/pipeline_unknown_fields_test.dart` | `credential_shaped_unknown_key_never_logged` | red |
-| integration-alertmanager → Top-level field tolerance | Many or oversized unknown names | `test/db/pipeline_unknown_fields_test.dart` | `many_or_oversized_unknown_names` | red |
-| integration-alertmanager → Top-level field tolerance | Worker dies between commit and warning | `test/db/pipeline_unknown_fields_test.dart` | `warning_lost_after_commit_is_not_retried` | red |
+| integration-alertmanager → Recognised group metadata | Wrong-typed group metadata | `test/db/pipeline_unknown_fields_test.dart` | `wrong_typed_group_metadata` | green |
+| integration-alertmanager → Top-level field tolerance | A future Alertmanager adds a field | `test/db/pipeline_unknown_fields_test.dart` | `future_top_level_field_is_processed_and_flagged` | green |
+| integration-alertmanager → Top-level field tolerance | Credential-shaped unknown key | `test/db/pipeline_unknown_fields_test.dart` | `credential_shaped_unknown_key_never_logged` | green |
+| integration-alertmanager → Top-level field tolerance | Many or oversized unknown names | `test/db/pipeline_unknown_fields_test.dart` | `many_or_oversized_unknown_names` | green |
+| integration-alertmanager → Top-level field tolerance | Worker dies between commit and warning | `test/db/pipeline_unknown_fields_test.dart` | `warning_lost_after_commit_is_not_retried` | green |
 | integration-alertmanager → Top-level field tolerance | Unknown field inside an alert stays fatal | `test/unit/ingest/alertmanager_decoder_test.dart` | `unknown_field_inside_an_alert_stays_fatal` | green |
 | integration-alertmanager → Supported Alertmanager releases | Every supported release decodes | `test/unit/ingest/alertmanager_versions_test.dart` | `every_supported_release_decodes` | green |
 | integration-alertmanager → Supported Alertmanager releases | Release without fingerprint or truncatedAlerts | `test/unit/ingest/alertmanager_versions_test.dart` | `release_without_fingerprint_or_truncated_alerts` | green |
@@ -64,11 +64,11 @@ meaning (it now decodes and is flagged); the case moves to the tolerance tests a
 
 ## 3. Pipeline: safe paths, raw outcome and the warning
 
-- [ ] 3.1 Write `correlia_server/test/unit/pipeline/unknown_field_warning_test.dart` for the warning formatter:
+- [x] 3.1 Write `correlia_server/test/unit/pipeline/unknown_field_warning_test.dart` for the warning formatter:
   `pipeline source=<uuid> unknown_top_level_fields=<count> tags=<t1,t2>`, each tag the first 12 hex of SHA-256 of
   the name, the count the listed plus overflow total, and the line never containing a listed name. Verify it
   fails (formatter missing).
-- [ ] 3.2 Write `correlia_server/test/db/pipeline_unknown_fields_test.dart` (`testGroupTagsOverride: ['db']`) with
+- [x] 3.2 Write `correlia_server/test/db/pipeline_unknown_fields_test.dart` (`testGroupTagsOverride: ['db']`) with
   a captured log function: `future_top_level_field_is_processed_and_flagged` (events and output intents committed
   with the same identity as without the field; `outcome_json` has `unknown_top_level_fields: ['newField']` and
   `unknown_top_level_overflow: 0`; one warning with count 1 and the tag, never `newField`),
@@ -79,14 +79,14 @@ meaning (it now decodes and is flagged); the case moves to the tolerance tests a
   (the `pipeline_failures` row names `routeLabels` or `notification_reason`, not `*`, and no event or intent
   commits). Also assert that a delivery without unknown fields carries both keys as `[]` and `0` (D2). Verify
   with `mise run test -- --tags db` that they fail for the right reason.
-- [ ] 3.3 In `correlia_server/lib/src/pipeline/pipeline.dart`: add `routeLabels` to `_safePath` (D5); write
+- [x] 3.3 In `correlia_server/lib/src/pipeline/pipeline.dart`: add `routeLabels` to `_safePath` (D5); write
   `unknown_top_level_fields` and `unknown_top_level_overflow` into the done row's `outcome_json` on every
   outcome (D2); give `PipelineRepository` and `PipelineSubsystem` an optional `void Function(String) log` and
   log the warning only after the done-row transaction commits, swallowing a failing log (D3, D4); add the
   formatter from 3.1. Wire the log in `correlia_server/lib/src/ingest/ingest_workers.dart` like the other
   subsystems. Verify 3.1 and 3.2 pass, the existing `pipeline_test.dart` and `pipeline_routing_test.dart` still
   pass (`mise run test -- --tags db`), and flip the rows green.
-- [ ] 3.4 Update `docs/ingest-pipeline.md`: supported Alertmanager releases 0.16-0.35 and the per-release field
+- [x] 3.4 Update `docs/ingest-pipeline.md`: supported Alertmanager releases 0.16-0.35 and the per-release field
   table; unknown top-level fields processed and flagged, unknown per-alert fields and wrong types fatal; the two
   new `outcome_json` keys; the warning format and what a tag is; an SQL query listing unknown names per source
   from `raw_inbox.outcome_json`. Update the AGENTS.md "reject unmapped fields loudly" rule with this one

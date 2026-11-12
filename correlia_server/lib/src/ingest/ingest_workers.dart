@@ -51,6 +51,7 @@ final class IngestWorkers extends Subsystem {
     );
     final pipeline = PipelineSubsystem(
       openSession: () => pod.createSession(enableLogging: false),
+      log: log,
       afterPin: pin == null
           ? null
           : () => awaitIngestTestGate(pin, _stopping.future),

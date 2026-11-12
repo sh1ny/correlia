@@ -106,7 +106,9 @@ directly from `.claude/skills/<name>/SKILL.md`.
   mise tasks.
 - Sealed classes and exhaustive switches for domain states (event status, incident lifecycle, delivery state).
 - No `dynamic` in domain code. Raw payloads are `Map<String, Object?>` at the edge only; normalizers turn
-  them into typed values and reject unmapped fields loudly.
+  them into typed values and reject unmapped fields loudly. Exception: unknown Alertmanager top-level
+  fields are processed and flagged on the raw outcome with a count/hash-only warning; unknown per-alert
+  fields and wrong-typed recognised fields remain fatal.
 
 ## Specwright notes
 
