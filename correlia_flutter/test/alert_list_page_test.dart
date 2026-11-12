@@ -62,6 +62,31 @@ void main() {
     await show(tester);
     expect(find.textContaining('1 not shown'), findsOneWidget);
   });
+  testWidgets('growing_list_does_not_claim_zero_omitted_alerts', (
+    tester,
+  ) async {
+    api.initial = AlertSnapshot(
+      alerts: [for (var id = 1; id <= 500; id++) alertView(id)],
+      omittedCount: 0,
+      cursor: 'v1.1.0',
+    );
+    await show(tester);
+    api.pages.add(page([alertView(501)]));
+    await controller.pull();
+    await tester.pump();
+    expect(controller.partial, isTrue);
+    expect(find.textContaining('Partial list'), findsOneWidget);
+    expect(find.textContaining('not shown'), findsNothing);
+
+    api.initial = AlertSnapshot(
+      alerts: [for (var id = 2; id <= 501; id++) alertView(id)],
+      omittedCount: 1,
+      cursor: 'v1.3.0',
+    );
+    timers.fireSafety();
+    await tester.pumpAndSettle();
+    expect(find.textContaining('1 not shown'), findsOneWidget);
+  });
   testWidgets('filter_narrows_the_list', (tester) async {
     api.initial = AlertSnapshot(
       alerts: [

@@ -53,7 +53,9 @@ final class _AlertListPageState extends State<AlertListPage> {
                         Text('${alerts.length} held'),
                         if (controller.partial)
                           Text(
-                            'Partial list · ${controller.omittedCount} not shown',
+                            controller.omittedCount > 0
+                                ? 'Partial list · ${controller.omittedCount} not shown'
+                                : 'Partial list · refreshing bounds',
                           ),
                         Text(
                           controller.disconnected

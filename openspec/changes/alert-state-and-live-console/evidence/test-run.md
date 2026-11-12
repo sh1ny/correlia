@@ -77,3 +77,25 @@ child exited successfully through stdin shutdown, and its embedded cluster root,
 scratch program, browser tab and screenshots were removed. The SDK's web build
 removed an obsolete generated-plugin-registrant ignore entry; that automatic
 ignore-file upgrade is retained with this integration evidence.
+
+## Approved pre-ship corrections
+
+The owner requested all three nonblocking findings from the first pre-ship review
+be fixed. The follow-up restored `flutter_driver` to development dependencies,
+made informational duplicates leave alert state untouched, and distinguished a
+pending list reconciliation from a known omitted-alert count.
+
+Both behavioral regressions were observed failing for their reported causes
+before the fixes: an informational duplicate changed `lastObservedAt`, and the
+growing list displayed an unsubstantiated zero omitted count. After correction:
+
+- `test/db/alert_state_test.dart`: 19 passed, including the new informational
+  duplicate regression and all existing state scenarios.
+- `correlia_flutter/test/alert_list_page_test.dart`: 8 passed, including the new
+  overflow-to-reconciliation indicator regression.
+- `mise run analyze`: no issues in workspace or Flutter analysis.
+- Scoped `dart fix`: nothing to fix; changed Dart files formatted.
+
+The 285-test all-tier and 16-test Flutter totals above describe the initial
+acceptance run; these follow-up regression tests add one database and one widget
+case without reclassifying or replacing that recorded run.

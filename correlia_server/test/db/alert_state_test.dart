@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:correlia_server/src/event/canonical_event.dart';
 import 'package:correlia_server/src/ingest/bootstrap.dart';
 import 'package:correlia_server/src/ingest/config_repository.dart';
 import 'package:correlia_server/src/pipeline/pipeline.dart';
+import 'package:correlia_server/src/state/alert_state_service.dart';
 import 'package:serverpod/serverpod.dart';
 import 'package:test/test.dart';
 
@@ -417,6 +419,37 @@ void main() {
         expect(after['lastObservedAt'], before['lastObservedAt']);
         expect(after['version'], before['version']);
         expect((await latestOutcome(s))['duplicate_observation'], 1);
+      });
+      test('informational_duplicates_leave_existing_state_unchanged', () async {
+        final session = builder.build();
+        await deliver(session, [first], base);
+        final before = await state(session);
+        final stored = await session.db.unsafeQuery(
+          "SELECT (convert_from(payload, 'UTF8')::jsonb->'data')::text FROM events",
+        );
+        final data =
+            jsonDecode(stored.single[0] as String) as Map<String, Object?>;
+        data['status'] = 'EVENT_STATUS_INFO';
+        final service = AlertStateService(
+          session,
+          skewAllowance: skewAllowance,
+          beforeQuery: () async {},
+        );
+        for (final duplicate in [false, true]) {
+          final now = base.add(Duration(minutes: duplicate ? 2 : 1));
+          data['observed_at'] = now.toIso8601String();
+          final event = CanonicalEvent.fromJson(data);
+          await session.db.transaction(
+            (tx) => service.apply(
+              tx,
+              [StateInput(event, duplicate: duplicate)],
+              rawId: '00000000-0000-4000-8000-000000000099',
+              now: now,
+            ),
+          );
+          expect(await state(session), before);
+          expect(await pipeline.count(session, 'activity'), 1);
+        }
       });
     },
     rollbackDatabase: RollbackDatabase.disabled,

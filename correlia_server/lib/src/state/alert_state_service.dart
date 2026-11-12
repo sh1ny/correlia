@@ -169,6 +169,7 @@ ON CONFLICT (tenant,fingerprint) DO NOTHING RETURNING id''',
       for (final input in group) {
         final event = input.event;
         if (input.duplicate) {
+          if (event.status == EventStatus.info) continue;
           if (state != null) {
             await beforeQuery();
             await session.db.unsafeExecute(

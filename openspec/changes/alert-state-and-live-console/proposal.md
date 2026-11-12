@@ -159,3 +159,10 @@ Adds authoritative alert state and a live development console.
 - Atomic pipeline state mutations, stale classification and freshness-only duplicate handling.
 - Lossless snapshot/feed handover, wake-up streams and loopback-only development read APIs.
 - Live firing-alert console with filtering, selectable rows, source links, bounded reconciliation and reconnect recovery.
+
+### Fixed
+
+- Informational duplicates leave existing alert freshness unchanged.
+- Lists awaiting bounded reconciliation do not claim an omitted count of zero.
+- Flutter driver tooling remains a development dependency.
+

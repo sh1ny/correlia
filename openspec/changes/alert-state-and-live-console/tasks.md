@@ -74,6 +74,8 @@ Paths are relative to `correlia_server/` unless they start with `correlia_flutte
 | operator-console → Console usability baseline | Filter narrows the list | correlia_flutter/test/alert_list_page_test.dart | filter_narrows_the_list | green |
 | operator-console → Console usability baseline | Filter matches nothing | correlia_flutter/test/alert_list_page_test.dart | filter_matches_nothing | green |
 | operator-console → Console usability baseline | Generator link and selectable text | correlia_flutter/test/alert_list_page_test.dart | generator_link_and_selectable_text | green |
+| alert-state → Last observed time advances monotonically | Informational duplicate for an existing alert | test/db/alert_state_test.dart | informational_duplicates_leave_existing_state_unchanged | green |
+| operator-console → Bounded partial snapshot | Growing list does not claim an unknown omitted count | correlia_flutter/test/alert_list_page_test.dart | growing_list_does_not_claim_zero_omitted_alerts | green |
 
 ## 1. Alert table, activity ledger and schema step
 
