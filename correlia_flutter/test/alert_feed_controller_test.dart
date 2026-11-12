@@ -121,7 +121,13 @@ void main() {
   });
 
   test('rejected_cursor_takes_new_snapshot', () async {
+    api.initial = AlertSnapshot(
+      alerts: [alertView(1)],
+      omittedCount: 0,
+      cursor: 'v1.1.0',
+    );
     await controller.start();
+    expect(controller.alerts.single.id, 1);
     // Fail only the next feed, so the recovery snapshot can complete.
     api.failure = InvalidCursorException(message: 'Invalid feed cursor');
     api.initial = AlertSnapshot(

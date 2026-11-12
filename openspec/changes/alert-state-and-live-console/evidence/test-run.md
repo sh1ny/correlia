@@ -141,3 +141,15 @@ passed all three acceptance commands after every reported review correction:
 
 Task coverage still reports all 20 tasks covered exactly once, with no missing
 evidence or pending task groups. OpenSpec apply reports `all_done` (20/20).
+
+## Rejected-cursor replacement coverage
+
+The final-head review found no behavioral defect, but identified that the
+rejected-cursor test started with an empty list. It now begins with alert 1,
+confirms that alert is visible, rejects the cursor, and requires the recovery
+snapshot to contain only alert 2. Merging rather than replacing the snapshot
+would retain alert 1 and fail this regression.
+
+Both Flutter test files passed all 18 tests after this test-only strengthening;
+scoped analysis, lint fixes and formatting reported no further changes. The
+production code remains the code exercised by the full acceptance run above.
