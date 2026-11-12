@@ -18,6 +18,7 @@ final class RelaySubsystem extends Subsystem {
     required this.bootstrap,
     required String runMode,
     this.beforeAcquire,
+    this.beforeClaimCommit,
     this.beforePluginComplete,
     this.onUnavailable,
     this.pluginRouter,
@@ -28,6 +29,9 @@ final class RelaySubsystem extends Subsystem {
 
   /// Optional test barrier before acquisition; never used to configure delivery.
   final Future<void> Function()? beforeAcquire;
+
+  /// Optional test barrier immediately before a claim's commit-boundary check.
+  final Future<void> Function()? beforeClaimCommit;
 
   /// Optional test barrier after a plugin response and before its commit.
   final Future<void> Function(int acknowledgedCount)? beforePluginComplete;
@@ -111,6 +115,7 @@ final class RelaySubsystem extends Subsystem {
         session,
         bootstrap.secret,
         loadedReferences: bootstrap.loadedReferences,
+        beforeClaimCommit: beforeClaimCommit,
       );
       final router = pluginRouter;
       final digests = router?.readyDefinitions[output] ?? <String>{};
@@ -128,7 +133,7 @@ final class RelaySubsystem extends Subsystem {
             permit: permit,
             deadline: deadline,
           );
-          if (batch == null) return;
+          if (batch == null || _stopped.isCompleted) return;
           final outcomes = await deliverPluginBatch(router, permit, batch);
           final barrier = beforePluginComplete;
           if (barrier != null) {

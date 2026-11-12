@@ -57,3 +57,41 @@ includes the fixes and passed without weakening analyzer or test settings.
 Source identity: all 23 overlaid source/document paths matched the deliverable's
 text bytes after the run. Sorted path/content-SHA-256 manifest digest:
   e6f782c9333a7e1ca36a8c808a1156b70dea18b0ed275d5f9cd33bc71d8fa410
+
+Pre-ship round 1 follow-up — user-authorized F1/F2 fixes
+-----------------------------------------------------
+The full gate and source manifest above describe group-8 commit 42fb5f5,
+before these review fixes. Full suites were not rerun after the fixes;
+the following focused verification covers the changed behavior.
+
+F1: A controlled claim-commit barrier starts relay.stop() before releasing
+the claim. Before the guard, the real relay test failed:
+  Expected: empty
+    Actual: [Instance of 'DeliveryBatch']
+After the post-claim shutdown check, the test proves no batch was sent,
+the started claim remains durable, expiry records interruption, and a
+replacement attempt delivers successfully.
+
+Dart MCP run_tests, tags=db, reporter=expanded:
+  test/db/plugin_relay_shutdown_test.dart
+  test/db/plugin_relay_test.dart
+  test/db/plugin_status_persistence_test.dart
+  00:03 +13: All tests passed!
+
+F2: Replaced the test-local SQL CASE and timestamp backdating with the
+same pure freshness policy used by PluginStatusRepository.isStale.
+The exact killed host's stored heartbeat stays unchanged across sixteen
+one-second samples; injected now verifies strict 60/61-second classification.
+
+Command:
+  mise run test -- --tags e2e --plain-name worker_killed_status_goes_stale test/e2e/nats_burst_e2e_test.dart
+Actual stdout:
+  00:35 +1: All tests passed!
+  Finished in 39.20s
+Exit: 0
+
+Final source analysis:
+  mise exec -- dart analyze --fatal-infos
+  Analyzing correlia...
+  No issues found!
+Dart formatting completed with zero remaining changes.

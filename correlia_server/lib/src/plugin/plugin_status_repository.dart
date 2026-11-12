@@ -4,6 +4,10 @@ import 'plugin_health_repository.dart';
 import 'slot_scheduler.dart';
 import 'supervision_policy.dart';
 
+/// Returns whether [heartbeatAt] is more than 60 seconds before [now].
+bool isPluginHeartbeatStale(DateTime heartbeatAt, DateTime now) =>
+    now.difference(heartbeatAt) > const Duration(seconds: 60);
+
 /// A complete status snapshot written by the owning supervisor.
 final class PluginStatusSnapshot {
   const PluginStatusSnapshot({
@@ -168,8 +172,7 @@ final class PluginStatusRepository {
       timeoutInSeconds: 5,
     );
     if (rows.isEmpty) return null;
-    return now.difference(rows.single[0] as DateTime) >
-        const Duration(seconds: 60);
+    return isPluginHeartbeatStale(rows.single[0] as DateTime, now);
   }
 
   /// Deletes stopped stale rows and rows of hosts silent for more than a day.

@@ -35,6 +35,7 @@ Tiers: `unit/` fast, `db/` db, `plugin/` plugin, `e2e/` e2e.
 | plugin-supervision → Persisted plugin status | Status of a ready plugin | S/plugin/plugin_supervision_test.dart | status_of_a_ready_plugin | green |
 | plugin-supervision → Persisted plugin status | Worker killed | S/e2e/nats_burst_e2e_test.dart | worker_killed_status_goes_stale | green |
 | plugin-supervision → Bounded plugin shutdown | Graceful worker stop | S/e2e/nats_shutdown_e2e_test.dart | graceful_worker_stop | green |
+| plugin-supervision → Bounded plugin shutdown | Graceful worker stop | S/db/plugin_relay_shutdown_test.dart | does not send a committed claim and recovers it | green |
 | plugin-supervision → Bounded plugin shutdown | Plugin ignores shutdown | S/plugin/plugin_supervision_test.dart | plugin_ignores_shutdown | green |
 | integration-nats → Event subject scheme | Alert event subject | S/plugin/nats_output_test.dart | alert_event_subject | green |
 | integration-nats → Event subject scheme | Unsafe subject token | S/plugin/nats_output_test.dart | unsafe_subject_token | green |

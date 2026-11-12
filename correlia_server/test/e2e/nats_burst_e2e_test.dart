@@ -5,6 +5,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:correlia_server/src/plugin/plugin_status_repository.dart';
 import 'package:postgres/postgres.dart';
 import 'package:test/test.dart';
 
@@ -256,26 +257,31 @@ void main() {
       );
       final parameters = {'id': id, 'host': host};
       final stopped = await db.execute(query, parameters: parameters);
-      final unchanged = await db.execute(query, parameters: parameters);
-      expect(unchanged.single[0], stopped.single[0]);
-      await db.execute(
-        Sql.named('''UPDATE plugin_instance_status
-        SET "heartbeatAt"=clock_timestamp()-interval '61 seconds'
-        WHERE id=@id:int8 AND "hostInstanceId"=@host:text'''),
-        parameters: parameters,
-      );
-      final stale = await db.execute(
-        Sql.named(
-          '''SELECT "heartbeatAt",
-        CASE WHEN "heartbeatAt" < clock_timestamp()-interval '60 seconds'
-          THEN 'stale' ELSE state END
-        FROM plugin_instance_status WHERE id=@id:int8 AND "hostInstanceId"=@host:text''',
+      final heartbeat = stopped.single[0] as DateTime;
+      final observation = Stopwatch()..start();
+      // Sampling for 16 seconds spans the worker's 15-second refresh interval,
+      // so a still-running heartbeat writer would have an opportunity to update.
+      await for (final _ in Stream<void>.periodic(
+        const Duration(seconds: 1),
+      ).take(16)) {
+        final sample = await db.execute(query, parameters: parameters);
+        expect(sample.single[0], heartbeat);
+      }
+      expect(observation.elapsed, greaterThan(const Duration(seconds: 15)));
+      expect(
+        isPluginHeartbeatStale(
+          heartbeat,
+          heartbeat.add(const Duration(seconds: 60)),
         ),
-        parameters: parameters,
+        isFalse,
       );
-      expect(stale.single[1], 'stale');
-      final after = await db.execute(query, parameters: parameters);
-      expect(after.single[0], stale.single[0]);
+      expect(
+        isPluginHeartbeatStale(
+          heartbeat,
+          heartbeat.add(const Duration(seconds: 61)),
+        ),
+        isTrue,
+      );
     } finally {
       await marker?.close();
       await db.close();

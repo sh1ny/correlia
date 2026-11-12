@@ -7,6 +7,8 @@
 - Add the first-party NATS JetStream output with acknowledged, deduplicated publishes, exact
   CloudEvents bodies and headers, operator-owned stream validation and secret-only authentication.
   Document local tooling, configuration and supervision in `docs/runbooks/output-nats.md`.
+- Do not send a new plugin batch after relay shutdown starts, even when its claim was in progress;
+  retain unsent started claims for normal lease recovery.
 
 - Add bounded authenticated Alertmanager webhook-v4 ingress with credential-safe session-independent
   routing, exact raw storage and atomic non-sliding transport deduplication.
