@@ -145,3 +145,36 @@ readiness-loss rollback, and aggregate-limit deferral.
   Analyzing correlia...
   No issues found!
 Dart formatting completed for both changed source files.
+
+Design review 10 correction verification (task 6.5, 2026-11-12)
+-------------------------------------------------------------
+The historical clean-clone gates above were not rerun after this correction.
+This is focused verification of the changed repository/pruning behavior.
+
+Dart MCP run_tests, tags=db, reporter=expanded, new-case name filter:
+  test/db/plugin_status_persistence_test.dart
+  live_host_with_only_stopped_rows_keeps_health:
+    Expected saved backoff step 1, one failure, next start, circuit and class.
+    Actual: [] (cross-host cleanup erased the health row).
+  dead_host_health_expires_after_self_prune:
+    Expected: ['stopped']
+    Actual: [] (owner-local cleanup removed the expiry anchor).
+  00:02 +0 -2: Some tests failed.
+
+After owner-local no-health qualification and 24-hour cross-host expiry:
+Dart MCP run_tests, tags=db, reporter=expanded:
+  test/db/plugin_status_persistence_test.dart
+  test/db/plugin_health_test.dart
+  test/db/plugin_admission_test.dart
+  00:04 +11: All tests passed!
+The new cases prove unchanged live-host history, retained owner-local anchors,
+eventual cross-host status/health expiry, and queued-work preservation.
+The bounded-batch test uses 25-hour dead rows and preserves 61-second live rows;
+the owner-local test exercises the status/health sweep's next-tick cleanup.
+
+Dart MCP dart_fix: Nothing to fix!
+Dart MCP dart_format: Formatted 2 files (0 changed).
+  mise exec -- dart analyze --fatal-infos
+  Analyzing correlia...
+  No issues found!
+Serverpod hot reload completed.

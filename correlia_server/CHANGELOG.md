@@ -13,6 +13,8 @@
   without turning committed work into spurious retries, and still invalidate on observed failure.
 - Retain plugin intents larger than their negotiated batch limit as dead with `payload_too_large`,
   without a transport attempt, so they cannot stall later fitting work.
+- Preserve live workers' crash history during cross-host pruning, retaining stopped status anchors
+  until owner-local health cleanup or the 24-hour cross-host expiry.
 
 - Add bounded authenticated Alertmanager webhook-v4 ingress with credential-safe session-independent
   routing, exact raw storage and atomic non-sliding transport deduplication.

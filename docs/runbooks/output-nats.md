@@ -65,6 +65,10 @@ transitions and the next start or probe. A row older than 60 seconds is stale by
 but a non-ready row can legitimately age while its worker is alive. A stale row alone does not prove
 worker death. A killed worker's unchanged `ready` row is not evidence of a live instance.
 
+Cleanup runs every 60 seconds. A worker removes its own stopped rows older than 60 seconds only when
+their key has no health row; retained rows anchor later history cleanup. Another worker removes rows
+only after 24 hours without a heartbeat, cascading health when that host's last status row expires.
+
 - `waiting` with `lastErrorClass = instance_limit` means fair slot admission is pending. Limits are sixteen instances per worker and four per output; idle release and rotation prevent historical definitions from starving newer work.
 - `backoff` means a launch or running instance failed. Restart delay doubles from one to sixty seconds and resets after ten minutes continuously ready.
 - `degraded` means more than five failures in ten minutes opened the circuit. Probes run every five minutes; sixty seconds continuously ready closes the circuit. Inspect the bounded failure history and next start/probe times in `plugin_definition_health`.

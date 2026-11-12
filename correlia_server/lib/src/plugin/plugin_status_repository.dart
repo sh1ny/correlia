@@ -175,14 +175,22 @@ final class PluginStatusRepository {
     return isPluginHeartbeatStale(rows.single[0] as DateTime, now);
   }
 
-  /// Deletes stopped stale rows and rows of hosts silent for more than a day.
+  /// Prunes owned stale stopped rows only when their key has no health.
+  ///
+  /// Other hosts' rows expire after a day, with health after their last row.
   Future<void> prune(DateTime now) async {
     while (true) {
       final removed = await session.db.transaction((tx) async {
         final rows = await session.db.unsafeQuery(
           '''WITH doomed AS (
-          SELECT id FROM plugin_instance_status
-          WHERE (state='stopped' AND "heartbeatAt"<@stale) OR "heartbeatAt"<@day
+          SELECT s.id FROM plugin_instance_status s
+          WHERE (s."hostInstanceId"=@host AND s.state='stopped'
+            AND s."heartbeatAt"<@stale AND NOT EXISTS (
+              SELECT 1 FROM plugin_definition_health h
+              WHERE h."hostInstanceId"=s."hostInstanceId"
+                AND h."outputId"=s."outputId"
+                AND h."definitionDigest"=s."definitionDigest"))
+            OR (s."hostInstanceId"<>@host AND s."heartbeatAt"<@day)
           ORDER BY id LIMIT 256 FOR UPDATE SKIP LOCKED
         ), deleted AS (
           DELETE FROM plugin_instance_status s USING doomed d

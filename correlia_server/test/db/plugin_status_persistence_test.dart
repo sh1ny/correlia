@@ -84,6 +84,7 @@ void main() {
         );
         await owner.prune(now);
         await PluginHealthRepository(session, 'owner').prune();
+        await owner.prune(now.add(const Duration(minutes: 1)));
         final statuses = await session.db.unsafeQuery(
           'SELECT "hostInstanceId",state FROM plugin_instance_status',
         );
@@ -130,6 +131,59 @@ void main() {
           expect(health[0], 'plugin_config_rejected');
         },
       );
+      test('live_host_with_only_stopped_rows_keeps_health', () async {
+        final session = builder.build();
+        await initializeIngestSchema(session);
+        final now = DateTime.utc(2026);
+        const host = 'alive-stopped';
+        await _seedStoppedHealth(session, host, now);
+        final before = await _healthState(session, host);
+        expect(before.single.take(2), [1, 1]);
+
+        await PluginStatusRepository(session, 'observer-stopped').prune(now);
+
+        expect(await _healthState(session, host), before);
+        final statuses = await session.db.unsafeQuery(
+          'SELECT state FROM plugin_instance_status WHERE "hostInstanceId"=@host',
+          parameters: QueryParameters.named({'host': host}),
+        );
+        expect(statuses.map((row) => row[0]).toList(), ['stopped']);
+      });
+      test('dead_host_health_expires_after_self_prune', () async {
+        final session = builder.build();
+        await initializeIngestSchema(session);
+        final now = DateTime.utc(2026);
+        const host = 'stopped-then-dead';
+        final deliveryId = await _seedStoppedHealth(session, host, now);
+        final before = await _healthState(session, host);
+        expect(before.single.take(2), [1, 1]);
+
+        await PluginStatusRepository(session, host).prune(now);
+
+        final retained = await session.db.unsafeQuery(
+          'SELECT state FROM plugin_instance_status WHERE "hostInstanceId"=@host',
+          parameters: QueryParameters.named({'host': host}),
+        );
+        expect(retained.map((row) => row[0]).toList(), ['stopped']);
+        expect(await _healthState(session, host), before);
+
+        await PluginStatusRepository(
+          session,
+          'expiry-observer',
+        ).prune(now.add(const Duration(hours: 24)));
+
+        expect(await _healthState(session, host), isEmpty);
+        final expired = await session.db.unsafeQuery(
+          'SELECT state FROM plugin_instance_status WHERE "hostInstanceId"=@host',
+          parameters: QueryParameters.named({'host': host}),
+        );
+        expect(expired, isEmpty);
+        final work = await session.db.unsafeQuery(
+          'SELECT status FROM outbox WHERE delivery_id=CAST(@delivery AS uuid)',
+          parameters: QueryParameters.named({'delivery': deliveryId}),
+        );
+        expect(work.single[0], 'queued');
+      });
       test('pruning_spans_bounded_batches_and_preserves_live_host', () async {
         final session = builder.build();
         await session.db.unsafeSimpleExecute(
@@ -142,10 +196,12 @@ void main() {
         await session.db.unsafeExecute(
           '''INSERT INTO plugin_instance_status
         ("hostInstanceId","outputId","definitionDigest",state,"restartCount","crashesInWindow",version,"heartbeatAt")
-        SELECT host,'output',i::text,'stopped',0,0,1,@old
-        FROM (VALUES ('dead-many'),('alive-many')) hosts(host),generate_series(1,300) i''',
+        SELECT host,'output',i::text,'stopped',0,0,1,heartbeat
+        FROM (VALUES ('dead-many',@dead::timestamp),('alive-many',@alive::timestamp))
+          hosts(host,heartbeat),generate_series(1,300) i''',
           parameters: QueryParameters.named({
-            'old': now.subtract(const Duration(seconds: 61)),
+            'dead': now.subtract(const Duration(hours: 25)),
+            'alive': now.subtract(const Duration(seconds: 61)),
           }),
         );
         await session.db.unsafeExecute(
@@ -162,10 +218,12 @@ void main() {
         );
         await PluginStatusRepository(session, 'observer').prune(now);
         final statuses = await session.db.unsafeQuery(
-          'SELECT "hostInstanceId",state FROM plugin_instance_status',
+          '''SELECT "hostInstanceId",state,count(*) FROM plugin_instance_status
+          GROUP BY "hostInstanceId",state ORDER BY "hostInstanceId",state''',
         );
         expect(statuses.map((row) => row.toList()).toList(), [
-          ['alive-many', 'ready'],
+          ['alive-many', 'ready', 1],
+          ['alive-many', 'stopped', 300],
         ]);
         final health = await session.db.unsafeQuery(
           '''SELECT "hostInstanceId",count(*)
@@ -179,4 +237,47 @@ void main() {
     rollbackDatabase: RollbackDatabase.disabled,
     testGroupTagsOverride: ['db'],
   );
+}
+
+Future<String> _seedStoppedHealth(
+  Session session,
+  String host,
+  DateTime now,
+) async {
+  const key = PluginKey('22222222-2222-4222-8222-222222222222', 'kept-health');
+  await PluginStatusRepository(session, host).write(
+    PluginStatusSnapshot(
+      key: key,
+      state: 'stopped',
+      restartCount: 1,
+      crashesInWindow: 1,
+      heartbeatAt: now.subtract(const Duration(seconds: 61)),
+    ),
+    SupervisionPolicy(clock: () => now)
+      ..start()
+      ..failed('plugin_start_failed'),
+  );
+  final rows = await session.db.unsafeQuery(
+    '''INSERT INTO outbox
+    (created_at,delivery_id,event_observed_at,event_id,event_disposition,output_id,
+     config_snapshot_id,payload,output_kind,definition_digest)
+    VALUES (now(),gen_random_uuid(),now(),gen_random_uuid(),'ready',CAST(@output AS uuid),
+      'snapshot',decode('7b7d','hex'),'plugin',@digest)
+    RETURNING delivery_id::text''',
+    parameters: QueryParameters.named({
+      'output': key.outputId,
+      'digest': key.digest,
+    }),
+  );
+  return rows.single[0] as String;
+}
+
+Future<List<List<Object?>>> _healthState(Session session, String host) async {
+  final rows = await session.db.unsafeQuery(
+    '''SELECT "backoffStep",jsonb_array_length("failureTimes"::jsonb),"failureTimes",
+      "nextStartAt",circuit,"nextProbeAt","lastErrorClass"
+    FROM plugin_definition_health WHERE "hostInstanceId"=@host''',
+    parameters: QueryParameters.named({'host': host}),
+  );
+  return rows.map((row) => row.toList()).toList();
 }
