@@ -63,6 +63,15 @@ M1 retires the riskiest assumptions:
    - the end-to-end demo for the exit criteria.
 
    Needs 3 and 5.
+7. `alertmanager-webhook-compat` (gap-closing; the M1 close of 2026-11-12 showed the real-Alertmanager
+   criterion failing: Alertmanager 0.32+ adds top-level `notification_reason` and `routeLabels`, which the
+   decoder rejects):
+   - decode every webhook field Alertmanager 0.16 to 0.35 sends, each optional where some versions omit it;
+   - a captured fixture per supported minor;
+   - an unknown top-level field is processed and flagged (names recorded on the raw delivery; a count and hash tags logged), not failed (owner,
+     2026-11-12); unknown per-alert fields and wrong types still fail.
+
+   Needs 4.
 
 ## Next: M2 - Icinga2, Thanos and the ingest track
 

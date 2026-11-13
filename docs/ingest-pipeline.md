@@ -102,9 +102,50 @@ Only Alertmanager webhook version `"4"` is supported. Every supplied alert uses 
 | Generator/external URL | Canonical-valid HTTP(S) links; empty omitted, invalid nonempty rejected |
 | Upstream fingerprint | Namespaced extension evidence, never canonical identity or labels_origin |
 
-Identity uses complete originals before display projection. Long label/annotation values and display text truncate with a visible marker; originals remain only in restricted raw bytes. Exact supplied timestamp strings determine observation evidence; arrival time is never a fallback. Reversed intervals, missing required time, empty selected identity, invalid field types and unknown fields fail the whole delivery with a bounded field path.
+Identity uses complete originals before display projection. Long label/annotation values and display text truncate with a visible marker; originals remain only in restricted raw bytes. Exact supplied timestamp strings determine observation evidence; arrival time is never a fallback. Reversed intervals, missing required time, empty selected identity, invalid field types and unknown per-alert fields fail the whole delivery with a bounded field path.
 
-The decoder permits at most 1,000 alerts and JSON depth 32. Canonical map/count/key, original-identity and 256 KiB structured-event bounds still apply; entries are not removed to force acceptance. The pipeline separately bounds aggregate event-plus-fanout storage. Strict upstream-field validation means additive sender fields require a decoder update; retain failed raw bytes for the future replay workflow. Correlia-authored fixtures and their field/provenance notes live beside `test/unit/ingest/alertmanager_decoder_test.dart`; they are documented-format examples, not real captures. Canonical event, CloudEvents and identity contracts are reused unchanged.
+The decoder permits at most 1,000 alerts and JSON depth 32. Canonical map/count/key, original-identity and 256 KiB structured-event bounds still apply; entries are not removed to force acceptance. The pipeline separately bounds aggregate event-plus-fanout storage. Canonical event, CloudEvents and identity contracts are reused unchanged.
+
+### Alertmanager release compatibility
+
+The latest patch of every minor from 0.16 through 0.35 is supported, proven by real firing and resolved captures in `test/unit/ingest/fixtures/alertmanager/`. All send webhook version `"4"`; no sender-version configuration is needed.
+
+| Releases | Recognised additions to the base group fields |
+|---|---|
+| 0.16–0.18 | Base: version, status, alerts, receiver, groupKey, groupLabels, commonLabels, commonAnnotations, externalURL; no fingerprint or truncatedAlerts |
+| 0.19–0.20 | per-alert fingerprint |
+| 0.21–0.31 | truncatedAlerts |
+| 0.32–0.33 | notification_reason (string) |
+| 0.34–0.35 | routeLabels (string map, including an empty object) |
+
+Only version, status and alerts are required at group level. All recognised fields are type-checked. `routeLabels` and `notification_reason` stay raw-only; neither substitutes for alert evidence. The existing `externalURL` link mapping is unchanged.
+
+Unknown **top-level** fields are processed and flagged, not rejected. Unknown **per-alert** fields and wrong types on known fields still fail the complete delivery. Existing failed raw rows are not backfilled; replay is future work.
+
+Every successful raw outcome includes `unknown_top_level_fields` and `unknown_top_level_overflow`, even when they are `[]` and `0`. The list contains the first 16 sorted unknown names matching `^[A-Za-z0-9_.-]{1,64}$`; all others, including oversized or control-character names, count toward overflow. Names remain restricted with the raw body; values are not copied into the outcome.
+
+After commit, a best-effort warning is emitted:
+
+```text
+pipeline source=<uuid> unknown_top_level_fields=<count> tags=<t1,t2>
+```
+
+Count includes listed and overflow names. Each tag is the first 12 lowercase hex characters of SHA-256 over a listed name's UTF-8 bytes. Names and values never enter the log: a name can itself be a credential. Logger failure or a crash after commit loses only the warning, never the durable flag; completed rows are not retried.
+
+Use restricted SQL to inspect names per source (the outcome column is stored as JSON text):
+
+```sql
+SELECT source_id, outcome_json::jsonb -> 'unknown_top_level_fields' AS names,
+       (outcome_json::jsonb ->> 'unknown_top_level_overflow')::integer AS overflow,
+       count(*) AS deliveries
+FROM raw_inbox
+WHERE status = 'done'
+  AND (jsonb_array_length(outcome_json::jsonb -> 'unknown_top_level_fields') > 0
+       OR (outcome_json::jsonb ->> 'unknown_top_level_overflow')::integer > 0)
+GROUP BY source_id, names, overflow;
+```
+
+See [the compatibility runbook](runbooks/alertmanager-compatibility.md) for capture regeneration and real-Alertmanager verification.
 
 ## Durable processing and failure inspection
 

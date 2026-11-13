@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:serverpod/serverpod.dart';
 
 import '../event/canonical_event.dart';
@@ -47,6 +48,20 @@ DateTime _date(EventTimestamp value) => DateTime.fromMicrosecondsSinceEpoch(
   isUtc: true,
 );
 
+/// Formats a warning without exposing sender-controlled names or values.
+String formatUnknownFieldWarning(
+  String source,
+  List<String> names,
+  int overflow,
+) {
+  final tags = names
+      .map(
+        (name) => sha256.convert(utf8.encode(name)).toString().substring(0, 12),
+      )
+      .join(',');
+  return 'pipeline source=$source unknown_top_level_fields=${names.length + overflow} tags=$tags';
+}
+
 String _safePath(String path) {
   const fields = {
     'body',
@@ -56,6 +71,7 @@ String _safePath(String path) {
     'receiver',
     'groupKey',
     'groupLabels',
+    'routeLabels',
     'commonLabels',
     'commonAnnotations',
     'externalURL',
@@ -161,6 +177,7 @@ final class PipelineRepository {
     this.retryDelay,
     PipelineCounters? counters,
     this.stateSkewAllowance = skewAllowance,
+    this.log,
   }) : clock = clock ?? DateTime.now,
        _retryCounts = retryCounts ?? {},
        counters = counters ?? PipelineCounters();
@@ -172,6 +189,9 @@ final class PipelineRepository {
   final Duration Function(int)? retryDelay;
   final PipelineCounters counters;
   final Duration stateSkewAllowance;
+
+  /// The optional best-effort post-commit warning sink.
+  final void Function(String)? log;
 
   Future<void> _limits(Transaction tx, _Deadline deadline) async {
     await session.db.unsafeQuery(
@@ -227,6 +247,7 @@ WHERE observed_at=@observed AND raw_id=CAST(@id AS uuid)''',
   /// Processes one pinned eligible row, or returns false when none is eligible.
   Future<bool> processOne() async {
     _Raw? claimed;
+    AlertmanagerBatch? completedBatch;
     final deadline = _Deadline();
     try {
       final processed = await session.db.transaction((tx) async {
@@ -525,6 +546,8 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
             'raw': raw.id,
             'outcome': jsonEncode({
               'upstream_omitted': batch.upstreamOmissions,
+              'unknown_top_level_fields': batch.unknownTopLevelFields,
+              'unknown_top_level_overflow': batch.unknownTopLevelOverflow,
               'committed': committed,
               'unrouted': unrouted,
               'duplicate_observation': duplicates,
@@ -539,9 +562,26 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
           timeoutInSeconds: 5,
         );
         deadline.check();
+        completedBatch = batch;
         return true;
       });
       if (claimed != null) _retryCounts.remove(claimed!.id);
+      final batch = completedBatch;
+      if (batch != null &&
+          (batch.unknownTopLevelFields.isNotEmpty ||
+              batch.unknownTopLevelOverflow != 0)) {
+        try {
+          log?.call(
+            formatUnknownFieldWarning(
+              claimed!.source,
+              batch.unknownTopLevelFields,
+              batch.unknownTopLevelOverflow,
+            ),
+          );
+        } catch (_) {
+          // The done row is the durable flag; logging cannot retry committed work.
+        }
+      }
       return processed;
     } catch (error) {
       if (claimed == null) rethrow;
@@ -674,12 +714,16 @@ final class PipelineSubsystem extends Subsystem {
     this.afterPin,
     this.backoff,
     this.retryDelay,
+    this.log,
   });
   final Future<Session> Function() openSession;
   final DateTime Function()? clock;
   final Future<void> Function()? afterPin;
   final Future<void> Function(Duration)? backoff;
   final Duration Function(int)? retryDelay;
+
+  /// The optional best-effort post-commit warning sink.
+  final void Function(String)? log;
   Completer<void>? _stopping;
   Future<void>? _run;
   final _retryCounts = <String, int>{};
@@ -709,6 +753,7 @@ final class PipelineSubsystem extends Subsystem {
             retryCounts: _retryCounts,
             counters: counters,
             retryDelay: retryDelay,
+            log: log,
           );
           didWork = await repository.pinOne();
           if (!_stopping!.isCompleted) {
