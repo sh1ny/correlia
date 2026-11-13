@@ -11,7 +11,7 @@ mkdir -p /tmp/my-am-captures
 tool/alertmanager_capture.sh /tmp/my-am-captures v0.35.0 v0.16.2
 ```
 
-The script removes its own `amcap-*` container and temporary files on normal exit, failure or interruption. It does not remove Docker images. Compare against `openspec/changes/alertmanager-webhook-compat/evidence/alertmanager-captures/` after ignoring only alert `startsAt` and `endsAt` timestamps. To extend the supported matrix, capture the new release, review both actual payloads and copy them into the fixture directory used by the version-matrix test. Do not hand-author a payload. Delete the scratch output and any images you pulled for this check when finished.
+The script removes its own `amcap-*` container and temporary files on normal exit, failure or interruption. It does not remove Docker images. Compare against the fixtures in `correlia_server/test/unit/ingest/fixtures/alertmanager/` (the original captures are archived in `openspec/changes/archive/2026-11-13-alertmanager-webhook-compat/evidence/alertmanager-captures/`) after ignoring only alert `startsAt` and `endsAt` timestamps. To extend the supported matrix, capture the new release, review both actual payloads and copy them into the fixture directory used by the version-matrix test. Do not hand-author a payload. Delete the scratch output and any images you pulled for this check when finished.
 
 ## Isolated real-Alertmanager check
 
