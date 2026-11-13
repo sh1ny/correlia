@@ -62,7 +62,7 @@ The pure observed-loss classifier test owns the connection-loss precedence proof
 
 ## 4. Gate
 
-- [ ] 4.1 [evidence] Run `mise run check` and `mise run test:all` on the change branch. Record the totals and the result line of each. Verified by both passing with 0 failures. → evidence/gate-runs.md
+- [x] 4.1 [evidence] Run `mise run check` and `mise run test:all` on the change branch. Record the totals and the result line of each. Verified by both passing with 0 failures. → evidence/gate-runs.md
 
 ## Workflow follow-up
 
