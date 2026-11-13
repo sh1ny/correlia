@@ -119,9 +119,11 @@ meaning (it now decodes and is flagged); the case moves to the tolerance tests a
 - [x] 5.2 [evidence] Follow the runbook's end-to-end check against Alertmanager 0.35.0 and an older release
   (0.27): the alerts reach the console's alert list and the NATS subscriber, the raw rows show no unknown fields,
   and everything started is torn down → evidence/e2e-alertmanager-0.35.md
-- [ ] 5.3 [user] The owner points a real Alertmanager 0.35 at a dev instance, following
+- [x] 5.3 [user] The owner points a real Alertmanager 0.35 at a dev instance, following
   `docs/runbooks/alertmanager-compatibility.md`, and sees the alerts in the console and on a NATS subscriber
-  (M1 exit criterion).
+  (M1 exit criterion). Checked by the owner on 2026-11-13: an alert from Alertmanager 0.35.0 fired and
+  resolved, in the console and on the NATS subscriber (`EVENT_STATUS_FIRING`, then `EVENT_STATUS_RESOLVED`).
+  The owner said "All good, tick the thing"; the agent ticked it on that instruction.
 
 ## Workflow follow-up
 
