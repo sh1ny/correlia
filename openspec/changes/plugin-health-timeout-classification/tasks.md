@@ -6,7 +6,7 @@
 |---|---|---|---|---|
 | plugin-output-protocol → Plugin health reporting | Plugin reports serving | `correlia_server/test/plugin/plugin_protocol_test.dart` | `plugin_reports_serving` | green |
 | plugin-output-protocol → Plugin health reporting | Health call stalls | `correlia_server/test/plugin/plugin_protocol_test.dart` | `health_call_stalls` | green |
-| plugin-output-protocol → Plugin health reporting | Stalled plugin ends the call itself | `correlia_server/test/unit/plugin/health_failure_classification_test.dart` | `non_deadline_status_at_or_past_deadline_is_health_timeout` | red |
+| plugin-output-protocol → Plugin health reporting | Stalled plugin ends the call itself | `correlia_server/test/unit/plugin/health_failure_classification_test.dart` | `non_deadline_status_at_or_past_deadline_is_health_timeout` | green |
 | plugin-output-protocol → Plugin health reporting | Stall classification under load | `correlia_server/test/plugin/plugin_protocol_test.dart` | `health_call_stalls_under_load` | red |
 | plugin-output-protocol → Plugin health reporting | Connection lost during a health call | `correlia_server/test/unit/plugin/health_failure_classification_test.dart` and `correlia_server/test/plugin/plugin_protocol_test.dart` | `observed_connection_loss_wins_for_every_completion` and `health_connection_lost_during_call` | red |
 
@@ -26,14 +26,14 @@ evidence at the real process boundary.
 
 ## 2. Classification rule (design D1, D2)
 
-- [ ] 2.1 Write `correlia_server/test/unit/plugin/health_failure_classification_test.dart` (fast tier, no tags) against a `classifyHealthFailure({required Object error, required Duration elapsed, required Duration deadline, required bool connectionFailed})` function. It returns the error class string. Cases:
+- [x] 2.1 Write `correlia_server/test/unit/plugin/health_failure_classification_test.dart` (fast tier, no tags) against a `classifyHealthFailure({required Object error, required Duration elapsed, required Duration deadline, required bool connectionFailed})` function. It returns the error class string. Cases:
   - `non_deadline_status_at_or_past_deadline_is_health_timeout`: `GrpcError` codes `unknown`, `cancelled`, `unavailable` and `internal`, each at elapsed = deadline and past it, with the connection live, are `plugin_health_timeout`.
   - `observed_connection_loss_wins_for_every_completion`: with `connectionFailed: true`, `TimeoutException`, `GrpcError(deadlineExceeded)` and `GrpcError(unavailable)`, before and after the deadline, are all `plugin_connection_lost`.
   - `timeout_completions_on_live_connection_are_health_timeout`: `TimeoutException` and `GrpcError(deadlineExceeded)` before the deadline are `plugin_health_timeout`.
   - `non_deadline_status_before_deadline_stays_connection_lost`: `GrpcError(unavailable)` one millisecond before the deadline is `plugin_connection_lost` (D2).
 
   Verify with `mise run test -- test/unit/plugin/health_failure_classification_test.dart`: it fails because the function does not exist (compile error naming `classifyHealthFailure`), the expected red.
-- [ ] 2.2 Implement `classifyHealthFailure` in `correlia_server/lib/src/plugin/output_plugin_connection.dart`, `@visibleForTesting`, as a switch on the error that follows design D1's order. Document it with `///`.
+- [x] 2.2 Implement `classifyHealthFailure` in `correlia_server/lib/src/plugin/output_plugin_connection.dart`, `@visibleForTesting`, as a switch on the error that follows design D1's order. Document it with `///`.
   - In `health`, start a `Stopwatch` immediately before `checkHealth`.
   - Route `TimeoutException` and `GrpcError` through `classifyHealthFailure`, with `connectionFailed: _stopped || _failure.isCompleted` read at the moment of failure.
   - Update the `health` doc comment to state the rule.

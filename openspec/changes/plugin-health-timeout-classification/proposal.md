@@ -52,6 +52,15 @@ None.
   `correlia_server/test/plugin/fixtures/go/`.
 - Plugin protocol (`correlia.plugin.v1`), the `output-nats` plugin, schema and migrations: unchanged.
 
+## Release Notes
+
+Health failures now distinguish elapsed deadlines from observed connection loss.
+
+### Fixed
+
+- Fix stalled plugin health calls being reported as lost connections under load.
+- Preserve observed connection-loss precedence for every health failure completion.
+
 ## Decision Making
 
 DECISION_MAKING: autonomous
