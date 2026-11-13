@@ -4,7 +4,7 @@
 
 | Trigger | Applies? | Evidence |
 |---|---|---|
-| T1 Components (new component, or 3+ with directed relationships) | no | Only `OutputPluginConnection.health` and its test change; host and plugin process are the existing two parties. |
+| T1 Components (new component, or 3+ with directed relationships) | no | Existing health connection and bounded connector change; no new component. |
 | T2 State (persistent state, caches, 3+ state machine) | no | No new state. The supervisor state machine (`plugin_supervisor.dart`) is unchanged; it only receives a different error class at startup. |
 | T3 Concurrency (background work, workers/isolates, async, retries) | yes | Three completions race for one health call: the Dart `.timeout` timer, grpc-dart's `CallOptions` deadline timer, and the plugin's own status sent when its copy of the deadline expires (`output_plugin_connection.dart:367-372`, fixture `main.go:88`). |
 | T4 Boundaries (data format, migration, shared interface, IPC, external) | yes | The error class is part of the plugin supervision contract (ADR 0025: `last error class` persisted on `plugin_definition_health`) and is shown to operators. The gRPC call crosses the process boundary. The wire protocol does not change. |
@@ -86,16 +86,33 @@ See proposal.md for the failure and the reasons.
 - **Important:** no
 - **Chosen by:** agent
 
+### D4: Deliver closed-transport write failures through the RPC error path
+
+- **Evidence:** During apply, the new `health_connection_lost_during_call` test failed with `StateError: Cannot add event after closing` at `bounded_channel.dart:232`. A chained stack traced grpc-dart's `Http2TransportStream` body subscription into `_GuardedSink.add`. SIGKILL closes HTTP/2 while the request body is queued. The sink listener throws outside the RPC response future because only frame-validation errors are currently routed through `_Stream._fail`.
+- **Choice:** Wrap only `_stream.outgoingMessages.add(event)` in a separate `try` and catch only `StateError`, outside frame validation. Set `_failed = true` before invoking the callback already passed from `_Stream._fail`, with `const GrpcError.unavailable('plugin transport closed')` and the original stack trace. This terminates that stream and delivers an incoming RPC error, never an uncaught zone error. It does not directly complete connection-level `_failure`: process exit and the delivery stream still own that observation. A closed-sink write on the delivery stream also reaches its existing connection-failure handler. Never route this as `FormatException`, so `frameFailure` stays null. Other programming errors still propagate.
+  - The guard's `FormatException` branch sets `_failed`, invokes `_fail` and returns before the delegate write. `_fail` runs in the catch body, outside the protected `try`; exceptions from `_fail` or `terminate()` propagate, and the catch is never widened to absorb them. The callback is `_Stream._fail`, which `_Stream` passes into `_GuardedSink`.
+  - The HTTP/2 delegate is a controller sink. Its `StateError` covers closed or concurrent-addStream state; concurrent delegate `addStream` is impossible because our `addStream` sends messages through `add`. No brittle message matching is needed.
+  - If incoming status arrived first, `_incoming` is already closed and keeps its result. If the write failure arrives first, the call receives unavailable and the later closed-transport status is discarded by cancellation. In both orders the call fails visibly.
+- **Proof:** Fast-tier `bounded_channel_test.dart` uses hand-written connector/connection/stream fakes through the public connector. A pre-closed delegate sink deterministically proves one incoming unavailable error, stream termination, null `frameFailure`, later writes dropped and safe close. An `ArgumentError` from delegate add still propagates; compressed and oversized frames still fail with `FormatException` and set `frameFailure`. The SIGKILL test remains supplementary; the unfixed sink failed both observed runs (2/2).
+  - The fakes live in the fast-tier unit file, following the existing fake pattern in `plugin_transport_test.dart` without importing the tagged test. Listen before writing. Invalid-frame guard cases assert no delegate write. The non-StateError guard test asserts no incoming error or close, no termination, a later write reaches the delegate, and null `frameFailure`. Only the closed-sink regression starts red; both guard tests start green. Record the red result and both observed unfixed SIGKILL failures in `evidence/protocol-load-runs.md`.
+- **Boundaries:** `addError` remains unchanged: grpc-dart's request serialization errors are consumed by its upstream `handleError`, so this path does not forward serializer failures to the delegate. This change repairs the observed queued data write only.
+- **Rejected:** Wait before SIGKILL or weaken the test, which avoids the queued-write race instead of fixing it. Catch all exceptions, which hides programming errors unrelated to a closed sink.
+- **Scope approval:** The owner approved expanding this change to diagnose, amend/review and fix this transport failure during apply on 2026-11-13.
+- **Reversal cost:** low (one existing sink error path).
+- **Important:** yes.
+- **Chosen by:** agent
+
 ### Decision summary
 
 | # | Decision | Choice | Rejected | Reversal cost | Important | Chosen by |
 |---|---|---|---|---|---|---|
 | S1 | Fix the classification, not only the test | Change `health` and assert the class | Loosen, retry or lengthen the test | low | yes | agent |
 | S2 | The deadline decides, not the status code | Elapsed deadline on a live connection | List of extra codes as timeouts | low | no | agent |
-| S3 | Scope stays M1-sized | Health classification and this test file | General flakiness sweep | low | no | agent |
+| S3 | Scope stays M1-sized | Health classification, this test file and its exposed closed-sink race | General flakiness sweep | low | yes | agent |
 | D1 | Classification rule | Observed connection state first, then elapsed deadline, in one pure function | Drop the deadline sent to the plugin | low | yes | agent |
 | D2 | Pre-deadline errors | Unchanged (`plugin_connection_lost`) | New `plugin_health_error` class | low | no | agent |
 | D3 | Regression proof | Pure classifier unit test; starvation and parallel runs supplementary | Starvation or parallel runs as the proof | low | no | agent |
+| D4 | Queued write after transport closure | Route closed-sink StateError to the incoming RPC error path | Delay SIGKILL, suppress the error, or catch everything | low | yes | agent |
 
 ## Diagrams (FULL)
 
@@ -154,6 +171,7 @@ flowchart TD
 | Plugin stalls past the deadline | `plugin_health_timeout` | Supervisor counts a failed check (3 in a row is a crash, ADR 0025); at startup the start fails and backoff applies | yes (health is read-only) | Operator: status row's last error class |
 | Plugin exits or the stream breaks, observed (`_failure` completed) before the call fails | The call fails as `plugin_connection_lost`, whichever completion ended it | Supervisor restart path | yes | Operator: status row; supervisor log |
 | Plugin exits after the deadline, but before the exit is observed | That call is `plugin_health_timeout`; the exit then completes `_failure`, and the next call or the delivery stream reports `plugin_connection_lost` | Same as above, one observation later | yes | Operator, via the next observation |
+| Request body written after transport closure | RPC receives `unavailable`, classified by D1 | Existing supervisor failure handling; no new retry | health yes; delivery follows existing idempotency | RPC caller / supervisor |
 
 ## Resource Bounds (FULL)
 
@@ -179,6 +197,8 @@ flowchart TD
 | New `plugin_health_error` class | no | D2 | Plugins that answer health with error statuses in the field |
 | Test retry on failure | no | Hides defects (S1) | none |
 | Fixture change | no | The stall mode already exercises the race | Task 1.1 shows the race cannot be reached with it |
+| Closed-delegate StateError routing | yes | D4 prevents a queued write escaping the RPC error path; fake closed sink proves it | n/a |
+| Catch every outgoing error | no | Hides unrelated programming errors; only closed-sink StateError is expected | Evidence of another concrete transport exception bypassing RPC completion |
 
 ## Risks / Trade-offs
 
@@ -196,4 +216,4 @@ flowchart TD
 
 ## Open Questions
 
-- Which gRPC status the host receives when a stalled plugin's own deadline expires under starvation. Task 1.1 records it here; the answer does not change D1.
+- Task 1.1 captured 50/50 `GrpcError` code 4 (`Deadline exceeded`), 0 other statuses, and no line-385 connection-loss outcome; see `evidence/health-status-capture.md`. The historical M1 non-deadline status was not reproduced, and D1 does not depend on its identity.

@@ -29,8 +29,8 @@ a clean clone; no `[user]` task is needed.
 - The exact status a stalled plugin returns under load is captured once and recorded in the design, so the rule
   rests on evidence, not on a guess.
 - `plugin_protocol_test.dart` is made reliable under full-suite load. The stall test asserts the classification
-  without depending on which of the two timers fires first. The file is run repeatedly under parallel load as
-  proof.
+  without depending on which of the two timers fires first. Repeated parallel runs provide supplementary evidence.
+- A queued health-request write after transport closure becomes an observed transport failure, not an uncaught `StateError` from the bounded connector.
 
 ## Capabilities
 
@@ -46,10 +46,8 @@ None.
 
 ## Impact
 
-- Code: `correlia_server/lib/src/plugin/output_plugin_connection.dart` (`health`). The supervisor
-  (`plugin_supervisor.dart`) keeps its behaviour and only receives the right class.
-- Tests: `correlia_server/test/plugin/plugin_protocol_test.dart` and, if needed, the Go stall fixture under
-  `correlia_server/test/plugin/fixtures/go/`.
+- Code: `correlia_server/lib/src/plugin/output_plugin_connection.dart` (`health`) and `bounded_channel.dart` (`_GuardedSink.add`). The supervisor keeps its behaviour and only receives the right class.
+- Tests: `correlia_server/test/plugin/plugin_protocol_test.dart`, `test/unit/plugin/health_failure_classification_test.dart` and `test/unit/plugin/bounded_channel_test.dart`.
 - Plugin protocol (`correlia.plugin.v1`), the `output-nats` plugin, schema and migrations: unchanged.
 
 ## Release Notes
@@ -60,6 +58,7 @@ Health failures now distinguish elapsed deadlines from observed connection loss.
 
 - Fix stalled plugin health calls being reported as lost connections under load.
 - Preserve observed connection-loss precedence for every health failure completion.
+- A request written after the plugin transport closed no longer raises an uncaught error.
 
 ## Decision Making
 
@@ -89,8 +88,7 @@ DECISION_MAKING: autonomous
 
 ### S3: Scope stays M1-sized
 
-- **Choice:** Fix health classification and the reliability of `plugin_protocol_test.dart` only. Other flaky tests
-  found while proving it are reported and get their own change.
+- **Choice:** Fix health classification and the reliability of `plugin_protocol_test.dart`, including the closed-transport write exposed by the required SIGKILL test. The owner approved this narrow scope expansion during apply on 2026-11-13. Other flaky tests still get their own change.
 - **Rejected:** A general test-flakiness sweep, which has no evidence behind it yet and would delay the M1 close.
 - **Reversal cost:** low
 - **Important:** no

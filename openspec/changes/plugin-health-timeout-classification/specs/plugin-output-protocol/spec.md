@@ -24,3 +24,7 @@ The plugin SHALL answer health checks with serving or not serving and a bounded 
 #### Scenario: Connection lost during a health call
 - **WHEN** the host has observed the plugin process exit or its connection break by the time a health call fails, whether the call fails before or after its deadline
 - **THEN** the call fails with error class `plugin_connection_lost`, not `plugin_health_timeout`
+
+#### Scenario: Request write races transport closure
+- **WHEN** the plugin transport closes while a host request is still being written
+- **THEN** that call fails as a transport failure through its RPC error path, without raising an uncaught error
