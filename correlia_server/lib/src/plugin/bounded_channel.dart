@@ -229,10 +229,16 @@ final class _GuardedSink implements StreamSink<StreamMessage> {
     try {
       if (event is DataStreamMessage) _guard.add(event.bytes);
       if (event.endStream) _guard.finish();
-      _stream.outgoingMessages.add(event);
     } on FormatException catch (error, stackTrace) {
       _failed = true;
       _fail(error, stackTrace);
+      return;
+    }
+    try {
+      _stream.outgoingMessages.add(event);
+    } on StateError catch (_, stackTrace) {
+      _failed = true;
+      _fail(const GrpcError.unavailable('plugin transport closed'), stackTrace);
     }
   }
 

@@ -7,9 +7,9 @@
 | plugin-output-protocol → Plugin health reporting | Plugin reports serving | `correlia_server/test/plugin/plugin_protocol_test.dart` | `plugin_reports_serving` | green |
 | plugin-output-protocol → Plugin health reporting | Health call stalls | `correlia_server/test/plugin/plugin_protocol_test.dart` | `health_call_stalls` | green |
 | plugin-output-protocol → Plugin health reporting | Stalled plugin ends the call itself | `correlia_server/test/unit/plugin/health_failure_classification_test.dart` | `non_deadline_status_at_or_past_deadline_is_health_timeout` | green |
-| plugin-output-protocol → Plugin health reporting | Stall classification under load | `correlia_server/test/plugin/plugin_protocol_test.dart` | `health_call_stalls_under_load` | red |
-| plugin-output-protocol → Plugin health reporting | Connection lost during a health call | `correlia_server/test/unit/plugin/health_failure_classification_test.dart` and `correlia_server/test/plugin/plugin_protocol_test.dart` | `observed_connection_loss_wins_for_every_completion` and `health_connection_lost_during_call` | red |
-| plugin-output-protocol → Plugin health reporting | Request write races transport closure | `correlia_server/test/unit/plugin/bounded_channel_test.dart` | `closed_delegate_write_fails_rpc` | red |
+| plugin-output-protocol → Plugin health reporting | Stall classification under load | `correlia_server/test/plugin/plugin_protocol_test.dart` | `health_call_stalls_under_load` | green |
+| plugin-output-protocol → Plugin health reporting | Connection lost during a health call | `correlia_server/test/unit/plugin/health_failure_classification_test.dart` and `correlia_server/test/plugin/plugin_protocol_test.dart` | `observed_connection_loss_wins_for_every_completion` and `health_connection_lost_during_call` | green |
+| plugin-output-protocol → Plugin health reporting | Request write races transport closure | `correlia_server/test/unit/plugin/bounded_channel_test.dart` | `closed_delegate_write_fails_rpc` | green |
 | plugin-output-protocol → Plugin health reporting | Existing transport guards | `correlia_server/test/unit/plugin/bounded_channel_test.dart` | `non_state_error_propagates`, `invalid_frames_still_fail` | green |
 
 "Health call stalls" and "Plugin reports serving" ride along unchanged in the MODIFIED requirement. Their tests
@@ -45,11 +45,11 @@ The pure observed-loss classifier test owns the connection-loss precedence proof
 
 ## 3. Real-process coverage (design D3)
 
-- [ ] 3.1 Add `health_call_stalls_under_load` to `correlia_server/test/plugin/plugin_protocol_test.dart`.
+- [x] 3.1 Add `health_call_stalls_under_load` to `correlia_server/test/plugin/plugin_protocol_test.dart`.
   - On one `stall-health` connection, 20 iterations each start `health(timeout: 100 ms)`, block the isolate for 300 ms with a `Stopwatch`-bounded synchronous loop (no `sleep`, no `Future.delayed`), then expect `plugin_health_timeout`.
   - Add a short comment: the test is supplementary stress evidence, and the deterministic proof is the classifier test.
   - Verify with `mise run test -- --tags plugin test/plugin/plugin_protocol_test.dart`. Flip the row green.
-- [ ] 3.2 Add `health_connection_lost_during_call` to `plugin_protocol_test.dart`.
+- [x] 3.2 Add `health_connection_lost_during_call` to `plugin_protocol_test.dart`.
   - On a `stall-health` connection, start `health(timeout: 2 s)`, then send `SIGKILL` to the connection's own child (`connection.pid`; never a process matched by name).
   - Expect `plugin_connection_lost`, and expect `connection.failure` to complete.
   - Apply D4 to `_GuardedSink.add` in `bounded_channel.dart`: use a separate `try` around only delegate `add`, catch only `StateError`, set `_failed` first, then route `const GrpcError.unavailable('plugin transport closed')` and the original stack through `_Stream._fail`. Never set `frameFailure` for this transport error.
@@ -57,8 +57,8 @@ The pure observed-loss classifier test owns the connection-loss precedence proof
   - Before the fix, add and run fast-tier `bounded_channel_test.dart` using hand-written connector/connection/stream fakes via the public connector. Prove a pre-closed sink yields exactly one incoming unavailable error, terminates the stream, leaves `frameFailure` null, drops later writes and closes safely. This closed-sink test is the red-to-green proof. Guard tests start green: non-StateError delegate failures propagate with no incoming error/close or termination, a later write still reaches the delegate and `frameFailure` stays null; oversized/compressed frames set `frameFailure`, emit FormatException and never reach the delegate. Listen before writing. Record the red result and 2/2 unfixed SIGKILL failures in `evidence/protocol-load-runs.md`.
   - Keep SIGKILL supplementary (unfixed sink failed 2/2 observed runs). The observed-loss classifier test is the deterministic precedence proof.
   - Verify with the same command, then flip the "Connection lost during a health call" row green.
-- [ ] 3.3 [evidence] Run `plugin_protocol_test.dart` 10 times, in rounds of 4 parallel runs, alongside one `mise run test:all` started at the same time. Record pass/fail counts per test and any failure output. Verified by 0 failures in the file across all runs. Report any other flaky test found, without fixing it here (S3). → evidence/protocol-load-runs.md
-- [ ] 3.4 Re-run `plugin_reports_serving` and `health_call_stalls` with `mise run test -- --tags plugin test/plugin/plugin_protocol_test.dart --name "plugin_reports_serving|health_call_stalls"`. Verified by both passing. Their rows stay green.
+- [x] 3.3 [evidence] Run `plugin_protocol_test.dart` 10 times, in rounds of 4 parallel runs, alongside one `mise run test:all` started at the same time. Record pass/fail counts per test and any failure output. Verified by 0 failures in the file across all runs. Report any other flaky test found, without fixing it here (S3). → evidence/protocol-load-runs.md
+- [x] 3.4 Re-run `plugin_reports_serving` and `health_call_stalls` with `mise run test -- --tags plugin test/plugin/plugin_protocol_test.dart --name "plugin_reports_serving|health_call_stalls"`. Verified by both passing. Their rows stay green.
 
 ## 4. Gate
 
