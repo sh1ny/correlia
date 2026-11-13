@@ -4,7 +4,7 @@
 
 ### Requirement: Per alert webhook decoding
 
-The system SHALL decode webhook version `4` into one kind `alert` canonical event per supplied alert, using each alert's own firing/resolved status, labels and annotations rather than group status or common-field substitution. Empty groups SHALL complete with zero events. Nonzero truncatedAlerts SHALL be retained and counted as upstream omissions without fabricating missing alerts. Unknown per-alert fields SHALL fail with a field path, not be silently discarded; unknown top-level fields are governed by the top-level field tolerance requirement.
+The system SHALL decode webhook version `4` into one kind `alert` canonical event per supplied alert, using each alert's own firing/resolved status, labels and annotations rather than group status or common-field substitution. Empty groups SHALL complete with zero events. Nonzero truncatedAlerts SHALL be retained and counted as upstream omissions without fabricating missing alerts. Unknown per-alert fields SHALL fail with a field path; unknown top-level fields follow top-level field tolerance.
 
 #### Scenario: Mixed group and upstream truncation
 - **WHEN** a v4 group marked firing contains firing and resolved alerts and a nonzero truncatedAlerts count
