@@ -260,4 +260,34 @@ void main() {
       throwsA(failure('plugin_health_timeout')),
     );
   });
+
+  test('health_call_stalls_under_load', () async {
+    // Supplementary stress evidence; the classifier test is deterministic proof.
+    final connection = await connect('stall-health');
+    for (var i = 0; i < 20; i++) {
+      final call = connection.health(
+        timeout: const Duration(milliseconds: 100),
+      );
+      final busy = Stopwatch()..start();
+      while (busy.elapsed < const Duration(milliseconds: 300)) {}
+      await expectLater(call, throwsA(failure('plugin_health_timeout')));
+    }
+  });
+
+  test('health_connection_lost_during_call', () async {
+    // Supplementary process coverage; the classifier proves observed-loss
+    // precedence. An early unavailable status may instead follow D2.
+    final connection = await connect('stall-health');
+    final call = connection.health(timeout: const Duration(seconds: 2));
+    final assertion = expectLater(
+      call,
+      throwsA(failure('plugin_connection_lost')),
+    );
+    expect(Process.killPid(connection.pid!, ProcessSignal.sigkill), isTrue);
+    await assertion;
+    expect(
+      await connection.failure,
+      failure('plugin_connection_lost'),
+    );
+  });
 }

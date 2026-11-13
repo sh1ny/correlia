@@ -72,6 +72,14 @@ M1 retires the riskiest assumptions:
      2026-11-12); unknown per-alert fields and wrong types still fail.
 
    Needs 4.
+8. `plugin-health-timeout-classification` (gap-closing; the M1 close of 2026-11-13 showed `mise run test:all`
+   failing 439/440 from a clean clone: under full-suite load a stalled plugin health call was reported as
+   `plugin_connection_lost`, not `plugin_health_timeout`):
+   - a health call whose own deadline expires is always a health timeout, never a lost connection;
+   - only a real transport failure marks the connection lost;
+   - the plugin protocol tests hold under full-suite load.
+
+   Needs 3 and 6.
 
 ## Next: M2 - Icinga2, Thanos and the ingest track
 

@@ -4,12 +4,31 @@ import 'dart:math' as math;
 
 import 'package:fixnum/fixnum.dart';
 import 'package:grpc/grpc.dart';
+import 'package:meta/meta.dart';
 
 import '../plugin_generated/correlia/plugin/v1/plugin.pbgrpc.dart' as v1;
 import 'openssl_engine.dart';
 import 'plugin_host.dart';
 import 'plugin_rpc_connection.dart';
 import 'plugin_tls.dart';
+
+/// Classifies a health-call failure using the host's observed connection state.
+///
+/// Observed connection loss takes precedence over every timeout completion.
+/// On a live connection, gRPC failures at or past [deadline] are timeouts.
+@visibleForTesting
+String classifyHealthFailure({
+  required Object error,
+  required Duration elapsed,
+  required Duration deadline,
+  required bool connectionFailed,
+}) => switch (error) {
+  _ when connectionFailed => 'plugin_connection_lost',
+  TimeoutException() => 'plugin_health_timeout',
+  GrpcError() when elapsed >= deadline => 'plugin_health_timeout',
+  GrpcError(code: StatusCode.deadlineExceeded) => 'plugin_health_timeout',
+  _ => 'plugin_connection_lost',
+};
 
 /// A bounded, value-free production plugin failure.
 final class OutputPluginException implements Exception {
@@ -354,6 +373,9 @@ final class OutputPluginConnection {
   }
 
   /// Checks application health with a bounded deadline.
+  ///
+  /// Observed connection loss wins over timeout completions. Otherwise, a gRPC
+  /// failure at or past the deadline is a health timeout, regardless of status.
   Future<OutputPluginHealth> health({
     Duration timeout = const Duration(seconds: 2),
   }) async {
@@ -364,6 +386,7 @@ final class OutputPluginConnection {
     if (_stopped || _failure.isCompleted) {
       throw const OutputPluginException('plugin_connection_lost');
     }
+    final stopwatch = Stopwatch()..start();
     try {
       final response = await _client
           .checkHealth(
@@ -376,13 +399,24 @@ final class OutputPluginConnection {
         throw const OutputPluginException('plugin_protocol_error');
       }
       return OutputPluginHealth(response.serving, response.reason);
-    } on TimeoutException {
-      throw const OutputPluginException('plugin_health_timeout');
+    } on TimeoutException catch (error) {
+      throw OutputPluginException(
+        classifyHealthFailure(
+          error: error,
+          elapsed: stopwatch.elapsed,
+          deadline: deadline,
+          connectionFailed: _stopped || _failure.isCompleted,
+        ),
+      );
     } on GrpcError catch (error) {
-      if (error.code == StatusCode.deadlineExceeded) {
-        throw const OutputPluginException('plugin_health_timeout');
-      }
-      throw const OutputPluginException('plugin_connection_lost');
+      throw OutputPluginException(
+        classifyHealthFailure(
+          error: error,
+          elapsed: stopwatch.elapsed,
+          deadline: deadline,
+          connectionFailed: _stopped || _failure.isCompleted,
+        ),
+      );
     }
   }
 
