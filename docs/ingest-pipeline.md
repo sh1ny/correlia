@@ -113,8 +113,8 @@ The latest patch of every minor from 0.16 through 0.35 is supported, proven by r
 | Releases | Recognised additions to the base group fields |
 |---|---|
 | 0.16–0.18 | Base: version, status, alerts, receiver, groupKey, groupLabels, commonLabels, commonAnnotations, externalURL; no fingerprint or truncatedAlerts |
-| 0.19–0.20 | truncatedAlerts and per-alert fingerprint |
-| 0.21–0.31 | Same field union; captured group formatting may differ |
+| 0.19–0.20 | per-alert fingerprint |
+| 0.21–0.31 | truncatedAlerts |
 | 0.32–0.33 | notification_reason (string) |
 | 0.34–0.35 | routeLabels (string map, including an empty object) |
 
