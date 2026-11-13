@@ -21,12 +21,12 @@ The pure observed-loss classifier test owns the connection-loss precedence proof
 
 ## 1. Capture the status a stalled plugin returns under starvation
 
-- [x] 1.1 [evidence] Before changing `health`, run a throwaway probe against the unchanged code. The probe makes 50 health calls to the `stall-health` fixture with a 100 ms timeout and blocks the isolate for 300 ms after each call with a `Stopwatch`-bounded loop.
+- [x] 1.1 [evidence] Before changing `health`, run a throwaway probe against the unchanged code. The probe makes 50 health calls to the `stall-health` fixture with a 100 ms timeout and blocks the isolate for 300 ms after each call with a `Stopwatch`-bounded loop. → evidence/health-status-capture.md
   - Record each outcome: `TimeoutException`, or `GrpcError` with its code and message.
   - Note the grpc-go and grpc-dart versions.
   - Record whether the code-385 path (`plugin_connection_lost`) was reached.
   - Delete the probe afterwards; it is not committed.
-  - Verified by the file existing, non-empty, with the counts per outcome. It answers design.md's Open Question; that design was subsequently amended under the owner-approved D4 scope expansion. → evidence/health-status-capture.md
+  - Verified by the file existing, non-empty, with the counts per outcome. It answers design.md's Open Question; that design was subsequently amended under the owner-approved D4 scope expansion.
 
 ## 2. Classification rule (design D1, D2)
 
