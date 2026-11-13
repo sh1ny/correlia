@@ -17,7 +17,7 @@ evidence at the real process boundary.
 
 ## 1. Capture the status a stalled plugin returns under starvation
 
-- [ ] 1.1 [evidence] Before changing `health`, run a throwaway probe against the unchanged code. The probe makes 50 health calls to the `stall-health` fixture with a 100 ms timeout and blocks the isolate for 300 ms after each call with a `Stopwatch`-bounded loop.
+- [x] 1.1 [evidence] Before changing `health`, run a throwaway probe against the unchanged code. The probe makes 50 health calls to the `stall-health` fixture with a 100 ms timeout and blocks the isolate for 300 ms after each call with a `Stopwatch`-bounded loop.
   - Record each outcome: `TimeoutException`, or `GrpcError` with its code and message.
   - Note the grpc-go and grpc-dart versions.
   - Record whether the code-385 path (`plugin_connection_lost`) was reached.
