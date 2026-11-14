@@ -134,3 +134,14 @@ Verification after the fix and the cause-preservation assertion:
 - `dart fix --apply correlia_server`: applied one curly-braces lint fix to the new removal-path assignment.
 - `mise run check`: exit 0, 149.48 seconds; 15 spec items passed, analysis and generated/format checks
   clean, **213 fast**, **83 tool**, and **19 widget** tests passed.
+
+### Fresh-clone proof of the third-round code
+
+A fresh `/tmp/omp-pfs-clone` at `1fabc7b3142fa2956e62ad6565d8f49274602100` ran setup and
+`mise run test:all` at default concurrency: exit 0, **474 passed**, result
+`10:08 +474: All tests passed!`. Command wall time was **616 seconds**; tool time was **616.60 seconds**.
+This includes the new startup-status regression and every changed plugin/db test.
+
+The ownership-checked helper stopped only the clone's
+`/tmp/omp-pfs-clone/correlia_server/.serverpod/test/pgdata` cluster (PID 1832328), then the clone was removed.
+This sixth full-tier run supplements the earlier runs and their recorded out-of-scope failure.
