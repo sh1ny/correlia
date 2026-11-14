@@ -68,3 +68,29 @@ Supplementary verification after this fix:
 - `mise run analyze`: no issues; `mise exec -- dart fix --apply correlia_server`: nothing to fix.
 
 The four full-tier runs above predate this review fix; they are not represented as runs of the later head. The focused regressions prove the changed cleanup ordering and error propagation.
+
+## Authorized pre-ship fix (round 2)
+
+The next review identified a P1: replaying a connection's cleanup error forever prevented the sweep retry from releasing the slot. It also identified a startup-cleanup reporting gap against the unchanged shutdown specification. The owner selected fixing the retry and honoring the full existing specification, not narrowing it.
+
+Two new regressions first failed: `cleanup_failure_before_shutdown_releases_slot` could not observe a new ready PID, and `startup_cleanup_failure_is_reported_without_replacing_startup_error` saw shutdown complete normally instead of reporting the cleanup error.
+
+Connection cleanup errors are now reported once to an awaiting stop; retries still await completion but can finish removal and relaunch. The supervisor retains the first tracked error occurring during shutdown. Failed-start exceptions carry any cleanup failure and its stack separately, including cleanup inside the launch core, preserving the original startup class while allowing shutdown to report the cleanup error. The recovery test preserves the existing health-error retention policy rather than requiring a ready row to erase its historical health error.
+
+Verification:
+
+- Plugin supervision, historical secrets, lifecycle, protocol, host and acquisition files: **39 passed**, 72.14 seconds.
+- Worker-stop, status-persistence, relay-shutdown and shutdown-order db files: **14 passed**, 28.62 seconds.
+- Analysis clean; `dart fix --apply` had nothing to fix.
+
+The full-tier runs above predate both review fixes. These focused runs cover the revised error propagation, successful relaunch after a failed removal, and unchanged startup classification.
+
+### Design re-check corrections within round 2
+
+The design re-check found that an outer handshake timeout could discard the inner core-start exception and its cleanup failure. A new pre-handshake marker/SIGSTOP fixture and `handshake_cleanup_failure_survives_outer_timeout` first failed because shutdown emitted no cleanup error. Retaining and observing the core-start future after serialized cleanup fixes the loss while preserving `plugin_start_timeout`.
+
+All three startup-overlap tests now wait for an abandonment barrier entered after timeout. Both cleanup layers wait for the supervisor's stop signal before reaping, so the test no longer has to beat its three-second deadline. This is a test-only seam; production startup deadlines are unchanged. The design re-check's documentation corrections describe failed-removal retry scope, loop-ordered waiting/prune writes, broader tracked shutdown failures and the test's deliberate status erasure. Pre-shutdown startup cleanup failures also emit a bounded, value-free diagnostic.
+
+Final focused verification of these corrections: **40 plugin tests passed** (38.37 seconds), **14 db tests passed** (7.70 seconds), and `dart fix --apply` found nothing to fix.
+
+A new `mise run check` on this corrected code exited 0: 15 OpenSpec items, 213 fast server tests, 83 tooling tests and 19 widget tests passed; analysis and generated-code checks were clean. Command time: 148.18 seconds.

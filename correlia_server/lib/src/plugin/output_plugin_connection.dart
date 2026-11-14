@@ -39,6 +39,7 @@ final class OutputPluginException implements Exception {
     this.pluginErrorClass,
     this.reapedPid,
     this.reapedForcibly,
+    this.cleanupFailure,
   });
 
   /// The bounded error class.
@@ -55,6 +56,9 @@ final class OutputPluginException implements Exception {
 
   /// Whether failed-start cleanup forcibly terminated that child.
   final bool? reapedForcibly;
+
+  /// The internal cleanup failure, without replacing the startup error class.
+  final (Object, StackTrace)? cleanupFailure;
 
   @override
   String toString() => errorClass;
@@ -185,6 +189,7 @@ final class OutputPluginConnection {
   int _sequence = 0;
   bool _stopped = false;
   Future<void>? _cleanup;
+  bool _cleanupErrorReported = false;
   static final _errorClass = RegExp(r'^[a-z][a-z0-9_]{0,63}$');
   static final _field = RegExp(r'^[a-zA-Z0-9_.-]{1,128}$');
 
@@ -210,6 +215,7 @@ final class OutputPluginConnection {
   ///
   /// Failed starts retain their original error class and the child reap outcome.
   /// [afterForcedStop] is a test-only cleanup-failure injection.
+  /// [beforeStartupCleanup] is a test-only abandonment barrier.
   static Future<OutputPluginConnection> start({
     required String executable,
     List<String> arguments = const [],
@@ -218,6 +224,7 @@ final class OutputPluginConnection {
     Duration timeout = const Duration(seconds: 10),
     Duration shutdownGrace = const Duration(seconds: 5),
     Future<void> Function()? afterForcedStop,
+    Future<void> Function()? beforeStartupCleanup,
   }) async {
     if (timeout <= Duration.zero) throw ArgumentError.value(timeout, 'timeout');
     if (shutdownGrace.isNegative) {
@@ -248,9 +255,12 @@ final class OutputPluginConnection {
         cookie: 'correlia.plugin.v1',
       ),
       afterForcedStop: afterForcedStop,
+      beforeStartupCleanup: beforeStartupCleanup,
     );
+    late final Future<void> starting;
     try {
-      await core.start().timeout(remaining());
+      starting = core.start();
+      await starting.timeout(remaining());
       final client = v1.PluginServiceClient(core.channel);
       final response = await client.getMetadata(
         v1.GetMetadataRequest(),
@@ -372,13 +382,29 @@ final class OutputPluginConnection {
       final frameFailure = core.frameFailure;
       int? reapedPid;
       bool? reapedForcibly;
+      var cleanupFailure = switch (error) {
+        PluginStartupException(:final cleanupFailure) => cleanupFailure,
+        OutputPluginException(:final cleanupFailure) => cleanupFailure,
+        _ => null,
+      };
       try {
-        await core.stopWithGrace(shutdownGrace);
-      } on Object {
-        // Cleanup must not replace the startup failure.
+        try {
+          await beforeStartupCleanup?.call();
+        } finally {
+          await core.stopWithGrace(shutdownGrace);
+        }
+      } on Object catch (failure, cleanupStack) {
+        cleanupFailure ??= (failure, cleanupStack);
       } finally {
         reapedPid = core.childPid;
         reapedForcibly = core.forcedStop;
+      }
+      try {
+        await starting;
+      } on PluginStartupException catch (startup) {
+        cleanupFailure ??= startup.cleanupFailure;
+      } on Object {
+        // The outer failure retains its original error class.
       }
       final errorClass = switch (error) {
         OutputPluginException(:final errorClass) => errorClass,
@@ -397,6 +423,7 @@ final class OutputPluginConnection {
               : null,
           reapedPid: reapedPid,
           reapedForcibly: reapedForcibly,
+          cleanupFailure: cleanupFailure,
         ),
         stack,
       );
@@ -543,15 +570,15 @@ final class OutputPluginConnection {
 
   /// Cancels outstanding work and gracefully stops or forcibly reaps the child.
   ///
-  /// Awaits the original cleanup, preserving any error after the child is reaped.
-  /// Repeated calls await that same cleanup outcome rather than returning early.
+  /// Awaits the original cleanup and reports its error once across stop callers.
+  /// Later calls still wait for reaping, but allow a failed removal to finish.
   Future<void> stop({Duration? grace}) async {
     final effectiveGrace = grace ?? _shutdownGrace;
     if (effectiveGrace.isNegative) {
       throw ArgumentError.value(effectiveGrace, 'grace');
     }
     if (_stopped) {
-      await _cleanup;
+      await _awaitCleanup();
       return;
     }
     _fail(
@@ -564,7 +591,17 @@ final class OutputPluginConnection {
       await _responses?.cancel();
       await _requests.close();
     } finally {
+      await _awaitCleanup();
+    }
+  }
+
+  Future<void> _awaitCleanup() async {
+    try {
       await _cleanup;
+    } on Object {
+      if (_cleanupErrorReported) return;
+      _cleanupErrorReported = true;
+      rethrow;
     }
   }
 }

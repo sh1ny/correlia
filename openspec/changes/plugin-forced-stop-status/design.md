@@ -17,14 +17,16 @@ TIER: FULL
 
 See proposal.md for the failure and the reproduction attempts.
 
-- `PluginSupervisor._remove` (`plugin_supervisor.dart:454-500`) runs as follows:
+The following describes the pre-change implementation.
+
+- `PluginSupervisor._remove` runs as follows:
   1. It stops the connection and computes `forcedError` from `connection.forcedStop`.
   2. It sets `removalPrepared`.
   3. It persists through `_persist`, which chains the write on that instance's own `statusTail`.
   4. It removes the instance from `_instances`.
 - `_persist` writes `lastErrorClass: forcedError ?? policy.lastError`. Any later write for the same key, from any
   instance, replaces it.
-- `PluginSupervisor.stop` (`:581-610`) runs as follows:
+- `PluginSupervisor.stop` runs as follows:
   1. It completes `_stopped` and awaits the sweep loop.
   2. It awaits `_operations`, which holds the tracked removals, launches and health checks.
   3. It removes each remaining instance.
@@ -34,15 +36,15 @@ See proposal.md for the failure and the reproduction attempts.
   objects with separate tails, and removals can come from the sweep (failure, idle release, rotation) as well
   as from `stop`.
 - `OutputPluginConnection.forcedStop` reads `PluginLaunchCore.forcedStop`. That flag is set only when the child
-  had not exited within the grace period and was SIGKILLed (`plugin_host.dart:505-511`).
-- `PipelineSubsystem.stop` (`pipeline.dart:781-785`) calls `_stopping!.complete()` without a check:
+  had not exited within the grace period and was SIGKILLed by `PluginLaunchCore._cleanup`.
+- `PipelineSubsystem.stop` calls `_stopping!.complete()` without a check:
   - a second call throws `Bad state: Future already completed`;
   - a call before `start` throws on the null `_stopping`.
 
   `RelaySubsystem.stop` and `PluginSupervisor.stop` already guard their completers.
-- `IngestWorkers.stop` (`ingest_workers.dart:94-108`) guards its own `_stopping` completer. It then stops the
+- `IngestWorkers.stop` guards its own `_stopping` completer. It then stops the
   relay, the pipeline and the supervisor on every call.
-- The supervisor already takes a `log` callback (`ingest_workers.dart:50`). The test passes `log: (_) {}`.
+- The supervisor already takes a `log` callback. The test passes `log: (_) {}`.
 
 ## Decisions
 
@@ -64,10 +66,19 @@ See proposal.md for the failure and the reproduction attempts.
     that stop, and the exception it throws (the existing `OutputPluginException`, or a wrapper for other errors)
     carries them as two optional, internal fields (`reapedPid`, `reapedForcibly`). The startup error and its
     class are unchanged; a stop error during that cleanup does not replace the startup error.
+    Any cleanup failure is carried separately with its stack, including one caught inside `PluginLaunchCore.start`.
+    If shutdown has begun, the supervisor retains it for shutdown reporting without changing the startup class.
+    The original `core.start()` future is retained and observed after serialized cleanup even when its outer
+    timeout wins; otherwise a handshake-phase cleanup failure carried by that future would be discarded.
+  - **Cleanup errors are reported once.** Connection stops retain the cleanup future but report its error only
+    to the first awaiting stop. Later calls await reaping without replaying that error, so a failed-removal
+    retry can finish removal, release its slot and restart the output. Tracked operation failures during shutdown are
+    retained by the supervisor (first error and stack only) and reported after the final status write.
   - **Bounded status-write tracking and a fence.** `_persist` adds each write's future to a set of unsettled
     writes and removes it when the write settles, so the set holds only in-flight writes (at most one chain per
     live instance) and nothing is kept for removed instances. `stop` then runs, in order:
     1. complete `_stopped` and await the sweep loop and `_operations` (as today);
+       `writeWaiting` and `prune` bypass `_persist`; both are awaited by that loop and cannot outlive it.
     2. remove the remaining instances (as today);
     3. close the fence: from here `_persist` throws a `StateError` instead of writing, so an incorrect late caller
        fails loudly in tests;
@@ -77,8 +88,8 @@ See proposal.md for the failure and the reproduction attempts.
     `stopped`, it sets `lastErrorClass='plugin_forced_stop'` on those keys' rows. Other rows keep their
     `lastErrorClass`.
   - The per-removal `_persist` keeps writing `forcedError` as today, so the row is already right during the
-    shutdown, before the final write. Error propagation is unchanged: `stop` still attempts every removal and the
-    final write, then rethrows the first error.
+    shutdown, before the final write. `stop` attempts every removal and the final write, then rethrows the
+    first shutdown error, including cleanup errors from tracked removals and failed startups.
 - **Rejected:**
   - Order the writes alone (await every tail, then the existing `markStopped`). It closes the races we can name,
     not the one we have not seen.
@@ -165,17 +176,25 @@ sequenceDiagram
     participant DB as plugin_instance_status
     W->>S: stop()
     S->>S: complete _stopped, await sweep loop
+    Note over S,DB: awaiting the loop also settles writeWaiting and prune
     S->>S: await _operations (in-flight removals and launches)
     R->>R: connection.stop(grace): child SIGKILLed after grace
     R->>S: record key in forced set (in a finally, even if cleanup throws); log plugin-reaped forced=true
     Note over R,S: a failed startup during shutdown records its forced reap the same way
-    R->>DB: upsert row (stopped, plugin_forced_stop)
+    alt cleanup fails
+        S->>S: retain first shutdown error; retry removal without replaying the connection error
+    else cleanup succeeds
+        R->>DB: upsert row (stopped, plugin_forced_stop)
+    end
     Note over DB: any other write for the key may land here
     S->>S: remove remaining instances (same path as R)
     S->>S: close the write fence (late _persist throws)
     S->>S: await unsettled status writes until none remain
     S->>DB: markStopped(forced set): state=stopped for the host; lastErrorClass=plugin_forced_stop for forced keys
     S->>S: no further status write
+    opt a shutdown error was retained
+        S-->>W: rethrow first error after final status write
+    end
 ```
 
 T2: a key's row during shutdown.
@@ -200,6 +219,8 @@ stateDiagram-v2
 | Write fence | `PluginSupervisor.stop` | One supervisor | Closed once, after the last removal and before the drain | The flag; `_persist` reads it |
 | `plugin_instance_status` row | `PluginStatusRepository` via the supervisor of that host | Until pruned | Upserted per write | The database row; after shutdown, the `markStopped` statement |
 | Worker stop future | `IngestWorkers.stop` (first call) | One `IngestWorkers` | Set once | The future |
+| First shutdown error | Supervisor's tracked-operation handler and failed-start cleanup observer | One supervisor shutdown; one error and stack | Set only after shutdown begins | Supervisor fields; `stop` reports it after the final write |
+| Connection cleanup outcome | `OutputPluginConnection` | One connection; one future and one error-reported flag | Released with the evicted instance | The original cleanup future; its error is reported once |
 
 ## Failure Modes
 
@@ -208,6 +229,9 @@ stateDiagram-v2
 | `markStopped` fails (database error or timeout) | Rows may read `ready` and lose the forced reason | As today: `stop` rethrows the first error after attempting every removal; the row goes stale after 60 s as the "Worker killed" scenario defines |
 | A removal's cleanup throws after the SIGKILL | The forced reap must still count | The key is recorded in a `finally` (D1); the reap line is logged; the error is collected and rethrown as today |
 | A startup fails during shutdown and its child was force-terminated | No connection exists for `_remove` | The startup exception carries the reap outcome; `_launch` records the key and logs the reap (D1) |
+| Handshake outer timeout wins and failed-start cleanup throws | The inner startup exception could be dropped | Retain and observe the core-start future after serialized cleanup; carry its cleanup failure without replacing `plugin_start_timeout` |
+| Tracked removal, health or recovery operation fails during shutdown | Its error would otherwise be consumed by background tracking | Retain the first error and stack, then report it after every removal and the final write |
+| Startup cleanup fails before shutdown | Shutdown reporting is not active | Preserve the startup class and emit the bounded `plugin supervisor startup cleanup failed` line |
 | A late `_persist` after the fence | Would overwrite the final row | It throws `StateError`; tests that assert no write after the final one catch it |
 | A child is not force-terminated although it ignored shutdown | D1 cannot record a reason | D2's log line shows `forced=false` for it; D3 owns the investigation |
 | Second `stop` while the first is failing | The second call returns normally | By D4; the first caller gets the error |
@@ -228,10 +252,14 @@ stateDiagram-v2
     - one called in `_remove` before the connection is stopped, which means before the reap; a test can hold
       it with a completer;
     - one observing each status write and the final write, in order.
+    - one holding failed-start cleanup at both the core and output-wrapper layers; it waits for the
+      supervisor's stop signal, so timeout may occur first but reaping cannot occur before shutdown;
+    - test-only fixture arguments for the pre-handshake stall mode.
   - A `@visibleForTesting` cleanup-failure injection on `PluginLaunchCore`, raised after the SIGKILL. It is
     internal to the launch core and never set in production.
   - The output fixture gets a config mode that, on configure, creates a marker file named in its config, then
     blocks and ignores the shutdown request.
+    A CLI fixture mode writes the same kind of marker and SIGSTOPs before printing its handshake.
   - The tests:
     - **Removal in flight.**
       1. SIGSTOP a ready plugin.
@@ -239,18 +267,27 @@ stateDiagram-v2
       3. Hold the removal at the pre-stop hook, before its reap.
       4. Call `stop()` without awaiting it, so `_stopped` is complete.
       5. Release the hook. The forced reap now happens after shutdown began.
+      6. The status-write observer erases the per-removal forced reason directly in the test database,
+         simulating an earlier status operation overwriting it. The final statement must restore it.
     - **Launch overlapping shutdown.**
       1. Start a launch with the stalling fixture mode.
       2. Wait for the marker file, so the child is spawned and inside configure.
-      3. Call `stop()`.
-      4. The startup then fails at the short start timeout and its cleanup force-terminates the child, after
-         shutdown began.
+      3. Wait for the failed-start cleanup barrier to be entered, proving the deadline already elapsed.
+      4. Call `stop()`. Both cleanup layers wait for this stop signal before they can reap the child.
     - **Cleanup failure.** SIGSTOP a ready plugin and inject the cleanup failure. Hold its health-failure
       removal at the pre-stop hook, call `stop()`, then release the hook. The child is force-reaped after
-      shutdown begins regardless of test scheduling; shutdown revisits the reaped connection and must still
-      observe its original cleanup error.
+      shutdown begins regardless of test scheduling. Its tracked error is retained for the shutdown result,
+      while a retry can finish the already-reaped connection without replaying that error.
+    - **Cleanup failure before shutdown.** Release the held removal while the supervisor is still running,
+      then observe a new ready PID for the same key. A later clean shutdown preserves that recovered row's
+      error rather than making the old forced reap sticky.
+    - **Startup cleanup failure.** Inject the cleanup failure while the configure-stalled startup is abandoned
+      during shutdown. Shutdown reports that cleanup error; durable startup health still records the original
+      `plugin_start_timeout` class and the final status records `plugin_forced_stop`.
+    - **Handshake cleanup failure.** Repeat the startup-cleanup case with the child stopped before its
+      handshake. The outer timeout wins; the retained inner startup future still supplies the cleanup error.
 
-    Each asserts the key's final row, the reap log line and that the final write was the last status write.
+    Each shutdown-time reap test asserts the final forced row, its reap log and that the final write was last.
 - The existing `plugin_ignores_shutdown` covers the ordinary case, plus the reap log line.
 - The `db` tier proves stop idempotence on real subsystems through D4's hook:
   - success, sequential and concurrent;

@@ -2,59 +2,80 @@
 
 ## Metadata
 
-- **Round:** 3
-- **Prior round:** Round 2 APPROVE_WITH_CHANGES; C1 and M2 outstanding
-- **Reviewer:** cross-model CLI (omp)
-- **Reviewed:** Prior review and Round 2 response; design.md, tasks.md, both specification deltas; `plugin_supervisor.dart` constructor, launch, removal, persistence and shutdown paths; `OutputPluginConnection.start` and its catch; `PluginLaunchCore` lifecycle and cleanup. Read-only design re-check of the four Required Changes. No files modified or tests run.
+- **Round:** 5 (read-only re-check of the Round 4 required changes)
+- **Prior round:** 4. It required fixes for M1, M2 and the m1–m3/m5 documentation, plus the m2 log line.
+- **Reviewer:** cross-model CLI (Claude Code, Opus 5.5)
+- **Tier:** FULL
+- **Files reviewed:**
+  - Change artifacts: `proposal.md`, `design.md`, `tasks.md`, `specs/plugin-supervision/spec.md`, `specs/process-roles/spec.md`, `evidence/gate-runs.md`
+  - Implementation: `correlia_server/lib/src/plugin/plugin_host.dart` (start, `stopWithGrace` and `_cleanup` of `PluginLaunchCore`), `output_plugin_connection.dart`, `plugin_supervisor.dart`, `plugin_status_repository.dart`
+  - Tests and fixture: `correlia_server/test/plugin/plugin_supervision_test.dart` lines 130–533; `test/plugin/fixtures/go/cmd/output-production/main.go`
+  - Project rules: AGENTS.md lines 60–112 (tiers, no-sleep rule, Dart rules)
+- **Limits:** I only read files. I did not run tests, builds, lint, formatters or analysis, and I edited nothing. I did not open any `/tmp` path. The timing claims below come from reading the code, not from running it. The workflow follow-up's carried failure, `plugin_protocol_test.dart: health_call_stalls_under_load`, is outside this re-check.
 
 ## Findings
 
-### Critical (blocking)
+### Critical
 
-None outstanding.
+None.
 
 ### Moderate
 
-None outstanding.
+None. M1 and M2 are fixed, details below.
 
-The revised launch test waits for the fixture’s configure marker before calling `stop()`. This places shutdown after spawning and beyond `_launch`’s pre-start shutdown guards (`plugin_supervisor.dart:254-255` and its guard before `OutputPluginConnection.start`). The configure deadline then enters the startup catch (`output_plugin_connection.dart:357-370`), where the proposed reap-outcome preservation applies.
+**M1: the retained core-start future is fixed.**
+- `OutputPluginConnection.start` now keeps `starting = core.start()` and wraps it in the outer timeout (`output_plugin_connection.dart:260-263`). After the barrier-guarded `core.stopWithGrace`, the catch awaits `starting` and takes `PluginStartupException.cleanupFailure` from it (`:402-408`).
+- The error class is still chosen from the outer `error`, so a handshake stall still reports `plugin_start_timeout` (`:409-416`).
+- Ordering is safe. `stopWithGrace` is serialized behind `start()` (`plugin_host.dart:234-238, 493`), so by the time `starting` is awaited it has already settled. The core's failure cleanup has already SIGKILLed the child and recorded `_forcedStop` (`:448-473`). The later `_cleanup` finds `_process == null`, so it does not call the injection a second time (`:524-552`).
+- `reapedPid` and `reapedForcibly` are read after `stopWithGrace` (`:398-401`), so they reflect the forced reap.
+- The fixture's `--stall-handshake-marker` writes its PID and SIGSTOPs itself before `plugin.Serve` (`main.go:133-139`).
+- `handshake_cleanup_failure_survives_outer_timeout` checks four things: `stop()` throws the same injected error, the final row is `stopped`/`plugin_forced_stop`, health still records `plugin_start_timeout`, and there is exactly one forced shutdown reap line (`plugin_supervision_test.dart:486-519`).
+- D1 (`design.md:69-72`) and the Failure Modes table (`:232`) are updated. The outer timeout is kept, as required.
 
-The revised removal test holds `_remove` before `connection.stop()`, rather than before persistence. Calling supervisor `stop()` completes `_stopped` synchronously before waiting for tracked operations (`plugin_supervisor.dart:581-610`). Releasing the hook therefore permits the forced reap only after shutdown begins.
+**M2: the start-timeout race in the launch tests is fixed.**
+- `beforeStartupCleanup` is a `@visibleForTesting` barrier. It runs before failed-start cleanup in both layers: the core (`plugin_host.dart:452-457`) and the wrapper (`output_plugin_connection.dart:390-395`). The supervisor passes it `_stopped.future` (`plugin_supervisor.dart:357-359`), and production passes null.
+- The test's barrier marks itself entered and then waits for the stop signal (`plugin_supervision_test.dart:413-418`). The test waits for that entry before calling `stop()` (`:459, :484`).
+- So the timeout can still fire first, but neither layer can reap the child before `_stopped` completes. `shutdown=true` and the retained cleanup error no longer depend on wall-clock timing.
+- The handshake case enters the barrier twice, once from each layer. Both calls wait for the same stop signal, so it does not matter which layer's timeout fires first.
+- The remaining waits are bounded event waits (inotify, completers, status polling), not sleeps. This meets AGENTS.md:87.
+- The Testing Strategy (`design.md:255-256, 272-276, 284-288`) and task 2.2 match the code.
 
-The supervisor constructor accepts injectable `durations` and `pollInterval`; startup passes `startTimeout` and `shutdownGrace` to the connection. Failed-start cleanup currently calls `core.stop()`, whose grace is two seconds rather than the injected shutdown grace. That does not invalidate the configure-marker sequencing or forced-reap coverage: `PluginLaunchCore._cleanup` retains the child PID and sets `forcedStop` before subsequent cleanup can fail.
+### Minor (fixed)
+
+- **m1:** D1 now limits the retry claim to failed removals (`design.md:73-75`).
+- **m2:** a failed startup cleanup before shutdown logs the fixed line `plugin supervisor startup cleanup failed`, which holds no values (`plugin_supervisor.dart:391-396`). The Failure Modes table records it (`design.md:234`).
+- **m3:**
+  - D1 step 1 and a diagram note say that `writeWaiting` and `prune` bypass `_persist` and are ordered by the loop await (`design.md:81, 179`).
+  - The broader set of shutdown errors (removal, health and recovery operations) is in the Failure Modes table (`:233`) and in proposal Impact (`proposal.md:85-86`).
+- **m5:**
+  - The stale Context line numbers are gone.
+  - The erasure technique is documented (`design.md:270-271`).
+  - The diagram now has a failure branch with the error re-raised after the final write (`:184-197`).
+  - Task 2.2 lists six regressions and their red states.
+  - Proposal Impact names `output_plugin_connection.dart`, `plugin_host.dart` and the Go fixture.
 
 ### Suggestions
 
-None; review limited to the four prior findings.
+- **S1:** The configure-stall fixture now SIGSTOPs itself after writing the marker (`main.go:49-52`). The Testing Strategy (`design.md:260-261`) and task 2.2 (`tasks.md:75-76`) still say it "blocks and ignores the shutdown request". The behaviour is effectively the same, but the wording could name the SIGSTOP.
+- **S2:** `gate-runs.md:96` records a passing `mise run check` on the corrected code but names no commit, and the working tree is still uncommitted. After committing, record that head's hash for 4.1. The full-tier runs are already disclosed as predating the review fixes; one `test:all` on the final head would close that gap.
+- **S3 (Round 4 m4, still optional):** `PluginSupervisor.stop` is not memoized. A repeated direct call would issue a second `markStopped`. D4 prevents this in production through `IngestWorkers.stop`.
+- **S4:** `OutputPluginConnection.start` declares `late final Future<void> starting`, assigned as the try block's first statement. Assigning it before the `try` would remove the theoretical `LateInitializationError` path at `:403`. This is cosmetic.
 
 ## Verdict
 
-VERDICT: APPROVE_WITH_CHANGES
+All Round 4 required changes are applied, and the specification is unchanged and not narrowed. Nothing new blocks shipping; the remaining items are optional suggestions.
+
+VERDICT: APPROVE
+CHANGES_APPLIED: n/a
 
 ## Required Changes
 
-1. **Close C1’s ownership gaps** in design, tasks and test map. Preserve child identity and forced-reap outcome across failed startup and cleanup errors; record the forced key independently of successful status persistence or ancillary cleanup. Add deterministic regression scenarios for both paths. Retain error propagation. **Accepted by reviewer.**
-2. **Bound D1 bookkeeping:** track only unsettled status operations, retire settled entries during normal operation, and describe the shutdown drain/fence ordering. Do not retain all historical instances or tails. **Accepted by reviewer.**
-3. **Add deterministic supervisor-level D1 coverage:** hold a removal across shutdown initiation, release it, and verify the final stopped reason after all writes settle. Cover a shutdown-overlapping launch and assert that no subsequent supervisor status write occurs. Map these tests explicitly rather than relying on D3 reproduction. **Accepted by reviewer.**
-4. **Specify and test failed-stop behavior:** qualify the successful concurrent-stop scenario; add sequential and concurrent cases where the initial stop fails. Assert that the first caller receives the error, later callers wait and complete normally, and remaining cleanup is attempted without rerunning component stops. **Accepted by reviewer.**
+None.
 
-CHANGES_APPLIED: yes
+## Rebuttals/Disposition
 
-## Rebuttals
-
-- **C1 — accepted by reviewer.** D1 preserves startup PID and forced-reap outcome through exception fields, reads removal outcomes in a `finally`, and records forced keys independently of status persistence. Testing Strategy and task 2.2 now reach an actual spawned child blocked in configure. The cleanup-failure scenario injects failure after SIGKILL and checks the final row, diagnostic and write ordering while retaining shutdown error propagation.
-
-- **M1 — accepted by reviewer.** Acceptance from Round 2 stands. D1 and State & Ownership retain only unsettled writes, retire entries on settlement, and explicitly order operation completion, remaining removals, fence closure, write drain and final `markStopped`.
-
-- **M2 — accepted by reviewer.** Both incorrect synchronization boundaries are corrected in Testing Strategy and task 2.2. The configure marker replaces the ineffective `beforeLaunch` hold. The pre-stop removal hook replaces the post-reap pre-write hold. Both scenarios assert the final forced reason, a shutdown-time forced-reap diagnostic and final-write ordering.
-
-- **M3 — accepted by reviewer.** Acceptance from Round 2 stands. The process-roles delta, D4 and task 3.1 distinguish successful concurrent stops from sequential and concurrent failed stops. They require first-caller error propagation, later-caller waiting and normal completion, remaining cleanup, and once-only component stops.
-
-**Round 2 response (author):**
-
-- C1 and M2: fixed. The design's Testing Strategy and task 2.2 now hold at the right points.
-  - Launch overlap: the stalling fixture mode creates a marker file on configure. The test waits for the marker, so the child is spawned and inside configure, and only then calls `stop()`. The startup then fails at the injected short start timeout, and its cleanup force-terminates the child after shutdown began.
-  - Removal in flight: the hook moved to `_remove` before the connection is stopped, before the reap. `stop()` is called while the removal is held there, then the hook is released, so the forced reap happens after shutdown began.
-  - The tests construct `PluginSupervisor` directly with injected short durations.
-
-**Reviewer disposition — accepted by reviewer.** The revised documents resolve the outstanding design-review findings. Acceptance verifies the planned sequencing against current source; implementation and runtime verification remain unchecked tasks.
+- **Round 4 Required Change 1 (M1, retained core-start future and handshake cleanup error):** accepted, applied and checked. See M1 above. The outer timeout is kept and `plugin_start_timeout` is preserved.
+- **Round 4 Required Change 2 (M2, failed-start cleanup barriers hold reaping until shutdown):** accepted, applied and checked. The test-only seam (option 1) holds reaping at both startup layers until `_stopped` completes. Production startup deadlines are unchanged.
+- **Round 4 Required Change 3 (m1–m3, m5 documentation and the m2 log line):** accepted, applied and checked. See Minor above.
+- **Round 4 m4 (optional):** not applied. That is acceptable because it was optional; carried as S3.
+- **Specification:** unchanged. No requested change narrows it.

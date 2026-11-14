@@ -78,12 +78,17 @@ None.
   - `correlia_server/lib/src/plugin/plugin_supervisor.dart`: the forced-reap record, the reap log line and the
     final write;
   - `plugin_status_repository.dart`: `markStopped` takes the forced keys;
+  - `output_plugin_connection.dart` and `plugin_host.dart`: retain startup reap and cleanup outcomes,
+    report connection cleanup errors once, and expose test-only abandonment/failure hooks;
   - `correlia_server/lib/src/pipeline/pipeline.dart`: `stop` is guarded;
   - `correlia_server/lib/src/ingest/ingest_workers.dart`: `stop` runs once.
+  - Tracked removal, health and recovery errors that occur during shutdown are reported to its first caller;
+    failed-start cleanup is reported separately without changing the persisted startup class.
 - Tests:
-  - `plugin_supervision_test.dart`: diagnostics only, no assertion weakened;
+  - `plugin_supervision_test.dart`: diagnostics and deterministic removal/startup/recovery regressions, no assertion weakened;
   - a status repository test in `test/db/plugin_status_persistence_test.dart`;
   - stop idempotence tests on the `db` tier.
+  - the Go output fixture: marker/SIGSTOP modes in configure and before the handshake;
 - Unchanged: schema, migrations, models, the plugin protocol and the go-plugin handshake.
 
 ## Decision Making
@@ -124,4 +129,4 @@ Preserves forced-stop status and makes plugin shutdown failures diagnosable.
 
 - The final supervisor status write restores forced-stop reasons after in-flight writes, including failed startup and cleanup; shutdown still reports cleanup errors.
 - Worker stops run each subsystem once, preserve errors for the first caller, and let later callers finish normally; pipelines also stop safely before start.
-- Cleanup errors remain visible when a sweep removal overlaps shutdown and the supervisor revisits the same reaped connection.
+- Cleanup errors are reported once per connection, allowing removal retries and relaunch; the supervisor retains shutdown-time failures, including failed-start cleanup, without replacing the startup error class.

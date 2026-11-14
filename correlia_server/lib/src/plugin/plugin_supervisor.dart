@@ -49,6 +49,8 @@ final class PluginSupervisor implements PluginOutputRouter {
     this.beforeRemove,
     this.onStatusWrite,
     this.afterForcedStop,
+    this.beforeStartupCleanup,
+    this.launchArguments = const [],
     DateTime Function()? clock,
     this.durations = const SupervisionDurations(),
     this.pollInterval = const Duration(milliseconds: 250),
@@ -74,6 +76,14 @@ final class PluginSupervisor implements PluginOutputRouter {
   /// The test-only cleanup-failure injection, forwarded to the launch core.
   @visibleForTesting
   final Future<void> Function()? afterForcedStop;
+
+  /// The test-only failed-start barrier, given the supervisor's stop signal.
+  @visibleForTesting
+  final Future<void> Function(Future<void> stopping)? beforeStartupCleanup;
+
+  /// The test-only fixture arguments; production launches use no arguments.
+  @visibleForTesting
+  final List<String> launchArguments;
   final DateTime Function() clock;
   final SupervisionDurations durations;
   final Duration pollInterval;
@@ -88,6 +98,8 @@ final class PluginSupervisor implements PluginOutputRouter {
   Timer? _timer;
   Completer<void>? _wake;
   DateTime? _lastPrune;
+  Object? _shutdownError;
+  StackTrace? _shutdownStack;
 
   /// Starts polling without waiting for any plugin to become ready.
   Future<void> start() async {
@@ -97,11 +109,18 @@ final class PluginSupervisor implements PluginOutputRouter {
   void _track(Future<void> task) {
     late Future<void> tracked;
     tracked = task
-        .catchError((Object _) {
+        .catchError((Object error, StackTrace stack) {
+          _rememberShutdownError(error, stack);
           log('plugin supervisor operation failed');
         })
         .whenComplete(() => _operations.remove(tracked));
     _operations.add(tracked);
+  }
+
+  void _rememberShutdownError(Object error, StackTrace stack) {
+    if (!_stopped.isCompleted) return;
+    _shutdownError ??= error;
+    _shutdownStack ??= stack;
   }
 
   Future<T> _session<T>(Future<T> Function(Session) action) async {
@@ -329,11 +348,15 @@ final class PluginSupervisor implements PluginOutputRouter {
       final startWatch = Stopwatch()..start();
       final connection = await OutputPluginConnection.start(
         executable: executable,
+        arguments: launchArguments,
         configJson: utf8.encode(jsonEncode(definition['config'])),
         secrets: secrets,
         timeout: durations.startTimeout,
         shutdownGrace: durations.shutdownGrace,
         afterForcedStop: afterForcedStop,
+        beforeStartupCleanup: beforeStartupCleanup == null
+            ? null
+            : () => beforeStartupCleanup!(_stopped.future),
       );
       instance.connection = connection;
       unawaited(
@@ -365,6 +388,12 @@ final class PluginSupervisor implements PluginOutputRouter {
     } on Object catch (error) {
       instance.permit.invalidate();
       if (error is OutputPluginException) {
+        if (error.cleanupFailure case (final failure, final stack)?) {
+          _rememberShutdownError(failure, stack);
+          if (!_stopped.isCompleted) {
+            log('plugin supervisor startup cleanup failed');
+          }
+        }
         if (error.reapedPid != null) {
           _recordReap(
             instance,
@@ -654,8 +683,8 @@ final class PluginSupervisor implements PluginOutputRouter {
     while (_operations.isNotEmpty) {
       await Future.wait(_operations.toList(growable: false));
     }
-    Object? firstError;
-    StackTrace? firstStack;
+    Object? firstError = _shutdownError;
+    StackTrace? firstStack = _shutdownStack;
     for (final instance in _instances.values.toList(growable: false)) {
       instance.stopping = true;
       try {

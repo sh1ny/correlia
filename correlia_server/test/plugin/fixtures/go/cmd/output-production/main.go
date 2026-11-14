@@ -130,7 +130,13 @@ func (f *fixture) Deliver(stream grpc.BidiStreamingServer[pluginv1.DeliverReques
 
 func main() {
 	mode := flag.String("mode", "normal", "fixture behavior")
+	stallHandshake := flag.String("stall-handshake-marker", "", "test-only handshake stall marker")
 	flag.Parse()
+	if *stallHandshake != "" {
+		if err := os.WriteFile(*stallHandshake, []byte(strconv.Itoa(os.Getpid())), 0600); err != nil { panic(err) }
+		_ = syscall.Kill(os.Getpid(), syscall.SIGSTOP)
+		select {}
+	}
 	go func() { _, _ = io.Copy(io.Discard, os.Stdin); os.Exit(0) }()
 	f := &fixture{mode: *mode}
 	plugin.Serve(&plugin.ServeConfig{

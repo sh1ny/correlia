@@ -132,6 +132,7 @@ final class PluginStartupException implements Exception {
     this.evidence,
     this.diagnostics = '',
     this.cause,
+    this.cleanupFailure,
   });
 
   /// A description of the failure.
@@ -145,6 +146,9 @@ final class PluginStartupException implements Exception {
 
   /// The original startup failure.
   final Object? cause;
+
+  /// The internal cleanup failure, retained separately from the startup cause.
+  final (Object, StackTrace)? cleanupFailure;
   @override
   String toString() => 'PluginStartupException: $message';
 }
@@ -156,10 +160,12 @@ base class PluginLaunchCore {
     this.config, {
     this.cookieKey = 'CORRELIA_PLUGIN',
     this.afterForcedStop,
+    this.beforeStartupCleanup,
   }) : _controls = const PluginHostTestControls();
 
   PluginLaunchCore._(this.config, this._controls, this.cookieKey)
-    : afterForcedStop = null;
+    : afterForcedStop = null,
+      beforeStartupCleanup = null;
 
   /// The handshake cookie environment key.
   final String cookieKey;
@@ -167,6 +173,10 @@ base class PluginLaunchCore {
   /// The test-only failure injection after a forced reap and resource cleanup.
   @visibleForTesting
   final Future<void> Function()? afterForcedStop;
+
+  /// The test-only abandonment barrier before failed-start cleanup.
+  @visibleForTesting
+  final Future<void> Function()? beforeStartupCleanup;
 
   final PluginHostTestControls _controls;
 
@@ -438,10 +448,16 @@ base class PluginLaunchCore {
     } on Object catch (error) {
       _state = const _Failed();
       Object? cleanupError;
+      (Object, StackTrace)? cleanupFailure;
       try {
-        await _cleanup();
-      } on Object catch (failure) {
+        try {
+          await beforeStartupCleanup?.call();
+        } finally {
+          await _cleanup();
+        }
+      } on Object catch (failure, stack) {
         cleanupError = failure;
+        cleanupFailure = (failure, stack);
       }
       final truncation = _discardedDiagnosticBytes == 0
           ? ''
@@ -452,6 +468,7 @@ base class PluginLaunchCore {
             : '$error; cleanup failed: $cleanupError',
         evidence: _evidence,
         cause: error,
+        cleanupFailure: cleanupFailure,
         diagnostics: '${utf8.decode(_tail, allowMalformed: true)}$truncation',
       );
     }

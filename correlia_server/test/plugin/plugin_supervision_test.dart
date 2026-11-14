@@ -324,15 +324,32 @@ void main() {
         workers = null;
       });
 
-      for (final mode in ['removal', 'launch', 'cleanup']) {
+      for (final mode in [
+        'removal',
+        'launch',
+        'cleanup',
+        'recovery',
+        'startup-cleanup',
+        'handshake-cleanup',
+      ]) {
         final name = switch (mode) {
           'removal' => 'removal_in_flight_at_shutdown_keeps_forced_reason',
           'launch' => 'launch_overlapping_shutdown_records_forced_reap',
+          'recovery' => 'cleanup_failure_before_shutdown_releases_slot',
+          'startup-cleanup' =>
+            'startup_cleanup_failure_is_reported_without_replacing_startup_error',
+          'handshake-cleanup' =>
+            'handshake_cleanup_failure_survives_outer_timeout',
           _ => 'cleanup_error_after_forced_stop_keeps_reason',
         };
+        final launching = mode == 'launch' || mode.endsWith('-cleanup');
+        final failsCleanup =
+            mode == 'cleanup' ||
+            mode == 'recovery' ||
+            mode.endsWith('-cleanup');
         test(name, () async {
           final marker = File('${testDirectory.path}/configure-marker');
-          if (mode == 'launch') {
+          if (launching) {
             bootstrap = IngestBootstrap.parse(
               {
                 'format_version': 1,
@@ -375,6 +392,7 @@ void main() {
           final writes = <PluginKey?>[];
           final cleanupError = StateError('injected cleanup failure');
           var erased = false;
+          var injected = false;
           final supervisor = PluginSupervisor(
             openSession: () =>
                 session.serverpod.createSession(enableLogging: false),
@@ -389,14 +407,28 @@ void main() {
               healthDeadline: Duration(milliseconds: 20),
             ),
             pollInterval: const Duration(milliseconds: 10),
+            launchArguments: mode == 'handshake-cleanup'
+                ? ['--stall-handshake-marker', marker.path]
+                : const [],
+            beforeStartupCleanup: launching
+                ? (stopping) async {
+                    if (!entered.isCompleted) entered.complete();
+                    await stopping;
+                  }
+                : null,
             beforeRemove: (_) async {
-              if (mode != 'launch' && !entered.isCompleted) {
+              if (!launching && !entered.isCompleted) {
                 entered.complete();
                 await release.future;
               }
             },
-            afterForcedStop: mode == 'cleanup'
-                ? () async => throw cleanupError
+            afterForcedStop: failsCleanup
+                ? () async {
+                    if (!injected) {
+                      injected = true;
+                      throw cleanupError;
+                    }
+                  }
                 : null,
             onStatusWrite: (key) async {
               writes.add(key);
@@ -414,7 +446,7 @@ void main() {
           try {
             await supervisor.start();
             final int pid;
-            if (mode == 'launch') {
+            if (launching) {
               await waitForFile(marker);
               pid = int.parse(await marker.readAsString());
               await waitForStoppedThreads(pid);
@@ -424,12 +456,34 @@ void main() {
               expect(Process.killPid(pid, ProcessSignal.sigstop), isTrue);
               await waitForStoppedThreads(pid);
             }
-            if (mode != 'launch') {
-              await entered.future.timeout(const Duration(seconds: 10));
+            await entered.future.timeout(const Duration(seconds: 10));
+            if (mode == 'recovery') {
+              release.complete();
+              final ready = await waitForStatus(
+                (row) => row[0] == 'ready' && row[3] != pid,
+              );
+              expect(injected, isTrue);
+              expect(ready[5], isNot('plugin_forced_stop'));
+              expect(Process.killPid(pid, ProcessSignal.sigcont), isFalse);
+              expect(
+                supervisorLog.where(
+                  (line) =>
+                      line.startsWith('plugin-reaped ') &&
+                      line.contains(' pid=$pid ') &&
+                      line.contains(' forced=true shutdown=false'),
+                ),
+                hasLength(1),
+              );
+              stopping = supervisor.stop();
+              await stopping;
+              final stopped = await waitForStatus((row) => row[0] == 'stopped');
+              expect(stopped[5], ready[5]);
+              expect(writes.last, isNull);
+              return;
             }
             stopping = supervisor.stop();
             if (!release.isCompleted) release.complete();
-            if (mode == 'cleanup') {
+            if (failsCleanup) {
               await expectLater(stopping, throwsA(same(cleanupError)));
             } else {
               await stopping;
@@ -445,6 +499,14 @@ void main() {
               'stopped',
               'plugin_forced_stop',
             ], reason: reason);
+            if (launching && failsCleanup) {
+              final health = (await session.db.unsafeQuery(
+                '''SELECT "lastErrorClass" FROM plugin_definition_health
+                WHERE "hostInstanceId"=@host''',
+                parameters: QueryParameters.named({'host': 'forced-$mode'}),
+              )).single;
+              expect(health[0], 'plugin_start_timeout');
+            }
             expect(
               supervisorLog.where(
                 (line) =>
