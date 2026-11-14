@@ -778,9 +778,12 @@ final class PipelineSubsystem extends Subsystem {
     ]);
   }
 
+  /// Stops at once before start, or waits for the existing run to finish.
   @override
   Future<void> stop() async {
-    _stopping!.complete();
+    final stopping = _stopping;
+    if (stopping == null) return;
+    if (!stopping.isCompleted) stopping.complete();
     await _run;
   }
 }

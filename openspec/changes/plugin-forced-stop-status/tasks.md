@@ -11,11 +11,11 @@
 | plugin-supervision → Bounded plugin shutdown | Removal in flight when shutdown begins | `correlia_server/test/plugin/plugin_supervision_test.dart` | `removal_in_flight_at_shutdown_keeps_forced_reason` | green |
 | plugin-supervision → Bounded plugin shutdown | Launch overlapping shutdown | `correlia_server/test/plugin/plugin_supervision_test.dart` | `launch_overlapping_shutdown_records_forced_reap` | green |
 | plugin-supervision → Bounded plugin shutdown | Cleanup fails after forced termination | `correlia_server/test/plugin/plugin_supervision_test.dart` | `cleanup_error_after_forced_stop_keeps_reason` | green |
-| process-roles → Repeated worker stop | Stop called twice | `correlia_server/test/db/ingest_workers_stop_test.dart` | `stop_called_twice_completes_once` | red |
-| process-roles → Repeated worker stop | Concurrent stops that succeed | `correlia_server/test/db/ingest_workers_stop_test.dart` | `concurrent_stops_both_complete` | red |
-| process-roles → Repeated worker stop | Stop again after a failed stop | `correlia_server/test/db/ingest_workers_stop_test.dart` | `stop_after_failed_stop_completes` | red |
-| process-roles → Repeated worker stop | Concurrent stop while the first fails | `correlia_server/test/db/ingest_workers_stop_test.dart` | `concurrent_stop_while_first_fails` | red |
-| process-roles → Repeated worker stop | Pipeline stopped before start | `correlia_server/test/db/ingest_workers_stop_test.dart` | `pipeline_stop_before_start_and_twice` | red |
+| process-roles → Repeated worker stop | Stop called twice | `correlia_server/test/db/ingest_workers_stop_test.dart` | `stop_called_twice_completes_once` | green |
+| process-roles → Repeated worker stop | Concurrent stops that succeed | `correlia_server/test/db/ingest_workers_stop_test.dart` | `concurrent_stops_both_complete` | green |
+| process-roles → Repeated worker stop | Stop again after a failed stop | `correlia_server/test/db/ingest_workers_stop_test.dart` | `stop_after_failed_stop_completes` | green |
+| process-roles → Repeated worker stop | Concurrent stop while the first fails | `correlia_server/test/db/ingest_workers_stop_test.dart` | `concurrent_stop_while_first_fails` | green |
+| process-roles → Repeated worker stop | Pipeline stopped before start | `correlia_server/test/db/ingest_workers_stop_test.dart` | `pipeline_stop_before_start_and_twice` | green |
 
 "Plugin ignores shutdown" is red until 1.1 adds the reap log line: the test gains an assertion that the line names
 the child as force-terminated (D2), written in the same task. The races around it are proved deterministically by the
@@ -115,7 +115,7 @@ Every new test names its tier tag (`testGroupTagsOverride`) and uses no sleeps. 
 
 ## 3. Idempotent stop (design D4)
 
-- [ ] 3.1 Add D4's `@visibleForTesting` hook on `IngestWorkers`. It is called as each component's stop begins,
+- [x] 3.1 Add D4's `@visibleForTesting` hook on `IngestWorkers`. It is called as each component's stop begins,
   with the component's name, and can count calls and throw. Write
   `correlia_server/test/db/ingest_workers_stop_test.dart` (tag `db`), each test with its own timeout. Each test
   starts real `IngestWorkers` with a webhook-output bootstrap, as `shutdown_order_test.dart` does, and counts
@@ -135,7 +135,7 @@ Every new test names its tier tag (`testGroupTagsOverride`) and uses no sleeps. 
 
   Verify with `mise run test -- --tags db test/db/ingest_workers_stop_test.dart` that the tests fail on
   `Bad state: Future already completed`, a null check or a repeated component stop.
-- [ ] 3.2 Implement D4:
+- [x] 3.2 Implement D4:
   - `PipelineSubsystem.stop` returns when `_stopping` is null, and completes `_stopping` only when it is not
     completed.
   - `IngestWorkers.stop` memoizes the first run's future. The first caller gets its error; later calls await it
