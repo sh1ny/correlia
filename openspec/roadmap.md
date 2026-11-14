@@ -92,6 +92,17 @@ M1 retires the riskiest assumptions:
    - `mise run test:all` passes repeatedly from a clean clone under the default test concurrency.
 
    Needs 1 and 4.
+10. `plugin-forced-stop-status` (gap-closing; the gate runs of change 9 on 2026-11-14 showed `mise run test:all`
+    failing once in four: `plugin_ignores_shutdown` found the plugin's `stopped` status row with no recorded
+    reason after the worker force-terminated it, and the test's teardown then failed with "Future already
+    completed" because the ingest workers' pipeline cannot be stopped twice):
+    - a plugin force-terminated at shutdown always leaves `plugin_forced_stop` on its `stopped` status row, and
+      no later status write during the same shutdown clears it;
+    - stopping the ingest workers a second time, or after a failed stop, is a no-op that does not throw;
+    - a failure of the shutdown test reports the status row history it saw, so a recurrence can be diagnosed;
+    - `mise run test:all` passes repeatedly from a clean clone under the default test concurrency.
+
+    Needs 6.
 
 ## Next: M2 - Icinga2, Thanos and the ingest track
 
