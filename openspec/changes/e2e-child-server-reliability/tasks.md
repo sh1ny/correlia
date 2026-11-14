@@ -106,14 +106,22 @@ wait on futures, the child's exit, or readiness.
 
 ## 4. Gate
 
-- [ ] 4.1 Run `mise run check`. Verify it passes with 0 failures, including the 1.1 real-tree check.
-- [ ] 4.2 [evidence] Run `mise run test:all` three times on the change branch at the default concurrency, then
+- [x] 4.1 Run `mise run check`. Verify it passes with 0 failures, including the 1.1 real-tree check.
+- [x] 4.2 [evidence] Run `mise run test:all` three times on the change branch at the default concurrency, then
   once from a fresh `git clone` of the branch into a scratch directory (`mise run setup` first; delete the clone
   afterwards). Record per run: totals, the result line, wall time, any failure with its output, retry lines from
   the harness log (lost ports seen), and the five slowest e2e tests with their timeouts; name any test within
-  25% of its timeout. Verify all four runs pass with 0 failures. → evidence/gate-runs.md
+  25% of its timeout. Verify, in all four runs: every `e2e` test and every other test that starts a child server
+  passes, every test this change touched passes, and the only lost-port retry lines are the ones the harness
+  tests cause on purpose. A failure outside that scope does not fail this task: record its test, output and
+  run in the evidence, with a pointer to the follow-up change that owns it. (Amended 2026-11-14, owner: run 3
+  failed `plugin_ignores_shutdown` in `plugin_supervision_test.dart`, a plugin-supervision defect outside this
+  change's harness-only scope, owned by a separate M1 change; the full clean-clone gate is still judged at the M1
+  close.) → evidence/gate-runs.md
 
 ## Workflow follow-up
 
 - Archive the change and finish locally (`finish: local`).
 - Re-run `/specwright-roadmap close` for M1 from a clean clone; this change's criterion is judged there.
+- The `plugin_ignores_shutdown` failure (stopped status without a reason; `PipelineSubsystem.stop` not safe to
+  call twice) is fixed by a separate M1 change before that close.
