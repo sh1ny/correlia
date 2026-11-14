@@ -80,6 +80,18 @@ M1 retires the riskiest assumptions:
    - the plugin protocol tests hold under full-suite load.
 
    Needs 3 and 6.
+9. `e2e-child-server-reliability` (gap-closing; the M1 close of 2026-11-14 showed `mise run test:all`
+   failing 448/449 from a clean clone, twice with different causes: `unconfigured_ingress_still_protects_token_paths`
+   exceeded the default 30 s test timeout, and `worker_killed_before_any_delivery` failed because its child
+   server could not bind the port the harness had picked for it):
+   - every e2e test that starts a child server has a test timeout that covers the child's own readiness and
+     shutdown deadlines (the ingress e2e file is the only one that has none);
+   - a child server that loses its pre-picked port to another process is started again on fresh ports,
+     a bounded number of times, and any other startup failure still fails at once;
+   - the ingress security assertions (503 when unconfigured, no token or query secret in output) are unchanged;
+   - `mise run test:all` passes repeatedly from a clean clone under the default test concurrency.
+
+   Needs 1 and 4.
 
 ## Next: M2 - Icinga2, Thanos and the ingest track
 
