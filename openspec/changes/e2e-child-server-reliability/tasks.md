@@ -25,7 +25,7 @@ wait on futures, the child's exit, or readiness.
 
 ## 1. Timeout presence check (design D1)
 
-- [ ] 1.1 Write `tool/test/server_test_timeouts_test.dart` against a lexical function in
+- [x] 1.1 Write `tool/test/server_test_timeouts_test.dart` against a lexical function in
   `tool/lib/src/server_test_timeouts.dart` (exported from `tool/lib/correlia_tool.dart`), modelled on
   `untaggedWithServerpodCalls` (`tool/lib/src/server_test_tags.dart`). It returns the 1-based lines of `test(`
   calls without a direct `timeout:` argument, for a source that is tagged `e2e` or names `ChildServer`, and
@@ -36,7 +36,7 @@ wait on futures, the child's exit, or readiness.
   `correlia_server/test/**/*_test.dart` and fails naming each file and line. Verify with
   `mise exec -- dart test` in `tool/`: the unit cases fail on the missing function, and the real-tree test then
   names the nine `ingress_e2e_test.dart` tests (the expected red).
-- [ ] 1.2 Implement the function with `///` docs. Verify the unit cases pass and the real-tree test still names
+- [x] 1.2 Implement the function with `///` docs. Verify the unit cases pass and the real-tree test still names
   exactly the `ingress_e2e_test.dart` tests (plus any other offender it finds, listed in the 2.3 inventory).
 
 ## 2. Timeouts within budget (design D1)

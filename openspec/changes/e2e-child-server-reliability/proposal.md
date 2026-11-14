@@ -95,3 +95,11 @@ DECISION_MAKING: autonomous
 - **Reversal cost:** low
 - **Important:** no
 - **Chosen by:** agent
+
+## Release Notes
+
+Makes child-server test deadlines and startup reliable under concurrent suite load.
+
+### Added
+
+- Detects missing explicit timeouts in child-server test files, with file and line diagnostics.
