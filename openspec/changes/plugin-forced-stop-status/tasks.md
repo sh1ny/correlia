@@ -148,8 +148,8 @@ Every new test names its tier tag (`testGroupTagsOverride`) and uses no sleeps. 
 
 ## 4. Gate
 
-- [ ] 4.1 Run `mise run check`. Verify it passes with 0 failures.
-- [ ] 4.2 [evidence] → evidence/gate-runs.md — Run `mise run test:all` three times on the change branch at the
+- [x] 4.1 Run `mise run check`. Verify it passes with 0 failures.
+- [x] 4.2 [evidence] → evidence/gate-runs.md — Run `mise run test:all` three times on the change branch at the
   default concurrency. Then run it once from a fresh `git clone` of the branch into a scratch directory with a
   short path, because embedded Postgres sockets fail on long paths: run `mise run setup` first, and delete the
   clone afterwards. Record per run:
@@ -160,9 +160,13 @@ Every new test names its tier tag (`testGroupTagsOverride`) and uses no sleeps. 
   Verify that in all four runs every test this change touched and every `plugin` and `db` tier test passes. A
   failure outside that scope does not fail this task: record its test, output and run, and name it in the
   workflow follow-up for the owner.
+  Owner-directed session exception: run 1's unchanged supplementary health stress test failed; all changed
+  tests passed in all four runs, and runs 2–4 passed 470/470. See `evidence/gate-runs.md`; no scope expansion.
 
 ## Workflow follow-up
 
 - Archive the change and finish locally (`finish: local`).
 - Do not run `/specwright-roadmap close`; the owner re-runs the M1 close from a clean clone, where this change's
   criterion is judged.
+- Carry run 1's `plugin_protocol_test.dart: health_call_stalls_under_load` failure into the owner's M1-close
+  follow-up; it expected `plugin_health_timeout` but observed `plugin_connection_lost`.
