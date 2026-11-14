@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Bounded plugin shutdown
-On worker shutdown the supervisor SHALL stop after the relay has stopped sending. It SHALL request each plugin's graceful shutdown and force termination after a bounded grace period. It SHALL reap every child and mark its status rows `stopped`. A child force-terminated after shutdown began, whether during its startup, its removal or a failing cleanup, SHALL leave `plugin_forced_stop` as the last error class of its key's `stopped` row. That reason SHALL be set by the supervisor's final status write of the shutdown, after every earlier status write of that supervisor has settled, and the supervisor SHALL write no status after it. Errors of the shutdown SHALL still be reported. The supervisor SHALL log each child it reaps with its output, definition digest, process id and whether it was force-terminated, and no secret or configuration value.
+After the relay stops sending on worker shutdown, the supervisor SHALL request each plugin's graceful shutdown, force termination after a bounded grace, reap every child and mark its rows `stopped`. Its final status write SHALL await all its prior status writes and set `plugin_forced_stop` as the last error class of keys whose children were forced after shutdown began. It SHALL write no status afterward, log every reap without secret or configuration values, and report shutdown errors.
 
 #### Scenario: Graceful worker stop
 - **WHEN** a worker with a ready NATS plugin receives SIGTERM
@@ -28,3 +28,11 @@ On worker shutdown the supervisor SHALL stop after the relay has stopped sending
 #### Scenario: Forced reason survives a later status write
 - **WHEN** a plugin key's row has been written with no error after its child was force-terminated during shutdown, before the shutdown's final status write
 - **THEN** the final write leaves that row `stopped` with `plugin_forced_stop`, and rows of keys whose children exited on request keep their own last error class
+
+#### Scenario: Earlier writes settle before the final write
+- **WHEN** earlier status writes of the supervisor are still pending during worker shutdown
+- **THEN** they all settle before its final status write marks its rows `stopped`, and no status write of that supervisor follows the final write
+
+#### Scenario: Reap diagnostics
+- **WHEN** the supervisor reaps a child that exited on request or was force-terminated
+- **THEN** a log line identifies its output, definition digest, process id and whether termination was forced, without any secret or configuration value

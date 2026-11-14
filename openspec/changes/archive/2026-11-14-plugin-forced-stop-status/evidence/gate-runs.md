@@ -145,3 +145,19 @@ This includes the new startup-status regression and every changed plugin/db test
 The ownership-checked helper stopped only the clone's
 `/tmp/omp-pfs-clone/correlia_server/.serverpod/test/pgdata` cluster (PID 1832328), then the clone was removed.
 This sixth full-tier run supplements the earlier runs and their recorded out-of-scope failure.
+
+## Post-sync strict-spec gate
+
+Normal main-spec validation passed all 14 specs after sync, but `mise run spec:validate` then failed
+with **13 passed, 1 failed**: the approved expanded Bounded plugin shutdown description exceeded
+500 characters. This is an in-scope documentation blocker, not the supplementary health-test exception.
+The archive was still uncommitted and main unmerged.
+
+The owner authorized a wording-only repair in the archived delta and main spec, preserving every
+obligation and existing scenario. Chosen by: agent (wording); authorized by: user.
+The shorter description retains the shutdown contract, and two explicit scenarios retain the detailed
+write-ordering and reap-log obligations. All six original scenarios are unchanged. No runtime code or
+validation rule changes are part of this repair.
+
+After the repair, `mise run spec:validate` passed: **14 passed, 0 failed**, with no warnings.
+The runtime code remains exactly the code verified by the 474-test fresh-clone run above.
