@@ -63,3 +63,17 @@ The e2e-tagged `output_delivery_e2e_test.dart` test `bounded_response_and_total_
 - `mise exec -- dart test` in `tool/`: all 83 tests passed, including the timeout guard.
 - `mise run test -- --tags e2e` selecting the ten raised files: all 29 tests passed, 428.27s wall time.
 - No database-tier timeout needed raising; `kill_recovery_test.dart` already budgets 240s for two children.
+
+## New harness tests (group 3)
+
+Retries share one logical child's readiness deadline, rather than renewing it per attempt. Each new test has one sequential logical child and a 240s timeout.
+
+| File under `correlia_server/test/` | Test | Sequential child stages | Readiness per stage (s) | Budget (s) | Old (s) | New (s) |
+|---|---|---:|---|---:|---:|---:|
+| e2e/child_server_harness_e2e_test.dart | never_ready_fails_with_harness_error | 1 | 0.001 | 90.001 | new | 240 |
+| e2e/child_server_harness_e2e_test.dart | lost_api_port_is_retried_on_fresh_ports | 1 | 120 | 210 | new | 240 |
+| e2e/child_server_harness_e2e_test.dart | port_lost_on_every_attempt_fails_after_three | 1 | 120 | 210 | new | 240 |
+| e2e/child_server_harness_e2e_test.dart | non_bind_startup_failure_gets_one_attempt | 1 | 60 | 150 | new | 240 |
+| e2e/child_server_harness_e2e_test.dart | exit_and_readiness_race_sees_retried_attempt | 1 | 120 | 210 | new | 240 |
+| e2e/child_server_harness_e2e_test.dart | stolen_api_port_answering_200_is_not_ready | 1 | 120 | 210 | new | 240 |
+| e2e/child_server_harness_e2e_test.dart | stop_during_pending_retry_starts_no_further_attempt | 1 | 120 | 210 | new | 240 |

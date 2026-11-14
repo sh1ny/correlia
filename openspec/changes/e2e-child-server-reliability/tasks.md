@@ -7,12 +7,12 @@
 | workspace-tooling → Child server tests budget their own deadlines | Slow but healthy child under full-suite load | `tool/test/server_test_timeouts_test.dart` | `every server child test declares its own timeout` | green |
 | workspace-tooling → Child server tests budget their own deadlines | Child never becomes ready | `correlia_server/test/e2e/child_server_harness_e2e_test.dart` | `never_ready_fails_with_harness_error` | green |
 | workspace-tooling → Child server tests budget their own deadlines | New child server test without a timeout | `tool/test/server_test_timeouts_test.dart` | `a test without a timeout is reported with its line` | green |
-| workspace-tooling → Child server startup survives a lost port | Port taken between pick and bind | `correlia_server/test/e2e/child_server_harness_e2e_test.dart` | `lost_api_port_is_retried_on_fresh_ports` | red |
-| workspace-tooling → Child server startup survives a lost port | Port lost on every attempt | `correlia_server/test/e2e/child_server_harness_e2e_test.dart` | `port_lost_on_every_attempt_fails_after_three` | red |
-| workspace-tooling → Child server startup survives a lost port | Startup fails for another reason | `correlia_server/test/e2e/child_server_harness_e2e_test.dart` | `non_bind_startup_failure_gets_one_attempt` | red |
-| workspace-tooling → A child's exit and readiness describe the child the test owns | Caller waits on exit and readiness together | `correlia_server/test/e2e/child_server_harness_e2e_test.dart` | `exit_and_readiness_race_sees_retried_attempt` | red |
-| workspace-tooling → A child's exit and readiness describe the child the test owns | Another server answers on the stolen API port | `correlia_server/test/e2e/child_server_harness_e2e_test.dart` | `stolen_api_port_answering_200_is_not_ready` | red |
-| workspace-tooling → A child's exit and readiness describe the child the test owns | Teardown while a retry is pending | `correlia_server/test/e2e/child_server_harness_e2e_test.dart` | `stop_during_pending_retry_starts_no_further_attempt` | red |
+| workspace-tooling → Child server startup survives a lost port | Port taken between pick and bind | `correlia_server/test/e2e/child_server_harness_e2e_test.dart` | `lost_api_port_is_retried_on_fresh_ports` | green |
+| workspace-tooling → Child server startup survives a lost port | Port lost on every attempt | `correlia_server/test/e2e/child_server_harness_e2e_test.dart` | `port_lost_on_every_attempt_fails_after_three` | green |
+| workspace-tooling → Child server startup survives a lost port | Startup fails for another reason | `correlia_server/test/e2e/child_server_harness_e2e_test.dart` | `non_bind_startup_failure_gets_one_attempt` | green |
+| workspace-tooling → A child's exit and readiness describe the child the test owns | Caller waits on exit and readiness together | `correlia_server/test/e2e/child_server_harness_e2e_test.dart` | `exit_and_readiness_race_sees_retried_attempt` | green |
+| workspace-tooling → A child's exit and readiness describe the child the test owns | Another server answers on the stolen API port | `correlia_server/test/e2e/child_server_harness_e2e_test.dart` | `stolen_api_port_answering_200_is_not_ready` | green |
+| workspace-tooling → A child's exit and readiness describe the child the test owns | Teardown while a retry is pending | `correlia_server/test/e2e/child_server_harness_e2e_test.dart` | `stop_during_pending_retry_starts_no_further_attempt` | green |
 
 "Slow but healthy child under full-suite load" cannot be forced deterministically. Its proof is the real-tree
 `tool` check (every child-server test has its own timeout) together with the D1 budget inventory (2.3); the
@@ -62,7 +62,7 @@ wait on futures, the child's exit, or readiness.
 
 ## 3. Lost-port retry, stable exit and owned readiness (design D2, D3, D4)
 
-- [ ] 3.1 Write fast-tier unit tests in `correlia_server/test/unit/support/child_server_test.dart` (no tags) for
+- [x] 3.1 Write fast-tier unit tests in `correlia_server/test/unit/support/child_server_test.dart` (no tags) for
   two pure functions to add to `test/support/child_server.dart`: the bind-failure matcher (true for the captured
   Serverpod `Failed to bind socket` line and for the `SocketException ... Address already in use, errno = 98`
   text, both taken from the failing run in proposal.md; false for a migration error, a config error and empty
@@ -70,8 +70,8 @@ wait on futures, the child's exit, or readiness.
   link targets, it finds the listening, state `0A`, entry for a port and reports whether `socket:[<inode>]` is
   among the links; non-listening entries and other ports are ignored; IPv4 and IPv6 forms both parse). Verify
   `mise run test -- test/unit/support/child_server_test.dart` fails on the missing functions.
-- [ ] 3.2 Implement both functions with `///` docs. Verify 3.1 passes.
-- [ ] 3.3 Write `correlia_server/test/e2e/child_server_harness_e2e_test.dart` with the seven harness tests of the
+- [x] 3.2 Implement both functions with `///` docs. Verify 3.1 passes.
+- [x] 3.3 Write `correlia_server/test/e2e/child_server_harness_e2e_test.dart` with the seven harness tests of the
   test map, against an `@visibleForTesting` `portPicker` parameter on `start`/`startOnSharedCluster` and an
   `attempts` getter:
   - `never_ready_fails_with_harness_error`: `readyTimeout` shorter than compilation; expect a `StateError`
@@ -94,7 +94,7 @@ wait on futures, the child's exit, or readiness.
   Every test has its own timeout (D1) and tears down through `tearDownChildren`. Verify with
   `mise run test -- --tags e2e test/e2e/child_server_harness_e2e_test.dart`: the six red rows fail for the
   missing parameter or behaviour, `never_ready_fails_with_harness_error` passes.
-- [ ] 3.4 Rework `ChildServer` per D2 and D4: keep the spawn inputs; one `Completer<int>` behind `exitCode`;
+- [x] 3.4 Rework `ChildServer` per D2 and D4: keep the spawn inputs; one `Completer<int>` behind `exitCode`;
   the attempt exit handler decides retry or completion; `apiPort`, `webPort` and `pid` read the current attempt;
   `waitUntilReady` polls the current attempt within one deadline and counts a 200 only when the ownership parser
   confirms the attempt's pid owns the API listener; `closeStdin`, `stop` and `kill` set the stop flag first and

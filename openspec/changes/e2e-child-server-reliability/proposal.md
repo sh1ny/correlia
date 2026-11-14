@@ -107,3 +107,4 @@ Makes child-server test deadlines and startup reliable under concurrent suite lo
 ### Fixed
 
 - Budgets existing child-server test timeouts for sequential startup and shutdown deadlines without changing ingress assertions.
+- Retries only lost-port startup failures, preserves the logical child exit future, and requires API-listener ownership before readiness.

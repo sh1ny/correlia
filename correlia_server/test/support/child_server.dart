@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:meta/meta.dart';
 
 import 'shared_cluster.dart';
 
@@ -26,33 +27,28 @@ const int _outputLines = 200;
 /// embedded Postgres is stopped (found while writing the interrupted-run
 /// test). The harness follows the file and keeps the last 200 lines.
 final class ChildServer {
-  ChildServer._(
-    this._process,
-    this.apiPort,
-    this.webPort,
-    this._readyTimeout,
-    this._log,
-    this._deleteLogDirectory,
-  ) {
-    unawaited(_process.stdout.drain<void>());
-    unawaited(_process.stderr.drain<void>());
-    _tail = _LogTail(_log, _remember)..start();
-    exitCode = _process.exitCode.then((code) {
-      _tail.finish();
-      hasExited = true;
-      _deleteLogDirectory?.deleteSync(recursive: true);
-      return code;
-    });
-  }
+  ChildServer._({
+    required this._serverDir,
+    required List<String> args,
+    required List<String> vmArgs,
+    required Map<String, String> environment,
+    required Duration readyTimeout,
+    required this._portPicker,
+    required this._logDirectory,
+    required this._deleteLogDirectory,
+  }) : _args = List.of(args),
+       _vmArgs = List.of(vmArgs),
+       _environment = Map.of(environment),
+       _readyTimeout = readyTimeout,
+       _deadline = DateTime.now().add(readyTimeout);
 
   /// Starts the server in [serverDir] on the cluster [root].
   ///
   /// A fresh cluster has no tables, so migrations are applied by default.
-  /// The Postgres data directory is `<root>/pgdata`, so its socket directory
-  /// is `<root>/run`, and the child holds `<root>/owner.lock` until it exits.
-  /// [environment] is added to the child's environment. [readyTimeout] bounds
-  /// [waitUntilReady] and, in whole seconds, the root lock wait.
-  ///
+  /// The Postgres data directory is `<root>/pgdata`, and the child holds
+  /// `<root>/owner.lock` until it exits. [environment] augments its environment.
+  /// [readyTimeout] bounds all startup attempts and the root lock wait.
+  /// [portPicker] replaces ephemeral port selection in deterministic tests.
   /// Tests budget at least `n × (readiness deadline + 30 s shutdown) + 60 s`
   /// for sequential children; children started together count once.
   static Future<ChildServer> start({
@@ -62,6 +58,7 @@ final class ChildServer {
     Map<String, String> environment = const {},
     List<String> vmArgs = const [],
     Duration readyTimeout = const Duration(seconds: 60),
+    @visibleForTesting Future<int> Function()? portPicker,
   }) {
     root.createSync(recursive: true);
     return _spawn(
@@ -69,6 +66,7 @@ final class ChildServer {
       args: args,
       vmArgs: vmArgs,
       readyTimeout: readyTimeout,
+      portPicker: portPicker,
       logs: Directory(p.join(root.path, 'logs')),
       environment: {
         'SERVERPOD_DATABASE_DATA_PATH': p.join(root.path, 'pgdata'),
@@ -79,12 +77,11 @@ final class ChildServer {
     );
   }
 
-  /// Starts the server on [database], an empty database on the shared test
-  /// cluster, with no `dataPath`: the child starts no embedded Postgres, so
-  /// it installs no SIGTERM hook of Serverpod's Postgres supervisor and exits
-  /// 0 on SIGTERM (design D7). It owns no cluster root, so it takes no root
-  /// lock.
+  /// Starts the server on [database], without supervising embedded Postgres.
   ///
+  /// It owns no cluster root and takes no root lock. Without Serverpod's
+  /// embedded supervisor it exits 0 on SIGTERM. [readyTimeout] bounds all
+  /// startup attempts. [portPicker] injects port selection for tests.
   /// Tests budget at least `n × (readiness deadline + 30 s shutdown) + 60 s`
   /// for sequential children; children started together count once.
   static Future<ChildServer> startOnSharedCluster({
@@ -94,11 +91,13 @@ final class ChildServer {
     Map<String, String> environment = const {},
     List<String> vmArgs = const [],
     Duration readyTimeout = const Duration(seconds: 60),
+    @visibleForTesting Future<int> Function()? portPicker,
   }) => _spawn(
     serverDir: serverDir,
     args: args,
     vmArgs: vmArgs,
     readyTimeout: readyTimeout,
+    portPicker: portPicker,
     environment: {...database.environment, ...environment},
   );
 
@@ -108,16 +107,40 @@ final class ChildServer {
     required List<String> vmArgs,
     required Duration readyTimeout,
     required Map<String, String> environment,
+    Future<int> Function()? portPicker,
     Directory? logs,
   }) async {
-    final apiPort = await _freePort();
-    final webPort = await _freePort();
-    final insightsPort = await _freePort();
     final logDirectory = logs ?? Directory.systemTemp.createTempSync('child_');
     logDirectory.createSync(recursive: true);
+    final child = ChildServer._(
+      serverDir: serverDir,
+      args: args,
+      vmArgs: vmArgs,
+      environment: environment,
+      readyTimeout: readyTimeout,
+      portPicker: portPicker ?? _freePort,
+      logDirectory: logDirectory,
+      deleteLogDirectory: logs == null,
+    );
+    try {
+      await child._startAttempt();
+      return child;
+    } on Object {
+      child._cleanLogs();
+      rethrow;
+    }
+  }
+
+  Future<void> _startAttempt() async {
+    final apiPort = await _portPicker();
+    final webPort = await _portPicker();
+    final insightsPort = await _portPicker();
+    if (_stopping || (_attempts > 0 && !DateTime.now().isBefore(_deadline))) {
+      return;
+    }
     final log = File(
       p.join(
-        logDirectory.path,
+        _logDirectory.path,
         'child-${_logCounter++}-${DateTime.now().microsecondsSinceEpoch}.log',
       ),
     )..createSync();
@@ -125,40 +148,81 @@ final class ChildServer {
       '/bin/sh',
       [
         '-c',
-        // exec: the shell becomes the server VM, so [pid] is the server.
+        // exec keeps the process id equal to the server VM's.
         r'log=$1; shift; exec "$@" >"$log" 2>&1',
-        'sh',
-        log.path,
-        Platform.resolvedExecutable,
-        ...vmArgs,
-        p.join('bin', 'main.dart'),
-        ...args,
+        'sh', log.path, Platform.resolvedExecutable, ..._vmArgs,
+        p.join('bin', 'main.dart'), ..._args,
       ],
-      workingDirectory: serverDir.path,
+      workingDirectory: _serverDir.path,
       environment: {
+        ..._environment,
         'SERVERPOD_API_SERVER_PORT': '$apiPort',
         'SERVERPOD_WEB_SERVER_PORT': '$webPort',
         'SERVERPOD_INSIGHTS_SERVER_PORT': '$insightsPort',
         'CORRELIA_EXIT_ON_STDIN_CLOSE': '1',
-        ...environment,
       },
     );
-    return ChildServer._(
-      process,
-      apiPort,
-      webPort,
-      readyTimeout,
-      log,
-      logs == null ? logDirectory : null,
-    );
+    _attempts++;
+    _process = process;
+    _apiPort = apiPort;
+    _webPort = webPort;
+    _insightsPort = insightsPort;
+    _output.clear();
+    unawaited(process.stdout.drain<void>());
+    unawaited(process.stderr.drain<void>());
+    final tail = _LogTail(log, _remember)..start();
+    unawaited(_onExit(process, tail));
+    if (_stopping) process.kill(ProcessSignal.sigkill);
   }
 
-  /// A port that was free a moment ago: bound on 0, then released. Design
-  /// Open Questions settled this way: parsing the child's log for the bound
-  /// port would couple the harness to Serverpod's log format and could not
-  /// supply the API port that `/startupz` polling needs before any log line.
-  static int _logCounter = 0;
+  Future<void> _onExit(Process process, _LogTail tail) async {
+    final code = await process.exitCode;
+    tail.finish();
+    if (!_ready &&
+        !_stopping &&
+        _attempts < 3 &&
+        DateTime.now().isBefore(_deadline) &&
+        isBindFailure(output)) {
+      final lost = 'api=$_apiPort web=$_webPort insights=$_insightsPort';
+      _lostPorts.add(lost);
+      final line =
+          'ChildServer lost-port retry after attempt $_attempts ($lost)';
+      stdout.writeln(line);
+      final spawning = _startAttempt();
+      _spawning = spawning;
+      try {
+        await spawning;
+        // No process is spawned if teardown or the deadline wins port picking.
+        if (!identical(process, _process)) return;
+      } on Object catch (error, stack) {
+        _finishExit(error: error, stack: stack);
+        return;
+      } finally {
+        if (identical(_spawning, spawning)) _spawning = null;
+      }
+    }
+    _finishExit(code: code);
+  }
 
+  void _finishExit({int? code, Object? error, StackTrace? stack}) {
+    if (_exit.isCompleted) return;
+    _cleanLogs();
+    if (error != null) {
+      _exit.completeError(error, stack);
+    } else {
+      _exit.complete(code!);
+    }
+  }
+
+  void _cleanLogs() {
+    if (_deleteLogDirectory && _logDirectory.existsSync()) {
+      _logDirectory.deleteSync(recursive: true);
+    }
+  }
+
+  // Port 0 is released before compilation; only the exit handler retries a
+  // lost reservation. Parsing logs cannot supply a port before startup.
+  static int _logCounter = 0;
   static Future<int> _freePort() async {
     final socket = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
     final port = socket.port;
@@ -166,20 +230,52 @@ final class ChildServer {
     return port;
   }
 
-  final Process _process;
-  final File _log;
-  final Directory? _deleteLogDirectory;
-  late final _LogTail _tail;
+  final Directory _serverDir;
+  final List<String> _args;
+  final List<String> _vmArgs;
+  final Map<String, String> _environment;
   final Duration _readyTimeout;
+  DateTime _deadline;
+  final Future<int> Function() _portPicker;
+  final Directory _logDirectory;
+  final bool _deleteLogDirectory;
+  late Process _process;
+  late int _apiPort;
+  late int _webPort;
+  late int _insightsPort;
+  int _attempts = 0;
+  bool _ready = false;
+  bool _stopping = false;
+  Future<void>? _spawning;
+  final Completer<int> _exit = Completer<int>();
+  final List<String> _lostPorts = [];
   final Queue<String> _output = Queue();
-
-  /// The port of the API server (it serves the health endpoints).
-  final int apiPort;
-
-  /// The port of the web server (it serves the console).
-  final int webPort;
-
   final List<(RegExp, Completer<void>)> _waiters = [];
+
+  /// The API port of the current attempt, stable after [waitUntilReady].
+  int get apiPort => _apiPort;
+
+  /// The web port of the current attempt, stable after [waitUntilReady].
+  int get webPort => _webPort;
+
+  /// The number of processes started for this logical child, at most three.
+  int get attempts => _attempts;
+
+  /// Whether the logical child has exited without another retry pending.
+  bool get hasExited => _exit.isCompleted;
+
+  /// The current server VM's process id, stable after [waitUntilReady].
+  int get pid => _process.pid;
+
+  /// Completes once with the final attempt's exit, after draining its output.
+  Future<int> get exitCode => _exit.future;
+
+  /// The current attempt's last output lines, prefixed by retry diagnostics.
+  String get output => [
+    if (_attempts > 1 || _lostPorts.isNotEmpty)
+      'ChildServer: $_attempts attempts; lost ports: ${_lostPorts.join('; ')}',
+    ..._output,
+  ].join('\n');
 
   void _remember(String line) {
     _output.addLast(line);
@@ -192,57 +288,41 @@ final class ChildServer {
     });
   }
 
-  /// Completes when a line of output matches [pattern] (also if one already
-  /// has), or fails with the output if the child exits first or [timeout]
-  /// passes. Event driven: no polling.
+  /// Completes when [pattern] matches output, or fails on final exit or timeout.
   Future<void> waitForOutput(
     RegExp pattern, {
     Duration timeout = const Duration(seconds: 60),
   }) {
     if (_output.any(pattern.hasMatch)) return Future.value();
     final done = Completer<void>();
-    _waiters.add((pattern, done));
+    final waiter = (pattern, done);
+    _waiters.add(waiter);
     unawaited(
       exitCode.then((code) {
         if (!done.isCompleted) {
           done.completeError(
             StateError(
-              'Server (pid $pid) exited with $code before printing '
-              '$pattern. Output:\n$output',
+              'Server (pid $pid) exited with $code before printing $pattern. Output:\n$output',
             ),
           );
         }
       }),
     );
-    return done.future.timeout(
-      timeout,
-      onTimeout: () => throw StateError(
-        'Server (pid $pid) printed no $pattern within $timeout. '
-        'Output:\n$output',
-      ),
-    );
+    return done.future
+        .timeout(
+          timeout,
+          onTimeout: () => throw StateError(
+            'Server (pid $pid) printed no $pattern within $timeout. Output:\n$output',
+          ),
+        )
+        .whenComplete(() => _waiters.remove(waiter));
   }
 
-  /// Whether the process has exited.
-  bool hasExited = false;
-
-  /// The server VM's process id.
-  int get pid => _process.pid;
-
-  /// Completes with the exit code (a negative signal number when killed),
-  /// after the last line of output has been read.
-  late final Future<int> exitCode;
-
-  /// The last [_outputLines] lines of stdout and stderr.
-  String get output => _output.join('\n');
-
-  /// GET [path] on the API port (the web port if [web]): the status code, or
-  /// null if the connection failed.
+  /// Returns the HTTP status on the current API port, or web port if [web].
   Future<int?> statusOf(String path, {bool web = false}) async =>
       (await fetch(path, web: web))?.status;
 
-  /// GET [path] on the API port (the web port if [web]): the status and the
-  /// body, or null if the connection failed.
+  /// Fetches [path] from the current attempt, or returns null on failure.
   Future<({int status, String body})?> fetch(
     String path, {
     bool web = false,
@@ -266,40 +346,74 @@ final class ChildServer {
     }
   }
 
-  /// Polls `/startupz` until it answers 200, for at most [timeout] (default:
-  /// the `readyTimeout` given to [start]). Fails with the child's output if it
-  /// exits first or the deadline passes.
+  bool _ownsApiListener() {
+    try {
+      final links = Directory('/proc/$pid/fd')
+          .listSync(followLinks: false)
+          .whereType<Link>()
+          .map((link) => link.targetSync())
+          .toSet();
+      return ownsListeningSocket(
+        apiPort,
+        File('/proc/net/tcp').readAsStringSync(),
+        File('/proc/net/tcp6').readAsStringSync(),
+        links,
+      );
+    } on FileSystemException {
+      return false;
+    }
+  }
+
+  /// Waits for readiness and ownership of the current attempt's API listener.
+  ///
+  /// All attempts share the startup deadline. [timeout] may shorten it, never
+  /// renew it. A foreign listener's 200 is ignored. Final exit or expiry raises
+  /// a [StateError] containing the current output and attempt diagnostics.
   Future<void> waitUntilReady([Duration? timeout]) async {
     final limit = timeout ?? _readyTimeout;
-    final deadline = DateTime.now().add(limit);
-    var exited = false;
-    unawaited(exitCode.then((_) => exited = true));
-    while (!exited && DateTime.now().isBefore(deadline)) {
-      if (await statusOf('/startupz') == 200) return;
+    if (timeout != null) {
+      final shortened = DateTime.now().add(timeout);
+      if (shortened.isBefore(_deadline)) _deadline = shortened;
+    }
+    while (!hasExited && DateTime.now().isBefore(_deadline)) {
+      final process = _process;
+      if (await statusOf('/startupz') == 200 &&
+          identical(process, _process) &&
+          !hasExited &&
+          !_stopping &&
+          _ownsApiListener() &&
+          DateTime.now().isBefore(_deadline)) {
+        _ready = true;
+        return;
+      }
       await Future<void>.delayed(const Duration(milliseconds: 100));
     }
-    final why = exited
+    final why = hasExited
         ? 'exited with ${await exitCode}'
         : 'not ready in $limit';
     throw StateError('Server (pid $pid) $why. Output:\n$output');
   }
 
-  /// SIGKILL: the only signal the server cannot handle.
-  void kill() => _process.kill(ProcessSignal.sigkill);
+  /// Suppresses retries and sends SIGKILL, including to an in-flight spawn.
+  void kill() {
+    _stopping = true;
+    _process.kill(ProcessSignal.sigkill);
+    // _startAttempt checks the stop flag after Process.start returns.
+  }
 
-  /// Closes the child's stdin, which makes the server run its graceful
-  /// shutdown and exit (`CORRELIA_EXIT_ON_STDIN_CLOSE`, design D16).
+  /// Suppresses retries and closes stdin for graceful shutdown.
   ///
-  /// Prefer this over [stop] when the exit code matters: with an embedded
-  /// Postgres, Serverpod's Postgres supervisor handles SIGTERM itself and
-  /// exits 143 instead of letting Serverpod's own shutdown finish.
+  /// Waits for any in-flight spawn. Prefer this over [stop] when exit status
+  /// matters: embedded Postgres's SIGTERM handler exits 143.
   Future<int> closeStdin({
     Duration deadline = const Duration(seconds: 30),
   }) async {
+    _stopping = true;
+    await _spawning;
     try {
       await _process.stdin.close();
     } on Object {
-      // The child already exited, or closed its end; the exit code says which.
+      // Already exited or closed its end; the final exit code is authoritative.
     }
     return _awaitExit(deadline, 'closing stdin');
   }
@@ -309,18 +423,48 @@ final class ChildServer {
     onTimeout: () {
       kill();
       throw StateError(
-        'Server (pid $pid) still running $deadline after $action. '
-        'Output:\n$output',
+        'Server (pid $pid) still running $deadline after $action. Output:\n$output',
       );
     },
   );
 
-  /// SIGTERM, then SIGKILL if the server has not exited within [deadline].
-  /// Returns the exit code.
+  /// Suppresses retries, then sends SIGTERM, or SIGKILL after [deadline].
   Future<int> stop({Duration deadline = const Duration(seconds: 30)}) async {
+    _stopping = true;
+    await _spawning;
     _process.kill(ProcessSignal.sigterm);
     return _awaitExit(deadline, 'SIGTERM');
   }
+}
+
+/// Whether [output] contains a Serverpod or operating-system bind failure.
+bool isBindFailure(String output) =>
+    output.contains('Failed to bind socket') ||
+    output.contains('Address already in use');
+
+/// Whether [fdTargets] owns a listening inode for [port] in Linux TCP tables.
+///
+/// Accepts both IPv4 [tcp] and IPv6 [tcp6] text, ignoring non-listening rows.
+bool ownsListeningSocket(
+  int port,
+  String tcp,
+  String tcp6,
+  Set<String> fdTargets,
+) {
+  for (final table in [tcp, tcp6]) {
+    for (final line in const LineSplitter().convert(table)) {
+      final fields = line.trim().split(RegExp(r'\s+'));
+      if (fields.length < 10 || fields[3] != '0A') continue;
+      final address = fields[1].split(':');
+      if (address case [
+        _,
+        final hexPort,
+      ] when int.tryParse(hexPort, radix: 16) == port) {
+        if (fdTargets.contains('socket:[${fields[9]}]')) return true;
+      }
+    }
+  }
+  return false;
 }
 
 /// The stable cluster root of one e2e test: `.serverpod/test-e2e/<test-id>/`
