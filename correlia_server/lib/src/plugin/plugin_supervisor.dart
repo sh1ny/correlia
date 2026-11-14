@@ -531,7 +531,6 @@ final class PluginSupervisor implements PluginOutputRouter {
     if (instance.reapRecorded) return;
     instance.reapRecorded = true;
     if (forced && _stopped.isCompleted) _forcedKeys.add(instance.key);
-    if (forced) instance.forcedError = 'plugin_forced_stop';
     log(
       'plugin-reaped output=${instance.key.outputId} '
       'digest=${instance.key.digest.substring(0, 12)} '
@@ -551,6 +550,9 @@ final class PluginSupervisor implements PluginOutputRouter {
           try {
             await connection.stop(grace: durations.shutdownGrace);
           } finally {
+            if (connection.forcedStop) {
+              instance.forcedError = 'plugin_forced_stop';
+            }
             if (connection.pid case final pid?) {
               _recordReap(
                 instance,

@@ -331,6 +331,7 @@ void main() {
         'recovery',
         'startup-cleanup',
         'handshake-cleanup',
+        'startup-status',
       ]) {
         final name = switch (mode) {
           'removal' => 'removal_in_flight_at_shutdown_keeps_forced_reason',
@@ -340,9 +341,14 @@ void main() {
             'startup_cleanup_failure_is_reported_without_replacing_startup_error',
           'handshake-cleanup' =>
             'handshake_cleanup_failure_survives_outer_timeout',
+          'startup-status' =>
+            'startup_failure_before_shutdown_preserves_status_class',
           _ => 'cleanup_error_after_forced_stop_keeps_reason',
         };
-        final launching = mode == 'launch' || mode.endsWith('-cleanup');
+        final launching =
+            mode == 'launch' ||
+            mode.endsWith('-cleanup') ||
+            mode == 'startup-status';
         final failsCleanup =
             mode == 'cleanup' ||
             mode == 'recovery' ||
@@ -407,10 +413,11 @@ void main() {
               healthDeadline: Duration(milliseconds: 20),
             ),
             pollInterval: const Duration(milliseconds: 10),
-            launchArguments: mode == 'handshake-cleanup'
+            launchArguments:
+                mode == 'handshake-cleanup' || mode == 'startup-status'
                 ? ['--stall-handshake-marker', marker.path]
                 : const [],
-            beforeStartupCleanup: launching
+            beforeStartupCleanup: launching && mode != 'startup-status'
                 ? (stopping) async {
                     if (!entered.isCompleted) entered.complete();
                     await stopping;
@@ -445,6 +452,26 @@ void main() {
           Future<void>? stopping;
           try {
             await supervisor.start();
+            if (mode == 'startup-status') {
+              await waitForStatus((row) => row[0] == 'backoff');
+              final causes = (await session.db.unsafeQuery(
+                '''SELECT s."lastErrorClass",h."lastErrorClass"
+                FROM plugin_instance_status s JOIN plugin_definition_health h
+                USING ("hostInstanceId","outputId","definitionDigest")
+                WHERE s."hostInstanceId"=@host''',
+                parameters: QueryParameters.named({'host': 'forced-$mode'}),
+              )).single;
+              final reason = 'log=$supervisorLog status=$statusHistory';
+              expect(
+                causes[1],
+                anyOf('plugin_start_timeout', 'plugin_handshake_error'),
+                reason: reason,
+              );
+              expect(causes[0], causes[1], reason: reason);
+              stopping = supervisor.stop();
+              await stopping;
+              return;
+            }
             final int pid;
             if (launching) {
               await waitForFile(marker);

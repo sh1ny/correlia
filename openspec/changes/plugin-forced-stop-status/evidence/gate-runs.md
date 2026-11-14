@@ -110,3 +110,27 @@ including in the supplementary health stress test that failed in original run 1.
 The clone-owned cluster at `/tmp/omp-pfs-clone/correlia_server/.serverpod/test/pgdata` (PID 1796327) was stopped
 through the same ownership-checked attach/stop helper, and the clone was removed. This fifth full-tier run
 supplements rather than replaces the four original runs or their recorded failure.
+
+## Third pre-ship fix round: preserve pre-shutdown startup status
+
+The final pre-ship review of `c0057b7` found P1 F1: `_recordReap` set `forcedError` for a child
+reaped during failed startup before shutdown, so the later status write replaced its startup cause
+with `plugin_forced_stop`. The owner authorized a third fix round beyond the configured two.
+
+Test-first: `startup_failure_before_shutdown_preserves_status_class` failed with a backoff row recording
+`plugin_forced_stop`, while its reap log correctly said `forced=true shutdown=false`.
+The fix moves per-instance forced-error assignment into the connection-removal path; startup reaps still
+contribute diagnostics and shutdown-time forced keys, but do not replace the normal startup status cause.
+
+The first post-fix run exposed an incidental test assumption: a handshake stall retained
+`plugin_handshake_error` rather than `plugin_start_timeout`. Both are existing startup causes, depending
+on which deadline wins. The regression now reads status and durable startup-health causes in one joined
+database snapshot, checks that health names a startup cause, and requires status to preserve that exact
+cause. It still rejects the original forced-stop overwrite; production startup classification is unchanged.
+
+Verification after the fix and the cause-preservation assertion:
+- Focused six-file plugin run: **41 passed**, 42.70 seconds.
+- Focused four-file database run: **14 passed**, 8.31 seconds.
+- `dart fix --apply correlia_server`: applied one curly-braces lint fix to the new removal-path assignment.
+- `mise run check`: exit 0, 149.48 seconds; 15 spec items passed, analysis and generated/format checks
+  clean, **213 fast**, **83 tool**, and **19 widget** tests passed.

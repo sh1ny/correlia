@@ -14,6 +14,7 @@
 | plugin-supervision → Restart with backoff | Cleanup error before shutdown still permits removal and relaunch (review regression) | `correlia_server/test/plugin/plugin_supervision_test.dart` | `cleanup_failure_before_shutdown_releases_slot` | green |
 | plugin-supervision → Bounded plugin shutdown | Cleanup fails after forced termination during startup | `correlia_server/test/plugin/plugin_supervision_test.dart` | `startup_cleanup_failure_is_reported_without_replacing_startup_error` | green |
 | plugin-supervision → Bounded plugin shutdown | Cleanup fails after forced termination during a handshake stall | `correlia_server/test/plugin/plugin_supervision_test.dart` | `handshake_cleanup_failure_survives_outer_timeout` | green |
+| plugin-supervision → Restart with backoff | Pre-shutdown startup failure preserves its status cause | `correlia_server/test/plugin/plugin_supervision_test.dart` | `startup_failure_before_shutdown_preserves_status_class` | green |
 | process-roles → Repeated worker stop | Stop called twice | `correlia_server/test/db/ingest_workers_stop_test.dart` | `stop_called_twice_completes_once` | green |
 | process-roles → Repeated worker stop | Concurrent stops that succeed | `correlia_server/test/db/ingest_workers_stop_test.dart` | `concurrent_stops_both_complete` | green |
 | process-roles → Repeated worker stop | Stop again after a failed stop | `correlia_server/test/db/ingest_workers_stop_test.dart` | `stop_after_failed_stop_completes` | green |
@@ -76,13 +77,15 @@ Every new test names its tier tag (`testGroupTagsOverride`) and uses no sleeps. 
     and ignores the shutdown request. Add it to the Go fixture beside the existing config-driven modes, and
     rebuild through the fixture suite.
 
-  Write six `plugin`-tier regressions in `plugin_supervision_test.dart`. Each constructs `PluginSupervisor`
+  Write seven `plugin`-tier regressions in `plugin_supervision_test.dart`. Each constructs `PluginSupervisor`
   directly with injected durations. The five shutdown-time cases assert:
   - the key's final row (`stopped`, `plugin_forced_stop`);
   - one `plugin-reaped ... forced=true shutdown=true` line;
   - that the observer saw the final write last.
   The pre-shutdown recovery case instead proves a new ready PID, one pre-shutdown forced-reap line, and a
   later clean final write that preserves the recovered row's error.
+  The pre-shutdown startup-status case proves that forced failed-start cleanup does not replace the
+  persisted startup cause.
 
   The tests:
   - `removal_in_flight_at_shutdown_keeps_forced_reason`:
@@ -106,10 +109,12 @@ Every new test names its tier tag (`testGroupTagsOverride`) and uses no sleeps. 
     failure, enter the abandonment barrier, then stop; report the cleanup error and keep `plugin_start_timeout`.
   - `handshake_cleanup_failure_survives_outer_timeout`: repeat before the handshake is printed; observe the
     retained core-start future's cleanup failure even when the outer timeout wins.
+  - `startup_failure_before_shutdown_preserves_status_class`: let a handshake stall fail before shutdown,
+    then assert its status cause matches durable startup health, not the cleanup mechanism.
 
   Waits use completers, the marker file's existence and the existing status polling, never sleeps. Verify with
   `mise run test -- --tags plugin test/plugin/plugin_supervision_test.dart`:
-  - the original three fail before D1; the added three fail before their respective review fixes (see evidence);
+  - the original three fail before D1; the added four fail before their respective review fixes (see evidence);
   - every other test in the file passes.
 - [x] 2.3 Implement D1:
   - Read `forcedStop` in a `finally` in `_remove`.
@@ -118,7 +123,7 @@ Every new test names its tier tag (`testGroupTagsOverride`) and uses no sleeps. 
   - Add the forced-key set, the unsettled-write set, and the fence and drain ordering in `stop`.
   - Make `markStopped(now, forcedKeys:)` set the reason in the same `UPDATE`.
 
-  Update the `///` docs of the changed members. Verify each of the following, and flip the seven group 2 rows
+  Update the `///` docs of the changed members. Verify each of the following, and flip the eight group 2 rows
   green:
   - 2.1 and 2.2 pass.
   - `mise run test -- --tags plugin test/plugin/plugin_supervision_test.dart test/plugin/plugin_supervision_secrets_test.dart test/plugin/plugin_lifecycle_test.dart`
