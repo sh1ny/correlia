@@ -94,3 +94,19 @@ All three startup-overlap tests now wait for an abandonment barrier entered afte
 Final focused verification of these corrections: **40 plugin tests passed** (38.37 seconds), **14 db tests passed** (7.70 seconds), and `dart fix --apply` found nothing to fix.
 
 A new `mise run check` on this corrected code exited 0: 15 OpenSpec items, 213 fast server tests, 83 tooling tests and 19 widget tests passed; analysis and generated-code checks were clean. Command time: 148.18 seconds.
+
+## Final-code fresh-clone gate
+
+After the revised design was approved, the complete second fix round was committed as
+`7c74c223f7001c15cea4e2283a83dc4e27331150`. The passing final `mise run check` above exercised that same code
+before the commit; only its commit message and review/evidence bookkeeping were added afterward.
+
+A new fresh clone of that exact head at `/tmp/omp-pfs-clone` ran `mise run setup`, then `mise run test:all`
+at default concurrency. Exit 0, **473 passed**, result line `12:58 +473: All tests passed!`.
+Command wall time: **799 seconds**; tool-reported time: **791.24 seconds**.
+All changed tests, all plugin and db tests, and `plugin_ignores_shutdown` passed. No failures were reported,
+including in the supplementary health stress test that failed in original run 1.
+
+The clone-owned cluster at `/tmp/omp-pfs-clone/correlia_server/.serverpod/test/pgdata` (PID 1796327) was stopped
+through the same ownership-checked attach/stop helper, and the clone was removed. This fifth full-tier run
+supplements rather than replaces the four original runs or their recorded failure.
