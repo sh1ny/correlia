@@ -49,13 +49,12 @@ wait on futures, the child's exit, or readiness.
 - [x] 2.2 State the budget rule (`n × (readiness deadline + 30 s shutdown) + 60 s`, children started together
   count once) in the `///` doc comments of `ChildServer.start` and `ChildServer.startOnSharedCluster`. Verify with
   `mise run analyze`.
-- [x] 2.3 [evidence] Inventory every test that starts children (directly or through `output_process.dart`,
+- [x] 2.3 [evidence] → evidence/timeout-inventory.md — Inventory every test that starts children (directly or through `output_process.dart`,
   `nats_process.dart`, `interrupted_harness.dart`): file, test, children in sequence, readiness deadlines,
   budget, current timeout, new timeout. Raise every timeout below its budget, including
   `pipeline_lifecycle_e2e_test.dart`'s three-child test, `ingest_bootstrap_e2e_test.dart` and
   `pipeline_recovery_e2e_test.dart`. Verify every row has new timeout ≥ budget, and the raised files pass under
   `mise run test -- --tags e2e <files>` (and `--tags db` for `kill_recovery_test.dart` if raised).
-  → evidence/timeout-inventory.md
 - [x] 2.4 Make the real-tree check of 1.1 green: every offender it names is either raised in 2.3 or given its
   budgeted timeout. Verify `mise exec -- dart test` in `tool/` passes, then flip the "New child server test
   without a timeout" and "Slow but healthy child" rows green.
@@ -107,7 +106,7 @@ wait on futures, the child's exit, or readiness.
 ## 4. Gate
 
 - [x] 4.1 Run `mise run check`. Verify it passes with 0 failures, including the 1.1 real-tree check.
-- [x] 4.2 [evidence] Run `mise run test:all` three times on the change branch at the default concurrency, then
+- [x] 4.2 [evidence] → evidence/gate-runs.md — Run `mise run test:all` three times on the change branch at the default concurrency, then
   once from a fresh `git clone` of the branch into a scratch directory (`mise run setup` first; delete the clone
   afterwards). Record per run: totals, the result line, wall time, any failure with its output, retry lines from
   the harness log (lost ports seen), and the five slowest e2e tests with their timeouts; name any test within
@@ -117,7 +116,7 @@ wait on futures, the child's exit, or readiness.
   run in the evidence, with a pointer to the follow-up change that owns it. (Amended 2026-11-14, owner: run 3
   failed `plugin_ignores_shutdown` in `plugin_supervision_test.dart`, a plugin-supervision defect outside this
   change's harness-only scope, owned by a separate M1 change; the full clean-clone gate is still judged at the M1
-  close.) → evidence/gate-runs.md
+  close.)
 
 ## Workflow follow-up
 
