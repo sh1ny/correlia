@@ -103,3 +103,7 @@ Makes child-server test deadlines and startup reliable under concurrent suite lo
 ### Added
 
 - Detects missing explicit timeouts in child-server test files, with file and line diagnostics.
+
+### Fixed
+
+- Budgets existing child-server test timeouts for sequential startup and shutdown deadlines without changing ingress assertions.

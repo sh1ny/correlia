@@ -4,9 +4,9 @@
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| workspace-tooling → Child server tests budget their own deadlines | Slow but healthy child under full-suite load | `tool/test/server_test_timeouts_test.dart` | `every server child test declares its own timeout` | red |
+| workspace-tooling → Child server tests budget their own deadlines | Slow but healthy child under full-suite load | `tool/test/server_test_timeouts_test.dart` | `every server child test declares its own timeout` | green |
 | workspace-tooling → Child server tests budget their own deadlines | Child never becomes ready | `correlia_server/test/e2e/child_server_harness_e2e_test.dart` | `never_ready_fails_with_harness_error` | green |
-| workspace-tooling → Child server tests budget their own deadlines | New child server test without a timeout | `tool/test/server_test_timeouts_test.dart` | `a test without a timeout is reported with its line` | red |
+| workspace-tooling → Child server tests budget their own deadlines | New child server test without a timeout | `tool/test/server_test_timeouts_test.dart` | `a test without a timeout is reported with its line` | green |
 | workspace-tooling → Child server startup survives a lost port | Port taken between pick and bind | `correlia_server/test/e2e/child_server_harness_e2e_test.dart` | `lost_api_port_is_retried_on_fresh_ports` | red |
 | workspace-tooling → Child server startup survives a lost port | Port lost on every attempt | `correlia_server/test/e2e/child_server_harness_e2e_test.dart` | `port_lost_on_every_attempt_fails_after_three` | red |
 | workspace-tooling → Child server startup survives a lost port | Startup fails for another reason | `correlia_server/test/e2e/child_server_harness_e2e_test.dart` | `non_bind_startup_failure_gets_one_attempt` | red |
@@ -41,22 +41,22 @@ wait on futures, the child's exit, or readiness.
 
 ## 2. Timeouts within budget (design D1)
 
-- [ ] 2.1 Add `timeout: const Timeout(Duration(minutes: 3))` to every test in
+- [x] 2.1 Add `timeout: const Timeout(Duration(minutes: 3))` to every test in
   `correlia_server/test/e2e/ingress_e2e_test.dart` (one child each: budget 2.5 minutes), through one file-level
   constant as `roles_e2e_test.dart` does. Change no assertion. Verify the real-tree check of 1.1 no longer names
   the file, and `mise run test -- --tags e2e test/e2e/ingress_e2e_test.dart` passes. Flip the
   "Slow but healthy child" row green once 2.3 is done.
-- [ ] 2.2 State the budget rule (`n × (readiness deadline + 30 s shutdown) + 60 s`, children started together
+- [x] 2.2 State the budget rule (`n × (readiness deadline + 30 s shutdown) + 60 s`, children started together
   count once) in the `///` doc comments of `ChildServer.start` and `ChildServer.startOnSharedCluster`. Verify with
   `mise run analyze`.
-- [ ] 2.3 [evidence] Inventory every test that starts children (directly or through `output_process.dart`,
+- [x] 2.3 [evidence] Inventory every test that starts children (directly or through `output_process.dart`,
   `nats_process.dart`, `interrupted_harness.dart`): file, test, children in sequence, readiness deadlines,
   budget, current timeout, new timeout. Raise every timeout below its budget, including
   `pipeline_lifecycle_e2e_test.dart`'s three-child test, `ingest_bootstrap_e2e_test.dart` and
   `pipeline_recovery_e2e_test.dart`. Verify every row has new timeout ≥ budget, and the raised files pass under
   `mise run test -- --tags e2e <files>` (and `--tags db` for `kill_recovery_test.dart` if raised).
   → evidence/timeout-inventory.md
-- [ ] 2.4 Make the real-tree check of 1.1 green: every offender it names is either raised in 2.3 or given its
+- [x] 2.4 Make the real-tree check of 1.1 green: every offender it names is either raised in 2.3 or given its
   budgeted timeout. Verify `mise exec -- dart test` in `tool/` passes, then flip the "New child server test
   without a timeout" and "Slow but healthy child" rows green.
 

@@ -101,7 +101,7 @@ void main() {
         await observer.close();
       }
     }),
-    timeout: const Timeout(Duration(minutes: 3)),
+    timeout: const Timeout(Duration(minutes: 6)),
   );
 
   test(
@@ -130,7 +130,7 @@ void main() {
         await observer.close();
       }
     }),
-    timeout: const Timeout(Duration(minutes: 3)),
+    timeout: const Timeout(Duration(minutes: 4)),
   );
 
   test(
@@ -149,7 +149,7 @@ void main() {
       await _mustFailStartup(worker);
       expect(worker.output, contains('active=1,raw=0,output=0'));
     }),
-    timeout: const Timeout(Duration(minutes: 3)),
+    timeout: const Timeout(Duration(minutes: 4)),
   );
 
   test(

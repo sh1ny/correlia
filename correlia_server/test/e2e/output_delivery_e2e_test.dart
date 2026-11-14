@@ -202,7 +202,7 @@ void main() {
       webhook.close();
       await receiver.close(force: true);
     }
-  });
+  }, timeout: const Timeout(Duration(minutes: 3)));
   test(
     'one_output_fails_while_another_succeeds',
     () => withOutputProcess((database, env, receiver, children) async {
@@ -373,6 +373,6 @@ void main() {
         await observer.close();
       }
     }),
-    timeout: const Timeout(Duration(minutes: 3)),
+    timeout: const Timeout(Duration(minutes: 4)),
   );
 }

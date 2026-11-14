@@ -68,7 +68,7 @@ void main() {
         await observer.close();
       }
     }),
-    timeout: const Timeout(Duration(minutes: 3)),
+    timeout: const Timeout(Duration(minutes: 4)),
   );
 
   test(
@@ -144,6 +144,6 @@ void main() {
         await observer.close();
       }
     }),
-    timeout: const Timeout(Duration(minutes: 3)),
+    timeout: const Timeout(Duration(minutes: 4)),
   );
 }

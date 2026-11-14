@@ -63,5 +63,5 @@ void main() {
       await db.close();
       await setup.close();
     }
-  }, timeout: const Timeout(Duration(minutes: 3)));
+  }, timeout: const Timeout(Duration(minutes: 4)));
 }

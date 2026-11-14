@@ -180,7 +180,7 @@ void main() {
       await db.close();
       await setup.close();
     }
-  }, timeout: const Timeout(Duration(minutes: 5)));
+  }, timeout: const Timeout(Duration(minutes: 6)));
 
   test('worker_killed_before_any_delivery', () async {
     final setup = await NatsProcessFixture.start();
@@ -224,7 +224,7 @@ void main() {
       await db.close();
       await setup.close();
     }
-  }, timeout: const Timeout(Duration(minutes: 3)));
+  }, timeout: const Timeout(Duration(minutes: 6)));
 
   test('worker_killed_status_goes_stale', () async {
     final setup = await NatsProcessFixture.start();
@@ -287,7 +287,7 @@ void main() {
       await db.close();
       await setup.close();
     }
-  }, timeout: const Timeout(Duration(minutes: 3)));
+  }, timeout: const Timeout(Duration(minutes: 4)));
 
   test('nats_plugin_exits_after_host_sigkill', () async {
     final setup = await NatsProcessFixture.start();
@@ -321,5 +321,5 @@ void main() {
       await db.close();
       await setup.close();
     }
-  }, timeout: const Timeout(Duration(minutes: 3)));
+  }, timeout: const Timeout(Duration(minutes: 4)));
 }

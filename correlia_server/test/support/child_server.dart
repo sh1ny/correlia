@@ -52,6 +52,9 @@ final class ChildServer {
   /// is `<root>/run`, and the child holds `<root>/owner.lock` until it exits.
   /// [environment] is added to the child's environment. [readyTimeout] bounds
   /// [waitUntilReady] and, in whole seconds, the root lock wait.
+  ///
+  /// Tests budget at least `n × (readiness deadline + 30 s shutdown) + 60 s`
+  /// for sequential children; children started together count once.
   static Future<ChildServer> start({
     required Directory serverDir,
     required Directory root,
@@ -81,6 +84,9 @@ final class ChildServer {
   /// it installs no SIGTERM hook of Serverpod's Postgres supervisor and exits
   /// 0 on SIGTERM (design D7). It owns no cluster root, so it takes no root
   /// lock.
+  ///
+  /// Tests budget at least `n × (readiness deadline + 30 s shutdown) + 60 s`
+  /// for sequential children; children started together count once.
   static Future<ChildServer> startOnSharedCluster({
     required Directory serverDir,
     required SharedClusterDatabase database,
