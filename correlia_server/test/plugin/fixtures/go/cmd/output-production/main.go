@@ -3,11 +3,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"io"
 	"os"
 	"strings"
+	"strconv"
+	"syscall"
 
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-plugin"
@@ -42,6 +45,12 @@ func (f *fixture) GetMetadata(context.Context, *pluginv1.GetMetadataRequest) (*p
 }
 
 func (f *fixture) Configure(_ context.Context, r *pluginv1.ConfigureRequest) (*pluginv1.ConfigureResponse, error) {
+	var config struct { StallConfigureMarker string `json:"stall_configure_marker"` }
+	if err := json.Unmarshal(r.ConfigJson, &config); err == nil && config.StallConfigureMarker != "" {
+		if err := os.WriteFile(config.StallConfigureMarker, []byte(strconv.Itoa(os.Getpid())), 0600); err != nil { return nil, err }
+		_ = syscall.Kill(os.Getpid(), syscall.SIGSTOP)
+		select {}
+	}
 	if strings.Contains(string(r.ConfigJson), `"unknown"`) {
 		return &pluginv1.ConfigureResponse{FieldErrors: []*pluginv1.FieldError{{Field: "unknown", Message: "invalid"}}}, nil
 	}

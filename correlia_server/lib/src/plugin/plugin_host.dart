@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:grpc/grpc.dart';
+import 'package:meta/meta.dart';
 
 import '../plugin_generated/correlia/plugin/spike/v1/output.pbgrpc.dart';
 import 'plugin_rpc_connection.dart';
@@ -151,13 +152,21 @@ final class PluginStartupException implements Exception {
 /// Owns one authenticated plugin process independently of its application protocol.
 base class PluginLaunchCore {
   /// Creates an idle launch core.
-  PluginLaunchCore(this.config, {this.cookieKey = 'CORRELIA_PLUGIN'})
-    : _controls = const PluginHostTestControls();
+  PluginLaunchCore(
+    this.config, {
+    this.cookieKey = 'CORRELIA_PLUGIN',
+    this.afterForcedStop,
+  }) : _controls = const PluginHostTestControls();
 
-  PluginLaunchCore._(this.config, this._controls, this.cookieKey);
+  PluginLaunchCore._(this.config, this._controls, this.cookieKey)
+    : afterForcedStop = null;
 
   /// The handshake cookie environment key.
   final String cookieKey;
+
+  /// The test-only failure injection after a forced reap and resource cleanup.
+  @visibleForTesting
+  final Future<void> Function()? afterForcedStop;
 
   final PluginHostTestControls _controls;
 
@@ -497,6 +506,7 @@ base class PluginLaunchCore {
     }
     final process = _process;
     _process = null;
+    var forcedThisCleanup = false;
     if (process != null) {
       try {
         await process.stdin.close();
@@ -507,6 +517,7 @@ base class PluginLaunchCore {
         await process.exitCode.timeout(grace);
       } on TimeoutException {
         _forcedStop = true;
+        forcedThisCleanup = true;
         process.kill(ProcessSignal.sigkill);
         await process.exitCode.timeout(const Duration(seconds: 5));
       }
@@ -521,6 +532,7 @@ base class PluginLaunchCore {
       await directory.delete(recursive: true);
     }
     if (closeError != null) Error.throwWithStackTrace(closeError, closeStack!);
+    if (forcedThisCleanup) await afterForcedStop?.call();
   }
 }
 

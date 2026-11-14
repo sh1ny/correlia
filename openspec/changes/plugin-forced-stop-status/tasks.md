@@ -7,10 +7,10 @@
 | plugin-supervision → Bounded plugin shutdown | Graceful worker stop | `correlia_server/test/e2e/nats_shutdown_e2e_test.dart` | `graceful_worker_stop` (unchanged; must stay green) | green |
 | plugin-supervision → Bounded plugin shutdown | Plugin ignores shutdown | `correlia_server/test/plugin/plugin_supervision_test.dart` | `plugin_ignores_shutdown` | green |
 | plugin-supervision → Bounded plugin shutdown | Plugin ignores shutdown (SIGSTOP delivery versus fixture EOF; reproduction path) | `correlia_server/test/plugin/plugin_supervision_test.dart` | `plugin_ignores_shutdown` (observed all-thread stop barrier) | green |
-| plugin-supervision → Bounded plugin shutdown | Forced reason survives a later status write | `correlia_server/test/db/plugin_status_persistence_test.dart` | `mark_stopped_sets_forced_reason_last` | red |
-| plugin-supervision → Bounded plugin shutdown | Removal in flight when shutdown begins | `correlia_server/test/plugin/plugin_supervision_test.dart` | `removal_in_flight_at_shutdown_keeps_forced_reason` | red |
-| plugin-supervision → Bounded plugin shutdown | Launch overlapping shutdown | `correlia_server/test/plugin/plugin_supervision_test.dart` | `launch_overlapping_shutdown_records_forced_reap` | red |
-| plugin-supervision → Bounded plugin shutdown | Cleanup fails after forced termination | `correlia_server/test/plugin/plugin_supervision_test.dart` | `cleanup_error_after_forced_stop_keeps_reason` | red |
+| plugin-supervision → Bounded plugin shutdown | Forced reason survives a later status write | `correlia_server/test/db/plugin_status_persistence_test.dart` | `mark_stopped_sets_forced_reason_last` | green |
+| plugin-supervision → Bounded plugin shutdown | Removal in flight when shutdown begins | `correlia_server/test/plugin/plugin_supervision_test.dart` | `removal_in_flight_at_shutdown_keeps_forced_reason` | green |
+| plugin-supervision → Bounded plugin shutdown | Launch overlapping shutdown | `correlia_server/test/plugin/plugin_supervision_test.dart` | `launch_overlapping_shutdown_records_forced_reap` | green |
+| plugin-supervision → Bounded plugin shutdown | Cleanup fails after forced termination | `correlia_server/test/plugin/plugin_supervision_test.dart` | `cleanup_error_after_forced_stop_keeps_reason` | green |
 | process-roles → Repeated worker stop | Stop called twice | `correlia_server/test/db/ingest_workers_stop_test.dart` | `stop_called_twice_completes_once` | red |
 | process-roles → Repeated worker stop | Concurrent stops that succeed | `correlia_server/test/db/ingest_workers_stop_test.dart` | `concurrent_stops_both_complete` | red |
 | process-roles → Repeated worker stop | Stop again after a failed stop | `correlia_server/test/db/ingest_workers_stop_test.dart` | `stop_after_failed_stop_completes` | red |
@@ -52,7 +52,7 @@ Every new test names its tier tag (`testGroupTagsOverride`) and uses no sleeps. 
 
 ## 2. Forced reason in the final shutdown write (design D1)
 
-- [ ] 2.1 Write `mark_stopped_sets_forced_reason_last` in `correlia_server/test/db/plugin_status_persistence_test.dart`
+- [x] 2.1 Write `mark_stopped_sets_forced_reason_last` in `correlia_server/test/db/plugin_status_persistence_test.dart`
   (tag `db`):
   1. Write a row for key A with `lastErrorClass` `plugin_forced_stop`, then a second, clean write for A
      (`lastErrorClass` null).
@@ -62,7 +62,7 @@ Every new test names its tier tag (`testGroupTagsOverride`) and uses no sleeps. 
   Expect A `stopped` with `plugin_forced_stop`, and B `stopped` with `plugin_connection_lost`. Verify with
   `mise run test -- --tags db test/db/plugin_status_persistence_test.dart` that it fails, because there is no
   `forcedKeys` parameter yet.
-- [ ] 2.2 Add the test seams of the design's Testing Strategy, with `///` docs saying they are test-only:
+- [x] 2.2 Add the test seams of the design's Testing Strategy, with `///` docs saying they are test-only:
   - `@visibleForTesting` constructor hooks on `PluginSupervisor`:
     - in `_remove` before the connection is stopped (before the reap; holdable);
     - observing each status write and the final write, in order.
@@ -97,7 +97,7 @@ Every new test names its tier tag (`testGroupTagsOverride`) and uses no sleeps. 
   `mise run test -- --tags plugin test/plugin/plugin_supervision_test.dart`:
   - the three fail on the current supervisor (no forced-key set, no startup reap outcome, no fence);
   - every other test in the file passes.
-- [ ] 2.3 Implement D1:
+- [x] 2.3 Implement D1:
   - Read `forcedStop` in a `finally` in `_remove`.
   - Carry `reapedPid` and `reapedForcibly` on startup failures from `OutputPluginConnection.start`, without
     changing the startup error or its class. Record and log them in `_launch`.

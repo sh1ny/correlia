@@ -113,9 +113,13 @@ DECISION_MAKING: autonomous
 
 ## Release Notes
 
-Makes plugin shutdown failures diagnosable without exposing configuration.
+Preserves forced-stop status and makes plugin shutdown failures diagnosable.
 
 ### Changed
 
 - Plugin shutdown diagnostics identify each reaped child and whether termination was forced, without logging configuration or secrets.
 - The forced-shutdown regression waits for every plugin thread to stop before requesting shutdown, avoiding a race between signal delivery and the fixture's stdin-EOF exit.
+
+### Fixed
+
+- The final supervisor status write restores forced-stop reasons after in-flight writes, including failed startup and cleanup; shutdown still reports cleanup errors.

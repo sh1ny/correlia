@@ -14,6 +14,8 @@ import 'package:correlia_server/src/output/delivery_permit.dart';
 import 'package:correlia_server/src/output/output_relay.dart';
 import 'package:correlia_server/src/output/plugin_output_router.dart';
 import 'package:correlia_server/src/plugin/plugin_supervisor.dart';
+import 'package:correlia_server/src/plugin/slot_scheduler.dart';
+import 'package:correlia_server/src/plugin/supervision_policy.dart';
 import 'package:correlia_server/src/runtime/process_options.dart';
 import 'package:crypto/crypto.dart';
 import 'package:serverpod/serverpod.dart';
@@ -321,6 +323,152 @@ void main() {
         );
         workers = null;
       });
+
+      for (final mode in ['removal', 'launch', 'cleanup']) {
+        final name = switch (mode) {
+          'removal' => 'removal_in_flight_at_shutdown_keeps_forced_reason',
+          'launch' => 'launch_overlapping_shutdown_records_forced_reap',
+          _ => 'cleanup_error_after_forced_stop_keeps_reason',
+        };
+        test(name, () async {
+          final marker = File('${testDirectory.path}/configure-marker');
+          if (mode == 'launch') {
+            bootstrap = IngestBootstrap.parse(
+              {
+                'format_version': 1,
+                'revision': 2,
+                'sources': <Object>[],
+                'outputs': [
+                  {
+                    'id': output,
+                    'kind': 'plugin',
+                    'plugin': 'fixture',
+                    'sha256': sha256
+                        .convert(await executable.readAsBytes())
+                        .toString(),
+                    'config': {'stall_configure_marker': marker.path},
+                    'secret_refs': {'token': 'token'},
+                  },
+                ],
+              },
+              {
+                'token': {
+                  'bytes': base64Url
+                      .encode(utf8.encode('fixture-secret'))
+                      .replaceAll('=', ''),
+                },
+              },
+              runMode: 'test',
+            );
+            await IngestConfigRepository(session).publish(bootstrap);
+            await session.db.unsafeExecute(
+              'UPDATE outbox SET config_snapshot_id=@snapshot,definition_digest=@digest',
+              parameters: QueryParameters.named({
+                'snapshot': bootstrap.snapshotId,
+                'digest': (bootstrap.outputs.single as PluginIngestOutput)
+                    .definitionDigest,
+              }),
+            );
+          }
+          final entered = Completer<void>();
+          final release = Completer<void>();
+          final writes = <PluginKey?>[];
+          final cleanupError = StateError('injected cleanup failure');
+          var erased = false;
+          final supervisor = PluginSupervisor(
+            openSession: () =>
+                session.serverpod.createSession(enableLogging: false),
+            bootstrap: bootstrap,
+            pluginDirectory: testDirectory.path,
+            hostInstanceId: 'forced-$mode',
+            log: supervisorLog.add,
+            durations: const SupervisionDurations(
+              startTimeout: Duration(seconds: 3),
+              shutdownGrace: Duration(milliseconds: 50),
+              healthInterval: Duration(milliseconds: 20),
+              healthDeadline: Duration(milliseconds: 20),
+            ),
+            pollInterval: const Duration(milliseconds: 10),
+            beforeRemove: (_) async {
+              if (mode == 'removal' && !entered.isCompleted) {
+                entered.complete();
+                await release.future;
+              }
+            },
+            afterForcedStop: mode == 'cleanup'
+                ? () async => throw cleanupError
+                : null,
+            onStatusWrite: (key) async {
+              writes.add(key);
+              if (mode == 'removal' && key != null && !erased) {
+                final count = await session.db.unsafeExecute(
+                  '''UPDATE plugin_instance_status SET "lastErrorClass"=NULL
+                  WHERE "hostInstanceId"=@host AND "lastErrorClass"='plugin_forced_stop' ''',
+                  parameters: QueryParameters.named({'host': 'forced-$mode'}),
+                );
+                erased = count > 0;
+              }
+            },
+          );
+          Future<void>? stopping;
+          try {
+            await supervisor.start();
+            final int pid;
+            if (mode == 'launch') {
+              await waitForFile(marker);
+              pid = int.parse(await marker.readAsString());
+              await waitForStoppedThreads(pid);
+            } else {
+              final ready = await waitForStatus((row) => row[0] == 'ready');
+              pid = ready[3] as int;
+              expect(Process.killPid(pid, ProcessSignal.sigstop), isTrue);
+              await waitForStoppedThreads(pid);
+            }
+            if (mode == 'removal') {
+              await entered.future.timeout(const Duration(seconds: 10));
+            }
+            stopping = supervisor.stop();
+            if (!release.isCompleted) release.complete();
+            if (mode == 'cleanup') {
+              await expectLater(stopping, throwsA(same(cleanupError)));
+            } else {
+              await stopping;
+            }
+            final row = (await session.db.unsafeQuery(
+              '''SELECT state,"lastErrorClass" FROM plugin_instance_status
+              WHERE "hostInstanceId"=@host''',
+              parameters: QueryParameters.named({'host': 'forced-$mode'}),
+            )).single;
+            final reason =
+                'log=$supervisorLog status=$statusHistory writes=$writes';
+            expect(row.toList(), [
+              'stopped',
+              'plugin_forced_stop',
+            ], reason: reason);
+            expect(
+              supervisorLog.where(
+                (line) =>
+                    line.startsWith('plugin-reaped ') &&
+                    line.contains(' pid=$pid ') &&
+                    line.contains(' forced=true shutdown=true'),
+              ),
+              hasLength(1),
+              reason: reason,
+            );
+            expect(writes.last, isNull, reason: reason);
+            expect(
+              writes.where((key) => key == null),
+              hasLength(1),
+              reason: reason,
+            );
+            if (mode == 'removal') expect(erased, isTrue);
+            expect(Process.killPid(pid, ProcessSignal.sigcont), isFalse);
+          } finally {
+            if (!release.isCompleted) release.complete();
+            if (stopping == null) await supervisor.stop();
+          }
+        }, timeout: const Timeout(Duration(seconds: 30)));
+      }
 
       test('pinned_definition_cannot_run', () async {
         final oldDigest =

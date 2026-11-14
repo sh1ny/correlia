@@ -12,6 +12,44 @@ void main() {
   withServerpod(
     'plugin status retention',
     (builder, _) {
+      test('mark_stopped_sets_forced_reason_last', () async {
+        final session = builder.build();
+        await initializeIngestSchema(session);
+        addTearDown(
+          () => session.db.unsafeSimpleExecute(
+            '''DELETE FROM plugin_instance_status WHERE "hostInstanceId"='final-stop' ''',
+          ),
+        );
+        final now = DateTime.now().toUtc();
+        const a = PluginKey('forced-output', 'a');
+        const b = PluginKey('clean-output', 'b');
+        final repository = PluginStatusRepository(session, 'final-stop');
+        final policy = SupervisionPolicy(clock: () => now)..start();
+        Future<void> write(PluginKey key, String? error) => repository.write(
+          PluginStatusSnapshot(
+            key: key,
+            state: 'ready',
+            restartCount: 0,
+            crashesInWindow: 0,
+            heartbeatAt: now,
+            lastErrorClass: error,
+          ),
+          policy,
+        );
+        await write(a, 'plugin_forced_stop');
+        await write(a, null);
+        await write(b, 'plugin_connection_lost');
+        await repository.markStopped(now, forcedKeys: {a});
+        final rows = await session.db.unsafeQuery(
+          '''SELECT "definitionDigest",state,"lastErrorClass"
+          FROM plugin_instance_status WHERE "hostInstanceId"='final-stop'
+          ORDER BY "definitionDigest"''',
+        );
+        expect(rows.map((row) => row.toList()), [
+          ['a', 'stopped', 'plugin_forced_stop'],
+          ['b', 'stopped', 'plugin_connection_lost'],
+        ]);
+      });
       test('stale_dead_hosts_and_nonlive_health_are_pruned', () async {
         final session = builder.build();
         await initializeIngestSchema(session);
