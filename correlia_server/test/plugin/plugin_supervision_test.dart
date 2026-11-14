@@ -390,7 +390,7 @@ void main() {
             ),
             pollInterval: const Duration(milliseconds: 10),
             beforeRemove: (_) async {
-              if (mode == 'removal' && !entered.isCompleted) {
+              if (mode != 'launch' && !entered.isCompleted) {
                 entered.complete();
                 await release.future;
               }
@@ -424,7 +424,7 @@ void main() {
               expect(Process.killPid(pid, ProcessSignal.sigstop), isTrue);
               await waitForStoppedThreads(pid);
             }
-            if (mode == 'removal') {
+            if (mode != 'launch') {
               await entered.future.timeout(const Duration(seconds: 10));
             }
             stopping = supervisor.stop();

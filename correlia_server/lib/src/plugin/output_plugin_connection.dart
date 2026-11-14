@@ -544,12 +544,16 @@ final class OutputPluginConnection {
   /// Cancels outstanding work and gracefully stops or forcibly reaps the child.
   ///
   /// Awaits the original cleanup, preserving any error after the child is reaped.
+  /// Repeated calls await that same cleanup outcome rather than returning early.
   Future<void> stop({Duration? grace}) async {
     final effectiveGrace = grace ?? _shutdownGrace;
     if (effectiveGrace.isNegative) {
       throw ArgumentError.value(effectiveGrace, 'grace');
     }
-    if (_stopped) return;
+    if (_stopped) {
+      await _cleanup;
+      return;
+    }
     _fail(
       const OutputPluginException('plugin_connection_lost'),
       grace: effectiveGrace,

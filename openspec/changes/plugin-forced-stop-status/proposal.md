@@ -124,3 +124,4 @@ Preserves forced-stop status and makes plugin shutdown failures diagnosable.
 
 - The final supervisor status write restores forced-stop reasons after in-flight writes, including failed startup and cleanup; shutdown still reports cleanup errors.
 - Worker stops run each subsystem once, preserve errors for the first caller, and let later callers finish normally; pipelines also stop safely before start.
+- Cleanup errors remain visible when a sweep removal overlaps shutdown and the supervisor revisits the same reaped connection.

@@ -91,7 +91,8 @@ Every new test names its tier tag (`testGroupTagsOverride`) and uses no sleeps. 
        after shutdown began.
   - `cleanup_error_after_forced_stop_keeps_reason`:
     1. SIGSTOP a ready plugin and inject a cleanup failure.
-    2. Expect `stop()` to raise the injected error, with the row, log line and order as above.
+    2. Hold the sweep's health-failure removal at the pre-stop hook, call `stop()`, then release the hook.
+    3. Expect `stop()` to raise the injected error, with the row, log line and order as above.
 
   Waits use completers, the marker file's existence and the existing status polling, never sleeps. Verify with
   `mise run test -- --tags plugin test/plugin/plugin_supervision_test.dart`:

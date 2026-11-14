@@ -245,7 +245,10 @@ stateDiagram-v2
       3. Call `stop()`.
       4. The startup then fails at the short start timeout and its cleanup force-terminates the child, after
          shutdown began.
-    - **Cleanup failure.** SIGSTOP a ready plugin and inject the cleanup failure, then `stop()`.
+    - **Cleanup failure.** SIGSTOP a ready plugin and inject the cleanup failure. Hold its health-failure
+      removal at the pre-stop hook, call `stop()`, then release the hook. The child is force-reaped after
+      shutdown begins regardless of test scheduling; shutdown revisits the reaped connection and must still
+      observe its original cleanup error.
 
     Each asserts the key's final row, the reap log line and that the final write was the last status write.
 - The existing `plugin_ignores_shutdown` covers the ordinary case, plus the reap log line.

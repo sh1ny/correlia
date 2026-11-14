@@ -54,3 +54,17 @@ Fresh clone removed after stopping its owned clusters.
 ```
 
 The original checkout's shared test cluster was left running. No unrelated PostgreSQL was connected to or signaled. No push, PR or roadmap close was run.
+
+## Authorized pre-ship fix (round 1)
+
+The first pre-ship review passed with one P2: the cleanup-error test could let a sweep reap the child before shutdown began. The owner selected fixing it before archive. The test now holds the sweep removal before the reap and releases it only after `stop()` begins, as the removal-in-flight test already does.
+
+This ordering deterministically exposed a second error-propagation gap: after the tracked removal consumes the original cleanup error, shutdown revisits the same connection, whose repeated `stop()` returned early. The synchronized test failed because `stop()` completed normally instead of throwing the injected error. Repeated connection stops now await the original cleanup future, retaining that error without repeating cleanup.
+
+Supplementary verification after this fix:
+
+- `mise run test -- --tags plugin test/plugin/plugin_supervision_test.dart test/plugin/plugin_supervision_secrets_test.dart test/plugin/plugin_lifecycle_test.dart test/plugin/plugin_protocol_test.dart`: 31 passed, 30.30 seconds (including the health stress test).
+- `mise run test -- --tags db test/db/ingest_workers_stop_test.dart test/db/plugin_status_persistence_test.dart test/db/plugin_relay_shutdown_test.dart test/db/shutdown_order_test.dart`: 14 passed, 8.06 seconds.
+- `mise run analyze`: no issues; `mise exec -- dart fix --apply correlia_server`: nothing to fix.
+
+The four full-tier runs above predate this review fix; they are not represented as runs of the later head. The focused regressions prove the changed cleanup ordering and error propagation.
