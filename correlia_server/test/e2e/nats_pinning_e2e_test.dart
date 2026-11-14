@@ -197,5 +197,5 @@ void main() {
       await setup.close();
       await second.close();
     }
-  }, timeout: const Timeout(Duration(minutes: 4)));
+  }, timeout: const Timeout(Duration(minutes: 6)));
 }

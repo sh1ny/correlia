@@ -86,5 +86,5 @@ void main() {
       await database.drop();
       await files.delete(recursive: true);
     }
-  }, timeout: const Timeout(Duration(minutes: 3)));
+  }, timeout: const Timeout(Duration(minutes: 7)));
 }

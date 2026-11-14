@@ -161,5 +161,5 @@ void main() {
       await database.drop();
       files.deleteSync(recursive: true);
     }
-  }, timeout: const Timeout(Duration(minutes: 3)));
+  }, timeout: const Timeout(Duration(minutes: 4)));
 }

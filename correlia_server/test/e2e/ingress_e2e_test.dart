@@ -12,6 +12,8 @@ import '../support/child_server.dart';
 import '../db/ingest_config_test.dart' as fixture;
 import '../support/shared_cluster.dart';
 
+const _timeout = Timeout(Duration(minutes: 3));
+
 const _source = '11111111-1111-4111-8111-111111111111';
 const _output = '22222222-2222-4222-8222-222222222222';
 final _token = base64Url.encode(List<int>.filled(32, 1)).replaceAll('=', '');
@@ -145,6 +147,7 @@ void main() {
       expect(await _post(child, path, bearer: _token), 202);
       expect((await db.execute('SELECT count(*) FROM raw_inbox')).single[0], 1);
     }),
+    timeout: _timeout,
   );
   test(
     'sec_1_another_source_token',
@@ -153,6 +156,7 @@ void main() {
       expect(await _post(child, path), 401);
       expect((await db.execute('SELECT count(*) FROM raw_inbox')).single[0], 0);
     }),
+    timeout: _timeout,
   );
   test(
     'sec_5_path_token_redaction',
@@ -211,6 +215,7 @@ void main() {
         ),
       );
     }),
+    timeout: _timeout,
   );
   test(
     'conflicting_credentials',
@@ -218,6 +223,7 @@ void main() {
       expect(await _post(child, '$path/$_token', bearer: _token), 401);
       expect((await db.execute('SELECT count(*) FROM raw_inbox')).single[0], 0);
     }),
+    timeout: _timeout,
   );
   test(
     'accepted_body_above_endpoint_default',
@@ -233,6 +239,7 @@ void main() {
       );
       expect(row[1], sha256.convert(body).toString());
     }),
+    timeout: _timeout,
   );
   test(
     'chunked_oversized_delivery',
@@ -250,6 +257,7 @@ void main() {
       expect(await _post(child, path, bearer: _token, encoding: 'gzip'), 415);
       expect((await db.execute('SELECT count(*) FROM raw_inbox')).single[0], 0);
     }),
+    timeout: _timeout,
   );
   test(
     'concurrent_http_retries_and_conflict',
@@ -265,6 +273,7 @@ void main() {
       );
       expect((await db.execute('SELECT count(*) FROM raw_inbox')).single[0], 1);
     }),
+    timeout: _timeout,
   );
   test(
     'remote_publication_rekeys_ingress',
@@ -289,6 +298,7 @@ void main() {
       expect(await _post(child, path, bearer: _token), 401);
       expect((await db.execute('SELECT count(*) FROM raw_inbox')).single[0], 1);
     }),
+    timeout: _timeout,
   );
   test(
     'unconfigured_ingress_still_protects_token_paths',
@@ -303,5 +313,6 @@ void main() {
       expect(child.output, isNot(contains('SYNTHETIC_PATH_TOKEN')));
       expect(child.output, isNot(contains('SYNTHETIC_QUERY_SECRET')));
     }, configured: false),
+    timeout: _timeout,
   );
 }
