@@ -5,7 +5,8 @@
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
 | plugin-supervision → Bounded plugin shutdown | Graceful worker stop | `correlia_server/test/e2e/nats_shutdown_e2e_test.dart` | `graceful_worker_stop` (unchanged; must stay green) | green |
-| plugin-supervision → Bounded plugin shutdown | Plugin ignores shutdown | `correlia_server/test/plugin/plugin_supervision_test.dart` | `plugin_ignores_shutdown` | red |
+| plugin-supervision → Bounded plugin shutdown | Plugin ignores shutdown | `correlia_server/test/plugin/plugin_supervision_test.dart` | `plugin_ignores_shutdown` | green |
+| plugin-supervision → Bounded plugin shutdown | Plugin ignores shutdown (SIGSTOP delivery versus fixture EOF; reproduction path) | `correlia_server/test/plugin/plugin_supervision_test.dart` | `plugin_ignores_shutdown` (observed all-thread stop barrier) | green |
 | plugin-supervision → Bounded plugin shutdown | Forced reason survives a later status write | `correlia_server/test/db/plugin_status_persistence_test.dart` | `mark_stopped_sets_forced_reason_last` | red |
 | plugin-supervision → Bounded plugin shutdown | Removal in flight when shutdown begins | `correlia_server/test/plugin/plugin_supervision_test.dart` | `removal_in_flight_at_shutdown_keeps_forced_reason` | red |
 | plugin-supervision → Bounded plugin shutdown | Launch overlapping shutdown | `correlia_server/test/plugin/plugin_supervision_test.dart` | `launch_overlapping_shutdown_records_forced_reap` | red |
@@ -26,7 +27,7 @@ Every new test names its tier tag (`testGroupTagsOverride`) and uses no sleeps. 
 
 ## 1. Diagnostics and reproduction attempt (design D2, D3)
 
-- [ ] 1.1 In `PluginSupervisor._remove`, log one line through `log` after the child is reaped:
+- [x] 1.1 In `PluginSupervisor._remove`, log one line through `log` after the child is reaped:
   `plugin-reaped output=<id> digest=<first 12 hex> pid=<pid|none> failed=<bool> forced=<bool> shutdown=<bool>`
   (`shutdown` is `_stopped.isCompleted`). No config, no secret. In `plugin_ignores_shutdown`, collect the
   supervisor's log lines (replace `log: (_) {}` in `startWorker` with a list sink) and every distinct status row
@@ -35,16 +36,19 @@ Every new test names its tier tag (`testGroupTagsOverride`) and uses no sleeps. 
   pid has `forced=true`. Verify with
   `mise run test -- --tags plugin test/plugin/plugin_supervision_test.dart`: every test passes,
   `plugin_ignores_shutdown` included (flip its row green), and `mise run analyze` is clean.
-- [ ] 1.2 [evidence] → evidence/reproduction.md — Try to reproduce the failure with the 1.1 diagnostics.
+- [x] 1.2 [evidence] → evidence/reproduction.md — Try to reproduce the failure with the 1.1 diagnostics.
   First run `mise run test -- --tags plugin test/plugin/plugin_supervision_test.dart` ten times while
   `mise run test -- --tags e2e` runs alongside it. Then run up to five `mise run test:all`. Stop at the first
   reproduction. Record each run (command, result, wall time). For a reproduction, record the failure's reason
   text (log lines and status rows) and name the code path that produced the null reason. Verify the file lists
   every run, and either names the path or states that none of the runs reproduced it.
-- [ ] 1.3 Only if 1.2 named a path: write a deterministic regression test for that path in the cheapest tier that
+- [x] 1.3 Only if 1.2 named a path: write a deterministic regression test for that path in the cheapest tier that
   proves it, using existing seams (`beforeLaunch`, injected durations or clock, fixture plugin modes; no sleeps),
   see it fail, fix the path at its source, and see it pass. Add its row to the test map. If 1.2 named no path,
   tick this task with the note "not applicable: no reproduction (see evidence/reproduction.md)".
+  Regression: the existing failing `plugin_ignores_shutdown` now observes all plugin threads stopped before
+  beginning shutdown; assertions unchanged. The isolated red/green signal probe and path are recorded in
+  `evidence/reproduction.md`.
 
 ## 2. Forced reason in the final shutdown write (design D1)
 

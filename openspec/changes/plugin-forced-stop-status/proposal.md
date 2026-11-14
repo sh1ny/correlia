@@ -110,3 +110,12 @@ DECISION_MAKING: autonomous
 - **Reversal cost:** low
 - **Important:** no
 - **Chosen by:** agent
+
+## Release Notes
+
+Makes plugin shutdown failures diagnosable without exposing configuration.
+
+### Changed
+
+- Plugin shutdown diagnostics identify each reaped child and whether termination was forced, without logging configuration or secrets.
+- The forced-shutdown regression waits for every plugin thread to stop before requesting shutdown, avoiding a race between signal delivery and the fixture's stdin-EOF exit.

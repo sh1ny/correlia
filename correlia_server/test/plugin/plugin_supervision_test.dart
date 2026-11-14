@@ -36,6 +36,8 @@ void main() {
       late IngestBootstrap bootstrap;
       late Session session;
       IngestWorkers? workers;
+      final supervisorLog = <String>[];
+      final statusHistory = <String>[];
 
       setUpAll(() async {
         suite = PluginFixtureSuite.create();
@@ -43,6 +45,8 @@ void main() {
       });
       tearDownAll(() => suite.dispose());
       setUp(() async {
+        supervisorLog.clear();
+        statusHistory.clear();
         testDirectory = await suite.scratchDirectory.createTemp('case-');
         executable = await build.binaries[PluginFixtureBinary.outputProduction]!
             .copy('${testDirectory.path}/fixture');
@@ -127,7 +131,7 @@ void main() {
           gates: IngestTestGates.fromEnvironment('test', {
             'CORRELIA_TEST_RELAY_ACQUIRE_GATE': gate,
           }),
-          log: (_) {},
+          log: supervisorLog.add,
         );
         await workers!.start();
       }
@@ -138,12 +142,17 @@ void main() {
         final watch = Stopwatch()..start();
         while (watch.elapsed < const Duration(seconds: 15)) {
           final rows = await session.db.unsafeQuery(
-            '''SELECT state,"pluginName","pluginVersion",pid,"heartbeatAt","lastErrorClass"
+            '''SELECT state,"pluginName","pluginVersion",pid,"heartbeatAt","lastErrorClass",version
           FROM plugin_instance_status WHERE "outputId"=@output ORDER BY id DESC LIMIT 1''',
             parameters: QueryParameters.named({'output': output}),
           );
           if (rows.isNotEmpty) {
             final row = rows.single.toList();
+            final observation =
+                'state=${row[0]} pid=${row[3]} lastErrorClass=${row[5]} version=${row[6]}';
+            if (!statusHistory.contains(observation)) {
+              statusHistory.add(observation);
+            }
             if (accept(row)) return row;
           }
         }
@@ -282,13 +291,34 @@ void main() {
       test('plugin_ignores_shutdown', () async {
         await startWorker();
         final ready = await waitForStatus((row) => row[0] == 'ready');
-        expect(ready[5], isNull);
+        String diagnostics() =>
+            'log:\n${supervisorLog.join('\n')}\nstatus:\n${statusHistory.join('\n')}';
+        expect(ready[5], isNull, reason: diagnostics());
         final pid = ready[3] as int;
-        expect(Process.killPid(pid, ProcessSignal.sigstop), isTrue);
+        expect(
+          Process.killPid(pid, ProcessSignal.sigstop),
+          isTrue,
+          reason: diagnostics(),
+        );
+        await waitForStoppedThreads(pid);
         await workers!.stop();
         final stopped = await waitForStatus((row) => row[0] == 'stopped');
-        expect(stopped[5], isNotNull);
-        expect(Process.killPid(pid, ProcessSignal.sigcont), isFalse);
+        expect(stopped[5], isNotNull, reason: diagnostics());
+        expect(
+          supervisorLog.where(
+            (line) =>
+                line.startsWith('plugin-reaped ') &&
+                line.contains(' pid=$pid ') &&
+                line.contains(' forced=true '),
+          ),
+          hasLength(1),
+          reason: diagnostics(),
+        );
+        expect(
+          Process.killPid(pid, ProcessSignal.sigcont),
+          isFalse,
+          reason: diagnostics(),
+        );
         workers = null;
       });
 
@@ -544,4 +574,19 @@ void main() {
     rollbackDatabase: RollbackDatabase.disabled,
     testGroupTagsOverride: ['plugin'],
   );
+}
+
+Future<void> waitForStoppedThreads(int pid) async {
+  final watch = Stopwatch()..start();
+  while (watch.elapsed < const Duration(seconds: 15)) {
+    final tasks = await Directory('/proc/$pid/task').list().toList();
+    var stopped = tasks.isNotEmpty;
+    for (final task in tasks) {
+      final stat = await File('${task.path}/stat').readAsString();
+      final state = stat.substring(stat.lastIndexOf(')') + 2).split(' ').first;
+      stopped = stopped && state == 'T';
+    }
+    if (stopped) return;
+  }
+  fail('Plugin $pid did not finish its group stop before shutdown');
 }

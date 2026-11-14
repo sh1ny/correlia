@@ -460,6 +460,12 @@ final class PluginSupervisor implements PluginOutputRouter {
         final connection = instance.connection;
         if (connection != null) {
           await connection.stop(grace: durations.shutdownGrace);
+          log(
+            'plugin-reaped output=${instance.key.outputId} '
+            'digest=${instance.key.digest.substring(0, 12)} '
+            'pid=${connection.pid ?? 'none'} failed=$failed '
+            'forced=${connection.forcedStop} shutdown=${_stopped.isCompleted}',
+          );
         }
         if (failed) {
           if (instance.recoveryBeforeFailure) {
