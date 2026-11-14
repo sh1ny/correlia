@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:serverpod/serverpod.dart';
 
 import 'plugin_health_repository.dart';
@@ -147,13 +149,28 @@ final class PluginStatusRepository {
     );
   }
 
-  /// Marks every status owned by this worker stopped after its children are reaped.
-  Future<void> markStopped(DateTime now) async {
+  /// Marks owned rows stopped, restoring forced reasons in the final statement.
+  ///
+  /// Keys in [forcedKeys] receive `plugin_forced_stop`; other errors are preserved.
+  Future<void> markStopped(
+    DateTime now, {
+    required Set<PluginKey> forcedKeys,
+  }) async {
     await session.db.unsafeExecute(
       '''UPDATE plugin_instance_status
-      SET state='stopped',version=version+1,"heartbeatAt"=@now
+      SET state='stopped',version=version+1,"heartbeatAt"=@now,
+        "lastErrorClass"=CASE WHEN EXISTS (
+          SELECT 1 FROM jsonb_array_elements(CAST(@forced AS jsonb)) AS forced(key)
+          WHERE forced.key->>0="outputId" AND forced.key->>1="definitionDigest"
+        ) THEN 'plugin_forced_stop' ELSE "lastErrorClass" END
       WHERE "hostInstanceId"=@host''',
-      parameters: QueryParameters.named({'host': hostInstanceId, 'now': now}),
+      parameters: QueryParameters.named({
+        'host': hostInstanceId,
+        'now': now,
+        'forced': jsonEncode([
+          for (final key in forcedKeys) [key.outputId, key.digest],
+        ]),
+      }),
       timeoutInSeconds: 5,
     );
   }

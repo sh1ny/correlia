@@ -14,6 +14,8 @@ import 'package:correlia_server/src/output/delivery_permit.dart';
 import 'package:correlia_server/src/output/output_relay.dart';
 import 'package:correlia_server/src/output/plugin_output_router.dart';
 import 'package:correlia_server/src/plugin/plugin_supervisor.dart';
+import 'package:correlia_server/src/plugin/slot_scheduler.dart';
+import 'package:correlia_server/src/plugin/supervision_policy.dart';
 import 'package:correlia_server/src/runtime/process_options.dart';
 import 'package:crypto/crypto.dart';
 import 'package:serverpod/serverpod.dart';
@@ -36,6 +38,8 @@ void main() {
       late IngestBootstrap bootstrap;
       late Session session;
       IngestWorkers? workers;
+      final supervisorLog = <String>[];
+      final statusHistory = <String>[];
 
       setUpAll(() async {
         suite = PluginFixtureSuite.create();
@@ -43,6 +47,8 @@ void main() {
       });
       tearDownAll(() => suite.dispose());
       setUp(() async {
+        supervisorLog.clear();
+        statusHistory.clear();
         testDirectory = await suite.scratchDirectory.createTemp('case-');
         executable = await build.binaries[PluginFixtureBinary.outputProduction]!
             .copy('${testDirectory.path}/fixture');
@@ -127,7 +133,7 @@ void main() {
           gates: IngestTestGates.fromEnvironment('test', {
             'CORRELIA_TEST_RELAY_ACQUIRE_GATE': gate,
           }),
-          log: (_) {},
+          log: supervisorLog.add,
         );
         await workers!.start();
       }
@@ -138,12 +144,17 @@ void main() {
         final watch = Stopwatch()..start();
         while (watch.elapsed < const Duration(seconds: 15)) {
           final rows = await session.db.unsafeQuery(
-            '''SELECT state,"pluginName","pluginVersion",pid,"heartbeatAt","lastErrorClass"
+            '''SELECT state,"pluginName","pluginVersion",pid,"heartbeatAt","lastErrorClass",version
           FROM plugin_instance_status WHERE "outputId"=@output ORDER BY id DESC LIMIT 1''',
             parameters: QueryParameters.named({'output': output}),
           );
           if (rows.isNotEmpty) {
             final row = rows.single.toList();
+            final observation =
+                'state=${row[0]} pid=${row[3]} lastErrorClass=${row[5]} version=${row[6]}';
+            if (!statusHistory.contains(observation)) {
+              statusHistory.add(observation);
+            }
             if (accept(row)) return row;
           }
         }
@@ -282,15 +293,271 @@ void main() {
       test('plugin_ignores_shutdown', () async {
         await startWorker();
         final ready = await waitForStatus((row) => row[0] == 'ready');
-        expect(ready[5], isNull);
+        String diagnostics() =>
+            'log:\n${supervisorLog.join('\n')}\nstatus:\n${statusHistory.join('\n')}';
+        expect(ready[5], isNull, reason: diagnostics());
         final pid = ready[3] as int;
-        expect(Process.killPid(pid, ProcessSignal.sigstop), isTrue);
+        expect(
+          Process.killPid(pid, ProcessSignal.sigstop),
+          isTrue,
+          reason: diagnostics(),
+        );
+        await waitForStoppedThreads(pid);
         await workers!.stop();
         final stopped = await waitForStatus((row) => row[0] == 'stopped');
-        expect(stopped[5], isNotNull);
-        expect(Process.killPid(pid, ProcessSignal.sigcont), isFalse);
+        expect(stopped[5], isNotNull, reason: diagnostics());
+        expect(
+          supervisorLog.where(
+            (line) =>
+                line.startsWith('plugin-reaped ') &&
+                line.contains(' pid=$pid ') &&
+                line.contains(' forced=true '),
+          ),
+          hasLength(1),
+          reason: diagnostics(),
+        );
+        expect(
+          Process.killPid(pid, ProcessSignal.sigcont),
+          isFalse,
+          reason: diagnostics(),
+        );
         workers = null;
       });
+
+      for (final mode in [
+        'removal',
+        'launch',
+        'cleanup',
+        'recovery',
+        'startup-cleanup',
+        'handshake-cleanup',
+        'startup-status',
+      ]) {
+        final name = switch (mode) {
+          'removal' => 'removal_in_flight_at_shutdown_keeps_forced_reason',
+          'launch' => 'launch_overlapping_shutdown_records_forced_reap',
+          'recovery' => 'cleanup_failure_before_shutdown_releases_slot',
+          'startup-cleanup' =>
+            'startup_cleanup_failure_is_reported_without_replacing_startup_error',
+          'handshake-cleanup' =>
+            'handshake_cleanup_failure_survives_outer_timeout',
+          'startup-status' =>
+            'startup_failure_before_shutdown_preserves_status_class',
+          _ => 'cleanup_error_after_forced_stop_keeps_reason',
+        };
+        final launching =
+            mode == 'launch' ||
+            mode.endsWith('-cleanup') ||
+            mode == 'startup-status';
+        final failsCleanup =
+            mode == 'cleanup' ||
+            mode == 'recovery' ||
+            mode.endsWith('-cleanup');
+        test(name, () async {
+          final marker = File('${testDirectory.path}/configure-marker');
+          if (launching) {
+            bootstrap = IngestBootstrap.parse(
+              {
+                'format_version': 1,
+                'revision': 2,
+                'sources': <Object>[],
+                'outputs': [
+                  {
+                    'id': output,
+                    'kind': 'plugin',
+                    'plugin': 'fixture',
+                    'sha256': sha256
+                        .convert(await executable.readAsBytes())
+                        .toString(),
+                    'config': {'stall_configure_marker': marker.path},
+                    'secret_refs': {'token': 'token'},
+                  },
+                ],
+              },
+              {
+                'token': {
+                  'bytes': base64Url
+                      .encode(utf8.encode('fixture-secret'))
+                      .replaceAll('=', ''),
+                },
+              },
+              runMode: 'test',
+            );
+            await IngestConfigRepository(session).publish(bootstrap);
+            await session.db.unsafeExecute(
+              'UPDATE outbox SET config_snapshot_id=@snapshot,definition_digest=@digest',
+              parameters: QueryParameters.named({
+                'snapshot': bootstrap.snapshotId,
+                'digest': (bootstrap.outputs.single as PluginIngestOutput)
+                    .definitionDigest,
+              }),
+            );
+          }
+          final entered = Completer<void>();
+          final release = Completer<void>();
+          final writes = <PluginKey?>[];
+          final cleanupError = StateError('injected cleanup failure');
+          var erased = false;
+          var injected = false;
+          final supervisor = PluginSupervisor(
+            openSession: () =>
+                session.serverpod.createSession(enableLogging: false),
+            bootstrap: bootstrap,
+            pluginDirectory: testDirectory.path,
+            hostInstanceId: 'forced-$mode',
+            log: supervisorLog.add,
+            durations: const SupervisionDurations(
+              startTimeout: Duration(seconds: 3),
+              shutdownGrace: Duration(milliseconds: 50),
+              healthInterval: Duration(milliseconds: 20),
+              healthDeadline: Duration(milliseconds: 20),
+            ),
+            pollInterval: const Duration(milliseconds: 10),
+            launchArguments:
+                mode == 'handshake-cleanup' || mode == 'startup-status'
+                ? ['--stall-handshake-marker', marker.path]
+                : const [],
+            beforeStartupCleanup: launching && mode != 'startup-status'
+                ? (stopping) async {
+                    if (!entered.isCompleted) entered.complete();
+                    await stopping;
+                  }
+                : null,
+            beforeRemove: (_) async {
+              if (!launching && !entered.isCompleted) {
+                entered.complete();
+                await release.future;
+              }
+            },
+            afterForcedStop: failsCleanup
+                ? () async {
+                    if (!injected) {
+                      injected = true;
+                      throw cleanupError;
+                    }
+                  }
+                : null,
+            onStatusWrite: (key) async {
+              writes.add(key);
+              if (mode == 'removal' && key != null && !erased) {
+                final count = await session.db.unsafeExecute(
+                  '''UPDATE plugin_instance_status SET "lastErrorClass"=NULL
+                  WHERE "hostInstanceId"=@host AND "lastErrorClass"='plugin_forced_stop' ''',
+                  parameters: QueryParameters.named({'host': 'forced-$mode'}),
+                );
+                erased = count > 0;
+              }
+            },
+          );
+          Future<void>? stopping;
+          try {
+            await supervisor.start();
+            if (mode == 'startup-status') {
+              await waitForStatus((row) => row[0] == 'backoff');
+              final causes = (await session.db.unsafeQuery(
+                '''SELECT s."lastErrorClass",h."lastErrorClass"
+                FROM plugin_instance_status s JOIN plugin_definition_health h
+                USING ("hostInstanceId","outputId","definitionDigest")
+                WHERE s."hostInstanceId"=@host''',
+                parameters: QueryParameters.named({'host': 'forced-$mode'}),
+              )).single;
+              final reason = 'log=$supervisorLog status=$statusHistory';
+              expect(
+                causes[1],
+                anyOf('plugin_start_timeout', 'plugin_handshake_error'),
+                reason: reason,
+              );
+              expect(causes[0], causes[1], reason: reason);
+              stopping = supervisor.stop();
+              await stopping;
+              return;
+            }
+            final int pid;
+            if (launching) {
+              await waitForFile(marker);
+              pid = int.parse(await marker.readAsString());
+              await waitForStoppedThreads(pid);
+            } else {
+              final ready = await waitForStatus((row) => row[0] == 'ready');
+              pid = ready[3] as int;
+              expect(Process.killPid(pid, ProcessSignal.sigstop), isTrue);
+              await waitForStoppedThreads(pid);
+            }
+            await entered.future.timeout(const Duration(seconds: 10));
+            if (mode == 'recovery') {
+              release.complete();
+              final ready = await waitForStatus(
+                (row) => row[0] == 'ready' && row[3] != pid,
+              );
+              expect(injected, isTrue);
+              expect(ready[5], isNot('plugin_forced_stop'));
+              expect(Process.killPid(pid, ProcessSignal.sigcont), isFalse);
+              expect(
+                supervisorLog.where(
+                  (line) =>
+                      line.startsWith('plugin-reaped ') &&
+                      line.contains(' pid=$pid ') &&
+                      line.contains(' forced=true shutdown=false'),
+                ),
+                hasLength(1),
+              );
+              stopping = supervisor.stop();
+              await stopping;
+              final stopped = await waitForStatus((row) => row[0] == 'stopped');
+              expect(stopped[5], ready[5]);
+              expect(writes.last, isNull);
+              return;
+            }
+            stopping = supervisor.stop();
+            if (!release.isCompleted) release.complete();
+            if (failsCleanup) {
+              await expectLater(stopping, throwsA(same(cleanupError)));
+            } else {
+              await stopping;
+            }
+            final row = (await session.db.unsafeQuery(
+              '''SELECT state,"lastErrorClass" FROM plugin_instance_status
+              WHERE "hostInstanceId"=@host''',
+              parameters: QueryParameters.named({'host': 'forced-$mode'}),
+            )).single;
+            final reason =
+                'log=$supervisorLog status=$statusHistory writes=$writes';
+            expect(row.toList(), [
+              'stopped',
+              'plugin_forced_stop',
+            ], reason: reason);
+            if (launching && failsCleanup) {
+              final health = (await session.db.unsafeQuery(
+                '''SELECT "lastErrorClass" FROM plugin_definition_health
+                WHERE "hostInstanceId"=@host''',
+                parameters: QueryParameters.named({'host': 'forced-$mode'}),
+              )).single;
+              expect(health[0], 'plugin_start_timeout');
+            }
+            expect(
+              supervisorLog.where(
+                (line) =>
+                    line.startsWith('plugin-reaped ') &&
+                    line.contains(' pid=$pid ') &&
+                    line.contains(' forced=true shutdown=true'),
+              ),
+              hasLength(1),
+              reason: reason,
+            );
+            expect(writes.last, isNull, reason: reason);
+            expect(
+              writes.where((key) => key == null),
+              hasLength(1),
+              reason: reason,
+            );
+            if (mode == 'removal') expect(erased, isTrue);
+            expect(Process.killPid(pid, ProcessSignal.sigcont), isFalse);
+          } finally {
+            if (!release.isCompleted) release.complete();
+            if (stopping == null) await supervisor.stop();
+          }
+        }, timeout: const Timeout(Duration(seconds: 30)));
+      }
 
       test('pinned_definition_cannot_run', () async {
         final oldDigest =
@@ -544,4 +811,19 @@ void main() {
     rollbackDatabase: RollbackDatabase.disabled,
     testGroupTagsOverride: ['plugin'],
   );
+}
+
+Future<void> waitForStoppedThreads(int pid) async {
+  final watch = Stopwatch()..start();
+  while (watch.elapsed < const Duration(seconds: 15)) {
+    final tasks = await Directory('/proc/$pid/task').list().toList();
+    var stopped = tasks.isNotEmpty;
+    for (final task in tasks) {
+      final stat = await File('${task.path}/stat').readAsString();
+      final state = stat.substring(stat.lastIndexOf(')') + 2).split(' ').first;
+      stopped = stopped && state == 'T';
+    }
+    if (stopped) return;
+  }
+  fail('Plugin $pid did not finish its group stop before shutdown');
 }

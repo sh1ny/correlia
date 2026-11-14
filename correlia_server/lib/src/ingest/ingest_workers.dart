@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:meta/meta.dart';
 import 'package:serverpod/serverpod.dart';
 
 import '../output/relay_subsystem.dart';
@@ -18,13 +19,19 @@ final class IngestWorkers extends Subsystem {
     required this.runMode,
     required this.gates,
     required this.log,
+    this.beforeComponentStop,
   });
   final Serverpod pod;
   final IngestStartup startup;
   final String runMode;
   final IngestTestGates gates;
   final void Function(String) log;
+
+  /// The test-only stop observer/failure hook, ignored outside test mode.
+  @visibleForTesting
+  final Future<void> Function(String component)? beforeComponentStop;
   final _stopping = Completer<void>();
+  Future<void>? _stopFuture;
   PipelineSubsystem? _pipeline;
   RelaySubsystem? _relay;
   PluginSupervisor? _supervisor;
@@ -91,18 +98,50 @@ final class IngestWorkers extends Subsystem {
     }
   }
 
+  /// Stops each component once; only the first caller receives a stop error.
+  ///
+  /// Later callers wait for the same stop, then complete without error.
   @override
-  Future<void> stop() async {
+  Future<void> stop() {
+    final stopping = _stopFuture;
+    if (stopping != null) {
+      return stopping.then<void>(
+        (_) {},
+        onError: (Object _, StackTrace _) {},
+      );
+    }
+    return _stopFuture = _stopOnce();
+  }
+
+  Future<void> _stopOnce() async {
     startup.ready = false;
     if (!_stopping.isCompleted) _stopping.complete();
-    try {
-      if (_relay case final relay?) await relay.stop();
-    } finally {
+    Object? firstError;
+    StackTrace? firstStack;
+    Future<void> attempt(String name, Future<void> Function() stop) async {
       try {
-        if (_pipeline case final pipeline?) await pipeline.stop();
-      } finally {
-        if (_supervisor case final supervisor?) await supervisor.stop();
+        await _stopComponent(name, stop);
+      } on Object catch (error, stack) {
+        firstError ??= error;
+        firstStack ??= stack;
       }
+    }
+
+    if (_relay case final relay?) await attempt('relay', relay.stop);
+    if (_pipeline case final pipeline?) {
+      await attempt('pipeline', pipeline.stop);
+    }
+    if (_supervisor case final supervisor?) {
+      await attempt('supervisor', supervisor.stop);
+    }
+    if (firstError != null) Error.throwWithStackTrace(firstError!, firstStack!);
+  }
+
+  Future<void> _stopComponent(String name, Future<void> Function() stop) async {
+    try {
+      if (runMode == 'test') await beforeComponentStop?.call(name);
+    } finally {
+      await stop();
     }
   }
 }

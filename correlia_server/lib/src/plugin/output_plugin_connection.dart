@@ -37,6 +37,9 @@ final class OutputPluginException implements Exception {
     this.errorClass, {
     this.fields = const [],
     this.pluginErrorClass,
+    this.reapedPid,
+    this.reapedForcibly,
+    this.cleanupFailure,
   });
 
   /// The bounded error class.
@@ -47,6 +50,15 @@ final class OutputPluginException implements Exception {
 
   /// The validated plugin class, unless it contains resolved secret bytes.
   final String? pluginErrorClass;
+
+  /// The internal child identity retained after failed-start cleanup.
+  final int? reapedPid;
+
+  /// Whether failed-start cleanup forcibly terminated that child.
+  final bool? reapedForcibly;
+
+  /// The internal cleanup failure, without replacing the startup error class.
+  final (Object, StackTrace)? cleanupFailure;
 
   @override
   String toString() => errorClass;
@@ -176,6 +188,8 @@ final class OutputPluginConnection {
   StreamSubscription<v1.DeliverResponse>? _subscription;
   int _sequence = 0;
   bool _stopped = false;
+  Future<void>? _cleanup;
+  bool _cleanupErrorReported = false;
   static final _errorClass = RegExp(r'^[a-z][a-z0-9_]{0,63}$');
   static final _field = RegExp(r'^[a-zA-Z0-9_.-]{1,128}$');
 
@@ -198,6 +212,10 @@ final class OutputPluginConnection {
   PluginTlsEvidence? get tlsEvidence => _core.tlsEvidence;
 
   /// Launches, identifies and configures a fresh output plugin.
+  ///
+  /// Failed starts retain their original error class and the child reap outcome.
+  /// [afterForcedStop] is a test-only cleanup-failure injection.
+  /// [beforeStartupCleanup] is a test-only abandonment barrier.
   static Future<OutputPluginConnection> start({
     required String executable,
     List<String> arguments = const [],
@@ -205,6 +223,8 @@ final class OutputPluginConnection {
     required Map<String, List<int>> secrets,
     Duration timeout = const Duration(seconds: 10),
     Duration shutdownGrace = const Duration(seconds: 5),
+    Future<void> Function()? afterForcedStop,
+    Future<void> Function()? beforeStartupCleanup,
   }) async {
     if (timeout <= Duration.zero) throw ArgumentError.value(timeout, 'timeout');
     if (shutdownGrace.isNegative) {
@@ -234,9 +254,13 @@ final class OutputPluginConnection {
         timeout: remaining(),
         cookie: 'correlia.plugin.v1',
       ),
+      afterForcedStop: afterForcedStop,
+      beforeStartupCleanup: beforeStartupCleanup,
     );
+    late final Future<void> starting;
     try {
-      await core.start().timeout(remaining());
+      starting = core.start();
+      await starting.timeout(remaining());
       final client = v1.PluginServiceClient(core.channel);
       final response = await client.getMetadata(
         v1.GetMetadataRequest(),
@@ -354,21 +378,55 @@ final class OutputPluginConnection {
         ),
       );
       return connection;
-    } on Object catch (error) {
+    } on Object catch (error, stack) {
       final frameFailure = core.frameFailure;
-      await core.stop();
-      if (error is OutputPluginException) rethrow;
-      if (frameFailure != null) {
-        throw const OutputPluginException('plugin_metadata_invalid');
+      int? reapedPid;
+      bool? reapedForcibly;
+      var cleanupFailure = switch (error) {
+        PluginStartupException(:final cleanupFailure) => cleanupFailure,
+        OutputPluginException(:final cleanupFailure) => cleanupFailure,
+        _ => null,
+      };
+      try {
+        try {
+          await beforeStartupCleanup?.call();
+        } finally {
+          await core.stopWithGrace(shutdownGrace);
+        }
+      } on Object catch (failure, cleanupStack) {
+        cleanupFailure ??= (failure, cleanupStack);
+      } finally {
+        reapedPid = core.childPid;
+        reapedForcibly = core.forcedStop;
       }
-      if (error is TimeoutException ||
-          error is GrpcError && error.code == StatusCode.deadlineExceeded) {
-        throw const OutputPluginException('plugin_start_timeout');
+      try {
+        await starting;
+      } on PluginStartupException catch (startup) {
+        cleanupFailure ??= startup.cleanupFailure;
+      } on Object {
+        // The outer failure retains its original error class.
       }
-      if (error is PluginStartupException) {
-        throw const OutputPluginException('plugin_handshake_error');
-      }
-      throw const OutputPluginException('plugin_connection_lost');
+      final errorClass = switch (error) {
+        OutputPluginException(:final errorClass) => errorClass,
+        _ when frameFailure != null => 'plugin_metadata_invalid',
+        TimeoutException() => 'plugin_start_timeout',
+        GrpcError(code: StatusCode.deadlineExceeded) => 'plugin_start_timeout',
+        PluginStartupException() => 'plugin_handshake_error',
+        _ => 'plugin_connection_lost',
+      };
+      Error.throwWithStackTrace(
+        OutputPluginException(
+          errorClass,
+          fields: error is OutputPluginException ? error.fields : const [],
+          pluginErrorClass: error is OutputPluginException
+              ? error.pluginErrorClass
+              : null,
+          reapedPid: reapedPid,
+          reapedForcibly: reapedForcibly,
+          cleanupFailure: cleanupFailure,
+        ),
+        stack,
+      );
     }
   }
 
@@ -504,29 +562,47 @@ final class OutputPluginConnection {
     }
     _pending.clear();
     unawaited(_requests.close());
+    final cleanup = _cleanup = _core.stopWithGrace(grace ?? _shutdownGrace);
     unawaited(
-      _core
-          .stopWithGrace(grace ?? _shutdownGrace)
-          .then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+      cleanup.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
     );
   }
 
   /// Cancels outstanding work and gracefully stops or forcibly reaps the child.
+  ///
+  /// Awaits the original cleanup and reports its error once across stop callers.
+  /// Later calls still wait for reaping, but allow a failed removal to finish.
   Future<void> stop({Duration? grace}) async {
     final effectiveGrace = grace ?? _shutdownGrace;
     if (effectiveGrace.isNegative) {
       throw ArgumentError.value(effectiveGrace, 'grace');
     }
-    if (_stopped) return;
+    if (_stopped) {
+      await _awaitCleanup();
+      return;
+    }
     _fail(
       const OutputPluginException('plugin_connection_lost'),
       grace: effectiveGrace,
     );
     _stopped = true;
-    await _subscription?.cancel();
-    await _responses?.cancel();
-    await _requests.close();
-    await _core.stopWithGrace(effectiveGrace);
+    try {
+      await _subscription?.cancel();
+      await _responses?.cancel();
+      await _requests.close();
+    } finally {
+      await _awaitCleanup();
+    }
+  }
+
+  Future<void> _awaitCleanup() async {
+    try {
+      await _cleanup;
+    } on Object {
+      if (_cleanupErrorReported) return;
+      _cleanupErrorReported = true;
+      rethrow;
+    }
   }
 }
 

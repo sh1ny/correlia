@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
+import 'package:meta/meta.dart';
 import 'package:serverpod/serverpod.dart';
 
 import '../ingest/bootstrap.dart';
@@ -32,6 +33,7 @@ final class _Instance {
   bool removalPrepared = false;
   String? removalActivity;
   String? forcedError;
+  bool reapRecorded = false;
   bool stopping = false;
 }
 
@@ -44,6 +46,11 @@ final class PluginSupervisor implements PluginOutputRouter {
     required this.hostInstanceId,
     required this.log,
     this.beforeLaunch,
+    this.beforeRemove,
+    this.onStatusWrite,
+    this.afterForcedStop,
+    this.beforeStartupCleanup,
+    this.launchArguments = const [],
     DateTime Function()? clock,
     this.durations = const SupervisionDurations(),
     this.pollInterval = const Duration(milliseconds: 250),
@@ -57,17 +64,42 @@ final class PluginSupervisor implements PluginOutputRouter {
   final String hostInstanceId;
   final void Function(String) log;
   final Future<void> Function(Future<void> stopping)? beforeLaunch;
+
+  /// The test-only barrier entered before a connection is stopped and reaped.
+  @visibleForTesting
+  final Future<void> Function(PluginKey)? beforeRemove;
+
+  /// The test-only observer of completed status writes; `null` marks the final write.
+  @visibleForTesting
+  final Future<void> Function(PluginKey?)? onStatusWrite;
+
+  /// The test-only cleanup-failure injection, forwarded to the launch core.
+  @visibleForTesting
+  final Future<void> Function()? afterForcedStop;
+
+  /// The test-only failed-start barrier, given the supervisor's stop signal.
+  @visibleForTesting
+  final Future<void> Function(Future<void> stopping)? beforeStartupCleanup;
+
+  /// The test-only fixture arguments; production launches use no arguments.
+  @visibleForTesting
+  final List<String> launchArguments;
   final DateTime Function() clock;
   final SupervisionDurations durations;
   final Duration pollInterval;
   late final SlotScheduler _scheduler;
   final Map<PluginKey, _Instance> _instances = {};
   final Set<Future<void>> _operations = {};
+  final Set<PluginKey> _forcedKeys = {};
+  final Set<Future<void>> _statusWrites = {};
+  bool _statusWritesClosed = false;
   final Completer<void> _stopped = Completer<void>();
   Future<void>? _loop;
   Timer? _timer;
   Completer<void>? _wake;
   DateTime? _lastPrune;
+  Object? _shutdownError;
+  StackTrace? _shutdownStack;
 
   /// Starts polling without waiting for any plugin to become ready.
   Future<void> start() async {
@@ -77,11 +109,18 @@ final class PluginSupervisor implements PluginOutputRouter {
   void _track(Future<void> task) {
     late Future<void> tracked;
     tracked = task
-        .catchError((Object _) {
+        .catchError((Object error, StackTrace stack) {
+          _rememberShutdownError(error, stack);
           log('plugin supervisor operation failed');
         })
         .whenComplete(() => _operations.remove(tracked));
     _operations.add(tracked);
+  }
+
+  void _rememberShutdownError(Object error, StackTrace stack) {
+    if (!_stopped.isCompleted) return;
+    _shutdownError ??= error;
+    _shutdownStack ??= stack;
   }
 
   Future<T> _session<T>(Future<T> Function(Session) action) async {
@@ -309,10 +348,15 @@ final class PluginSupervisor implements PluginOutputRouter {
       final startWatch = Stopwatch()..start();
       final connection = await OutputPluginConnection.start(
         executable: executable,
+        arguments: launchArguments,
         configJson: utf8.encode(jsonEncode(definition['config'])),
         secrets: secrets,
         timeout: durations.startTimeout,
         shutdownGrace: durations.shutdownGrace,
+        afterForcedStop: afterForcedStop,
+        beforeStartupCleanup: beforeStartupCleanup == null
+            ? null
+            : () => beforeStartupCleanup!(_stopped.future),
       );
       instance.connection = connection;
       unawaited(
@@ -344,6 +388,20 @@ final class PluginSupervisor implements PluginOutputRouter {
     } on Object catch (error) {
       instance.permit.invalidate();
       if (error is OutputPluginException) {
+        if (error.cleanupFailure case (final failure, final stack)?) {
+          _rememberShutdownError(failure, stack);
+          if (!_stopped.isCompleted) {
+            log('plugin supervisor startup cleanup failed');
+          }
+        }
+        if (error.reapedPid != null) {
+          _recordReap(
+            instance,
+            pid: error.reapedPid!,
+            forced: error.reapedForcibly == true,
+            failed: true,
+          );
+        }
         instance.failure = error;
       } else if (error is PluginExecutableRejected) {
         instance.failure = const OutputPluginException(
@@ -412,6 +470,9 @@ final class PluginSupervisor implements PluginOutputRouter {
     String? activity,
     String? forcedError,
   }) {
+    if (_statusWritesClosed) {
+      throw StateError('Plugin status write after shutdown fence');
+    }
     final connection = instance.connection;
     final policy = instance.policy;
     final snapshot = SupervisionPolicy(
@@ -437,18 +498,44 @@ final class PluginSupervisor implements PluginOutputRouter {
       heartbeatAt: clock().toUtc(),
     );
     final result = instance.statusTail.then(
-      (_) => _session(
-        (session) => PluginStatusRepository(
-          session,
-          hostInstanceId,
-        ).write(status, snapshot, activity: activity),
-      ),
+      (_) async {
+        await _session(
+          (session) => PluginStatusRepository(
+            session,
+            hostInstanceId,
+          ).write(status, snapshot, activity: activity),
+        );
+        await onStatusWrite?.call(instance.key);
+      },
     );
-    instance.statusTail = result.then<void>(
-      (_) {},
-      onError: (Object _, StackTrace _) {},
-    );
+    late final Future<void> settled;
+    settled = result
+        .then<void>(
+          (_) {},
+          onError: (Object _, StackTrace _) {},
+        )
+        .whenComplete(() {
+          _statusWrites.remove(settled);
+        });
+    _statusWrites.add(settled);
+    instance.statusTail = settled;
     return result;
+  }
+
+  void _recordReap(
+    _Instance instance, {
+    required int pid,
+    required bool forced,
+    required bool failed,
+  }) {
+    if (instance.reapRecorded) return;
+    instance.reapRecorded = true;
+    if (forced && _stopped.isCompleted) _forcedKeys.add(instance.key);
+    log(
+      'plugin-reaped output=${instance.key.outputId} '
+      'digest=${instance.key.digest.substring(0, 12)} '
+      'pid=$pid failed=$failed forced=$forced shutdown=${_stopped.isCompleted}',
+    );
   }
 
   Future<void> _remove(_Instance instance, {bool failed = false}) async {
@@ -459,7 +546,22 @@ final class PluginSupervisor implements PluginOutputRouter {
         instance.permit.invalidate();
         final connection = instance.connection;
         if (connection != null) {
-          await connection.stop(grace: durations.shutdownGrace);
+          await beforeRemove?.call(instance.key);
+          try {
+            await connection.stop(grace: durations.shutdownGrace);
+          } finally {
+            if (connection.forcedStop) {
+              instance.forcedError = 'plugin_forced_stop';
+            }
+            if (connection.pid case final pid?) {
+              _recordReap(
+                instance,
+                pid: pid,
+                forced: connection.forcedStop,
+                failed: failed,
+              );
+            }
+          }
         }
         if (failed) {
           if (instance.recoveryBeforeFailure) {
@@ -479,9 +581,6 @@ final class PluginSupervisor implements PluginOutputRouter {
         } else {
           instance.policy.stop();
         }
-        instance.forcedError = connection?.forcedStop == true
-            ? 'plugin_forced_stop'
-            : null;
         instance.removalPrepared = true;
       }
       await _persist(
@@ -577,7 +676,7 @@ final class PluginSupervisor implements PluginOutputRouter {
     ];
   }
 
-  /// Stops acquisitions, drains permits and reaps all child processes.
+  /// Drains all work, fences status writes and records forced reasons last.
   Future<void> stop() async {
     if (!_stopped.isCompleted) _stopped.complete();
     _timer?.cancel();
@@ -586,8 +685,8 @@ final class PluginSupervisor implements PluginOutputRouter {
     while (_operations.isNotEmpty) {
       await Future.wait(_operations.toList(growable: false));
     }
-    Object? firstError;
-    StackTrace? firstStack;
+    Object? firstError = _shutdownError;
+    StackTrace? firstStack = _shutdownStack;
     for (final instance in _instances.values.toList(growable: false)) {
       instance.stopping = true;
       try {
@@ -597,13 +696,18 @@ final class PluginSupervisor implements PluginOutputRouter {
         firstStack ??= stack;
       }
     }
+    _statusWritesClosed = true;
+    while (_statusWrites.isNotEmpty) {
+      await Future.wait(_statusWrites.toList(growable: false));
+    }
     try {
       await _session(
         (session) => PluginStatusRepository(
           session,
           hostInstanceId,
-        ).markStopped(clock().toUtc()),
+        ).markStopped(clock().toUtc(), forcedKeys: _forcedKeys),
       );
+      await onStatusWrite?.call(null);
     } on Object catch (error, stack) {
       firstError ??= error;
       firstStack ??= stack;
