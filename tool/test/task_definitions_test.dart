@@ -9,6 +9,9 @@ void main() {
     final needles = ['/${'mnt'}/', 'wsl${'path'}', '.${'ex'}e', 'cmd.${'ex'}e'];
     final files = <File>[
       File('${root.path}/mise.toml'),
+      ...Directory(
+        '${root.path}/.github/workflows',
+      ).listSync(recursive: true).whereType<File>(),
       for (final dir in ['tool/bin', 'tool/lib'])
         ...Directory(
           '${root.path}/$dir',

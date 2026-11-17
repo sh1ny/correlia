@@ -1,0 +1,53 @@
+# Linux verification for every pull request to main and every push to main.
+# It installs the pinned toolchain through mise, then runs the same gate and
+# test tiers as local development: `mise run check`, then `mise run test:all`.
+# The `load` tier is never run here.
+#
+# Least privilege: the repository is public and fork PRs run this file, so the
+# token is read-only, no secrets are used, and checkout keeps no credentials.
+# The job name "Linux verification" is the required status check in branch
+# protection; do not rename it. Actions are pinned by full commit SHA.
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Pull requests share one group per PR and cancel superseded runs. Pushes to
+# main get a group per run, so no main run is ever cancelled or replaced.
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}
+
+jobs:
+  linux-verification:
+    name: Linux verification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the pinned toolchain with mise
+        uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
+        with:
+          version: 2026.11.8
+          install: true
+          cache: true
+
+      - name: Check gate
+        run: mise run check
+
+      - name: Test tiers (fast, db, e2e, plugin)
+        run: mise run test:all

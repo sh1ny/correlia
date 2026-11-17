@@ -174,13 +174,25 @@ Future<void> main(List<String> args) async {
           Process.runSync('chmod', ['+x', file.path]);
         }
 
+        // Start from the caller's PATH without mise's tool directories, as a
+        // shell without mise activation has it. When every tool directory is
+        // already on PATH (an activated shell, or a CI runner after
+        // mise-action), mise exec keeps them where they are instead of
+        // putting them first, so the fake would win for a reason this test
+        // is not about.
+        final plainPath = Platform.environment['PATH']!
+            .split(':')
+            .where(
+              (entry) =>
+                  !entry.contains('/mise/installs/') &&
+                  !entry.contains('/mise/shims'),
+            )
+            .join(':');
         final result = Process.runSync(
           'mise',
           ['exec', '--', 'which', 'dart'],
           workingDirectory: repoRoot.path,
-          environment: {
-            'PATH': '${fake.path}:${Platform.environment['PATH']}',
-          },
+          environment: {'PATH': '${fake.path}:$plainPath'},
         );
 
         expect(result.exitCode, 0, reason: '${result.stderr}');
