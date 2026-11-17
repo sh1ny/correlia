@@ -83,11 +83,16 @@ void main() {
     final mise = steps.indexWhere(
       (s) => '${s['uses']}'.startsWith('jdx/mise-action@'),
     );
+    // A fresh Flutter SDK has no flutter.version.json until the `flutter`
+    // command first runs; the first bare `dart` call cannot resolve the
+    // workspace's Flutter package without it.
+    final flutter = _indexOfRun(steps, 'mise exec -- flutter --version');
     final check = _indexOfRun(steps, 'mise run check');
     final testAll = _indexOfRun(steps, 'mise run test:all');
     expect(checkout, greaterThanOrEqualTo(0));
     expect(checkout, lessThan(mise));
-    expect(mise, lessThan(check));
+    expect(mise, lessThan(flutter));
+    expect(flutter, lessThan(check));
     expect(check, lessThan(testAll));
     for (final step in steps) {
       expect(step['name'], isA<String>(), reason: 'every step is named');

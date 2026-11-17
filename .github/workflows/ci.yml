@@ -46,6 +46,13 @@ jobs:
           install: true
           cache: true
 
+      # A fresh Flutter SDK writes bin/cache/flutter.version.json only when the
+      # `flutter` command first runs, and the first bare `dart` call deletes
+      # it. Without it, pub cannot resolve the workspace's Flutter package, so
+      # `mise run check` (which starts with `dart run`) fails on a new runner.
+      - name: Prepare the Flutter SDK
+        run: mise exec -- flutter --version
+
       - name: Check gate
         run: mise run check
 
