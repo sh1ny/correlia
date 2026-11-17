@@ -2,10 +2,10 @@
 
 ## Metadata
 
-- **Round:** 3
-- **Prior round:** 2 - APPROVE_WITH_CHANGES (M1 resolved)
+- **Round:** 4
+- **Prior round:** 3 - APPROVE (D1 Flutter prepare step)
 - **Reviewer:** cross-model CLI (omp)
-- **Reviewed:** Proposal, amended design, workspace-tooling spec delta, tasks, prior review, workflow, workflow tests, mise tasks, architecture ADR index and relevant ADRs, installed Flutter SDK bootstrap and version-initialization code. Static review only; no tests run.
+- **Reviewed:** Proposal, amended D1/D3, spec delta, tasks, prior review, workflow and tests, mise tasks, architecture ADR index, relevant platform/database/plugin ADRs, plugin fixture and failing assertion, installed Flutter bootstrap. Static review only; no tests run.
 
 ## Findings
 
@@ -25,15 +25,15 @@ None.
 
 VERDICT: APPROVE
 
-The D1 amendment addresses the reported failure at the correct boundary:
+The amendment preserves the ownership test rather than weakening it:
 
-- Flutter’s `bin/internal/shared.sh:133–156` invalidates version metadata during bootstrap and returns before building the Flutter tool when invoked as `dart`.
-- `flutter_command_runner.dart:446–449` calls `ensureVersionFile()` before handling `--version`.
-- The workflow prepares Flutter after mise installation and before `mise run check`, including its Dart-based `setup` dependency.
-- The workflow test checks this ordering. Existing failure propagation, token restrictions, PR cancellation and independent main-push groups remain intact.
+- The preflight uses the fixture’s exact `unshare` mapping flags, exercising namespace creation and subordinate-ID prerequisites before `test:all`.
+- The actual test still requires observed foreign socket ownership, mode `0600`, and an `Unsafe socket` rejection (`plugin_host_test.dart:255–270`). A fixture startup failure cannot pass.
+- Both preflight commands fail visibly under the workflow’s default shell semantics; subsequent test tiers are skipped on failure.
+- The sysctl change is confined to the disposable hosted runner. D3 explicitly records this host-security relaxation; token permissions, credential persistence and secret handling remain unchanged.
 - Repository tasks remain unchanged, consistent with ADR 0014.
 
-Successful real-run evidence remains pending under task 3.2; this approval does not establish CI success.
+Successful real-run evidence remains pending under task 3.2. Static approval does not establish that the amended CI run passes.
 
 ## Required Changes
 

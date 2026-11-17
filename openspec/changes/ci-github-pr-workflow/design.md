@@ -46,7 +46,7 @@ TIER: FULL
 
 - **Choice:** A single job, `Linux verification`, on `ubuntu-24.04`, with `timeout-minutes: 60`. Its steps:
   check out, install mise and the tools, prepare the Flutter SDK with `mise exec -- flutter --version`, run
-  `mise run check`, then `mise run test:all`. A later step does not run when an earlier one fails (default
+  `mise run check`, allow unprivileged user namespaces, then run `mise run test:all`. A later step does not run when an earlier one fails (default
   step semantics).
 - **Amended during apply (2026-11-17, first CI run):** the prepare step was added. On a freshly extracted
   Flutter SDK, the first bare `dart` call runs Flutter's update path, which deletes
@@ -57,6 +57,17 @@ TIER: FULL
   install, so every run, cached or not, needs this step. Rejected: putting `flutter pub get` in the `setup`
   task, because the fault is the fresh SDK's first run, not the tasks, and it would add a resolve to every local
   run.
+- **Amended during apply (2026-11-17, second CI run):** the user-namespace step was added. The check gate
+  passed and `test:all` passed 473 of 474. `plugin_host_test.dart` "invalid startup fails bounded and reaps own
+  child" failed because its foreign-owner socket case starts the fixture under
+  `unshare --user --map-root-user --map-auto` to get a socket owned by another UID. Ubuntu 24.04 restricts
+  unprivileged user namespaces through AppArmor (`kernel.apparmor_restrict_unprivileged_userns=1`), and WSL
+  does not. So the fixture never started and no ownership evidence was recorded. The step runs
+  `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`, then
+  `unshare --user --map-root-user --map-auto -- true`, so a missing prerequisite (such as `newuidmap` or the
+  runner's subordinate IDs) fails at a named step. Rejected: skipping the case when user namespaces are
+  unavailable, because the CI would then silently stop proving the unsafe-socket rejection, which is part of
+  the ADR 0020 plugin gate.
 - **Rejected:** separate jobs for check and test tiers, because each job pays the toolchain install again,
   branch protection would need every job name, and a failing check would not stop the expensive tiers.
 - **Reversal cost:** low
@@ -86,6 +97,8 @@ TIER: FULL
   - `persist-credentials: false` on checkout.
   - The workflow references no secrets.
   - Actions are pinned by full commit SHA, with the tag in a comment.
+  - One step uses `sudo`, only to set the AppArmor user-namespace sysctl on the job's own throwaway runner
+    (D1). It changes nothing outside that runner, and it gives the workflow no token or secret.
 - **Rejected:** default token permissions and tag-pinned actions, because a public repository runs code from
   fork PRs and a moved tag can change what runs.
 - **Reversal cost:** low
