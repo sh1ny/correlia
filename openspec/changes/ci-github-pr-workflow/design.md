@@ -45,8 +45,18 @@ TIER: FULL
 ### D1: One job, check then test:all, sequential in one runner
 
 - **Choice:** A single job, `Linux verification`, on `ubuntu-24.04`, with `timeout-minutes: 60`. Its steps:
-  check out, install mise and the tools, run `mise run check`, then `mise run test:all`. The second step does
-  not run when the first fails (default step semantics).
+  check out, install mise and the tools, prepare the Flutter SDK with `mise exec -- flutter --version`, run
+  `mise run check`, then `mise run test:all`. A later step does not run when an earlier one fails (default
+  step semantics).
+- **Amended during apply (2026-11-17, first CI run):** the prepare step was added. On a freshly extracted
+  Flutter SDK, the first bare `dart` call runs Flutter's update path, which deletes
+  `bin/cache/flutter.version.json` and does not rebuild it (only the `flutter` command does). pub then cannot
+  read the Flutter version and refuses the workspace ("correlia_flutter requires the Flutter SDK"), so
+  `mise run check`, which starts with `dart run tool/bin/tool.dart setup`, failed on the runner. Developer
+  machines had already run `flutter`, so it never showed locally. mise-action saves its cache straight after
+  install, so every run, cached or not, needs this step. Rejected: putting `flutter pub get` in the `setup`
+  task, because the fault is the fresh SDK's first run, not the tasks, and it would add a resolve to every local
+  run.
 - **Rejected:** separate jobs for check and test tiers, because each job pays the toolchain install again,
   branch protection would need every job name, and a failing check would not stop the expensive tiers.
 - **Reversal cost:** low

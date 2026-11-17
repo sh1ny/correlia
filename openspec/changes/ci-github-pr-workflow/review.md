@@ -2,10 +2,10 @@
 
 ## Metadata
 
-- **Round:** 2
-- **Prior round:** 1 — APPROVE_WITH_CHANGES
-- **Reviewer:** fresh-context subagent (OMP)
-- **Reviewed:** `openspec/changes/ci-github-pr-workflow/design.md`; `openspec/changes/ci-github-pr-workflow/specs/workspace-tooling/spec.md`. Re-check limited to Round 1 Required Changes.
+- **Round:** 3
+- **Prior round:** 2 - APPROVE_WITH_CHANGES (M1 resolved)
+- **Reviewer:** cross-model CLI (omp)
+- **Reviewed:** Proposal, amended design, workspace-tooling spec delta, tasks, prior review, workflow, workflow tests, mise tasks, architecture ADR index and relevant ADRs, installed Flutter SDK bootstrap and version-initialization code. Static review only; no tests run.
 
 ## Findings
 
@@ -15,11 +15,7 @@ None.
 
 ### Moderate
 
-**M1 — Shared main concurrency group can discard required push verification. Resolved.**
-
-D2 now groups PR runs by PR number and non-PR runs by unique run ID, with cancellation enabled only for PR events. Its Decision summary and Resource Bounds consistently describe independent main-push runs.
-
-The new “Successive pushes to main” scenario covers three overlapping pushes, forbids cancellation or replacement by concurrency grouping, and requires verification of each commit. The existing “Superseded run” scenario preserves PR cancellation.
+None.
 
 ### Suggestions
 
@@ -27,15 +23,24 @@ None.
 
 ## Verdict
 
-VERDICT: APPROVE_WITH_CHANGES
+VERDICT: APPROVE
+
+The D1 amendment addresses the reported failure at the correct boundary:
+
+- Flutter’s `bin/internal/shared.sh:133–156` invalidates version metadata during bootstrap and returns before building the Flutter tool when invoked as `dart`.
+- `flutter_command_runner.dart:446–449` calls `ensureVersionFile()` before handling `--version`.
+- The workflow prepares Flutter after mise installation and before `mise run check`, including its Dart-based `setup` dependency.
+- The workflow test checks this ordering. Existing failure propagation, token restrictions, PR cancellation and independent main-push groups remain intact.
+- Repository tasks remain unchanged, consistent with ADR 0014.
+
+Successful real-run evidence remains pending under task 3.2; this approval does not establish CI success.
 
 ## Required Changes
 
-1. Amend D2 so only runs of the same PR share a concurrency group — applied and re-checked.
-2. Add the three-successive-main-push scenario while preserving superseded PR cancellation — applied and re-checked.
+None.
 
-CHANGES_APPLIED: yes
+CHANGES_APPLIED: n/a
 
 ## Rebuttals
 
-M1 fixed in D2, the Decision summary, Resource Bounds, and the Linux CI verification scenarios; accepted by reviewer.
+None.
