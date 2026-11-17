@@ -71,10 +71,10 @@ runner. It is a fast-tier test (the `tool` package, run by `mise run check`).
 
 - [x] 3.1 Run `mise run check` from the change branch: it exits 0. This re-runs the existing check gate tests,
   so the "Check gate" rows stay green.
-- [x] 3.2 [evidence] Record the first `Linux verification` run on the PR head: the run URL, head SHA,
-  conclusion, the duration of each step, and that the doctor step passed. If it fails, follow
-  specwright-debug, fix, and record each run → evidence/ci-runs.md. Flip "Passing pull request" and "Pinned
-  tools only" fully green when a run concludes `success`.
+- [x] 3.2 [evidence] Record each `Linux verification` run on the PR → evidence/ci-runs.md: the first run on
+  the PR head, and each later one: the run URL, head SHA, conclusion, the duration of each step, and that the
+  doctor step passed. If a run fails, follow specwright-debug and fix it. Flip "Passing pull request" and
+  "Pinned tools only" fully green when a run concludes `success`.
 
 ## Workflow follow-up
 
