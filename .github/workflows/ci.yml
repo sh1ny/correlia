@@ -59,11 +59,15 @@ jobs:
       # The plugin host's foreign-owner socket test runs its fixture under
       # `unshare --user --map-root-user --map-auto`. Ubuntu 24.04 restricts
       # unprivileged user namespaces through AppArmor; lift that on this
-      # throwaway runner and prove unshare works, so a missing prerequisite
-      # fails here by name instead of as a test assertion.
+      # throwaway runner, check the uidmap helpers and the runner's subordinate
+      # ID ranges that `--map-auto` needs, and prove unshare works, so a missing
+      # prerequisite fails here by name instead of as a test assertion.
       - name: Allow unprivileged user namespaces
         run: |
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          command -v newuidmap newgidmap || { echo "::error::newuidmap/newgidmap missing (package uidmap)"; exit 1; }
+          grep -q "^$(id -un):" /etc/subuid || { echo "::error::no /etc/subuid range for $(id -un)"; exit 1; }
+          grep -q "^$(id -un):" /etc/subgid || { echo "::error::no /etc/subgid range for $(id -un)"; exit 1; }
           unshare --user --map-root-user --map-auto -- true
 
       - name: Test tiers (fast, db, e2e, plugin)

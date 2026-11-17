@@ -214,6 +214,20 @@ void main() {
           run.contains('unshare --user --map-root-user --map-auto -- true');
     });
     expect(userns, greaterThanOrEqualTo(0));
+    // `--map-auto` delegates the mapping to the setuid helpers and the
+    // runner's subordinate ranges; each is checked by name first.
+    final run = _run(steps[userns])!;
+    for (final prerequisite in [
+      'command -v newuidmap newgidmap',
+      '/etc/subuid',
+      '/etc/subgid',
+    ]) {
+      expect(run, contains(prerequisite));
+      expect(
+        run.indexOf(prerequisite),
+        lessThan(run.indexOf('unshare --user')),
+      );
+    }
     expect(userns, lessThan(_indexOfRun(steps, 'mise run test:all')));
   });
 }

@@ -123,7 +123,15 @@ pr:
   #       marker: '<!-- bot-walkthrough -->'
   #       ignore: 'Reviewing this PR|Code review in progress'
   reviewers:
-    chatgpt-codex-connector: { role: required, request: "@codex review" }
+    # Only a finished Codex review of the current head counts: its result
+    # comment names the reviewed commit. Progress and status comments ("Codex
+    # Review Summary: Running") carry no such line, so they never report
+    # (PR #66 security review, 2026-11-17).
+    chatgpt-codex-connector:
+      role: required
+      request: "@codex review"
+      report:
+        sha_pattern: 'Reviewed commit:\*\* `([0-9a-f]{7,40})`'
   # Quiet window before a PR counts as ready (1m to 1h; default 5m).
   # settle: 5m
   # Account that posts the requests. Default: review_request.login, else
