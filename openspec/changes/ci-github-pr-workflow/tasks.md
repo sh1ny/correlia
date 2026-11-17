@@ -6,10 +6,10 @@
 |---|---|---|---|---|
 | workspace-tooling → Check gate | Clean workspace | `tool/test/check_test.dart` | existing check gate tests (unchanged; re-run) | green |
 | workspace-tooling → Check gate | Analysis issue | `tool/test/check_test.dart` | existing check gate tests (unchanged; re-run) | green |
-| workspace-tooling → Linux CI verification | Passing pull request | `tool/test/ci_workflow_test.dart` + `evidence/ci-runs.md` | `job_runs_check_then_test_all_on_pr_and_main` + the PR's `Linux verification` run concluding `success` | test green; CI run pending |
+| workspace-tooling → Linux CI verification | Passing pull request | `tool/test/ci_workflow_test.dart` + `evidence/ci-runs.md` | `job_runs_check_then_test_all_on_pr_and_main` + the PR's `Linux verification` run concluding `success` | green |
 | workspace-tooling → Linux CI verification | Failing gate | `tool/test/ci_workflow_test.dart` | `gate_failure_fails_job_before_test_all` | green |
 | workspace-tooling → Linux CI verification | Failing test tier | `tool/test/ci_workflow_test.dart` | `test_all_failure_fails_job_and_load_never_runs` | green |
-| workspace-tooling → Linux CI verification | Pinned tools only | `tool/test/ci_workflow_test.dart` + `evidence/ci-runs.md` | `toolchain_comes_from_mise_with_pinned_actions` + doctor step passing in the PR run | test green; CI run pending |
+| workspace-tooling → Linux CI verification | Pinned tools only | `tool/test/ci_workflow_test.dart` + `evidence/ci-runs.md` | `toolchain_comes_from_mise_with_pinned_actions` + doctor step passing in the PR run | green |
 | workspace-tooling → Linux CI verification | Superseded run | `tool/test/ci_workflow_test.dart` | `pr_runs_share_a_cancelling_group` | green |
 | workspace-tooling → Linux CI verification | Successive pushes to main | `tool/test/ci_workflow_test.dart` | `main_pushes_get_unique_uncancelled_groups` | green |
 
@@ -69,9 +69,9 @@ runner. It is a fast-tier test (the `tool` package, run by `mise run check`).
 
 ## 3. Verification
 
-- [ ] 3.1 Run `mise run check` from the change branch: it exits 0. This re-runs the existing check gate tests,
+- [x] 3.1 Run `mise run check` from the change branch: it exits 0. This re-runs the existing check gate tests,
   so the "Check gate" rows stay green.
-- [ ] 3.2 [evidence] Record the first `Linux verification` run on the PR head: the run URL, head SHA,
+- [x] 3.2 [evidence] Record the first `Linux verification` run on the PR head: the run URL, head SHA,
   conclusion, the duration of each step, and that the doctor step passed. If it fails, follow
   specwright-debug, fix, and record each run → evidence/ci-runs.md. Flip "Passing pull request" and "Pinned
   tools only" fully green when a run concludes `success`.
