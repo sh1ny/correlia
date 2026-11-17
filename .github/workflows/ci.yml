@@ -56,5 +56,15 @@ jobs:
       - name: Check gate
         run: mise run check
 
+      # The plugin host's foreign-owner socket test runs its fixture under
+      # `unshare --user --map-root-user --map-auto`. Ubuntu 24.04 restricts
+      # unprivileged user namespaces through AppArmor; lift that on this
+      # throwaway runner and prove unshare works, so a missing prerequisite
+      # fails here by name instead of as a test assertion.
+      - name: Allow unprivileged user namespaces
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          unshare --user --map-root-user --map-auto -- true
+
       - name: Test tiers (fast, db, e2e, plugin)
         run: mise run test:all

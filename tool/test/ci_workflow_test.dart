@@ -199,4 +199,21 @@ void main() {
     expect(_job(), isNot(contains('permissions')));
     expect(_workflowFile.readAsStringSync(), isNot(contains('secrets.')));
   });
+
+  test('user_namespaces_are_enabled_and_checked_before_test_tiers', () {
+    // The plugin host's foreign-owner socket test starts its fixture under
+    // `unshare --user --map-root-user --map-auto`; Ubuntu 24.04 runners
+    // restrict unprivileged user namespaces through AppArmor by default.
+    final steps = _steps();
+    final userns = steps.indexWhere((step) {
+      final run = _run(step);
+      return run != null &&
+          run.contains(
+            'sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0',
+          ) &&
+          run.contains('unshare --user --map-root-user --map-auto -- true');
+    });
+    expect(userns, greaterThanOrEqualTo(0));
+    expect(userns, lessThan(_indexOfRun(steps, 'mise run test:all')));
+  });
 }
