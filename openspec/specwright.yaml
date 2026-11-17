@@ -13,9 +13,9 @@ decision_making: autonomous
 # How a change finishes after archive:
 #   local - merge the feature branch into main with --no-ff, no push
 #   pr    - archive on the branch, push to the PR; GitHub merges
-# Owner, 2026-11-02: nothing is pushed until the owner says so (origin's push URL
-# is disabled). Switch to `pr` when the GitHub workflow is enabled.
-finish: local
+# Owner, 2026-11-15: GitHub is enabled. Every change reaches `main` through a PR
+# from its change branch; `main` requires the `Linux verification` check.
+finish: pr
 
 # Main branch. Omit to detect (main, else master).
 # main_branch: main
@@ -32,8 +32,8 @@ github:
     login: ""
     # true = post it again after each fix round the agent pushes, for
     # reviewers that only run when tagged (for example Codex). At most once
-    # per head.
-    after_fixes: false
+    # per head. Owner, 2026-11-15: true (Codex reviews only when tagged).
+    after_fixes: true
 
 review:
   # Design and pre-ship reviews prefer a reviewer CLI other than the harness
@@ -123,7 +123,15 @@ pr:
   #       marker: '<!-- bot-walkthrough -->'
   #       ignore: 'Reviewing this PR|Code review in progress'
   reviewers:
-    chatgpt-codex-connector: { role: required, request: "@codex review" }
+    # Only a finished Codex review of the current head counts: its result
+    # comment names the reviewed commit. Progress and status comments ("Codex
+    # Review Summary: Running") carry no such line, so they never report
+    # (PR #66 security review, 2026-11-17).
+    chatgpt-codex-connector:
+      role: required
+      request: "@codex review"
+      report:
+        sha_pattern: 'Reviewed commit:\*\* `([0-9a-f]{7,40})`'
   # Quiet window before a PR counts as ready (1m to 1h; default 5m).
   # settle: 5m
   # Account that posts the requests. Default: review_request.login, else
@@ -135,7 +143,9 @@ pr:
   # 0009). Agent mode needs a required reviewer in reviewers (store:
   # planning_store.reviewers), else it reports ready and merges nothing.
   # GitHub records the run login as the merger.
-  merge: user
+  # Owner, 2026-11-15: agent (after the required Codex review and a green
+  # `Linux verification` check).
+  merge: agent
   # Agent merge method: merge | squash | rebase. A method the repository
   # disallows is refused and reported; no other method is tried.
   merge_method: merge
