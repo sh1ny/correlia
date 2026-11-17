@@ -31,12 +31,15 @@ These instructions are shared by every harness (Claude Code, Codex, OMP). Keep t
   go-plugin-style handshake). See ADRs.
 - No Testcontainers: tests use the embedded Postgres.
 - **Platform: Linux first** (owner, 2026-11-03; ADR 0014). Windows is not a target: no Windows development
-  path, tooling or scripts. CI, once GitHub is enabled, runs on Linux first. Tasks must not assume WSL.
+  path, tooling or scripts. CI runs on Linux (`.github/workflows/ci.yml`, job `Linux verification`). Tasks
+  must not assume WSL.
 
 ## Rules
 
-- **Nothing is pushed.** `origin`'s push URL is disabled on purpose. Never re-enable it, push, or open a PR
-  unless the owner says so in this session.
+- **Every change reaches `main` through a pull request** (owner, 2026-11-15). Push only the change branch;
+  never push to `main` and never force-push. The `Linux verification` CI check and the required Codex review
+  (`@codex review`, requested as `sh1ny`) gate the merge, and the agent merges a ready PR
+  (`pr.merge: agent` in `openspec/specwright.yaml`).
 - **Legacy is reference, not source.** Read `legacy/python` with `git show legacy/python:<path>` or
   `git log legacy/python`. Never merge, cherry-pick or check it out over `main`. Port invariants, not code.
   Every defect listed in `docs/research/legacy-audit.md` section 6 needs an acceptance scenario showing
@@ -126,6 +129,6 @@ directly from `.claude/skills/<name>/SKILL.md`.
   `.agents/skills/`) starts OMP with `--tools read,grep,glob`; upstream passes `read,grep,find,glob`, and
   OMP 18.18+ has no `find` tool, so the OMP review route exits 2 before reviewing. **Every Specwright update
   overwrites this; re-apply it after each update** until upstream fixes it.
-- `finish: local` while nothing is pushed. Switch to `pr` when the owner enables GitHub.
+- `finish: pr` since the owner enabled GitHub (2026-11-15): archive on the change branch, then the PR merges.
 - Vendored Dart/Flutter/Serverpod skills: provenance in `.claude/skills/UPSTREAM.json`. Same copies in
   `.agents/skills/` for Codex.

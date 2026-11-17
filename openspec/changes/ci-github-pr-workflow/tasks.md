@@ -49,7 +49,7 @@ runner. It is a fast-tier test (the `tool` package, run by `mise run check`).
 
 ## 2. PR workflow settings and documents
 
-- [ ] 2.1 `openspec/specwright.yaml`:
+- [x] 2.1 `openspec/specwright.yaml`:
   - `finish: pr`;
   - `pr.merge: agent`;
   - `github.review_request.after_fixes: true`;
@@ -57,14 +57,14 @@ runner. It is a fast-tier test (the `tool` package, run by `mise run check`).
 
   Verify with `bash .claude/skills/specwright-pr/scripts/pr-pair.sh context --code "$PWD"`: it reports
   `merge: agent` with no `bad_setting` or `settings_problem`.
-- [ ] 2.2 `AGENTS.md`:
+- [x] 2.2 `AGENTS.md`:
   - replace the "Nothing is pushed" rule with the PR workflow rule: every change reaches `main` through a PR
     from a change branch; never push to `main` or force-push; `Linux verification` and the required Codex
     review gate the merge; the agent merges ready PRs (`pr.merge: agent`);
   - replace the `finish: local` Specwright note with `finish: pr`.
 
   Verify with `grep -n 'Nothing is pushed\|finish: local' AGENTS.md`: no match.
-- [ ] 2.3 `docs/plan/open-decisions.md` D17: record the owner's answer (2026-11-15: GitHub enabled, every change
+- [x] 2.3 `docs/plan/open-decisions.md` D17: record the owner's answer (2026-11-15: GitHub enabled, every change
   through a PR, agent merge, CI on Linux via `Linux verification`). Verify by reading the row.
 
 ## 3. Verification
