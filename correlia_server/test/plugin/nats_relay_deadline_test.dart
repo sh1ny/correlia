@@ -16,6 +16,7 @@ import 'package:test/test.dart';
 import '../integration/test_tools/serverpod_test_tools.dart';
 import '../support/ingest_schema.dart';
 import '../support/jetstream_inspector.dart';
+import '../support/secret_fixture.dart';
 import '../unit/event/fixture.dart';
 import 'support/natsdev.dart';
 
@@ -77,7 +78,7 @@ void main() {
           final permit = source.acquire()!;
           final repository = OutputRelayRepository(
             session,
-            (_) => null,
+            noSigningKey,
             beforeClaimCommit: () async {
               elapsed += const Duration(seconds: 4);
             },
@@ -120,7 +121,7 @@ void main() {
             "UPDATE outbox SET next_attempt_at=clock_timestamp()-interval '1 second'",
           );
           final retryPermit = source.acquire()!;
-          final retry = (await OutputRelayRepository(session, (_) => null)
+          final retry = (await OutputRelayRepository(session, noSigningKey)
               .claim(
                 _output,
                 limit: 64,
@@ -137,7 +138,7 @@ void main() {
           expect(
             await OutputRelayRepository(
               session,
-              (_) => null,
+              noSigningKey,
             ).completeBatch(retry, [const DeliveryAcknowledged()]),
             isTrue,
           );

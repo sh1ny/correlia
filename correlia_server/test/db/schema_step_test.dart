@@ -221,6 +221,44 @@ void main() {
     testGroupTagsOverride: ['db'],
   );
   withServerpod(
+    'Populated M1 source registry',
+    (sessionBuilder, _) {
+      test('source credentials migration preserves registered UUIDs', () async {
+        final session = sessionBuilder.build();
+        // Reconstruct the previous managed baseline in this group's database.
+        await session.db.unsafeSimpleExecute('''
+DROP TABLE ingest_source_credential, secret_record;
+ALTER TABLE ingest_source DROP COLUMN "kind";
+ALTER TABLE ingest_source ADD COLUMN "tokenDigest" text NOT NULL;
+UPDATE serverpod_migrations SET version = '20261112105628203-plugin-configure-diagnostics'
+  WHERE module = 'correlia';
+INSERT INTO ingest_source ("sourceId", enabled, "allowPathToken", "tokenDigest")
+VALUES ('11111111-1111-4111-8111-111111111111', true, false, repeat('a', 64)),
+       ('22222222-2222-4222-8222-222222222222', false, true, repeat('b', 64));
+''');
+        await session.db.unsafeSimpleExecute(
+          await File(
+            'migrations/20261118163655466-source-secrets/migration.sql',
+          ).readAsString(),
+        );
+        final rows = await session.db.unsafeQuery('''
+SELECT "sourceId"::text, kind, enabled, "allowPathToken"
+FROM ingest_source ORDER BY "sourceId"
+''');
+        expect(rows.map((row) => row.toList()), [
+          ['11111111-1111-4111-8111-111111111111', 'alertmanager', true, false],
+          ['22222222-2222-4222-8222-222222222222', 'alertmanager', false, true],
+        ]);
+        final credentials = await session.db.unsafeQuery(
+          'SELECT 1 FROM ingest_source_credential',
+        );
+        expect(credentials, isEmpty);
+      });
+    },
+    rollbackDatabase: RollbackDatabase.disabled,
+    testGroupTagsOverride: ['db'],
+  );
+  withServerpod(
     'Populated previous release',
     (sessionBuilder, _) {
       test('fresh_and_populated_schema_paths upgrade', () async {

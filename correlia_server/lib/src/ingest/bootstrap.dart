@@ -180,6 +180,13 @@ final class IngestBootstrap {
   final int revision;
   final List<IngestSource> sources;
   final List<IngestOutput> outputs;
+
+  IngestBootstrap._runtime(this.revision, this.sources, this.outputs)
+    : _secrets = const {};
+
+  /// Returns the validated configuration without its publication material.
+  IngestBootstrap withoutImport() =>
+      IngestBootstrap._runtime(revision, sources, outputs);
   final Map<String, Uint8List> _secrets;
 
   /// The loaded reference names; values never enter persisted configuration.
@@ -206,6 +213,19 @@ final class IngestBootstrap {
     Object? secretInput, {
     required String runMode,
   }) {
+    return parseResolved(
+      config,
+      decodeBootstrapSecrets(secretInput),
+      runMode: runMode,
+    );
+  }
+
+  /// Parses a publication using material already decoded or read from the store.
+  static IngestBootstrap parseResolved(
+    Object? config,
+    Map<String, Uint8List> secrets, {
+    required String runMode,
+  }) {
     try {
       final root = _map(config, 'config', r'$');
       _keys(
@@ -218,17 +238,7 @@ final class IngestBootstrap {
         _bad('config', 'format_version', 'version');
       }
       final revision = _integer(root['revision'], 1, 2147483647, 'revision');
-      final secretMap = _map(secretInput, 'secrets', r'$');
-      if (secretMap.length > 128) _bad('secrets', r'$', 'bound');
-      final secrets = <String, Uint8List>{};
-      var totalBytes = 0;
-      for (final MapEntry(:key, :value) in secretMap.entries) {
-        if (!_reference.hasMatch(key)) _bad('secrets', r'$', 'reference');
-        final bytes = _decodeSecret(value);
-        totalBytes += bytes.length;
-        if (totalBytes > 256 * 1024) _bad('secrets', r'$', 'bound');
-        secrets[key] = bytes;
-      }
+
       final outputs = <IngestOutput>[];
       final outputIds = <String>{};
       for (final (index, value) in _list(
@@ -412,15 +422,29 @@ final class IngestBootstrap {
     Map<String, String> environment, {
     required String runMode,
     bool requirePluginDirectory = true,
+    Future<IngestBootstrap> Function(Object? config, Object? secrets)? publish,
   }) async {
     final configPath = environment['CORRELIA_INGEST_CONFIG'];
     final secretPath = environment['CORRELIA_INGEST_SECRETS'];
     if (configPath == null && secretPath == null) return null;
-    if (configPath == null || secretPath == null) {
+    if (configPath == null) {
       throw const BootstrapError('config', r'$', 'paired_files_required');
     }
     final config = await _readFile(configPath, 'config');
-    final secrets = await _readFile(secretPath, 'secrets');
+    final secrets = secretPath == null
+        ? <String, Object?>{}
+        : await _readFile(secretPath, 'secrets');
+    if (publish != null) {
+      final outputs = config is Map<String, Object?> ? config['outputs'] : null;
+      if (requirePluginDirectory &&
+          outputs is List<Object?> &&
+          outputs.any(
+            (o) => o is Map<String, Object?> && o['kind'] == 'plugin',
+          )) {
+        await _validatePluginDirectory(environment['CORRELIA_PLUGIN_DIR']);
+      }
+      return publish(config, secrets);
+    }
     final input = parse(config, secrets, runMode: runMode);
     if (requirePluginDirectory &&
         input.outputs.any((o) => o is PluginIngestOutput)) {
@@ -428,6 +452,22 @@ final class IngestBootstrap {
     }
     return input;
   }
+}
+
+/// Decodes the bounded import file without exposing its values in errors.
+Map<String, Uint8List> decodeBootstrapSecrets(Object? input) {
+  final entries = _map(input, 'secrets', r'$');
+  if (entries.length > 128) _bad('secrets', r'$', 'bound');
+  final secrets = <String, Uint8List>{};
+  var total = 0;
+  for (final MapEntry(:key, :value) in entries.entries) {
+    if (!_reference.hasMatch(key)) _bad('secrets', r'$', 'reference');
+    final bytes = _decodeSecret(value);
+    total += bytes.length;
+    if (total > 256 * 1024) _bad('secrets', r'$', 'bound');
+    secrets[key] = bytes;
+  }
+  return secrets;
 }
 
 final _reference = RegExp(r'^[A-Za-z0-9_.-]{1,128}$');

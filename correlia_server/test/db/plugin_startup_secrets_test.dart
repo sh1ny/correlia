@@ -5,6 +5,7 @@ import 'package:test/test.dart';
 
 import '../integration/test_tools/serverpod_test_tools.dart';
 import '../support/ingest_schema.dart';
+import '../support/secret_fixture.dart';
 import 'ingest_config_test.dart' as fixture;
 
 Future<void> addIntent(
@@ -73,24 +74,35 @@ void main() {
           'ingest_source',
           'ingest_config_snapshot',
           'ingest_secret_commitment',
+          'secret_record',
+          'ingest_source_credential',
         ]) {
           await session.db.unsafeSimpleExecute('DELETE FROM "$table"');
         }
       });
       test('restart_with_pending_unauthenticated_plugin_work', () async {
         final session = builder.build();
-        final repository = IngestConfigRepository(session);
+        final repository = IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        );
         final current = unauthenticatedPlugin();
         await repository.publish(current);
         await addIntent(session, current.snapshotId, 'plugin', 'queued');
         await addIntent(session, current.snapshotId, 'plugin', 'delivering');
-        await repository.validateLiveSecrets(current);
+        await repository.validateLiveSecrets();
       });
       test('mixed_live_work_missing_plugin_secret', () async {
         final session = builder.build();
-        final repository = IngestConfigRepository(session);
+        final repository = IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        );
         final historical = fixture.pluginInput(1);
         await repository.publish(historical);
+        await session.db.unsafeSimpleExecute(
+          "DELETE FROM secret_record WHERE reference='plugin-token'",
+        );
         await addIntent(session, historical.snapshotId, 'plugin', 'queued');
         final current = fixture.input(2);
         final webhook = current.outputs.single as WebhookIngestOutput;
@@ -102,11 +114,14 @@ void main() {
           commitment: webhook.signingKeyCommitment,
         );
         await repository.publish(current);
-        await repository.validateLiveSecrets(current);
+        await repository.validateLiveSecrets();
       });
       test('missing_webhook_key_fails_startup', () async {
         final session = builder.build();
-        final repository = IngestConfigRepository(session);
+        final repository = IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        );
         final current = fixture.input(1);
         await repository.publish(current);
         final webhook = current.outputs.single as WebhookIngestOutput;
@@ -117,10 +132,11 @@ void main() {
           'queued',
           commitment: webhook.signingKeyCommitment,
         );
+        await session.db.unsafeSimpleExecute(
+          "DELETE FROM secret_record WHERE reference='key-v1'",
+        );
         await expectLater(
-          repository.validateLiveSecrets(
-            fixture.input(2, keyRef: 'other', key: 3),
-          ),
+          repository.validateLiveSecrets(),
           throwsA(
             isA<BootstrapError>().having(
               (e) => e.code,

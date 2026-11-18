@@ -9,25 +9,25 @@ Test paths are relative to `correlia_server/`. Tiers follow AGENTS.md: `test/uni
 |---|---|---|---|---|
 | secret-store → External key-encryption key | Key file accepted | `test/e2e/secret_store_e2e_test.dart` | `key_file_accepted` | red |
 | secret-store → External key-encryption key | Key file rejected | `test/unit/secrets/key_file_test.dart` | `key_file_rejected` | green |
-| secret-store → Encrypted secret records | Import seals secrets | `test/db/secret_store_test.dart` | `import_seals_secrets` | red |
-| secret-store → Encrypted secret records | Rebinding refused | `test/db/secret_store_test.dart` | `rebinding_refused` | red |
-| secret-store → Encrypted secret records | Tampered or moved record | `test/db/secret_store_test.dart` | `tampered_or_moved_record` | red |
+| secret-store → Encrypted secret records | Import seals secrets | `test/db/secret_store_test.dart` | `import_seals_secrets` | green |
+| secret-store → Encrypted secret records | Rebinding refused | `test/db/secret_store_test.dart` | `rebinding_refused` | green |
+| secret-store → Encrypted secret records | Tampered or moved record | `test/db/secret_store_test.dart` | `tampered_or_moved_record` | green |
 | secret-store → Resolution from the store | Secret file not needed after import | `test/e2e/secret_store_e2e_test.dart` | `secret_file_not_needed_after_import` | red |
-| secret-store → Resolution from the store | Fileless worker delivers both outputs | `test/plugin/fileless_worker_test.dart` | `fileless_worker_delivers_both_outputs` | red |
-| secret-store → Resolution from the store | New reference without secret file | `test/db/secret_store_test.dart` | `new_reference_without_secret_file` | red |
+| secret-store → Resolution from the store | Fileless worker delivers both outputs | `test/plugin/fileless_worker_test.dart` | `fileless_worker_delivers_both_outputs` | green |
+| secret-store → Resolution from the store | New reference without secret file | `test/db/secret_store_test.dart` | `new_reference_without_secret_file` | green |
 | secret-store → Resolution from the store | M1 plugin work drains after upgrade | `test/plugin/secret_upgrade_test.dart` | `m1_plugin_work_drains_after_upgrade` | red |
 | output-delivery → Kind-aware startup validation | M1 work with historical secret references drains after upgrade | `test/plugin/secret_upgrade_test.dart` | `m1_plugin_work_drains_after_upgrade` | red |
-| output-delivery → Kind-aware startup validation | Missing webhook key still fails startup | `test/db/plugin_startup_secrets_test.dart` | `missing_webhook_key_fails_startup` | red |
-| output-delivery → Kind-aware startup validation | Mixed live work with a missing plugin secret | `test/db/plugin_startup_secrets_test.dart` | `mixed_live_work_missing_plugin_secret` | red |
-| output-delivery → Signing key availability before acquisition | Loaded historical signing reference | `test/db/output_relay_test.dart` | `loaded_historical_signing_reference` | red |
-| output-delivery → Signing key availability before acquisition | Unloaded live signing reference | `test/db/output_relay_test.dart` | `unloaded_live_signing_reference` | red |
-| output-delivery → Signing key availability before acquisition | Unverifiable pinned signing commitment | `test/db/output_relay_test.dart` | `unverifiable_pinned_signing_commitment` | red |
-| secret-store → Resolution from the store | Historical outputs drain after a revision change | `test/plugin/fileless_worker_test.dart` | `historical_outputs_drain_after_a_revision_change` | red |
+| output-delivery → Kind-aware startup validation | Missing webhook key still fails startup | `test/db/plugin_startup_secrets_test.dart` | `missing_webhook_key_fails_startup` | green |
+| output-delivery → Kind-aware startup validation | Mixed live work with a missing plugin secret | `test/db/plugin_startup_secrets_test.dart` | `mixed_live_work_missing_plugin_secret` | green |
+| output-delivery → Signing key availability before acquisition | Loaded historical signing reference | `test/db/output_relay_test.dart` | `loaded_historical_signing_reference` | green |
+| output-delivery → Signing key availability before acquisition | Unloaded live signing reference | `test/db/output_relay_test.dart` | `unloaded_live_signing_reference` | green |
+| output-delivery → Signing key availability before acquisition | Unverifiable pinned signing commitment | `test/db/output_relay_test.dart` | `unverifiable_pinned_signing_commitment` | green |
+| secret-store → Resolution from the store | Historical outputs drain after a revision change | `test/plugin/fileless_worker_test.dart` | `historical_outputs_drain_after_a_revision_change` | green |
 | secret-store → Resolution from the store | Plugin and webhook share a stored reference | `test/plugin/secret_upgrade_test.dart` | `plugin_and_webhook_share_a_stored_reference` | red |
-| secret-store → Resolution from the store | More stored references than a process caches | `test/db/secret_store_test.dart` | `more_stored_references_than_a_process_caches` | red |
-| secret-store → Resolution from the store | Wrong key after restore | `test/db/secret_store_test.dart` | `wrong_key_after_restore` | red |
+| secret-store → Resolution from the store | More stored references than a process caches | `test/db/secret_store_test.dart` | `more_stored_references_than_a_process_caches` | green |
+| secret-store → Resolution from the store | Wrong key after restore | `test/db/secret_store_test.dart` | `wrong_key_after_restore` | green |
 | secret-store → Secret bytes never leave their consumer | SEC-3 plugin config secret | `test/e2e/secret_store_e2e_test.dart` | `sec_3_plugin_config_secret` | red |
-| secret-store → Secret bytes never leave their consumer | Decryption failure stays sanitized | `test/db/secret_store_test.dart` | `decryption_failure_stays_sanitized` | red |
+| secret-store → Secret bytes never leave their consumer | Decryption failure stays sanitized | `test/db/secret_store_test.dart` | `decryption_failure_stays_sanitized` | green |
 | source-ingress → Source scoped authentication | Authenticated source delivery | `test/e2e/ingress_e2e_test.dart` | `authenticated_source_delivery` (existing; re-run) | green |
 | source-ingress → Source scoped authentication | SEC-1 another source token | `test/e2e/ingress_e2e_test.dart` | `sec_1_another_source_token` (existing; re-run) | green |
 | source-ingress → Source scoped authentication | Route kind mismatch | `test/db/ingress_credentials_test.dart` | `route_kind_mismatch` | red |
@@ -90,18 +90,18 @@ Skills: `dart-use-pattern-matching`, `dart-write-documentation`, `dart-run-stati
 
 Skills: `serverpod-models`, `serverpod-database`, `serverpod-migrations`, `serverpod-testing`, plus group 2's.
 
-- [ ] 3.1 Write failing `test/db/secret_store_test.dart` with `import_seals_secrets`, `rebinding_refused`,
+- [x] 3.1 Write failing `test/db/secret_store_test.dart` with `import_seals_secrets`, `rebinding_refused`,
   `tampered_or_moved_record`, `new_reference_without_secret_file`, `wrong_key_after_restore`,
   `more_stored_references_than_a_process_caches` (cache bound injected as 4, more than 4 references across
   successive publications, every one resolves) and `decryption_failure_stays_sanitized` (captured log lines
   contain only reference and code). Run `mise run test -- --tags db test/db/secret_store_test.dart`: they fail.
-- [ ] 3.2 Add the managed models `secret_record` (D2) and `ingest_source_credential` (D6) and the
+- [x] 3.2 Add the managed models `secret_record` (D2) and `ingest_source_credential` (D6) and the
   non-null `ingest_source.kind` (`String, default='alertmanager'`). Generate code and one managed migration
   with the deliberate destructive drop of `ingest_source.tokenDigest`; inspect and remove unrelated
   operations on SQL-owned tables per `docs/ingest-pipeline.md`. Verify: the `mise run check` generated-code
   step and `test/db/schema_step_test.dart` pass; apply the migration to a populated M1 database and assert
   the old source rows retain their UUIDs and have `kind=alertmanager`.
-- [ ] 3.3 Implement the store and the `SecretResolver` LRU (1024 entries / 16 MiB, store fallback through the
+- [x] 3.3 Implement the store and the `SecretResolver` LRU (1024 entries / 16 MiB, store fallback through the
   four-lookup gate, 5 s read timeout) and change `IngestConfigRepository.publish` to import unstored
   references under the advisory lock, including file entries pinned by live webhook intents or plugin
   definitions absent from the new config. Verify pinned commitments by scheme, detect rebinding by

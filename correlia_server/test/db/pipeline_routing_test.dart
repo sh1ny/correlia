@@ -1,3 +1,5 @@
+import '../support/secret_fixture.dart';
+
 import 'package:correlia_server/src/ingest/bootstrap.dart';
 import 'package:correlia_server/src/ingest/config_repository.dart';
 import 'package:correlia_server/src/pipeline/pipeline.dart';
@@ -62,13 +64,18 @@ void main() {
           'ingest_source',
           'ingest_config_snapshot',
           'ingest_secret_commitment',
+          'secret_record',
+          'ingest_source_credential',
         ]) {
           await session.db.unsafeSimpleExecute('DELETE FROM "$table"');
         }
       });
       test('fanout_with_configuration_change', () async {
         final session = builder.build();
-        final repository = IngestConfigRepository(session);
+        final repository = IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        );
         final first = config(1);
         await repository.publish(first);
         await support.seed(session, [
@@ -121,7 +128,10 @@ void main() {
           {'source-token': fixture.token(1), 'key': fixture.token(2)},
           runMode: 'test',
         );
-        await IngestConfigRepository(session).publish(input);
+        await IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        ).publish(input);
         final labels = {for (var i = 0; i < 60; i++) 'key$i': 'x' * 900};
         await support.seed(session, [
           for (var i = 0; i < 18; i++)
@@ -151,7 +161,10 @@ void main() {
       });
       test('explicitly_unrouted_event', () async {
         final session = builder.build();
-        await IngestConfigRepository(session).publish(config(1, routed: false));
+        await IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        ).publish(config(1, routed: false));
         await support.seed(session, [
           payload.alert(startsAt: '2026-11-10T12:00:00Z'),
         ]);

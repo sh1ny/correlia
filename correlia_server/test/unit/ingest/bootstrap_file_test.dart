@@ -30,8 +30,14 @@ void main() {
   });
   tearDown(() => root.delete(recursive: true));
 
-  test('requires paired files without reflecting paths', () async {
+  test('accepts config-only input and never reflects paths', () async {
     expect(await IngestBootstrap.load({}, runMode: 'test'), isNull);
+    expect(
+      (await IngestBootstrap.load({
+        'CORRELIA_INGEST_CONFIG': config.path,
+      }, runMode: 'test'))!.revision,
+      1,
+    );
     await expectLater(
       IngestBootstrap.load({
         'CORRELIA_INGEST_CONFIG': '/canary-secret-path',

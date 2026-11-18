@@ -1,3 +1,5 @@
+import '../support/secret_fixture.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -80,7 +82,10 @@ void main() {
       test('pinned_generations_beyond_one_page', () async {
         final session = builder.build();
         await initializeIngestSchema(session);
-        final config = IngestConfigRepository(session);
+        final config = IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        );
         final first = snapshot(1);
         final second = snapshot(2);
         await config.publish(first);

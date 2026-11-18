@@ -46,11 +46,12 @@ final class IngestWorkers extends Subsystem {
     final bootstrap = startup.bootstrap;
     // Unconfigured workspaces intentionally have no polling loops.
     if (bootstrap == null) return;
+    final resolver = startup.resolver!;
     final pin = gates.pipelinePin;
     final acquire = gates.relayAcquire;
     final supervisor = PluginSupervisor(
       openSession: () => pod.createSession(enableLogging: false),
-      bootstrap: bootstrap,
+      resolveSecret: resolver.resolve,
       pluginDirectory: startup.environment['CORRELIA_PLUGIN_DIR'] ?? '',
       hostInstanceId: const Uuid().v4(),
       beforeLaunch: gates.pluginLaunch?.beforeLaunch,
@@ -65,7 +66,7 @@ final class IngestWorkers extends Subsystem {
     );
     final relay = RelaySubsystem(
       pod: pod,
-      bootstrap: bootstrap,
+      resolveKey: resolver.resolve,
       runMode: runMode,
       pluginRouter: supervisor,
       beforeAcquire: acquire == null

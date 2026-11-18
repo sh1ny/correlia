@@ -36,6 +36,7 @@ final class IngestAdmission {
   /// Stores a delivery or returns its existing reservation's outcome.
   Future<AdmissionOutcome> admit({
     required String sourceId,
+    required String credentialReference,
     required String tokenDigest,
     required bool pathToken,
     required Uint8List body,
@@ -63,15 +64,31 @@ final class IngestAdmission {
         transaction: tx,
       );
       final sources = await session.db.unsafeQuery(
-        'SELECT "tokenDigest", enabled, "allowPathToken" FROM ingest_source WHERE "sourceId"=CAST(@source AS uuid) FOR SHARE',
+        'SELECT enabled, "allowPathToken" FROM ingest_source WHERE "sourceId"=CAST(@source AS uuid) FOR SHARE',
         parameters: QueryParameters.named({'source': sourceId}),
         transaction: tx,
         timeoutInSeconds: 5,
       );
       if (sources.isEmpty ||
-          sources.single[1] != true ||
-          (pathToken && sources.single[2] != true) ||
-          !constantTimeDigestEquals(sources.single[0] as String, tokenDigest)) {
+          sources.single[0] != true ||
+          (pathToken && sources.single[1] != true)) {
+        return AdmissionOutcome.unauthorized;
+      }
+      final credentials = await session.db.unsafeQuery(
+        '''SELECT digest FROM ingest_source_credential
+        WHERE "sourceId"=CAST(@source AS uuid) AND reference=@reference AND type='bearer' ''',
+        parameters: QueryParameters.named({
+          'source': sourceId,
+          'reference': credentialReference,
+        }),
+        transaction: tx,
+        timeoutInSeconds: 5,
+      );
+      if (credentials.isEmpty ||
+          !constantTimeDigestEquals(
+            credentials.single[0]! as String,
+            tokenDigest,
+          )) {
         return AdmissionOutcome.unauthorized;
       }
       final params = QueryParameters.named({

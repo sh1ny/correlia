@@ -1,3 +1,5 @@
+import '../support/secret_fixture.dart';
+
 import 'dart:async';
 import 'dart:io';
 
@@ -90,7 +92,10 @@ void main() {
         final session = builder.build();
         await initializeIngestSchema(session);
         final bootstrap = _input();
-        final repository = IngestConfigRepository(session);
+        final repository = IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        );
         await repository.publish(bootstrap);
         final pod = session.serverpod;
         final logs = <String>[];

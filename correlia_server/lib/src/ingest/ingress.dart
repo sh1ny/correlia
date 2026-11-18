@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:collection';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -8,6 +7,7 @@ import 'package:serverpod/serverpod.dart';
 
 import '../runtime/process_options.dart';
 import '../runtime/subsystem.dart';
+import '../secrets/secret_store.dart';
 import 'admission.dart';
 import 'bootstrap.dart';
 
@@ -73,7 +73,9 @@ final class IngressSubsystem extends Subsystem {
     required this.ready,
     required this.log,
     IngressCounters? counters,
-  }) : counters = counters ?? IngressCounters();
+    SecretLookupGate? lookupGate,
+  }) : counters = counters ?? IngressCounters(),
+       _lookupGate = lookupGate ?? SecretLookupGate();
 
   final Serverpod pod;
   final IngestBootstrap? Function() bootstrap;
@@ -82,32 +84,7 @@ final class IngressSubsystem extends Subsystem {
   final IngressCounters counters;
   bool _ready = false;
   int _inflight = 0;
-  int _authLookups = 0;
-  final Queue<Completer<void>> _authWaiters = Queue();
-
-  Future<T> _lookup<T>(Future<T> Function() operation) async {
-    if (_authLookups >= 4) {
-      final waiter = Completer<void>();
-      _authWaiters.addLast(waiter);
-      try {
-        await waiter.future.timeout(const Duration(seconds: 5));
-      } catch (_) {
-        _authWaiters.remove(waiter);
-        rethrow;
-      }
-    } else {
-      _authLookups++;
-    }
-    try {
-      return await operation();
-    } finally {
-      if (_authWaiters.isEmpty) {
-        _authLookups--;
-      } else {
-        _authWaiters.removeFirst().complete();
-      }
-    }
-  }
+  final SecretLookupGate _lookupGate;
 
   /// The number of requests occupying an admission slot.
   int get inFlight => _inflight;
@@ -219,11 +196,15 @@ final class _IngressRoute extends Route {
         } else {
           final digest = sha256.convert(decoded).toString();
           session = await owner.pod.createSession(enableLogging: false);
-          final rows = await owner._lookup(
+          final rows = await owner._lookupGate.run(
             () => session!.db.unsafeQuery(
-              '''SELECT s."tokenDigest",s.enabled,s."allowPathToken",c."publicJson",c.revision
+              '''SELECT credential.digest,s.enabled,s."allowPathToken",c."publicJson",c.revision,
+              credential.reference
             FROM ingest_active_config a JOIN ingest_config_snapshot c ON c."snapshotId"=a."snapshotId"
-            LEFT JOIN ingest_source s ON s."sourceId"=CAST(@source AS uuid) WHERE a.singleton=1''',
+            LEFT JOIN ingest_source s ON s."sourceId"=CAST(@source AS uuid)
+            LEFT JOIN ingest_source_credential credential
+              ON credential."sourceId"=s."sourceId" AND credential.type='bearer'
+            WHERE a.singleton=1''',
               parameters: QueryParameters.named({'source': source}),
               timeoutInSeconds: 5,
             ),
@@ -241,6 +222,7 @@ final class _IngressRoute extends Route {
           if (rows.isEmpty ||
               rows.single[1] != true ||
               (pathToken && rows.single[2] != true) ||
+              rows.single[0] is! String ||
               !constantTimeDigestEquals(rows.single[0]! as String, digest)) {
             status = 401;
           } else {
@@ -295,6 +277,7 @@ final class _IngressRoute extends Route {
                 } else {
                   outcome = await IngestAdmission(session).admit(
                     sourceId: source,
+                    credentialReference: rows.single[5]! as String,
                     tokenDigest: digest,
                     pathToken: pathToken,
                     body: bytes.takeBytes(),

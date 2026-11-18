@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:crypto/crypto.dart';
 import 'package:meta/meta.dart';
 import 'package:serverpod/serverpod.dart';
 
@@ -9,6 +8,7 @@ import '../ingest/bootstrap.dart';
 import '../output/delivery_permit.dart';
 import '../output/output_relay.dart';
 import '../output/plugin_output_router.dart';
+import '../secrets/secret_store.dart';
 import 'output_plugin_connection.dart';
 import 'plugin_admission_repository.dart';
 import 'plugin_executable.dart';
@@ -41,7 +41,7 @@ final class _Instance {
 final class PluginSupervisor implements PluginOutputRouter {
   PluginSupervisor({
     required this.openSession,
-    required this.bootstrap,
+    required this.resolveSecret,
     required this.pluginDirectory,
     required this.hostInstanceId,
     required this.log,
@@ -59,7 +59,7 @@ final class PluginSupervisor implements PluginOutputRouter {
   }
 
   final Future<Session> Function() openSession;
-  final IngestBootstrap bootstrap;
+  final SigningKeyResolver resolveSecret;
   final String pluginDirectory;
   final String hostInstanceId;
   final void Function(String) log;
@@ -336,13 +336,15 @@ final class PluginSupervisor implements PluginOutputRouter {
       final references = (definition['secret_refs'] as Map<String, Object?>);
       final secrets = <String, List<int>>{};
       for (final entry in references.entries) {
-        final reference = entry.value as Map<String, Object?>;
-        final bytes = bootstrap.secret(reference['reference'] as String);
-        if (bytes == null ||
-            sha256.convert(bytes).toString() != reference['commitment']) {
+        final reference = entry.value! as Map<String, Object?>;
+        try {
+          secrets[entry.key] = await resolveSecret(
+            reference['reference']! as String,
+            reference['commitment']! as String,
+          );
+        } on SecretResolutionError {
           throw const OutputPluginException('plugin_secret_unavailable');
         }
-        secrets[entry.key] = bytes;
       }
       if (_stopped.isCompleted || instance.stopping) return;
       final startWatch = Stopwatch()..start();

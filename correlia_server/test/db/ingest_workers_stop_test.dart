@@ -1,3 +1,5 @@
+import '../support/secret_fixture.dart';
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -63,13 +65,19 @@ void main() {
             },
             runMode: 'test',
           );
-          await IngestConfigRepository(session).publish(bootstrap);
-          final startup = IngestStartup(
-            pod: session.serverpod,
-            role: ProcessRole.worker,
-            runMode: 'test',
-            environment: const {},
-          )..bootstrap = bootstrap;
+          await IngestConfigRepository(
+            session,
+            secretStore: testSecretStore,
+          ).publish(bootstrap);
+          final startup =
+              IngestStartup(
+                  pod: session.serverpod,
+                  role: ProcessRole.worker,
+                  runMode: 'test',
+                  environment: const {},
+                )
+                ..bootstrap = bootstrap
+                ..resolver = testSecretResolver(session);
           final calls = <String, int>{};
           final entered = Completer<void>();
           final release = Completer<void>();

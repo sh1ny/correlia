@@ -1,8 +1,10 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
-import 'package:crypto/crypto.dart';
 import 'package:serverpod/serverpod.dart';
 
+import '../secrets/commitments.dart';
+import '../secrets/secret_store.dart';
 import 'bootstrap.dart';
 
 /// A rejected activation containing only public snapshot identities and revisions.
@@ -24,8 +26,15 @@ final class SnapshotActivationError implements Exception {
 
 /// Publishes immutable snapshots and current admission credentials atomically.
 final class IngestConfigRepository {
-  const IngestConfigRepository(this.session);
+  const IngestConfigRepository(this.session, {this.secretStore});
   final Session session;
+
+  /// The publication store; read-only snapshot users do not need one.
+  final SecretStore? secretStore;
+
+  SecretStore get _store =>
+      secretStore ??
+      (throw StateError('Publication requires an external secret key'));
 
   /// Returns the active public snapshot, if ingest has ever been configured.
   Future<Map<String, Object?>?> activeSnapshot({
@@ -41,13 +50,53 @@ final class IngestConfigRepository {
     return rows.isEmpty ? null : rows.single.toColumnMap();
   }
 
-  /// Atomically activates only a new higher revision, or accepts an identical restart.
+  /// Resolves configuration material and publishes it in one transaction.
+  Future<IngestBootstrap> publishConfig(
+    Object? config,
+    Object? secretInput, {
+    required String runMode,
+    bool requireLiveSecrets = true,
+  }) async {
+    final imported = decodeBootstrapSecrets(secretInput);
+    return _publish(
+      (tx) async {
+        final material = Map<String, Uint8List>.of(imported);
+        final store = _store;
+        for (final reference in _configReferences(config)) {
+          if (material.containsKey(reference)) continue;
+          final bytes = await store.read(session, reference, transaction: tx);
+          if (bytes != null) material[reference] = bytes;
+        }
+        return IngestBootstrap.parseResolved(
+          config,
+          material,
+          runMode: runMode,
+        );
+      },
+      imported,
+      requireLiveSecrets: requireLiveSecrets,
+    );
+  }
+
+  /// Atomically activates validated input or accepts an identical restart.
   Future<void> publish(
     IngestBootstrap input, {
     bool requireLiveSecrets = true,
   }) async {
+    await _publish(
+      (_) async => input,
+      {for (final ref in input.loadedReferences) ref: input.secret(ref)!},
+      requireLiveSecrets: requireLiveSecrets,
+    );
+  }
+
+  Future<IngestBootstrap> _publish(
+    Future<IngestBootstrap> Function(Transaction) prepare,
+    Map<String, Uint8List> imported, {
+    required bool requireLiveSecrets,
+  }) async {
     try {
-      await session.db.transaction((transaction) async {
+      return await session.db.transaction((transaction) async {
         await session.db.unsafeQuery(
           'SELECT pg_advisory_xact_lock(1129271884)',
           transaction: transaction,
@@ -61,6 +110,8 @@ final class IngestConfigRepository {
           "SET LOCAL lock_timeout = '5s'",
           transaction: transaction,
         );
+        await _store.checkKey(session, transaction);
+        final input = await prepare(transaction);
         final active = await activeSnapshot(transaction: transaction);
         if (active != null && active['snapshotId'] != input.snapshotId) {
           final stored = await session.db.unsafeQuery(
@@ -78,9 +129,10 @@ final class IngestConfigRepository {
             );
           }
         }
-        await _validateCommitments(input, transaction);
+        await _validateCommitments(imported, transaction);
+        await _importSecrets(input, imported, transaction);
         if (requireLiveSecrets) {
-          await validateLiveSecrets(input, transaction: transaction);
+          await validateLiveSecrets(transaction: transaction);
         }
         final retained = await session.db.unsafeQuery(
           "SELECT DISTINCT output_id::text FROM outbox WHERE status IN ('queued','delivering')",
@@ -97,7 +149,7 @@ final class IngestConfigRepository {
             'retained_output_bound',
           );
         }
-        if (active?['snapshotId'] == input.snapshotId) return;
+        if (active?['snapshotId'] == input.snapshotId) return input;
         await session.db.unsafeExecute(
           'INSERT INTO ingest_config_snapshot ("snapshotId",revision,"publicJson") VALUES (@id,@revision,@json)',
           parameters: QueryParameters.named({
@@ -124,16 +176,29 @@ final class IngestConfigRepository {
           'UPDATE ingest_source SET enabled=false',
           transaction: transaction,
         );
+        await session.db.unsafeExecute(
+          'DELETE FROM ingest_source_credential',
+          transaction: transaction,
+        );
         for (final source in input.sources) {
           await session.db.unsafeExecute(
-            '''INSERT INTO ingest_source ("sourceId","tokenDigest",enabled,"allowPathToken")
-            VALUES (@id::uuid,@digest,@enabled,@path) ON CONFLICT ("sourceId") DO UPDATE
-            SET "tokenDigest"=EXCLUDED."tokenDigest", enabled=EXCLUDED.enabled,"allowPathToken"=EXCLUDED."allowPathToken"''',
+            '''INSERT INTO ingest_source ("sourceId",enabled,"allowPathToken")
+            VALUES (@id::uuid,@enabled,@path) ON CONFLICT ("sourceId") DO UPDATE
+            SET enabled=EXCLUDED.enabled,"allowPathToken"=EXCLUDED."allowPathToken"''',
             parameters: QueryParameters.named({
               'id': source.id,
-              'digest': source.tokenDigest,
               'enabled': source.enabled,
               'path': source.pathTokenEnabled,
+            }),
+            transaction: transaction,
+          );
+          await session.db.unsafeExecute(
+            '''INSERT INTO ingest_source_credential ("sourceId",reference,type,digest)
+            VALUES (@id::uuid,@reference,'bearer',@digest)''',
+            parameters: QueryParameters.named({
+              'id': source.id,
+              'reference': source.tokenRef,
+              'digest': source.tokenDigest,
             }),
             transaction: transaction,
           );
@@ -144,38 +209,119 @@ final class IngestConfigRepository {
           parameters: QueryParameters.named({'id': input.snapshotId}),
           transaction: transaction,
         );
+        return input;
       });
     } on BootstrapError {
       rethrow;
     } on SnapshotActivationError {
       rethrow;
+    } on SecretResolutionError catch (error) {
+      throw BootstrapError('secrets', r'$', error.code);
     } catch (_) {
       throw const BootstrapError('config', r'$', 'publication_failed');
     }
   }
 
   Future<void> _validateCommitments(
-    IngestBootstrap input,
+    Map<String, Uint8List> imported,
     Transaction transaction,
   ) async {
+    if (imported.isEmpty) return;
     final commitments = await session.db.unsafeQuery(
-      'SELECT reference,digest FROM ingest_secret_commitment',
+      '''SELECT old.reference,old.digest FROM ingest_secret_commitment old
+      WHERE CAST(@refs AS jsonb) ? old.reference
+        AND NOT EXISTS (SELECT 1 FROM secret_record s WHERE s.reference=old.reference)''',
+      parameters: QueryParameters.named({
+        'refs': jsonEncode(imported.keys.toList()),
+      }),
       transaction: transaction,
+      timeoutInSeconds: 5,
     );
     for (final row in commitments) {
       final reference = row[0]! as String;
-      final material = input.secret(reference);
-      if (material != null && sha256.convert(material).toString() != row[1]) {
+      if (!_store.commitments.verify(
+        reference,
+        row[1]! as String,
+        imported[reference]!,
+      )) {
         throw const BootstrapError('secrets', 'value', 'reference_rebound');
       }
     }
   }
 
+  Future<void> _importSecrets(
+    IngestBootstrap input,
+    Map<String, Uint8List> imported,
+    Transaction transaction,
+  ) async {
+    final store = _store;
+    final required = <String, bool>{
+      for (final source in input.sources) source.tokenRef: false,
+      for (final output in input.outputs)
+        if (output is WebhookIngestOutput) output.signingKeyRef: false,
+      for (final output in input.outputs)
+        if (output is PluginIngestOutput)
+          for (final ref in output.secretRefs.values) ref.reference: true,
+    };
+    if (imported.isNotEmpty) {
+      final rows = await session.db.unsafeQuery(
+        '''SELECT DISTINCT o.signing_key_ref, o.signing_key_commitment, false
+        FROM outbox o WHERE o.output_kind='webhook' AND o.status IN ('queued','delivering')
+          AND CAST(@refs AS jsonb) ? o.signing_key_ref
+        UNION
+        SELECT DISTINCT entry.value->>'reference', entry.value->>'commitment', true
+        FROM outbox o
+        JOIN ingest_config_snapshot s ON s."snapshotId"=o.config_snapshot_id
+        CROSS JOIN LATERAL jsonb_array_elements(s."publicJson"::jsonb->'outputs') output
+        CROSS JOIN LATERAL jsonb_each(COALESCE(output->'secret_refs','{}'::jsonb)) entry
+        WHERE o.output_kind='plugin' AND o.status IN ('queued','delivering')
+          AND output->>'id'=o.output_id::text
+          AND CAST(@refs AS jsonb) ? (entry.value->>'reference')''',
+        parameters: QueryParameters.named({
+          'refs': jsonEncode(imported.keys.toList()),
+        }),
+        transaction: transaction,
+        timeoutInSeconds: 5,
+      );
+      for (final row in rows) {
+        final reference = row[0]! as String;
+        if (!store.commitments.verify(
+          reference,
+          row[1]! as String,
+          imported[reference]!,
+        )) {
+          throw const BootstrapError('secrets', 'value', 'reference_rebound');
+        }
+        required[reference] = required[reference] == true || row[2] == true;
+      }
+    }
+    for (final MapEntry(key: reference, value: plugin) in required.entries) {
+      final stored = await store.read(
+        session,
+        reference,
+        transaction: transaction,
+      );
+      final bytes = imported[reference];
+      if (stored != null) {
+        if (bytes != null && !secretBytesEqual(stored, bytes)) {
+          throw const BootstrapError('secrets', 'value', 'reference_rebound');
+        }
+      } else if (bytes != null) {
+        await store.insert(
+          session,
+          transaction,
+          reference,
+          bytes,
+          plugin: plugin,
+        );
+      } else {
+        throw const BootstrapError('config', r'$', 'missing_secret');
+      }
+    }
+  }
+
   /// Requires matching material for live historical deliveries, not terminal rows.
-  Future<void> validateLiveSecrets(
-    IngestBootstrap input, {
-    Transaction? transaction,
-  }) async {
+  Future<void> validateLiveSecrets({Transaction? transaction}) async {
     final refs = await session.db.unsafeQuery(
       '''SELECT DISTINCT signing_key_ref,signing_key_commitment
       FROM outbox WHERE output_kind = 'webhook' AND status IN ('queued','delivering')''',
@@ -183,8 +329,14 @@ final class IngestConfigRepository {
       timeoutInSeconds: 5,
     );
     for (final row in refs) {
-      final bytes = input.secret(row[0]! as String);
-      if (bytes == null || sha256.convert(bytes).toString() != row[1]) {
+      final reference = row[0]! as String;
+      final bytes = await _store.read(
+        session,
+        reference,
+        transaction: transaction,
+      );
+      if (bytes == null ||
+          !_store.commitments.verify(reference, row[1]! as String, bytes)) {
         throw const BootstrapError(
           'secrets',
           'value',
@@ -234,5 +386,27 @@ final class IngestConfigRepository {
       throw const BootstrapError('config', 'snapshot', 'missing');
     }
     return jsonDecode(rows.single[0]! as String) as Map<String, Object?>;
+  }
+}
+
+Iterable<String> _configReferences(Object? config) sync* {
+  if (config is! Map<String, Object?>) return;
+  if (config['sources'] case final List<Object?> sources
+      when sources.length <= 64) {
+    for (final source in sources) {
+      if (source case {'token_ref': final String ref}) yield ref;
+    }
+  }
+  if (config['outputs'] case final List<Object?> outputs
+      when outputs.length <= 64) {
+    for (final output in outputs) {
+      switch (output) {
+        case {'kind': 'webhook', 'signing_key_ref': final String ref}:
+          yield ref;
+        case {'kind': 'plugin', 'secret_refs': final Map<String, Object?> refs}
+            when refs.length <= 8:
+          yield* refs.values.whereType<String>();
+      }
+    }
   }
 }

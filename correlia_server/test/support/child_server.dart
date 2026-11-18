@@ -72,6 +72,9 @@ final class ChildServer {
         'SERVERPOD_DATABASE_DATA_PATH': p.join(root.path, 'pgdata'),
         'CORRELIA_TEST_ROOT_LOCK': p.join(root.path, 'owner.lock'),
         'CORRELIA_TEST_ROOT_LOCK_TIMEOUT': '${readyTimeout.inSeconds}',
+        if (environment.containsKey('CORRELIA_INGEST_CONFIG') &&
+            !environment.containsKey('CORRELIA_SECRET_KEY_FILE'))
+          'CORRELIA_SECRET_KEY_FILE': childSecretKeyFile(root),
         ...environment,
       },
     );
@@ -98,7 +101,13 @@ final class ChildServer {
     vmArgs: vmArgs,
     readyTimeout: readyTimeout,
     portPicker: portPicker,
-    environment: {...database.environment, ...environment},
+    environment: {
+      ...database.environment,
+      if (environment.containsKey('CORRELIA_INGEST_CONFIG') &&
+          !environment.containsKey('CORRELIA_SECRET_KEY_FILE'))
+        'CORRELIA_SECRET_KEY_FILE': database.secretKeyFile,
+      ...environment,
+    },
   );
 
   static Future<ChildServer> _spawn({

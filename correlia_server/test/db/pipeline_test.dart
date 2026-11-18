@@ -1,3 +1,5 @@
+import '../support/secret_fixture.dart';
+
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -61,10 +63,15 @@ void main() {
           'ingest_source',
           'ingest_config_snapshot',
           'ingest_secret_commitment',
+          'secret_record',
+          'ingest_source_credential',
         ]) {
           await session.db.unsafeSimpleExecute('DELETE FROM "$table"');
         }
-        await IngestConfigRepository(session).publish(fixture.input(1));
+        await IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        ).publish(fixture.input(1));
       });
 
       PipelineRepository repo() =>
@@ -250,7 +257,10 @@ LANGUAGE plpgsql AS \$\$ BEGIN RAISE EXCEPTION 'test failure' USING ERRCODE='400
         final session = builder.build();
         await seed(session, [alert]);
         final disabled = fixture.input(2, includeSource: false);
-        await IngestConfigRepository(session).publish(disabled);
+        await IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        ).publish(disabled);
         await process();
         expect(
           (await session.db.unsafeQuery(
