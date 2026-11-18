@@ -553,7 +553,17 @@ Uri validateWebhookUrl(
   }
 }
 
-Future<Object?> _readFile(String path, String kind) async {
+/// Reads a regular input file with a bounded size and sanitized failures.
+///
+/// Private inputs are checked against the process owner and mode 0600 or
+/// stricter. [effectiveUid] allows testing the owner comparison without root.
+Future<Uint8List> readBootstrapFile(
+  String path,
+  String kind, {
+  required int cap,
+  bool private = false,
+  int? effectiveUid,
+}) async {
   try {
     if (await FileSystemEntity.type(path, followLinks: false) !=
         FileSystemEntityType.file) {
@@ -561,9 +571,8 @@ Future<Object?> _readFile(String path, String kind) async {
     }
     final file = File(path);
     final stat = await file.stat();
-    final cap = kind == 'secrets' ? 512 * 1024 : 64 * 1024;
     if (stat.size > cap) _bad(kind, r'$', 'bound');
-    if (kind == 'secrets') {
+    if (private) {
       if ((stat.mode & 0x7f) != 0) _bad(kind, r'$', 'permissions');
       final owner = await Process.run('/usr/bin/stat', [
         '-c',
@@ -571,10 +580,16 @@ Future<Object?> _readFile(String path, String kind) async {
         '--',
         path,
       ]);
-      final user = await Process.run('/usr/bin/id', ['-u']);
+      final int uid;
+      if (effectiveUid != null) {
+        uid = effectiveUid;
+      } else {
+        final user = await Process.run('/usr/bin/id', ['-u']);
+        if (user.exitCode != 0) _bad(kind, r'$', 'owner');
+        uid = int.parse((user.stdout as String).trim());
+      }
       if (owner.exitCode != 0 ||
-          user.exitCode != 0 ||
-          owner.stdout.toString().trim() != user.stdout.toString().trim()) {
+          int.tryParse((owner.stdout as String).trim()) != uid) {
         _bad(kind, r'$', 'owner');
       }
     }
@@ -583,9 +598,24 @@ Future<Object?> _readFile(String path, String kind) async {
       if (bytes.length + chunk.length > cap) _bad(kind, r'$', 'bound');
       bytes.add(chunk);
     }
-    return jsonDecode(utf8.decode(bytes.takeBytes()));
+    return bytes.takeBytes();
   } on BootstrapError {
     rethrow;
+  } catch (_) {
+    throw BootstrapError(kind, r'$', 'read_or_parse');
+  }
+}
+
+Future<Object?> _readFile(String path, String kind) async {
+  final secrets = kind == 'secrets';
+  final bytes = await readBootstrapFile(
+    path,
+    kind,
+    cap: (secrets ? 512 : 64) * 1024,
+    private: secrets,
+  );
+  try {
+    return jsonDecode(utf8.decode(bytes));
   } catch (_) {
     throw BootstrapError(kind, r'$', 'read_or_parse');
   }

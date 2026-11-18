@@ -8,7 +8,7 @@ Test paths are relative to `correlia_server/`. Tiers follow AGENTS.md: `test/uni
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
 | secret-store → External key-encryption key | Key file accepted | `test/e2e/secret_store_e2e_test.dart` | `key_file_accepted` | red |
-| secret-store → External key-encryption key | Key file rejected | `test/unit/secrets/key_file_test.dart` | `key_file_rejected` | red |
+| secret-store → External key-encryption key | Key file rejected | `test/unit/secrets/key_file_test.dart` | `key_file_rejected` | green |
 | secret-store → Encrypted secret records | Import seals secrets | `test/db/secret_store_test.dart` | `import_seals_secrets` | red |
 | secret-store → Encrypted secret records | Rebinding refused | `test/db/secret_store_test.dart` | `rebinding_refused` | red |
 | secret-store → Encrypted secret records | Tampered or moved record | `test/db/secret_store_test.dart` | `tampered_or_moved_record` | red |
@@ -71,14 +71,14 @@ the request body open while the publication commits.
 
 Skills: `dart-use-pattern-matching`, `dart-write-documentation`, `dart-run-static-analysis`, `dart-add-unit-test`.
 
-- [ ] 2.1 Write failing `test/unit/secrets/key_file_test.dart` (`key_file_rejected`: absent, group-readable,
+- [x] 2.1 Write failing `test/unit/secrets/key_file_test.dart` (`key_file_rejected`: absent, group-readable,
   symlink, other owner, wrong length, padded or non-canonical base64url; assert the error has file kind
   `secret_key`, a fixed code, and that no file content appears in `toString()`) and
   `test/unit/secrets/aead_test.dart` (NIST AES-256-GCM vectors; AAD tamper, nonce tamper, ciphertext and tag
   tamper all fail; two seals of equal bytes differ; keyed plugin commitment and HKDF match fixed vectors;
   bare-hex and `hmac-sha256:` commitments verify by scheme and reject the other scheme's value). Run
   `mise run test -- test/unit/secrets`: they fail because `lib/src/secrets/` does not exist.
-- [ ] 2.2 Implement `lib/src/secrets/`: key file loader (reusing the secret-file ownership, mode and symlink
+- [x] 2.2 Implement `lib/src/secrets/`: key file loader (reusing the secret-file ownership, mode and symlink
   checks from `bootstrap.dart`), OpenSSL EVP AES-256-GCM and `RAND_bytes` over FFI on `libcrypto.so.3` with
   native buffers zeroed and freed in `finally` and `crypto_unavailable` when the library is missing, key
   commitment, HKDF-SHA256 commitment key and the scheme-tagged commitment verifier. Verify: both unit test
