@@ -18,9 +18,22 @@ Alertmanager's upstream fingerprint is retained in raw input and, when present, 
 
 ## Bootstrap and rotation
 
-Set `CORRELIA_INGEST_CONFIG` to a regular JSON file (at most 64 KiB) and `CORRELIA_INGEST_SECRETS` to a separate regular secret file (at most 512 KiB encoded, 256 KiB decoded across at most 128 entries). Secret files must belong to the process user and have mode 0600 or stricter; symlinks are rejected. Configuration and secret parsing errors expose only a fixed input kind, field path and code, not file content, credentials or destination URLs.
+Set `CORRELIA_INGEST_CONFIG` to a regular JSON file (at most 64 KiB) and
+`CORRELIA_SECRET_KEY_FILE` to the external 32-byte encryption key file. Both the key and optional
+`CORRELIA_INGEST_SECRETS` import file must be regular, non-symlink files owned by the process user,
+mode 0600 or stricter. The import file is bounded at 512 KiB encoded and 256 KiB decoded across 128 entries.
+Errors expose only file kind, field and code. Keep plaintext imports and the external key out of Git and diagnostics.
 
-Generate a separate 32-byte value for every source token and signing-key reference:
+Generate the key once in a private directory; use the same key on every instance sharing the database:
+
+```sh
+(umask 077; set -o noclobber; openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n' > correlia-secret.key)
+```
+
+Back up the key separately from PostgreSQL and retain it for restores. Without it, the existing encrypted
+records cannot be opened. Do not generate a replacement over an existing key file during deployment or restore.
+
+Generate a separate value for every source credential and signing-key reference:
 
 ```sh
 openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n'
@@ -28,16 +41,23 @@ openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n'
 
 The result is exactly 43 unpadded base64url characters. Put these generated values in the secret JSON object under the reference names below, then run `chmod 600` on that file. Never commit either operator file or print the secret file in diagnostics.
 
-Correlia-owned, non-secret configuration example:
+Format v2 configuration (publication is enabled with the v2 ingress cutover; continue using v1 until then):
 
 ```json
 {
-  "format_version": 1,
+  "format_version": 2,
   "revision": 1,
+  "namespaces": ["platform"],
   "sources": [{
     "id": "11111111-1111-4111-8111-111111111111",
     "enabled": true,
-    "token_ref": "alertmanager-token-v1",
+    "kind": "alertmanager",
+    "namespace": "platform",
+    "credentials": [{
+      "type": "bearer",
+      "ref": "alertmanager-token-v1"
+    }],
+    "rate_limit": {"per_second": 20, "burst": 40},
     "path_token_enabled": false,
     "body_limit_bytes": 1048576,
     "excluded_identity_labels": [],
@@ -54,17 +74,40 @@ Correlia-owned, non-secret configuration example:
 
 The secret object needs `alertmanager-token-v1` and `webhook-signing-v1`, each mapped to its separately generated value. The registry permits at most 64 sources, 64 outputs, 128 secret references and eight distinct output ids per source. An empty output list is explicitly unrouted; an unknown output reference is an error, even if the output registry is empty. Source namespaces default to their UUID.
 
+V2 namespaces must be declared, unique, at most 128 UTF-8 bytes, and not UUID-shaped. Give sources
+the same declared namespace only when identical input should map to the same alert.
+V2 supports one to four distinct `bearer` or `hmac` credential references. Optional `not_before` and
+`not_after` are ISO 8601 instants with a timezone (inclusive start, exclusive end). At least one
+credential must be unexpired when published. Rotate by adding the replacement reference, updating the
+sender, then removing the old credential at a higher revision. V2 rate limits are per authenticated source
+per API process: `per_second` 1–1000, `burst` 1–10000, default 20/40. Replicas multiply the effective budget.
+
+V1 accepts `token_ref` instead of `kind`, `credentials`, and `rate_limit`; it maps to one Alertmanager bearer
+credential and keeps any existing namespace. For an M1 upgrade supply the key file and original import
+file, retaining values pinned by live outputs, and bump the revision once even if the v1 input is otherwise
+unchanged. New public snapshots use the v2 shape. Rotate v1 source tokens under a new `token_ref`; never
+replace bytes under an existing reference.
+
 Plugin outputs use exactly `id`, `"kind": "plugin"`, `plugin`, `sha256`, `config` and `secret_refs`. `plugin` is a filename matching `^[a-z0-9][a-z0-9._-]{0,63}$`; `sha256` is its 64-character lowercase executable digest. `config` is a JSON object of at most 16 KiB; `secret_refs` maps at most eight plugin secret names to references in the secret file. Workers require `CORRELIA_PLUGIN_DIR`, owned by the process user and not writable by group or others. Api-only processes validate the definition without requiring that directory. Executable safety and digest are checked again at every launch.
 
-A secret entry may instead be `{"bytes": "<unpadded base64url>"}`, holding 1 byte to 16 KiB decoded; this supports NATS tokens and credentials documents. Source credentials and webhook signing keys still require exactly 32 decoded bytes, whichever form holds them. Only reference commitments enter snapshots; plugins receive resolved bytes separately at Configure, never through their environment. Plugin secret references, like webhook signing references, cannot be rebound to different bytes: rotate under a new name.
+A secret entry may instead be `{"bytes": "<unpadded base64url>"}`, holding 1 byte to 16 KiB decoded.
+Source credentials and signing keys still require 32 bytes. Publication seals them in PostgreSQL.
+After import, processes can restart without the plaintext file; include it when adding new references.
+New plugin snapshot commitments are keyed. Historical M1 hashes remain, so rotate low-entropy M1 plugin
+secrets under new references rather than relying on encryption to protect those old hashes.
 
 Every plugin intent pins its public definition digest and snapshot. Missing historical plugin secrets do not fail worker startup: that definition stays unavailable with its work queued and no new attempts, while other outputs progress. Missing historical webhook signing material still fails startup. Pending work is never redirected to a newer definition.
 
 Startup atomically publishes immutable public snapshots, token digests and the active pointer. Identical active input is a no-op. Every changed publication must be unseen and have a higher integer revision (1–2147483647). Stale or equal-conflicting input fails without changing active credentials or routes. To revert, republish the desired content under a new higher revision; restarting old files never rolls back configuration. Omitted sources become disabled.
 
-Source rotation has no overlap window: coordinate the higher-revision publication and sender token update; requests carrying the old token then receive 401. Signing-key names are immutable commitments. Rotate signing material under a new reference, retain old material while queued/delivering work uses it, and distribute the updated secret file before restarting workers. A process missing a newly activated signing reference leaves that output queued without spending attempts; restart with current files. Terminal dead/delivered rows retain commitments but need no loaded signing bytes until a future explicit replay. Active plus retained live output lanes cannot exceed 64.
+Rotate all secrets under new references. The store retains historical material for pinned work without
+adding it to current configuration. Work with an unavailable signing key remains queued without consuming
+an attempt. Terminal rows retain commitments and do not require keys until future explicit replay.
+Active plus retained live output lanes cannot exceed 64.
 
-The api process also loads signing keys to validate publication; protect its secret file accordingly. No admin/configuration/raw-payload API is exposed. Without bootstrap, a worker/all process refuses startup whenever an active snapshot or unfinished ingest/output work exists—even after the queue drains. An unconfigured api still serves workspace behavior and securely rejects hook admission.
+Every configured process needs the external key. No admin/configuration/raw-payload API is exposed.
+Without bootstrap, a worker/all process refuses startup whenever an active snapshot or unfinished
+ingest/output work exists. An unconfigured api still serves workspace behavior and rejects hook admission.
 
 ## Alertmanager sender setup and admission
 
@@ -203,4 +246,8 @@ SELECT "outboxCreatedAt", "deliveryId", "attemptNumber",
 FROM delivery_attempts;
 ```
 
-Keep historical target definitions and matching signing material while queued/delivering work refers to them. Missing loaded references leave work queued without an attempt and emit bounded reference-availability diagnostics; never an unsigned fallback. Terminal metadata keeps commitments, not secret bytes. Shutdown cancels acquisition and HTTP work before the database closes; unfinished started claims remain recoverable through lease expiry.
+Historical target definitions and matching signing keys are retained for queued/delivering work. Missing
+or unverifiable stored references leave work queued without an attempt and emit bounded availability
+diagnostics; there is no unsigned fallback. Terminal metadata keeps commitments, not secret bytes.
+Shutdown cancels acquisition and HTTP work before the database closes; unfinished started claims remain
+recoverable through lease expiry.

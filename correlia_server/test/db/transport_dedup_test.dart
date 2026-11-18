@@ -40,8 +40,20 @@ void main() {
         Future<AdmissionOutcome> submit() =>
             IngestAdmission(builder.build()).admit(
               sourceId: fixture.sourceId,
-              credentialReference: fixture.input(1).sources.single.tokenRef,
-              tokenDigest: fixture.input(1).sources.single.tokenDigest,
+              credentialReference: fixture
+                  .input(1)
+                  .sources
+                  .single
+                  .credentials
+                  .single
+                  .reference,
+              tokenDigest: fixture
+                  .input(1)
+                  .sources
+                  .single
+                  .credentials
+                  .single
+                  .digest,
               pathToken: false,
               body: Uint8List.fromList([1, 2, 3]),
               contentType: 'application/json',
@@ -66,8 +78,20 @@ void main() {
         Future<AdmissionOutcome> submit(int byte, DateTime time) =>
             admission.admit(
               sourceId: fixture.sourceId,
-              credentialReference: fixture.input(1).sources.single.tokenRef,
-              tokenDigest: fixture.input(1).sources.single.tokenDigest,
+              credentialReference: fixture
+                  .input(1)
+                  .sources
+                  .single
+                  .credentials
+                  .single
+                  .reference,
+              tokenDigest: fixture
+                  .input(1)
+                  .sources
+                  .single
+                  .credentials
+                  .single
+                  .digest,
               pathToken: false,
               body: Uint8List.fromList([byte]),
               contentType: 'application/json',

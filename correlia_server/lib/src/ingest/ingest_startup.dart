@@ -87,7 +87,8 @@ final class IngestStartup extends Subsystem {
             );
       if (input != null) {
         await resolver!.prefill(session, [
-          for (final source in input.sources) source.tokenRef,
+          for (final source in input.sources)
+            for (final credential in source.credentials) credential.reference,
           for (final output in input.outputs) ...output.commitments.keys,
         ]);
       }

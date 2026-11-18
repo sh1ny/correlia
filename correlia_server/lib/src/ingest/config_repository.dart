@@ -62,7 +62,7 @@ final class IngestConfigRepository {
       (tx) async {
         final material = Map<String, Uint8List>.of(imported);
         final store = _store;
-        for (final reference in _configReferences(config)) {
+        for (final reference in IngestBootstrap.references(config)) {
           if (material.containsKey(reference)) continue;
           final bytes = await store.read(session, reference, transaction: tx);
           if (bytes != null) material[reference] = bytes;
@@ -128,6 +128,9 @@ final class IngestConfigRepository {
         );
         await _store.checkKey(session, transaction);
         final input = await prepare(transaction);
+        if (input.inputFormatVersion == 2) {
+          throw const BootstrapError('config', 'format_version', 'not_enabled');
+        }
         final active = await activeSnapshot(transaction: transaction);
         if (active != null && active['snapshotId'] != input.snapshotId) {
           final stored = await session.db.unsafeQuery(
@@ -204,26 +207,32 @@ final class IngestConfigRepository {
         );
         for (final source in input.sources) {
           await session.db.unsafeExecute(
-            '''INSERT INTO ingest_source ("sourceId",enabled,"allowPathToken")
-            VALUES (@id::uuid,@enabled,@path) ON CONFLICT ("sourceId") DO UPDATE
-            SET enabled=EXCLUDED.enabled,"allowPathToken"=EXCLUDED."allowPathToken"''',
+            '''INSERT INTO ingest_source ("sourceId",kind,enabled,"allowPathToken")
+            VALUES (@id::uuid,@kind,@enabled,@path) ON CONFLICT ("sourceId") DO UPDATE
+            SET kind=EXCLUDED.kind,enabled=EXCLUDED.enabled,"allowPathToken"=EXCLUDED."allowPathToken"''',
             parameters: QueryParameters.named({
               'id': source.id,
+              'kind': source.kind,
               'enabled': source.enabled,
               'path': source.pathTokenEnabled,
             }),
             transaction: transaction,
           );
-          await session.db.unsafeExecute(
-            '''INSERT INTO ingest_source_credential ("sourceId",reference,type,digest)
-            VALUES (@id::uuid,@reference,'bearer',@digest)''',
-            parameters: QueryParameters.named({
-              'id': source.id,
-              'reference': source.tokenRef,
-              'digest': source.tokenDigest,
-            }),
-            transaction: transaction,
-          );
+          for (final credential in source.credentials) {
+            await session.db.unsafeExecute(
+              '''INSERT INTO ingest_source_credential ("sourceId",reference,type,digest,"notBefore","notAfter")
+              VALUES (@id::uuid,@reference,@type,@digest,@before,@after)''',
+              parameters: QueryParameters.named({
+                'id': source.id,
+                'reference': credential.reference,
+                'type': credential.type.name,
+                'digest': credential.digest,
+                'before': credential.notBefore,
+                'after': credential.notAfter,
+              }),
+              transaction: transaction,
+            );
+          }
         }
         await session.db.unsafeExecute(
           '''INSERT INTO ingest_active_config (singleton,"snapshotId") VALUES (1,@id)
@@ -278,7 +287,9 @@ final class IngestConfigRepository {
   ) async {
     final store = _store;
     final required = <String, bool>{
-      for (final source in input.sources) source.tokenRef: false,
+      for (final source in input.sources)
+        for (final credential in source.credentials)
+          credential.reference: false,
       for (final output in input.outputs)
         if (output is WebhookIngestOutput) output.signingKeyRef: false,
       for (final output in input.outputs)
@@ -408,27 +419,5 @@ final class IngestConfigRepository {
       throw const BootstrapError('config', 'snapshot', 'missing');
     }
     return jsonDecode(rows.single[0]! as String) as Map<String, Object?>;
-  }
-}
-
-Iterable<String> _configReferences(Object? config) sync* {
-  if (config is! Map<String, Object?>) return;
-  if (config['sources'] case final List<Object?> sources
-      when sources.length <= 64) {
-    for (final source in sources) {
-      if (source case {'token_ref': final String ref}) yield ref;
-    }
-  }
-  if (config['outputs'] case final List<Object?> outputs
-      when outputs.length <= 64) {
-    for (final output in outputs) {
-      switch (output) {
-        case {'kind': 'webhook', 'signing_key_ref': final String ref}:
-          yield ref;
-        case {'kind': 'plugin', 'secret_refs': final Map<String, Object?> refs}
-            when refs.length <= 8:
-          yield* refs.values.whereType<String>();
-      }
-    }
   }
 }

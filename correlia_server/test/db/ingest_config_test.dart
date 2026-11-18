@@ -1,7 +1,10 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:correlia_server/src/ingest/bootstrap.dart';
 import 'package:correlia_server/src/ingest/config_repository.dart';
+import 'package:correlia_server/src/ingest/ingress.dart';
+import 'package:correlia_server/src/runtime/subsystem.dart';
 import 'package:serverpod/serverpod.dart';
 import 'package:test/test.dart';
 import 'package:crypto/crypto.dart';
@@ -16,6 +19,14 @@ import '../support/secret_fixture.dart';
 
 const sourceId = '11111111-1111-4111-8111-111111111111';
 const outputId = '22222222-2222-4222-8222-222222222222';
+
+final class _Routes implements RouteHost {
+  _Routes(this.web);
+  final WebServer web;
+  @override
+  void addRoute(Route route, String path) => web.addRoute(route, path);
+}
+
 String token(int byte) =>
     base64Url.encode(List<int>.filled(32, byte)).replaceAll('=', '');
 IngestBootstrap input(
@@ -91,6 +102,62 @@ IngestBootstrap pluginInput(int revision) => IngestBootstrap.parse(
   pluginCommitment: testSecretStore.commitments.plugin,
 );
 
+Map<String, Object?> cutoverV2(int revision) => {
+  'format_version': 2,
+  'revision': revision,
+  'sources': [
+    {
+      'id': sourceId,
+      'kind': 'alertmanager',
+      'enabled': true,
+      'credentials': [
+        {'ref': 'source-token', 'type': 'bearer'},
+      ],
+      'output_ids': [outputId],
+    },
+  ],
+  'outputs': [
+    {
+      'id': outputId,
+      'kind': 'webhook',
+      'url': 'http://127.0.0.1:9099/events',
+      'signing_key_ref': 'key-v1',
+    },
+  ],
+};
+
+Future<int> _sendBearer(Session session, IngestBootstrap config) async {
+  final pod = session.serverpod;
+  final ingress = IngressSubsystem(
+    pod: pod,
+    bootstrap: () => config,
+    ready: () => true,
+    log: (_) {},
+  );
+  ingress.mountRoutes(_Routes(pod.webServer));
+  await ingress.start();
+  final startedHere = !pod.webServer.running;
+  if (startedHere) expect(await pod.webServer.start(), isTrue);
+  final client = HttpClient();
+  try {
+    final request = await client.post(
+      '127.0.0.1',
+      pod.webServer.port!,
+      '/hooks/alertmanager/$sourceId',
+    );
+    request.headers.contentType = ContentType.json;
+    request.headers.set('authorization', 'Bearer ${token(1)}');
+    request.write('{}');
+    final response = await request.close();
+    await response.drain<void>();
+    return response.statusCode;
+  } finally {
+    client.close(force: true);
+    await ingress.stop();
+    if (startedHere) await pod.webServer.stop();
+  }
+}
+
 void main() {
   withServerpod(
     'immutable ingest configuration',
@@ -110,6 +177,42 @@ void main() {
         ]) {
           await session.db.unsafeSimpleExecute('DELETE FROM "$table"');
         }
+      });
+      test('v2_publication_cutover', () async {
+        final session = builder.build();
+        final repository = IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        );
+        final first = input(1);
+        await repository.publish(first);
+        final active = await repository.activeSnapshot();
+        final shape = cutoverV2(2);
+        final parsed = IngestBootstrap.parse(
+          shape,
+          {'source-token': token(1), 'key-v1': token(2)},
+          runMode: 'test',
+        );
+        final gated = throwsA(
+          isA<BootstrapError>()
+              .having((e) => e.field, 'field', 'format_version')
+              .having((e) => e.code, 'code', 'not_enabled'),
+        );
+        await expectLater(repository.publish(parsed), gated);
+        await expectLater(
+          repository.publishConfig(shape, <String, Object?>{}, runMode: 'test'),
+          gated,
+        );
+        expect(await repository.activeSnapshot(), active);
+        final counts = (await session.db.unsafeQuery('''
+          SELECT (SELECT count(*) FROM ingest_config_snapshot),
+                 (SELECT count(*) FROM secret_record),
+                 (SELECT count(*) FROM ingest_source_credential)
+        ''')).single.toList();
+        expect(counts, [1, 2, 1]);
+        final next = input(3);
+        await repository.publish(next);
+        expect(await _sendBearer(session, next), 202);
       });
       test('bootstrap_publication_and_rotation', () async {
         final session = builder.build();
@@ -135,9 +238,15 @@ void main() {
         final row = (await session.db.unsafeQuery(
           'SELECT reference,digest FROM ingest_source_credential',
         )).single.toColumnMap();
-        expect(row['reference'], second.sources.single.tokenRef);
-        expect(row['digest'], second.sources.single.tokenDigest);
-        expect(row['digest'], isNot(first.sources.single.tokenDigest));
+        expect(
+          row['reference'],
+          second.sources.single.credentials.single.reference,
+        );
+        expect(row['digest'], second.sources.single.credentials.single.digest);
+        expect(
+          row['digest'],
+          isNot(first.sources.single.credentials.single.digest),
+        );
         expect(
           (await session.db.unsafeQuery(
             'SELECT count(*) AS count FROM ingest_config_snapshot',

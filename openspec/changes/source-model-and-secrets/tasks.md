@@ -166,12 +166,12 @@ Skills: group 3's.
 
 Skills: group 2's.
 
-- [ ] 5.1 Write failing `test/unit/ingest/source_config_test.dart`: `unsupported_kind_or_field`,
+- [x] 5.1 Write failing `test/unit/ingest/source_config_test.dart`: `unsupported_kind_or_field`,
   `activation_without_a_usable_credential` (five credentials, duplicate reference, all expired relative to an
   injected clock, `not_before >= not_after`), `undeclared_or_uuid_shaped_namespace`, plus version 1 mapping
   (one bearer credential, kind `alertmanager`, default rate limit, namespace kept) and rate-limit bounds. Run
   `mise run test -- test/unit/ingest/source_config_test.dart`: they fail.
-- [ ] 5.2 Implement the version 2 parser (in a new `lib/src/ingest/source_config.dart`, keeping
+- [x] 5.2 Implement the version 2 parser (in a new `lib/src/ingest/source_config.dart`, keeping
   `bootstrap.dart` focused on files and secrets), the version 1 mapping, declared namespaces and the snapshot
   version 2 shape; retain the existing routing and identity fields so M1 and v2 pins both work. Share
   reference parsing with stored-material lookup (`token_ref` and `credentials[].ref`). In the common
