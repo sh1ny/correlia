@@ -239,7 +239,7 @@ Skills: `serverpod-testing`, `dart-add-unit-test`.
 
 ## 8. Integration
 
-- [ ] 8.1 Run `mise run check` and `mise run test:all`: both pass. Confirm every Test map row is green.
+- [x] 8.1 Run `mise run check` and `mise run test:all`: both pass. Confirm every Test map row is green.
 
 ## Workflow follow-up
 
