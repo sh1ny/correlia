@@ -133,7 +133,6 @@ Object? _canonical(Object? value) {
 final class IngestBootstrap {
   IngestBootstrap._(
     this.revision,
-    this.inputFormatVersion,
     List<IngestSource> sources,
     List<IngestOutput> outputs,
     Map<String, Uint8List> secrets,
@@ -145,20 +144,13 @@ final class IngestBootstrap {
   final List<IngestSource> sources;
   final List<IngestOutput> outputs;
 
-  IngestBootstrap._runtime(
-    this.revision,
-    this.inputFormatVersion,
-    this.sources,
-    this.outputs,
-  ) : _secrets = const {};
+  IngestBootstrap._runtime(this.revision, this.sources, this.outputs)
+    : _secrets = const {};
 
   /// Returns the validated configuration without its publication material.
   IngestBootstrap withoutImport() =>
-      IngestBootstrap._runtime(revision, inputFormatVersion, sources, outputs);
+      IngestBootstrap._runtime(revision, sources, outputs);
   final Map<String, Uint8List> _secrets;
-
-  /// The format of the operator input, independent of public snapshots.
-  final int inputFormatVersion;
 
   /// The loaded reference names; values never enter persisted configuration.
   Set<String> get loadedReferences => Set.unmodifiable(_secrets.keys);
@@ -335,7 +327,7 @@ final class IngestBootstrap {
       }
       sources.sort((a, b) => a.id.compareTo(b.id));
       outputs.sort((a, b) => a.id.compareTo(b.id));
-      return IngestBootstrap._(revision, version, sources, outputs, secrets);
+      return IngestBootstrap._(revision, sources, outputs, secrets);
     } on BootstrapError {
       rethrow;
     } catch (_) {

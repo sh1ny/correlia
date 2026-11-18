@@ -10,6 +10,8 @@ import '../runtime/subsystem.dart';
 import '../secrets/secret_store.dart';
 import 'admission.dart';
 import 'bootstrap.dart';
+import 'hmac_signing.dart';
+import 'rate_limiter.dart';
 
 /// Process-local admission totals for one currently registered source.
 final class IngressCount {
@@ -74,8 +76,14 @@ final class IngressSubsystem extends Subsystem {
     required this.log,
     IngressCounters? counters,
     SecretLookupGate? lookupGate,
+    Future<Uint8List> Function(String reference, String commitment)?
+    secretResolver,
+    DateTime Function()? clock,
+    this._beforeBody,
   }) : counters = counters ?? IngressCounters(),
-       _lookupGate = lookupGate ?? SecretLookupGate();
+       _lookupGate = lookupGate ?? SecretLookupGate(),
+       _resolve = secretResolver,
+       _clock = clock ?? DateTime.now;
 
   final Serverpod pod;
   final IngestBootstrap? Function() bootstrap;
@@ -85,6 +93,10 @@ final class IngressSubsystem extends Subsystem {
   bool _ready = false;
   int _inflight = 0;
   final SecretLookupGate _lookupGate;
+  final Future<Uint8List> Function(String, String)? _resolve;
+  final DateTime Function() _clock;
+  final Future<void> Function()? _beforeBody;
+  final _limiter = IngressRateLimiter();
 
   /// The number of requests occupying an admission slot.
   int get inFlight => _inflight;
@@ -124,14 +136,20 @@ final class _IngressRoute extends Route {
   );
   static final _credential = RegExp(r'^[A-Za-z0-9_-]{43}$');
 
-  Response _response(int status) => Response(
-    status,
-    headers: status == 503
-        ? Headers.fromMap({
-            'retry-after': ['1'],
-          })
-        : null,
-  );
+  static final _timestamp = RegExp(r'^[0-9]{1,10}$');
+  static final _signature = RegExp(r'^sha256=[0-9a-f]{64}$');
+
+  Response _response(int status, [int? retryAfter]) {
+    final retry = retryAfter ?? (status == 503 ? 1 : null);
+    return Response(
+      status,
+      headers: retry == null
+          ? null
+          : Headers.fromMap({
+              'retry-after': ['$retry'],
+            }),
+    );
+  }
 
   Response _reject(int status, String? source) {
     owner.counters._increment(source, null);
@@ -143,182 +161,291 @@ final class _IngressRoute extends Route {
 
   @override
   Future<Result> call(Request request) async {
-    String? source;
-    var acquired = false;
-    Session? session;
-    var status = 503;
-    AdmissionOutcome? outcome;
+    if (owner.bootstrap() == null || !owner.ready() || !owner._ready) {
+      return _response(503);
+    }
+    final observedAt = owner._clock().toUtc();
+    final segments = request.url.pathSegments;
+    if ((segments.length != 3 && segments.length != 4) ||
+        segments.first != 'hooks') {
+      return _reject(400, null);
+    }
+    final [_, kind, id, ...] = segments;
+    final source = _uuid.hasMatch(id) ? id.toLowerCase() : null;
+    if (request.method != Method.post) return _reject(405, source);
+    if (request.url.hasQuery) return _reject(400, source);
+    if (owner._inflight >= 16) return _reject(503, source);
+    owner._inflight++;
+    var result = const _Result(503);
     try {
-      if (owner.bootstrap() == null || !owner.ready() || !owner._ready) {
-        return _response(503);
-      }
-      final observedAt = DateTime.now().toUtc();
-      final segments = request.url.pathSegments;
-      if (segments
-          case ['hooks', 'alertmanager', final id] ||
-              ['hooks', 'alertmanager', final id, _]) {
-        if (_uuid.hasMatch(id)) source = id.toLowerCase();
+      final assertion = _assertion(request, segments, observedAt);
+      if (source == null || assertion == null) {
+        result = const _Result(401);
       } else {
-        return _reject(400, null);
-      }
-      if (request.method != Method.post) return _reject(405, source);
-      if (request.url.hasQuery) return _reject(400, source);
-      if (owner._inflight >= 16) return _reject(503, source);
-      owner._inflight++;
-      acquired = true;
-      final authorization = request.headers['authorization']?.toList();
-      final pathToken = segments.length == 4;
-      if (source == null ||
-          (pathToken && authorization != null) ||
-          (authorization != null && authorization.length != 1)) {
-        status = 401;
-      } else {
-        final auth = authorization?.single;
-        final token = pathToken
-            ? segments[3]
-            : (auth != null && auth.startsWith('Bearer ')
-                  ? auth.substring(7)
-                  : '');
-        Uint8List? decoded;
-        if (_credential.hasMatch(token)) {
-          try {
-            decoded = decodeCredential(
-              token,
-              fileKind: 'secrets',
-              field: 'value',
-            );
-          } catch (_) {
-            decoded = null;
-          }
-        }
-        if (decoded == null) {
-          status = 401;
-        } else {
-          final digest = sha256.convert(decoded).toString();
-          session = await owner.pod.createSession(enableLogging: false);
-          final rows = await owner._lookupGate.run(
-            () => session!.db.unsafeQuery(
-              '''SELECT credential.digest,s.enabled,s."allowPathToken",c."publicJson",c.revision,
-              credential.reference
-            FROM ingest_active_config a JOIN ingest_config_snapshot c ON c."snapshotId"=a."snapshotId"
-            LEFT JOIN ingest_source s ON s."sourceId"=CAST(@source AS uuid)
-            LEFT JOIN ingest_source_credential credential
-              ON credential."sourceId"=s."sourceId" AND credential.type='bearer'
-            WHERE a.singleton=1''',
-              parameters: QueryParameters.named({'source': source}),
-              timeoutInSeconds: 5,
-            ),
+        final session = await owner.pod.createSession(enableLogging: false);
+        try {
+          result = await _authenticateAndAdmit(
+            session,
+            request,
+            source,
+            kind,
+            assertion,
+            observedAt,
           );
-          if (rows.isNotEmpty) {
-            final json =
-                jsonDecode(rows.single[3]! as String) as Map<String, Object?>;
-            final sources = (json['sources']! as List<Object?>)
-                .cast<Map<String, Object?>>();
-            owner.counters._rekey(
-              sources.map((s) => s['id']! as String),
-              rows.single[4]! as int,
-            );
-          }
-          if (rows.isEmpty ||
-              rows.single[1] != true ||
-              (pathToken && rows.single[2] != true) ||
-              rows.single[0] is! String ||
-              !constantTimeDigestEquals(rows.single[0]! as String, digest)) {
-            status = 401;
-          } else {
-            final config =
-                jsonDecode(rows.single[3]! as String) as Map<String, Object?>;
-            final sources = (config['sources']! as List<Object?>)
-                .cast<Map<String, Object?>>();
-            final matches = sources.where((entry) => entry['id'] == source);
-            if (matches.isEmpty) {
-              status = 401;
-            } else {
-              final limit = matches.single['body_limit_bytes']! as int;
-              final types = request.headers['content-type']?.toList();
-              final encodings = request.headers['content-encoding']?.toList();
-              final keys = request.headers['idempotency-key']?.toList();
-              if (types == null ||
-                  types.length != 1 ||
-                  types.single.split(';').first.trim().toLowerCase() !=
-                      'application/json' ||
-                  (encodings != null &&
-                      (encodings.length != 1 ||
-                          encodings.single.toLowerCase() != 'identity'))) {
-                status = 415;
-              } else if (keys != null &&
-                  (keys.length != 1 ||
-                      keys.single.isEmpty ||
-                      utf8.encode(keys.single).length > 256)) {
-                status = 400;
-              } else {
-                final iterator = StreamIterator(request.read());
-                final bytes = BytesBuilder(copy: false);
-                final watch = Stopwatch()..start();
-                var overflow = false;
-                try {
-                  while (await iterator.moveNext().timeout(
-                    const Duration(seconds: 10) - watch.elapsed,
-                  )) {
-                    if (overflow ||
-                        bytes.length + iterator.current.length > limit) {
-                      overflow = true;
-                      // Drain without buffering until EOF or the total deadline.
-                      // Cancelling a live HttpRequest stream aborts its response.
-                      continue;
-                    }
-                    bytes.add(iterator.current);
-                  }
-                } finally {
-                  await iterator.cancel();
-                }
-                if (overflow) {
-                  status = 413;
-                } else {
-                  outcome = await IngestAdmission(session).admit(
-                    sourceId: source,
-                    credentialReference: rows.single[5]! as String,
-                    tokenDigest: digest,
-                    pathToken: pathToken,
-                    body: bytes.takeBytes(),
-                    contentType: 'application/json',
-                    observedAt: observedAt,
-                    idempotencyKey: keys?.single,
-                  );
-                  status = switch (outcome) {
-                    AdmissionOutcome.accepted ||
-                    AdmissionOutcome.duplicate => 202,
-                    AdmissionOutcome.conflict => 409,
-                    AdmissionOutcome.unauthorized => 401,
-                  };
-                }
-              }
-            }
-          }
+        } finally {
+          await session.close();
         }
       }
     } catch (_) {
-      status = 503;
-      outcome = null;
+      result = const _Result(503);
     } finally {
-      if (session != null) {
-        try {
-          await session.close();
-        } catch (_) {
-          status = 503;
+      owner._inflight--;
+      owner.counters._increment(source, result.outcome);
+      try {
+        owner.log(
+          'ingress source=${source ?? 'unknown'} outcome=${result.status}',
+        );
+      } catch (_) {}
+    }
+    return _response(result.status, result.retryAfter);
+  }
+
+  _Assertion? _assertion(
+    Request request,
+    List<String> path,
+    DateTime observedAt,
+  ) {
+    final auth = request.headers['authorization']?.toList();
+    final timestamp = request.headers['x-correlia-timestamp']?.toList();
+    final signature = request.headers['x-correlia-signature']?.toList();
+    final pathToken = path.length == 4;
+    if (timestamp != null || signature != null) {
+      if (auth != null ||
+          pathToken ||
+          timestamp == null ||
+          timestamp.length != 1 ||
+          signature == null ||
+          signature.length != 1 ||
+          !_timestamp.hasMatch(timestamp.single) ||
+          !_signature.hasMatch(signature.single)) {
+        return null;
+      }
+      final epoch =
+          int.parse(timestamp.single) * Duration.microsecondsPerSecond;
+      if ((observedAt.microsecondsSinceEpoch - epoch).abs() >
+          300 * Duration.microsecondsPerSecond) {
+        return null;
+      }
+      return _Hmac(timestamp.single, signature.single.substring(7));
+    }
+    if (pathToken && auth != null) return null;
+    final String token;
+    if (pathToken) {
+      token = path[3];
+    } else if (auth case [final value] when value.startsWith('Bearer ')) {
+      token = value.substring(7);
+    } else {
+      return null;
+    }
+    if (!_credential.hasMatch(token)) return null;
+    try {
+      final bytes = decodeCredential(
+        token,
+        fileKind: 'secrets',
+        field: 'value',
+      );
+      return _Bearer(sha256.convert(bytes).toString(), pathToken);
+    } on BootstrapError {
+      return null;
+    }
+  }
+
+  Future<_Result> _authenticateAndAdmit(
+    Session session,
+    Request request,
+    String source,
+    String kind,
+    _Assertion assertion,
+    DateTime observedAt,
+  ) async {
+    final rows = await owner._lookupGate.run(
+      () => session.db.unsafeQuery(
+        '''SELECT s.kind,s.enabled,s."allowPathToken",c."publicJson",c.revision,
+             credential.reference,credential.digest,credential."notBefore",credential."notAfter"
+           FROM ingest_active_config a JOIN ingest_config_snapshot c ON c."snapshotId"=a."snapshotId"
+           LEFT JOIN ingest_source s ON s."sourceId"=CAST(@source AS uuid)
+           LEFT JOIN ingest_source_credential credential
+             ON credential."sourceId"=s."sourceId" AND credential.type=@type
+           WHERE a.singleton=1 ORDER BY credential.reference LIMIT 4''',
+        parameters: QueryParameters.named({
+          'source': source,
+          'type': assertion.type.name,
+        }),
+        timeoutInSeconds: 5,
+      ),
+    );
+    if (rows.isEmpty) return const _Result(401);
+    final first = rows.first;
+    final revision = first[4]! as int;
+    final config = jsonDecode(first[3]! as String) as Map<String, Object?>;
+    final sources = (config['sources']! as List<Object?>)
+        .cast<Map<String, Object?>>();
+    owner.counters._rekey(sources.map((s) => s['id']! as String), revision);
+    owner._limiter.rekey(revision);
+    final pathToken = assertion is _Bearer && assertion.pathToken;
+    if (first[0] != kind ||
+        first[1] != true ||
+        (pathToken && first[2] != true)) {
+      return const _Result(401);
+    }
+    final entry = sources.where((s) => s['id'] == source).firstOrNull;
+    if (entry == null) return const _Result(401);
+    final rate = switch (entry['rate_limit']) {
+      {'per_second': final int rate, 'burst': final int burst} =>
+        SourceRateLimit(perSecond: rate, burst: burst),
+      _ => const SourceRateLimit(), // Existing M1 public snapshots.
+    };
+    List<SourceCredential>? eligible;
+    SourceCredential? matched;
+    for (final row in rows) {
+      if (row[5] case final String reference) {
+        final credential = SourceCredential(
+          reference,
+          assertion.type,
+          row[6]! as String,
+          (row[7] as DateTime?)?.toUtc(),
+          (row[8] as DateTime?)?.toUtc(),
+        );
+        if (!credential.validAt(observedAt)) continue;
+        if (assertion case _Bearer(:final digest)) {
+          if (constantTimeDigestEquals(credential.digest, digest)) {
+            matched ??= credential;
+          }
+        } else {
+          (eligible ??= []).add(credential);
         }
       }
-      if (acquired) {
-        owner._inflight--;
-        owner.counters._increment(source, outcome);
-        try {
-          owner.log('ingress source=${source ?? 'unknown'} outcome=$status');
-        } catch (_) {}
-      }
     }
-    return _response(status);
+    if (matched == null && eligible == null) return const _Result(401);
+    if (matched != null) {
+      final retry = owner._limiter.take(source, revision, rate, owner._clock());
+      if (retry != null) return _Result(429, retryAfter: retry);
+    }
+    final types = request.headers['content-type']?.toList();
+    final encodings = request.headers['content-encoding']?.toList();
+    if (types == null ||
+        types.length != 1 ||
+        types.single.split(';').first.trim().toLowerCase() !=
+            'application/json' ||
+        (encodings != null &&
+            (encodings.length != 1 ||
+                encodings.single.toLowerCase() != 'identity'))) {
+      return const _Result(415);
+    }
+    final keys = request.headers['idempotency-key']?.toList();
+    if (keys != null &&
+        (keys.length != 1 ||
+            keys.single.isEmpty ||
+            utf8.encode(keys.single).length > 256)) {
+      return const _Result(400);
+    }
+    final idempotencyKey = keys?.single;
+    final body = await _readBody(request, entry['body_limit_bytes']! as int);
+    if (body == null) return const _Result(413);
+    if (assertion case _Hmac(:final timestamp, :final signature)) {
+      final resolve = owner._resolve;
+      if (resolve == null) return const _Result(503);
+      final prefix = ingressSigningPrefix(timestamp, idempotencyKey);
+      var unavailable = false;
+      for (final credential in eligible!) {
+        try {
+          final key = await resolve(credential.reference, credential.digest);
+          if (constantTimeDigestEquals(
+            signIngress(key, prefix, body),
+            signature,
+          )) {
+            matched ??= credential;
+          }
+        } on SecretResolutionError catch (error) {
+          unavailable |= error.code == 'store_unavailable';
+        }
+      }
+      if (matched == null) return _Result(unavailable ? 503 : 401);
+      final retry = owner._limiter.take(source, revision, rate, owner._clock());
+      if (retry != null) return _Result(429, retryAfter: retry);
+    }
+    final outcome = await IngestAdmission(session).admit(
+      sourceId: source,
+      kind: kind,
+      credential: matched!,
+      pathToken: pathToken,
+      body: body,
+      contentType: 'application/json',
+      observedAt: observedAt,
+      idempotencyKey: idempotencyKey,
+    );
+    return _Result(switch (outcome) {
+      AdmissionOutcome.accepted || AdmissionOutcome.duplicate => 202,
+      AdmissionOutcome.conflict => 409,
+      AdmissionOutcome.unauthorized => 401,
+    }, outcome: outcome);
+  }
+
+  Future<Uint8List?> _readBody(Request request, int limit) async {
+    final iterator = StreamIterator(request.read());
+    final bytes = BytesBuilder(copy: false);
+    final watch = Stopwatch()..start();
+    var overflow = false;
+    var onFirstChunk = owner._beforeBody;
+    try {
+      while (await iterator.moveNext().timeout(
+        const Duration(seconds: 10) - watch.elapsed,
+      )) {
+        // Drain without buffering until EOF or the deadline. Cancelling a
+        // live HttpRequest stream aborts its response.
+        if (overflow || bytes.length + iterator.current.length > limit) {
+          overflow = true;
+        } else {
+          bytes.add(iterator.current);
+        }
+        if (onFirstChunk case final gate?) {
+          onFirstChunk = null;
+          await gate();
+        }
+      }
+    } finally {
+      await iterator.cancel();
+    }
+    return overflow ? null : bytes.takeBytes();
   }
 
   @override
   Result handleCall(Session session, Request request) => _response(503);
+}
+
+final class _Result {
+  const _Result(this.status, {this.outcome, this.retryAfter});
+  final int status;
+  final AdmissionOutcome? outcome;
+  final int? retryAfter;
+}
+
+sealed class _Assertion {
+  SourceCredentialType get type;
+}
+
+final class _Bearer implements _Assertion {
+  const _Bearer(this.digest, this.pathToken);
+  final String digest;
+  final bool pathToken;
+  @override
+  SourceCredentialType get type => SourceCredentialType.bearer;
+}
+
+final class _Hmac implements _Assertion {
+  const _Hmac(this.timestamp, this.signature);
+  final String timestamp;
+  final String signature;
+  @override
+  SourceCredentialType get type => SourceCredentialType.hmac;
 }

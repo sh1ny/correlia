@@ -30,22 +30,22 @@ Test paths are relative to `correlia_server/`. Tiers follow AGENTS.md: `test/uni
 | secret-store → Secret bytes never leave their consumer | Decryption failure stays sanitized | `test/db/secret_store_test.dart` | `decryption_failure_stays_sanitized` | green |
 | source-ingress → Source scoped authentication | Authenticated source delivery | `test/e2e/ingress_e2e_test.dart` | `authenticated_source_delivery` (existing; re-run) | green |
 | source-ingress → Source scoped authentication | SEC-1 another source token | `test/e2e/ingress_e2e_test.dart` | `sec_1_another_source_token` (existing; re-run) | green |
-| source-ingress → Source scoped authentication | Route kind mismatch | `test/db/ingress_credentials_test.dart` | `route_kind_mismatch` | red |
+| source-ingress → Source scoped authentication | Route kind mismatch | `test/db/ingress_credentials_test.dart` | `route_kind_mismatch` | green |
 | source-ingress → Source configuration format | Version 1 file still starts | `test/e2e/secret_store_e2e_test.dart` | `version_1_file_still_starts` | red |
-| source-ingress → Source configuration format | Unsupported kind or field | `test/unit/ingest/source_config_test.dart` | `unsupported_kind_or_field` | red |
-| source-ingress → Credential rotation with overlap | Overlapping rotation | `test/db/ingress_credentials_test.dart` | `overlapping_rotation` | red |
-| source-ingress → Credential rotation with overlap | Expired and not yet valid credentials | `test/db/ingress_credentials_test.dart` | `expired_and_not_yet_valid_credentials` | red |
-| source-ingress → Credential rotation with overlap | Rotation during a body read | `test/db/ingress_credentials_test.dart` | `rotation_during_a_body_read` | red |
-| source-ingress → Credential rotation with overlap | Activation without a usable credential | `test/unit/ingest/source_config_test.dart` | `activation_without_a_usable_credential` | red |
-| source-ingress → HMAC signed deliveries | Valid signature admitted | `test/db/ingress_credentials_test.dart` | `valid_signature_admitted` | red |
-| source-ingress → HMAC signed deliveries | Bad, stale or misplaced signature | `test/db/ingress_credentials_test.dart` | `bad_stale_or_misplaced_signature` | red |
-| source-ingress → HMAC signing input | Published signing vector | `test/unit/ingest/hmac_signing_test.dart` | `published_signing_vector` | red |
-| source-ingress → HMAC signing input | Signed replay with a new idempotency key | `test/db/ingress_credentials_test.dart` | `signed_replay_with_a_new_idempotency_key` | red |
-| source-ingress → Per source request rate | Burst within budget | `test/unit/ingest/rate_limiter_test.dart` | `burst_within_budget` | red |
-| source-ingress → Per source request rate | Budget exceeded | `test/db/ingress_credentials_test.dart` | `budget_exceeded` | red |
-| source-ingress → Per source request rate | Unauthenticated traffic spends no budget | `test/db/ingress_credentials_test.dart` | `unauthenticated_traffic_spends_no_budget` | red |
+| source-ingress → Source configuration format | Unsupported kind or field | `test/unit/ingest/source_config_test.dart` | `unsupported_kind_or_field` | green |
+| source-ingress → Credential rotation with overlap | Overlapping rotation | `test/db/ingress_credentials_test.dart` | `overlapping_rotation` | green |
+| source-ingress → Credential rotation with overlap | Expired and not yet valid credentials | `test/db/ingress_credentials_test.dart` | `expired_and_not_yet_valid_credentials` | green |
+| source-ingress → Credential rotation with overlap | Rotation during a body read | `test/db/ingress_credentials_test.dart` | `rotation_during_a_body_read` | green |
+| source-ingress → Credential rotation with overlap | Activation without a usable credential | `test/unit/ingest/source_config_test.dart` | `activation_without_a_usable_credential` | green |
+| source-ingress → HMAC signed deliveries | Valid signature admitted | `test/db/ingress_credentials_test.dart` | `valid_signature_admitted` | green |
+| source-ingress → HMAC signed deliveries | Bad, stale or misplaced signature | `test/db/ingress_credentials_test.dart` | `bad_stale_or_misplaced_signature` | green |
+| source-ingress → HMAC signing input | Published signing vector | `test/unit/ingest/hmac_signing_test.dart` | `published_signing_vector` | green |
+| source-ingress → HMAC signing input | Signed replay with a new idempotency key | `test/db/ingress_credentials_test.dart` | `signed_replay_with_a_new_idempotency_key` | green |
+| source-ingress → Per source request rate | Burst within budget | `test/unit/ingest/rate_limiter_test.dart` | `burst_within_budget` | green |
+| source-ingress → Per source request rate | Budget exceeded | `test/db/ingress_credentials_test.dart` | `budget_exceeded` | green |
+| source-ingress → Per source request rate | Unauthenticated traffic spends no budget | `test/db/ingress_credentials_test.dart` | `unauthenticated_traffic_spends_no_budget` | green |
 | source-ingress → Declared shared namespaces | ID-2 same names from two sources | `test/db/ingest_scenarios_test.dart` | `id_2_same_names_from_two_sources` | red |
-| source-ingress → Declared shared namespaces | Undeclared or UUID shaped namespace | `test/unit/ingest/source_config_test.dart` | `undeclared_or_uuid_shaped_namespace` | red |
+| source-ingress → Declared shared namespaces | Undeclared or UUID shaped namespace | `test/unit/ingest/source_config_test.dart` | `undeclared_or_uuid_shaped_namespace` | green |
 | integration-alertmanager → Bounded explicit display and metadata mapping | Display and provenance mapping | `test/unit/ingest/alertmanager_decoder_test.dart` | `display_and_provenance_mapping` (existing; re-run) | green |
 | integration-alertmanager → Bounded explicit display and metadata mapping | Map or aggregate event overflow | `test/unit/ingest/alertmanager_decoder_test.dart` | `map_or_aggregate_event_overflow` (existing; re-run) | green |
 | integration-alertmanager → Bounded explicit display and metadata mapping | Oversize identity label projection | `test/unit/ingest/alertmanager_decoder_test.dart` | `oversize_identity_label_projection` (existing; re-run) | green |
@@ -191,18 +191,18 @@ Skills: group 2's.
 
 Skills: `serverpod-webserver`, `serverpod-database`, `serverpod-testing`, plus group 2's.
 
-- [ ] 6.1 Write failing `test/unit/ingest/hmac_signing_test.dart` (`published_signing_vector`, using the vector
+- [x] 6.1 Write failing `test/unit/ingest/hmac_signing_test.dart` (`published_signing_vector`, using the vector
   also printed in `docs/ingest-pipeline.md`) and `test/unit/ingest/rate_limiter_test.dart`
   (`burst_within_budget`, refill and `Retry-After` arithmetic with an injected clock, rekey on revision). Run
   `mise run test -- test/unit/ingest`: the new tests fail.
-- [ ] 6.2 Write failing `test/db/ingress_credentials_test.dart` over real HTTP: `route_kind_mismatch`,
+- [x] 6.2 Write failing `test/db/ingress_credentials_test.dart` over real HTTP: `route_kind_mismatch`,
   `overlapping_rotation`, `expired_and_not_yet_valid_credentials`, `rotation_during_a_body_read`,
   `valid_signature_admitted` (raw row stores no signature or timestamp header),
   `bad_stale_or_misplaced_signature` (captured logs contain neither signature nor key),
   `signed_replay_with_a_new_idempotency_key` (including the `k`/`1.23` versus `k.1`/`23` pair),
   `budget_exceeded` and `unauthenticated_traffic_spends_no_budget`. Run
   `mise run test -- --tags db test/db/ingress_credentials_test.dart`: they fail.
-- [ ] 6.3 Extend the group 3 credential-row lookup and admission fence in `ingress.dart` and `admission.dart`:
+- [x] 6.3 Extend the group 3 credential-row lookup and admission fence in `ingress.dart` and `admission.dart`:
   `/hooks/<kind>/<id>` routing with the kind check, lookup over at most four rows with no early exit and
   receipt-time windows, HMAC (header checks and timestamp before buffering, signature after bounded read,
   keys from the resolver), and the post-authentication token bucket (429 with `Retry-After`, counted as

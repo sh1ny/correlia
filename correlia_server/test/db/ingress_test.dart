@@ -28,20 +28,8 @@ void main() {
           await expectLater(
             IngestAdmission(session).admit(
               sourceId: fixture.sourceId,
-              credentialReference: fixture
-                  .input(1)
-                  .sources
-                  .single
-                  .credentials
-                  .single
-                  .reference,
-              tokenDigest: fixture
-                  .input(1)
-                  .sources
-                  .single
-                  .credentials
-                  .single
-                  .digest,
+              kind: 'alertmanager',
+              credential: fixture.input(1).sources.single.credentials.single,
               pathToken: false,
               body: Uint8List.fromList([1]),
               contentType: 'application/json',

@@ -41,7 +41,7 @@ openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n'
 
 The result is exactly 43 unpadded base64url characters. Put these generated values in the secret JSON object under the reference names below, then run `chmod 600` on that file. Never commit either operator file or print the secret file in diagnostics.
 
-Format v2 configuration (publication is enabled with the v2 ingress cutover; continue using v1 until then):
+Format v2 configuration:
 
 ```json
 {
@@ -98,7 +98,7 @@ secrets under new references rather than relying on encryption to protect those 
 
 Every plugin intent pins its public definition digest and snapshot. Missing historical plugin secrets do not fail worker startup: that definition stays unavailable with its work queued and no new attempts, while other outputs progress. Missing historical webhook signing material still fails startup. Pending work is never redirected to a newer definition.
 
-Startup atomically publishes immutable public snapshots, token digests and the active pointer. Identical active input is a no-op. Every changed publication must be unseen and have a higher integer revision (1–2147483647). Stale or equal-conflicting input fails without changing active credentials or routes. To revert, republish the desired content under a new higher revision; restarting old files never rolls back configuration. Omitted sources become disabled.
+Startup atomically publishes immutable public snapshots, credential commitments and the active pointer. Identical active input is a no-op. Every changed publication must be unseen and have a higher integer revision (1–2147483647). Stale or equal-conflicting input fails without changing active credentials or routes. To revert, republish the desired content under a new higher revision; restarting old files never rolls back configuration. Omitted sources become disabled.
 
 Rotate all secrets under new references. The store retains historical material for pinned work without
 adding it to current configuration. Work with an unavailable signing key remains queued without consuming
@@ -113,7 +113,24 @@ ingest/output work exists. An unconfigured api still serves workspace behavior a
 
 POST to `/hooks/alertmanager/<source-uuid>` with `Authorization: Bearer <token>` and `Content-Type: application/json`. Prefer this header form. Only when `path_token_enabled` is true, the alternative is `/hooks/alertmanager/<source-uuid>/<token>` with no Authorization header. The token is the generated 43-character unpadded base64url value. Query parameters and simultaneous credential forms are rejected. Configure reverse proxies to omit or redact credential-bearing paths, queries, Authorization and Idempotency-Key; proxy logs are outside this process's privacy proof. Use TLS for sender traffic.
 
-Admission authenticates before reading the body, then rechecks current source credentials in the storage transaction. It stores exact uncompressed bytes, their digest, the receipt time and normalized content type, never raw authorization or idempotency headers. An optional `Idempotency-Key` is source-scoped and limited to 256 UTF-8 bytes; absent that header, the source/body digest identifies transport retries. The ten-minute reservation window is fixed from first admission and does not slide on retries.
+HMAC-capable senders can instead use a `hmac` credential. Send `X-Correlia-Timestamp` (Unix seconds,
+1–10 ASCII decimal digits, within 300 seconds of receipt) and `X-Correlia-Signature: sha256=<64 lowercase hex>`.
+Do not also send a bearer or path token. Compute HMAC-SHA256 with the decoded 32-byte key over
+`<timestamp>.<K>.<body>`. Use the timestamp digits exactly as sent, `-` for `K` if `Idempotency-Key`
+is absent, otherwise lowercase hex SHA-256 of the key's UTF-8 bytes. Append the exact uncompressed body
+bytes, with no extra newline. Redact both HMAC headers in proxy logs.
+
+Signing vector (example key only): key bytes `00 01 … 1f`, timestamp `1794960000`, body
+`{"status":"firing"}` without a newline. With `Idempotency-Key: hook-42`, the signature hex is
+`d1f085472bf0810321dfd82e0fe82b030183b0d5fac61e04e1b177cf190c29e1`; with no key, it is
+`1312b999043956efa24658369e0edfd4a94820d000efa08437b9a6ac4ee00e99`.
+
+The receiver checks the source and bearer token or HMAC header syntax before reading the body. It checks
+HMAC signatures after the bounded read. The storage transaction rechecks the current credential, source
+kind, enabled flag and path-token policy. The inbox stores exact uncompressed bytes, their digest,
+receipt time and normalized content type, not authorization, HMAC or idempotency headers.
+`Idempotency-Key` is source-scoped and limited to 256 UTF-8 bytes; absent that header, the source/body digest
+identifies retries. The ten-minute reservation window is fixed from first admission and does not slide.
 
 Bodies default to—and cannot exceed—1 MiB; a source may select a lower positive limit. A ten-second total body deadline and sixteen request slots bound admission, with a smaller authentication lookup bound protecting the shared connection pool. In-memory source/unknown counters reset on restart and rekey to the active registry; they are not a durable ledger.
 
@@ -126,6 +143,7 @@ Bodies default to—and cannot exceed—1 MiB; a source may select a lower posit
 | 409 | Live explicit idempotency key reused for different bytes |
 | 413 | Source body limit exceeded |
 | 415 | Unsupported media type or content encoding |
+| 429 | Authenticated source over its process-local budget; retry after the supplied `Retry-After` |
 | 503 | Startup/stopping gate, saturated admission or unavailable persistence; retry after the supplied `Retry-After: 1` |
 
 A 202 is durable admission, not successful normalization or delivery. Invalid JSON can be accepted as raw bytes and later become a durable processing failure. Correlia-authored HTTP tests exercise the example source shape and a body above 512 KiB with exact persisted bytes/digest. Source-side UI captures and the owner's live-system result have not been collected.

@@ -56,6 +56,7 @@ final class IngestConfigRepository {
     Object? secretInput, {
     required String runMode,
     bool requireLiveSecrets = true,
+    DateTime Function()? clock,
   }) async {
     final imported = decodeBootstrapSecrets(secretInput);
     return _publish(
@@ -72,6 +73,7 @@ final class IngestConfigRepository {
           material,
           runMode: runMode,
           pluginCommitment: store.commitments.plugin,
+          clock: clock,
         );
       },
       imported,
@@ -128,9 +130,6 @@ final class IngestConfigRepository {
         );
         await _store.checkKey(session, transaction);
         final input = await prepare(transaction);
-        if (input.inputFormatVersion == 2) {
-          throw const BootstrapError('config', 'format_version', 'not_enabled');
-        }
         final active = await activeSnapshot(transaction: transaction);
         if (active != null && active['snapshotId'] != input.snapshotId) {
           final stored = await session.db.unsafeQuery(

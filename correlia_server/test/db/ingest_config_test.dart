@@ -186,32 +186,21 @@ void main() {
         );
         final first = input(1);
         await repository.publish(first);
-        final active = await repository.activeSnapshot();
-        final shape = cutoverV2(2);
-        final parsed = IngestBootstrap.parse(
-          shape,
-          {'source-token': token(1), 'key-v1': token(2)},
+        final next = await repository.publishConfig(
+          cutoverV2(2),
+          <String, Object?>{},
           runMode: 'test',
         );
-        final gated = throwsA(
-          isA<BootstrapError>()
-              .having((e) => e.field, 'field', 'format_version')
-              .having((e) => e.code, 'code', 'not_enabled'),
+        expect(
+          (await repository.activeSnapshot())!['snapshotId'],
+          next.snapshotId,
         );
-        await expectLater(repository.publish(parsed), gated);
-        await expectLater(
-          repository.publishConfig(shape, <String, Object?>{}, runMode: 'test'),
-          gated,
-        );
-        expect(await repository.activeSnapshot(), active);
         final counts = (await session.db.unsafeQuery('''
           SELECT (SELECT count(*) FROM ingest_config_snapshot),
                  (SELECT count(*) FROM secret_record),
                  (SELECT count(*) FROM ingest_source_credential)
         ''')).single.toList();
-        expect(counts, [1, 2, 1]);
-        final next = input(3);
-        await repository.publish(next);
+        expect(counts, [2, 2, 1]);
         expect(await _sendBearer(session, next), 202);
       });
       test('bootstrap_publication_and_rotation', () async {

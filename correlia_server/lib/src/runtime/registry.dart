@@ -41,6 +41,8 @@ List<Subsystem> buildSubsystemRegistry({
       ready: () => ingest.ready && startup.isReady,
       log: log,
       lookupGate: ingest.lookupGate,
+      secretResolver: (reference, commitment) =>
+          ingest.resolver!.resolve(reference, commitment),
     ),
     IngestWorkers(
       pod: pod,
