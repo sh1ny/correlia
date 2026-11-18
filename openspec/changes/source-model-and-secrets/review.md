@@ -22,7 +22,19 @@ I've finished rechecking the required edits against `tasks.md` and `design.md`. 
 - **Gate position:** Required change 1 asked for the gate before secret validation; the task says "before any writes". In `_publish`, the revision-conflict check (`config_repository.dart:132-146`) and `_validateCommitments` (`:148`) are both read-only and run before the first write. So the no-write guarantee holds either way. But a v2 input at an equal revision could fail with an activation conflict instead of `not_enabled`. Saying "immediately after `prepare`" in the task, or using a higher revision in the test, would rule that out.
 - **Asserted code:** The test text says "reject v2" but doesn't explicitly say to assert `not_enabled` at `format_version`. The sentence just before it defines that code, so this is only a clarity gap.
 
-## Verdict
+Prior verdict: approve with changes; changes applied.
+
+## ID-3 amendment re-review
+
+Independent review: Claude Code, Opus 5.5. The first pass found that the existing decoder
+derives the display description from a 1024-scalar projection. The owner approved deriving
+the display description from the original annotation without changing identity or deduplication.
+
+The re-review confirmed the existing independent 4096/1024 canonical bounds and checked that
+the amended proposal, spec, and task require two exact raw deliveries, one event, and one duplicate
+observation. Required edits before apply: align the oversize annotation scenario with the
+independent bounds, extend its regression with an intermediate-length input, track it under
+7.1 rather than 7.3, and use “scalar” in the proposal. All were applied.
 
 VERDICT: APPROVE_WITH_CHANGES
 

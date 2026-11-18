@@ -38,7 +38,7 @@ Icinga2 and Thanos changes and is judged at the milestone close.
   The first upgraded publication also imports file material still pinned by live M1 deliveries, even when
   their references are no longer in the active configuration.
 - **Named scenario tests.** ID-2 (two sources, same labels: two alerts; declared shared namespace: one),
-  ID-3 (maximum-length identity label and 4097-character description through HTTP ingress: accepted, display
+  ID-3 (maximum-length identity label and 4097-scalar description through HTTP ingress: accepted, display
   truncated with a marker, identity unchanged, never a 500) and SEC-3.
 
 ## Capabilities
@@ -54,8 +54,9 @@ Icinga2 and Thanos changes and is judged at the milestone close.
 - `source-ingress`: source kinds, credential lists with validity windows, HMAC authentication, per-source rate
   limits, declared namespaces in the bootstrap format, and secrets resolved from the store instead of only from
   the secret file.
-- `integration-alertmanager`: adds the end-to-end ID-3 scenario to the bounded display requirement;
-  identity bytes and mapping do not change.
+- `integration-alertmanager`: adds the end-to-end ID-3 proof and derives the display description
+  from the original annotation at the 4096-scalar display bound. The stored annotation remains
+  capped at 1024 scalars. Identity bytes and observation semantics do not change.
 - `output-delivery`: historical signing references are verified from the encrypted store, including material
   imported for live M1 work; missing plugin material still blocks only its definition.
 
@@ -108,6 +109,11 @@ DECISION_MAKING: autonomous
 - **Choice:** Prove both scenarios end to end through HTTP ingress, the pipeline and the stored event for
   Alertmanager sources. Host name and check output are Icinga2 fields, so `icinga2-ingest` repeats ID-3 for
   them through the same bounds contract.
+  **Chosen by: user (ID-3 observation semantics):** Keep the final-scalar-only change between
+  deliveries. Both raw deliveries are retained, but description text does not change observation
+  identity; the second delivery is a duplicate and emits no second event.
+  **Chosen by: user (ID-3 display mapping):** Derive the display description directly from the
+  original annotation and apply the description bound independently of the annotation projection.
 - **Rejected:** Wait for Icinga2 to prove ID-3 at all (leaves the roadmap item of this change unproven).
 - **Reversal cost:** low.
 - **Important:** no.

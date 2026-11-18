@@ -49,7 +49,7 @@ Test paths are relative to `correlia_server/`. Tiers follow AGENTS.md: `test/uni
 | integration-alertmanager → Bounded explicit display and metadata mapping | Display and provenance mapping | `test/unit/ingest/alertmanager_decoder_test.dart` | `display_and_provenance_mapping` (existing; re-run) | green |
 | integration-alertmanager → Bounded explicit display and metadata mapping | Map or aggregate event overflow | `test/unit/ingest/alertmanager_decoder_test.dart` | `map_or_aggregate_event_overflow` (existing; re-run) | green |
 | integration-alertmanager → Bounded explicit display and metadata mapping | Oversize identity label projection | `test/unit/ingest/alertmanager_decoder_test.dart` | `oversize_identity_label_projection` (existing; re-run) | green |
-| integration-alertmanager → Bounded explicit display and metadata mapping | Oversize annotation value | `test/unit/ingest/alertmanager_decoder_test.dart` | `oversize_annotation_value` (existing; re-run) | green |
+| integration-alertmanager → Bounded explicit display and metadata mapping | Oversize annotation value | `test/unit/ingest/alertmanager_decoder_test.dart` | `oversize_annotation_value` (extended in 7.1) | red |
 | integration-alertmanager → Bounded explicit display and metadata mapping | ID-3 maximum length values through HTTP ingress | `test/db/ingest_scenarios_test.dart` | `id_3_maximum_length_values_through_http_ingress` | red |
 
 Scenario names in `test/` match the scenario names above, so the M2 close can find ID-2, ID-3 and SEC-3 by
@@ -219,9 +219,13 @@ Skills: `serverpod-testing`, `dart-add-unit-test`.
 - [ ] 7.1 Write `test/db/ingest_scenarios_test.dart`: `id_2_same_names_from_two_sources` (two default
   namespaces → two fingerprints and two alerts; two sources in one declared namespace → one fingerprint and
   one alert; distinct observation ids) and `id_3_maximum_length_values_through_http_ingress` (256-byte
-  `instance` label, 4097-scalar description, second delivery differing only in the last scalar: both 202,
-  4096 scalars ending with the marker, label whole, one fingerprint, no pipeline failure row and no 5xx). Run
-  them; fix anything they expose. Verify: both pass and flip green.
+  `instance` label, 4097-scalar description, second delivery differing only in the last scalar, neither
+  with an `Idempotency-Key`: both 202, two byte-exact raw rows, one event and one duplicate observation,
+  4096 description scalars and 1024 annotation scalars ending with the marker, label whole, one fingerprint,
+  no pipeline failure row and no 5xx). Add exact-length assertions to `oversize_annotation_value` before
+  changing the display description to use the original annotation; include a value between the bounds.
+  Identity and deduplication are unchanged.
+  Verify: both named DB scenarios and the decoder regression pass; flip green.
 - [ ] 7.2 Write `test/e2e/secret_store_e2e_test.dart` over real `bin/main.dart --mode test` children:
   `key_file_accepted` (no table dump or child log contains the key or its text), `version_1_file_still_starts`
   (seed the old M1 revision, assert the equal-revision publication conflicts and leaves the old snapshot active,
@@ -231,8 +235,7 @@ Skills: `serverpod-testing`, `dart-add-unit-test`.
   base64url form appear in no response, row dump, log file or captured output). Verify: all pass with
   `mise run test -- --tags e2e`, and flip green.
 - [ ] 7.3 Re-run the unchanged rows (`display_and_provenance_mapping`, `map_or_aggregate_event_overflow`,
-  `oversize_identity_label_projection`, `oversize_annotation_value`, `authenticated_source_delivery`,
-  `sec_1_another_source_token`): all pass.
+  `oversize_identity_label_projection`, `authenticated_source_delivery`, `sec_1_another_source_token`): all pass.
 
 ## 8. Integration
 
