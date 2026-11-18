@@ -8,124 +8,73 @@ The long-form feature plan for every milestone up to 1.0 is in `docs/plan/milest
 backlog is in `docs/plan/integrations.md`, the named acceptance scenarios in
 `docs/plan/acceptance-scenarios.md`, and the owner's open decisions in `docs/plan/open-decisions.md`.
 
-## Now: M1 - Walking skeleton
+## Now: M2 - Icinga2, Thanos and the ingest track
 
-**Outcome:** An Alertmanager webhook becomes a canonical event and updates alert state with ordering fences.
-It is published to NATS by an external Go plugin and appears live in a minimal Flutter web alert list.
-Everything runs on embedded Postgres, developed and tested inside WSL (ADR 0014).
-
-M1 retires the riskiest assumptions:
-- Serverpod 4.1 with embedded Postgres in tiered tests on Linux;
-- the durable pipeline and transactional outbox;
-- the lossless change feed;
-- a Dart host speaking go-plugin to a Go process.
+**Outcome:** The owner's two real sources flow in, are enriched by rules that can be tested in a
+simulator, and failures are visible and replayable. M2 retires the risk that real source payloads
+(Icinga2 soft/hard states, flapping, acknowledgements) do not fit the canonical event and identity model.
 
 **Exit criteria:**
-- `mise run check` and every test tier except `load` pass from a clean clone in WSL. (agent)
-- Scenarios ORD-1, ORD-2, ORD-3, ORD-5, ID-4, ID-6, ID-7 (b, c), DUR-1, DUR-2, DUR-3, DUR-8, UI-3, SEC-1,
-  SEC-5 and UPG-3 pass as named tests. (agent)
-- A kill -9 of the worker during a 1,000-alert burst loses nothing. Every accepted alert is either
-  published to NATS or dead-lettered with its reason. (agent)
-- The plugin spike gate of ADR 0020 passes on Linux, or the owner has decided a fallback. (agent,
-  then user if a fallback is needed)
-- The owner points a real Alertmanager at a dev instance and sees the alerts in the console and on a NATS
-  subscriber. (user)
+- Golden fixtures for Icinga2 (webhook and Event Streams), Alertmanager and Thanos pass. Fixtures are
+  captured from real releases, never hand-authored. (agent)
+- Scenarios ORD-4, ORD-6, ORD-7, ID-2, ID-3, DUR-4, DUR-5, DUR-9, DUR-10, DUR-11, DUR-12, DUR-13, RUL-1,
+  RUL-2, RUL-3, RUL-4, SEC-2 and SEC-3 pass as named tests. (agent)
+- The owner's real Icinga2 and Alertmanager/Thanos feed a dev instance for a day, and the owner checks
+  that the enriched events look right. (user)
 
 **Changes** (in order; each about one PR):
-1. `bootstrap-workspace`:
-   - `serverpod create` layout (server, client, flutter);
-   - mise tasks `check`, `test`, `generate`, `analyze`, `proto`;
-   - embedded Postgres test tiers with cleanup (ADR 0014);
-   - `api`/`worker`/`all` roles and health endpoints;
-   - the Serverpod MCP in the agent configs;
-   - Go and buf toolchains.
-2. `canonical-event-v1`:
-   - the `correlia.event.v1` protobuf with buf lint/breaking gates, JSON Schema export and Dart codegen;
-   - the CloudEvents envelope;
-   - a canonical-encoding and identity library (ADR 0019) with collision and re-batching tests.
-3. `plugin-host-spike`: a Dart host against a stock go-plugin Go test plugin, proving the four pass criteria
-   of the ADR 0020 spike gate. A failed criterion stops for an owner decision.
-4. `alertmanager-ingest-pipeline`:
-   - source instances with per-instance tokens and log redaction;
-   - `/hooks/alertmanager/<instance>` and the raw inbox with transport dedup;
-   - claims (no processing order; the ordering fence orders state); decode/normalize/route with config
-     pinning; durable observation dedup; pipeline failures;
-   - the transactional outbox and a relay with a built-in webhook-out output.
-5. `alert-state-and-live-console`:
-   - `StateMutationService` for alert state with ordering fences, lateness and skew;
-   - the activity ledger and the `(txid, id)` change feed;
-   - a Flutter web alert list fed by snapshot plus feed.
+1. `source-model-and-secrets`:
+   - source instances with their own credentials (bearer or HMAC, rotation with overlap);
+   - the namespace setting (D3; ID-2) and per-source rate and body limits;
+   - display-field truncation that leaves identity untouched (ID-3);
+   - encrypted plugin config secrets, never returned or logged (SEC-3).
+2. `icinga2-ingest`:
+   - the Icinga2 webhook (notification command) and the Event Streams API consumer (`CheckResult`,
+     `StateChange`, acknowledgements, downtimes, flapping);
+   - state sync on startup; the soft/hard state policy per source;
+   - captured golden fixtures for both paths; skew clamp and late-event fence (ORD-4, ORD-6, ORD-7).
+
+   Needs 1.
+3. `thanos-and-generic-webhook`:
+   - Thanos Ruler through the Alertmanager decoder, tenant headers and a documented setup, with captured
+     fixtures;
+   - the generic webhook with a versioned declarative mapping document and a preview against a sample.
+
+   Needs 1.
+4. `matcher-rules-and-versions`:
+   - matcher rules (ADR 0008): labels and tags, severity mapping, owner/team, links, hostname/CIDR tables,
+     regex extraction with timeouts (RUL-3);
+   - rule set versions with atomic activation and rollback (RUL-4), YAML provisioning;
+   - parameterized rule filters only (SEC-2); activation rejects unknown outputs (DUR-5).
+
+   Needs 1.
+5. `rule-simulator-and-query-enricher`:
+   - the rule simulator API over a sample or a stored event, against the active or a draft rule set
+     (RUL-1, RUL-2);
+   - the Prometheus/Thanos query enricher with per-rule deadlines;
+   - event classification (kind and noise class hints).
 
    Needs 4.
-6. `output-nats-plugin`:
-   - plugin supervision (restart, backoff, `degraded`, status rows);
-   - the Go `output-nats` plugin (JetStream, `Nats-Msg-Id`, the subject scheme);
-   - the end-to-end demo for the exit criteria.
+6. `dead-letters-backpressure-and-retention`:
+   - the dead-letter list and replay API, in bulk by filter, replaying with the configuration active at
+     replay time (DUR-4, DUR-13);
+   - inbox lag bounds with 429/503 and `Retry-After` (DUR-9); output storage budgets (DUR-11);
+   - raw inbox and event partitioning, drop by age, expiry to `discarded` (DUR-10, DUR-12).
 
-   Needs 3 and 5.
-7. `alertmanager-webhook-compat` (gap-closing; the M1 close of 2026-11-12 showed the real-Alertmanager
-   criterion failing: Alertmanager 0.32+ adds top-level `notification_reason` and `routeLabels`, which the
-   decoder rejects):
-   - decode every webhook field Alertmanager 0.16 to 0.35 sends, each optional where some versions omit it;
-   - a captured fixture per supported minor;
-   - an unknown top-level field is processed and flagged (names recorded on the raw delivery; a count and hash tags logged), not failed (owner,
-     2026-11-12); unknown per-alert fields and wrong types still fail.
+   Needs 3.
 
-   Needs 4.
-8. `plugin-health-timeout-classification` (gap-closing; the M1 close of 2026-11-13 showed `mise run test:all`
-   failing 439/440 from a clean clone: under full-suite load a stalled plugin health call was reported as
-   `plugin_connection_lost`, not `plugin_health_timeout`):
-   - a health call whose own deadline expires is always a health timeout, never a lost connection;
-   - only a real transport failure marks the connection lost;
-   - the plugin protocol tests hold under full-suite load.
+## Next: M3 - Correlation and incidents
 
-   Needs 3 and 6.
-9. `e2e-child-server-reliability` (gap-closing; the M1 close of 2026-11-14 showed `mise run test:all`
-   failing 448/449 from a clean clone, twice with different causes: `unconfigured_ingress_still_protects_token_paths`
-   exceeded the default 30 s test timeout, and `worker_killed_before_any_delivery` failed because its child
-   server could not bind the port the harness had picked for it):
-   - every e2e test that starts a child server has a test timeout that covers the child's own readiness and
-     shutdown deadlines (the ingress e2e file is the only one that has none);
-   - a child server that loses its pre-picked port to another process is started again on fresh ports,
-     a bounded number of times, and any other startup failure still fails at once;
-   - the ingress security assertions (503 when unconfigured, no token or query secret in output) are unchanged;
-   - `mise run test:all` passes repeatedly from a clean clone under the default test concurrency.
-
-   Needs 1 and 4.
-10. `plugin-forced-stop-status` (gap-closing; the gate runs of change 9 on 2026-11-14 showed `mise run test:all`
-    failing once in four: `plugin_ignores_shutdown` found the plugin's `stopped` status row with no recorded
-    reason after the worker force-terminated it, and the test's teardown then failed with "Future already
-    completed" because the ingest workers' pipeline cannot be stopped twice):
-    - a plugin force-terminated at shutdown always leaves `plugin_forced_stop` on its `stopped` status row, and
-      no later status write during the same shutdown clears it;
-    - stopping the ingest workers a second time, or after a failed stop, is a no-op that does not throw;
-    - a failure of the shutdown test reports the status row history it saw, so a recurrence can be diagnosed;
-    - `mise run test:all` passes repeatedly from a clean clone under the default test concurrency.
-
-    Needs 6.
-
-## Next: M2 - Icinga2, Thanos and the ingest track
-
-The owner's two real sources flow in, enriched by testable rules, and every failure is visible and
-replayable:
-- Icinga2 by webhook, the Event Streams API and state sync;
-- Thanos Ruler and tenant headers;
-- a generic webhook with declarative mappings;
-- source namespaces;
-- the matcher rule language with atomic configuration versions, YAML provisioning and the simulator API;
-- a Prometheus/Thanos query enricher;
-- dead-letter replay;
-- storage budgets and backpressure;
-- retention and partitioning;
-- encrypted plugin secrets.
-
-It retires the risk that real source payloads (Icinga2 soft/hard states, flapping, acknowledgements) do not
-fit the canonical event and identity model.
+Related alerts become incidents with a correct lifecycle under storms, and the legacy defects are proven
+fixed: correlation rules with structured group-by keys, a threshold policy per rule (D4), time windows with
+a quiet period and priority order; the incident lifecycle with acknowledgement orthogonal to status and the
+manual close policy (D6); relational incident membership with a partial unique index on the open group
+key; one transaction per event batch with serialization retries and hot-group handling; current versus
+peak severity; incident events on NATS and webhook out; manual merge, split, link, owner and note through
+the API. It retires the risk that grouping stays correct under a 10k/60 s storm on one hot group.
 
 ## Later
 
-- M3 - Correlation and incidents: correlation rules, the full mutation protocol with group locks,
-  thresholds, lifecycle and the legacy regression scenarios under a 10k/60 s storm.
 - M4 - Console v1 and access control:
   - invite-only email OTP, roles, teams and API keys;
   - incident and alert views; rule editors and the simulator UI;
@@ -155,3 +104,7 @@ fit the canonical event and identity model.
   P1 integrations and the plugin SDKs ship in the milestones above or in 1.x point releases.
 
 ## Done
+- M1 - Walking skeleton (2026-11-18): Alertmanager to canonical event to NATS and the live console, on
+  embedded Postgres in WSL. Learned: real releases differ from the documented payload (0.32+ fields), so
+  decoders start from captured fixtures; and full-suite load exposed timing, port and shutdown races that
+  took three gap-closing changes, so e2e and plugin tests get explicit deadlines and retries from the start.

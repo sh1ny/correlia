@@ -78,3 +78,17 @@ is a candidate question.
 10. Manual close of an incident with still-firing alerts keeps them attached and does not reopen it; a new
     transition of one of them opens a new incident linked to the closed one (legacy question 6).
 11. Sign-up is invite-only; the first admin comes from a one-time bootstrap token (ADR 0009).
+
+## Decision summary
+<!-- Written by roadmap runs in every mode. One run line per run, then one table; rows are never deleted. -->
+<!-- Run line: `- <run> <YYYY-MM-DD>: <mode> (source: setting)` or `(source: user, "<words>")`; <run> is `init`, `close M<n>` or `pack <name>`. -->
+<!-- Chosen by: `agent`, `user`, or `pending` (awaiting the owner). A pending or agent row the owner later settles is updated in place to `user` with the answer. -->
+
+- close M1 2026-11-18: autonomous (source: setting)
+
+| # | Run | Decision | Choice | Rejected | Reason | Important | Chosen by |
+|---|---|---|---|---|---|---|---|
+| R1 | close M1 | Split of M2 | Six changes: source model and secrets; Icinga2 ingest; Thanos and generic webhook; matcher rules and versions; rule simulator and query enricher; dead letters, backpressure and retention | One change per source; a single enrichment change | Sources, namespaces and credentials come first because every source and rule depends on them; the rule engine is split from the simulator and enricher to keep each change about one PR | yes | agent |
+| R2 | close M1 | Order of the M2 changes | The source model first, then the two source changes, then rules, then the simulator, then dead letters and retention | Dead letters before the sources | Replay with the configuration active at replay time (DUR-13) needs the declarative mapping of change 3 to exist | no | agent |
+| R3 | close M1 | Golden fixtures in M2 | Captured from real Icinga2 and Thanos releases, never hand-authored | Fixtures written from the documentation | M1's real-Alertmanager check failed on fields the documentation omitted (0.32+), which cost a gap-closing change | yes | agent |
+| R4 | close M1 | M1 user criterion evidence | Real Alertmanager v0.35.0 in Docker against a dev instance, seen by the owner in the console and on a NATS subscriber, firing and resolved | A production Alertmanager | The owner has no production Alertmanager; the runbook's isolated check uses the real release binary, and the owner chose it ("we have to fake it") and verified the result on 2026-11-18 | no | user |
