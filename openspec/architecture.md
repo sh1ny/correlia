@@ -101,7 +101,7 @@ run in every role unless they are switched off:
 | Configuration versions (rules of every kind, source mappings, routing, plugin config) | M1 ingest publication repository; later endpoints and provisioning loader | Versioned forever | Immutable; M1 activation requires increasing revision; revert by publishing earlier content at a higher revision | Postgres; M1 bootstrap files are inputs |
 | Source instances and namespaces | M1 ingest publication repository; later endpoints (admin) | Until removed | Admission state atomically follows the active snapshot | Postgres (ADR 0024) |
 | `outbox`, `delivery_attempts` | Pipeline and `StateMutationService` (insert), relays (update) | M1 retains all rows; later retention applies to terminal work | Only durable delivery queue; plugin batches pin one definition digest and complete atomically under claim/lease fences; individually oversized intents are retained dead before transport without a new attempt (ADR 0027); replay (byte-identical) is later work | Postgres |
-| Plugin configs and secrets | M1 publication repository owns webhook and plugin secret commitments; operator owns secret bytes in a local file; later endpoints own plugin configuration | Until changed | New reference for rotation; no secret values in Postgres; missing plugin material blocks only its definition, not startup | Postgres commitments and operator-owned secret file |
+| Plugin configs and secrets | Publication owns configuration and sealed records; operator owns the external key and import file | Configurations are versioned; sealed records are immutable | Rotate under a new reference; missing historical plugin material blocks only its definition | PostgreSQL ciphertext and commitments; the external key never enters PostgreSQL (ADR 0028) |
 | Plugin process state and admission cursor | Plugin supervisor | Process lifetime | Restart and re-handshake; memory holds only running instances and one keyset cursor | Memory |
 | `plugin_instance_status` | Supervisor of the named host; periodic cross-host expiry only after >24 h without a heartbeat | Every 60 s: own stopped rows >60 s old only without health for their key; other hosts' rows >24 h old | Transitions; ready/waiting rows every 15 s, starting at launch; >60 s heartbeats read stale, not proof of death | Postgres mirror |
 | `plugin_definition_health` | Supervisor of the named host | While failed definitions have queued/delivering work; cross-host expiry after >24 h silence and last status-row removal | Backoff, ≤6 failure times and circuit survive eviction; owning host prunes only without live work; stopped status rows with health remain as expiry anchors | Postgres |
@@ -178,10 +178,11 @@ run in every role unless they are switched off:
   Every migration is forward-only and tested against a populated database. Serverpod repair migrations try
   to drop tables outside the migration system. Review every repair and remove operations against SQL-owned
   tables and their indexes/constraints before applying it; see `docs/ingest-pipeline.md`.
-- **M1 ingest configuration:** operator-owned JSON bootstrap files publish immutable public snapshots
-  and source token digests atomically. Revisions only advance, including deliberate reverts; signing
-  secrets stay in a separate process-owned file, with immutable digest commitments in Postgres. Pending
-  work pins its snapshot. M2 provisioning and encrypted database secrets are not implied by this boundary.
+- **Ingest configuration:** operator-owned JSON bootstrap files publish immutable public snapshots and
+  credential rows atomically. Revisions only advance, including deliberate reverts. Credentials and
+  signing material resolve from PostgreSQL records encrypted under an external key; the operator
+  secret file is an import input, not a runtime dependency. Pending work pins its snapshot and secret
+  commitments (ADRs 0028 and 0029).
 - **Rule documents:** a versioned JSON/YAML format with a `language` field (ADR 0008).
 
 ## Resource bounds and failure visibility
@@ -255,6 +256,8 @@ Accepted ADRs only.
 | [0025](../docs/adr/0025-plugin-protocol-v1-output-contract-and-supervision.md) | Production output protocol, readiness permits, atomic outbox batches, fair bounded instances, durable supervision history and kind-aware secret commitments | none |
 | [0026](../docs/adr/0026-plugin-configure-diagnostics.md) | Typed bounded Configure diagnostics, validation precedence and exclusivity; secret-scrubbed plugin class separate from host classification | 0025 D1 Configure response (partial); other 0025 decisions remain in force |
 | [0027](../docs/adr/0027-plugin-intent-byte-limit-admission.md) | Owner-chosen admission-time oversized-intent dead letters with unchanged bytes/counts, no new attempt, transactional readiness fencing and aggregate-only deferral | none (refines 0025 D4) |
+| [0028](../docs/adr/0028-encrypted-secret-store.md) | Encrypted secret records and scheme-tagged commitments under an external key; bounded runtime resolution and historical imports | none |
+| [0029](../docs/adr/0029-source-credentials-and-admission-limits.md) | Source kinds, credential overlap and transactional admission, HMAC input, declared namespaces and per-process rate budgets | none |
 
 ### Superseded ADRs
 

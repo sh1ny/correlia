@@ -57,7 +57,7 @@ the request body open while the publication commits.
 
 ## 1. ADRs and architecture
 
-- [ ] 1.1 Write `docs/adr/0028-encrypted-secret-store.md` (design D1–D5, D8: algorithm, record and AAD
+- [x] 1.1 Write `docs/adr/0028-encrypted-secret-store.md` (design D1–D5, D8: algorithm, record and AAD
   format, scheme-tagged commitments with keyed plugin commitments, key file, import-then-resolve, residual
   M1 hash exposure, D31 default taken by the agent) and `docs/adr/0029-source-credentials-and-admission-limits.md`
   (D6, D7 with the exact signing-input bytes, D9, D10, D11), both `Status: accepted` with today's date after
