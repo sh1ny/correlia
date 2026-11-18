@@ -226,6 +226,34 @@ void main() {
           isEmpty,
         );
       });
+      test('bad_signing_pin_does_not_block_its_output', () async {
+        final session = builder.build();
+        await seed(session, commitment: '0' * 64);
+        const healthy = '66666666-6666-4666-8666-666666666666';
+        await session.db.unsafeExecute(
+          '''INSERT INTO outbox (created_at, delivery_id, event_observed_at, event_id,
+            event_disposition, output_id, config_snapshot_id, target_url,
+            signing_key_ref, signing_key_commitment, payload)
+          SELECT created_at + interval '1 second', CAST(@id AS uuid), event_observed_at,
+            event_id, event_disposition, output_id, config_snapshot_id,
+            target_url, signing_key_ref, @commitment, payload FROM outbox''',
+          parameters: QueryParameters.named({
+            'id': healthy,
+            'commitment': sha256.convert(key).toString(),
+          }),
+        );
+        final repository = OutputRelayRepository(
+          session,
+          testSecretResolver(session).resolve,
+        );
+        final batch = await repository.claim(output);
+        expect(batch?.claims.single.deliveryId, healthy);
+        final rows = await session.db.unsafeQuery(
+          'SELECT status,attempt_count FROM outbox ORDER BY created_at',
+        );
+        expect(rows.first.toList(), ['queued', 0]);
+        expect(rows.last.toList(), ['delivering', 1]);
+      });
       test('loaded_historical_signing_reference', () async {
         final session = builder.build();
         await seed(session, ref: 'historical');

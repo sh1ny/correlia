@@ -252,23 +252,33 @@ final class OutputRelayRepository {
       Uint8List? key;
       if (permit == null) {
         final signing = await session.db.unsafeQuery(
-          '''SELECT signing_key_ref,signing_key_commitment FROM outbox
-          WHERE output_id=CAST(@output AS uuid) AND status='queued' AND output_kind='webhook'
-            AND (next_attempt_at IS NULL OR next_attempt_at<=clock_timestamp())
-            AND EXISTS (SELECT 1 FROM secret_record WHERE reference=signing_key_ref)
-          ORDER BY created_at,delivery_id LIMIT 1''',
+          '''SELECT signing_key_ref,signing_key_commitment FROM (
+            SELECT DISTINCT ON (signing_key_ref,signing_key_commitment)
+              signing_key_ref,signing_key_commitment,created_at,delivery_id
+            FROM outbox
+            WHERE output_id=CAST(@output AS uuid) AND status='queued' AND output_kind='webhook'
+              AND (next_attempt_at IS NULL OR next_attempt_at<=clock_timestamp())
+              AND EXISTS (SELECT 1 FROM secret_record WHERE reference=signing_key_ref)
+            ORDER BY signing_key_ref,signing_key_commitment,created_at,delivery_id
+          ) pins ORDER BY created_at,delivery_id''',
           parameters: QueryParameters.named({'output': outputId}),
           timeoutInSeconds: 5,
         );
-        if (signing.isEmpty) return null;
-        signingReference = signing.single[0]! as String;
-        signingCommitment = signing.single[1]! as String;
-        try {
-          key = await resolveKey(signingReference, signingCommitment);
-        } on SecretResolutionError {
-          _unavailable(outputId, signingReference);
-          return null;
+        for (final row in signing) {
+          budget.checkClaim();
+          final reference = row[0]! as String;
+          final commitment = row[1]! as String;
+          try {
+            key = await resolveKey(reference, commitment);
+            signingReference = reference;
+            signingCommitment = commitment;
+            break;
+          } on SecretResolutionError catch (error) {
+            _unavailable(outputId, reference);
+            if (error.code == 'store_unavailable') return null;
+          }
         }
+        if (key == null) return null;
       }
       return await session.db.transaction((tx) async {
         await _timeout(tx, budget, claim: true);

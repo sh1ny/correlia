@@ -94,6 +94,29 @@ final class SecretStore {
     return rows.isEmpty ? null : _open(reference, rows.single);
   }
 
+  /// Reads and authenticates a publication's stored references in one query.
+  Future<Map<String, Uint8List>> readMany(
+    Session session,
+    Iterable<String> references, {
+    required Transaction? transaction,
+  }) async {
+    if (references.isEmpty) return const {};
+    final rows = await session.db.unsafeQuery(
+      '''SELECT algorithm,nonce,ciphertext,commitment,"keyCommitment",reference
+      FROM secret_record
+      WHERE reference IN (SELECT jsonb_array_elements_text(CAST(@refs AS jsonb)))''',
+      parameters: QueryParameters.named({
+        'refs': jsonEncode(references.toList()),
+      }),
+      transaction: transaction,
+      timeoutInSeconds: 5,
+    );
+    return {
+      for (final row in rows)
+        (row[5]! as String): _open(row[5]! as String, row),
+    };
+  }
+
   Uint8List _open(String reference, DatabaseResultRow row) {
     final commitment = row[3]! as String;
     final keyCommitment = row[4]! as String;

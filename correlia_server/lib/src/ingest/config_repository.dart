@@ -63,11 +63,15 @@ final class IngestConfigRepository {
       (tx) async {
         final material = Map<String, Uint8List>.of(imported);
         final store = _store;
-        for (final reference in IngestBootstrap.references(config)) {
-          if (material.containsKey(reference)) continue;
-          final bytes = await store.read(session, reference, transaction: tx);
-          if (bytes != null) material[reference] = bytes;
-        }
+        material.addAll(
+          await store.readMany(
+            session,
+            IngestBootstrap.references(
+              config,
+            ).where((ref) => !imported.containsKey(ref)),
+            transaction: tx,
+          ),
+        );
         return IngestBootstrap.parseResolved(
           config,
           material,
@@ -327,12 +331,13 @@ final class IngestConfigRepository {
         required[reference] = required[reference] == true || row[2] == true;
       }
     }
+    final storedMaterial = await store.readMany(
+      session,
+      required.keys,
+      transaction: transaction,
+    );
     for (final MapEntry(key: reference, value: plugin) in required.entries) {
-      final stored = await store.read(
-        session,
-        reference,
-        transaction: transaction,
-      );
+      final stored = storedMaterial[reference];
       final bytes = imported[reference];
       if (stored != null) {
         if (bytes != null && !secretBytesEqual(stored, bytes)) {
@@ -360,13 +365,14 @@ final class IngestConfigRepository {
       transaction: transaction,
       timeoutInSeconds: 5,
     );
+    final stored = await _store.readMany(
+      session,
+      {for (final row in refs) row[0]! as String},
+      transaction: transaction,
+    );
     for (final row in refs) {
       final reference = row[0]! as String;
-      final bytes = await _store.read(
-        session,
-        reference,
-        transaction: transaction,
-      );
+      final bytes = stored[reference];
       if (bytes == null ||
           !_store.commitments.verify(reference, row[1]! as String, bytes)) {
         throw const BootstrapError(
