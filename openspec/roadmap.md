@@ -18,7 +18,7 @@ simulator, and failures are visible and replayable. M2 retires the risk that rea
 - Golden fixtures for Icinga2 (webhook and Event Streams), Alertmanager and Thanos pass. Fixtures are
   captured from real releases, never hand-authored. (agent)
 - Scenarios ORD-4, ORD-6, ORD-7, ID-2, ID-3, DUR-4, DUR-5, DUR-9, DUR-10, DUR-11, DUR-12, DUR-13, RUL-1,
-  RUL-2, RUL-3, RUL-4, SEC-2 and SEC-3 pass as named tests. (agent)
+  RUL-2, RUL-3, RUL-4, RUL-6, RUL-7, RUL-8, SEC-2 and SEC-3 pass as named tests. (agent)
 - The owner's real Icinga2 and Alertmanager/Thanos feed a dev instance for a day, and the owner checks
   that the enriched events look right. (user)
 
@@ -38,12 +38,15 @@ simulator, and failures are visible and replayable. M2 retires the risk that rea
 3. `thanos-and-generic-webhook`:
    - Thanos Ruler through the Alertmanager decoder, tenant headers and a documented setup, with captured
      fixtures;
-   - the generic webhook with a versioned declarative mapping document and a preview against a sample.
+   - the generic webhook with a versioned declarative mapping document and a preview against a sample;
+     activation rejects a mapping with neither an observation id nor a source time (RUL-8).
 
    Needs 1.
 4. `matcher-rules-and-versions`:
    - matcher rules (ADR 0008): labels and tags, severity mapping, owner/team, links, hostname/CIDR tables,
-     regex extraction with timeouts (RUL-3);
+     regex extraction with timeouts (RUL-3); a rule that times out on every event is skipped, counted
+     and self-alerted (RUL-7);
+   - one evaluator semantics in memory and as SQL over stored events (RUL-6);
    - rule set versions with atomic activation and rollback (RUL-4), YAML provisioning;
    - parameterized rule filters only (SEC-2); activation rejects unknown outputs (DUR-5).
 
