@@ -71,6 +71,7 @@ final class IngestConfigRepository {
           config,
           material,
           runMode: runMode,
+          pluginCommitment: store.commitments.plugin,
         );
       },
       imported,
@@ -83,6 +84,21 @@ final class IngestConfigRepository {
     IngestBootstrap input, {
     bool requireLiveSecrets = true,
   }) async {
+    for (final output in input.outputs.whereType<PluginIngestOutput>()) {
+      for (final ref in output.secretRefs.values) {
+        if (ref.commitment !=
+            _store.commitments.plugin(
+              ref.reference,
+              input.secret(ref.reference)!,
+            )) {
+          throw const BootstrapError(
+            'config',
+            'secret_refs',
+            'commitment_scheme',
+          );
+        }
+      }
+    }
     await _publish(
       (_) async => input,
       {for (final ref in input.loadedReferences) ref: input.secret(ref)!},
@@ -159,17 +175,23 @@ final class IngestConfigRepository {
           }),
           transaction: transaction,
         );
-        for (final output in input.outputs) {
-          for (final entry in output.commitments.entries) {
-            await session.db.unsafeExecute(
-              'INSERT INTO ingest_secret_commitment (reference,digest) VALUES (@reference,@digest) ON CONFLICT (reference) DO NOTHING',
-              parameters: QueryParameters.named({
-                'reference': entry.key,
-                'digest': entry.value,
-              }),
-              transaction: transaction,
-            );
-          }
+        // The plugin scheme wins when a new reference is shared with a webhook.
+        // Existing M1 entries remain immutable and are checked by their own scheme.
+        final commitments = <String, String>{
+          for (final output in input.outputs.whereType<WebhookIngestOutput>())
+            ...output.commitments,
+          for (final output in input.outputs.whereType<PluginIngestOutput>())
+            ...output.commitments,
+        };
+        for (final entry in commitments.entries) {
+          await session.db.unsafeExecute(
+            'INSERT INTO ingest_secret_commitment (reference,digest) VALUES (@reference,@digest) ON CONFLICT (reference) DO NOTHING',
+            parameters: QueryParameters.named({
+              'reference': entry.key,
+              'digest': entry.value,
+            }),
+            transaction: transaction,
+          );
         }
         // Publication obtains exclusive source locks; admission uses shared locks.
         await session.db.unsafeExecute(

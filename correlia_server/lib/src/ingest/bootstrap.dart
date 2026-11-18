@@ -212,11 +212,13 @@ final class IngestBootstrap {
     Object? config,
     Object? secretInput, {
     required String runMode,
+    String Function(String reference, List<int> bytes)? pluginCommitment,
   }) {
     return parseResolved(
       config,
       decodeBootstrapSecrets(secretInput),
       runMode: runMode,
+      pluginCommitment: pluginCommitment,
     );
   }
 
@@ -225,6 +227,7 @@ final class IngestBootstrap {
     Object? config,
     Map<String, Uint8List> secrets, {
     required String runMode,
+    String Function(String reference, List<int> bytes)? pluginCommitment,
   }) {
     try {
       final root = _map(config, 'config', r'$');
@@ -316,7 +319,8 @@ final class IngestBootstrap {
               }
               references[name] = PluginSecretReference(
                 ref,
-                sha256.convert(bytes).toString(),
+                pluginCommitment?.call(ref, bytes) ??
+                    sha256.convert(bytes).toString(),
               );
             }
             outputs.add(

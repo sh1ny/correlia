@@ -61,6 +61,7 @@ void main() {
                 },
               },
               runMode: 'test',
+              pluginCommitment: testSecretStore.commitments.plugin,
             );
             final current = IngestBootstrap.parse(
               {

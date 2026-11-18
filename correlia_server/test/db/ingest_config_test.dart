@@ -56,33 +56,40 @@ IngestBootstrap input(
   );
 }
 
-IngestBootstrap pluginInput(int revision, {int secret = 7}) =>
-    IngestBootstrap.parse(
-      {
-        'format_version': 1,
-        'revision': revision,
-        'sources': [
-          {
-            'id': sourceId,
-            'enabled': true,
-            'token_ref': 'source-token',
-            'output_ids': [outputId],
-          },
-        ],
-        'outputs': [
-          {
-            'id': outputId,
-            'kind': 'plugin',
-            'plugin': 'output-nats',
-            'sha256': 'a' * 64,
-            'config': {'subject': 'events'},
-            'secret_refs': {'token': 'plugin-token'},
-          },
-        ],
-      },
-      {'source-token': token(1), 'plugin-token': token(secret)},
-      runMode: 'test',
-    );
+Map<String, Object?> pluginConfig(int revision) => {
+  'format_version': 1,
+  'revision': revision,
+  'sources': [
+    {
+      'id': sourceId,
+      'enabled': true,
+      'token_ref': 'source-token',
+      'output_ids': [outputId],
+    },
+  ],
+  'outputs': [
+    {
+      'id': outputId,
+      'kind': 'plugin',
+      'plugin': 'output-nats',
+      'sha256': 'a' * 64,
+      'config': {'subject': 'events'},
+      'secret_refs': {'token': 'plugin-token'},
+    },
+  ],
+};
+
+Map<String, Object?> pluginSecrets(int value) => {
+  'source-token': token(1),
+  'plugin-token': token(value),
+};
+
+IngestBootstrap pluginInput(int revision) => IngestBootstrap.parse(
+  pluginConfig(revision),
+  pluginSecrets(7),
+  runMode: 'test',
+  pluginCommitment: testSecretStore.commitments.plugin,
+);
 
 void main() {
   withServerpod(
@@ -354,14 +361,38 @@ void main() {
           session,
           secretStore: testSecretStore,
         );
-        final definition = pluginInput(1);
-        await repository.publish(definition);
+        final definition = await repository.publishConfig(
+          pluginConfig(1),
+          pluginSecrets(7),
+          runMode: 'test',
+        );
         final stored = await repository.snapshot(definition.snapshotId);
         final text = jsonEncode(stored);
+        final expected = testSecretStore.commitments.plugin(
+          'plugin-token',
+          base64Url.decode('${token(7)}='),
+        );
+        expect(text, contains(expected));
         expect(
           text,
-          contains(sha256.convert(base64Url.decode('${token(7)}=')).toString()),
+          isNot(
+            contains(
+              sha256.convert(base64Url.decode('${token(7)}=')).toString(),
+            ),
+          ),
         );
+        expect(
+          (await session.db.unsafeSimpleQuery(
+            "SELECT digest FROM ingest_secret_commitment WHERE reference='plugin-token'",
+          )).single[0],
+          expected,
+        );
+        final same = await repository.publishConfig(
+          pluginConfig(1),
+          pluginSecrets(7),
+          runMode: 'test',
+        );
+        expect(same.snapshotId, definition.snapshotId);
         expect(text, isNot(contains(token(7))));
         await pipeline_fixture.seed(session, [
           payload.alert(startsAt: '2026-11-10T12:00:00Z'),
@@ -384,14 +415,26 @@ void main() {
         expect(row[3], isNull);
       });
       test('plugin_secret_reference_rebound', () async {
+        final session = builder.build();
         final repository = IngestConfigRepository(
-          builder.build(),
+          session,
           secretStore: testSecretStore,
         );
-        final first = pluginInput(1);
-        await repository.publish(first);
+        final first = await repository.publishConfig(
+          pluginConfig(1),
+          pluginSecrets(7),
+          runMode: 'test',
+        );
+        final record = (await session.db.unsafeSimpleQuery(
+          "SELECT encode(ciphertext,'hex'),commitment FROM secret_record WHERE reference='plugin-token'",
+        )).single;
+        expect(record[1], startsWith('hmac-sha256:'));
         await expectLater(
-          repository.publish(pluginInput(2, secret: 8)),
+          repository.publishConfig(
+            pluginConfig(2),
+            pluginSecrets(8),
+            runMode: 'test',
+          ),
           throwsA(
             isA<BootstrapError>().having(
               (e) => e.code,
@@ -414,6 +457,10 @@ void main() {
           (await repository.activeSnapshot())!['snapshotId'],
           first.snapshotId,
         );
+        final after = (await session.db.unsafeSimpleQuery(
+          "SELECT encode(ciphertext,'hex'),commitment FROM secret_record WHERE reference='plugin-token'",
+        )).single;
+        expect(after.toList(), record.toList());
       });
     },
     rollbackDatabase: RollbackDatabase.disabled,

@@ -81,6 +81,7 @@ void main() {
             },
           },
           runMode: 'test',
+          pluginCommitment: testSecretStore.commitments.plugin,
         );
         session = builder.build();
         await initializeIngestSchema(session);
@@ -389,6 +390,7 @@ void main() {
                 },
               },
               runMode: 'test',
+              pluginCommitment: testSecretStore.commitments.plugin,
             );
             await IngestConfigRepository(
               session,
@@ -600,6 +602,7 @@ void main() {
             },
           },
           runMode: 'test',
+          pluginCommitment: testSecretStore.commitments.plugin,
         );
         await IngestConfigRepository(
           session,
@@ -657,6 +660,7 @@ void main() {
           },
           <String, Object?>{},
           runMode: 'test',
+          pluginCommitment: testSecretStore.commitments.plugin,
         );
         await IngestConfigRepository(
           session,

@@ -64,7 +64,13 @@ func (f *fixture) Configure(_ context.Context, r *pluginv1.ConfigureRequest) (*p
 	case "reject-info":
 		return &pluginv1.ConfigureResponse{ConfigurationInfo: map[string]string{"stream": "alerts"}}, nil
 	}
-	if f.mode == "reject" || string(r.ConfigJson) != `{"subject":"alerts"}` || string(r.Secrets["token"]) != "fixture-secret" {
+	wantSecret := "fixture-secret"
+	validConfig := string(r.ConfigJson) == `{"subject":"alerts"}`
+	if string(r.ConfigJson) == `{"subject":"shared"}` {
+		validConfig = true
+		wantSecret = strings.Repeat("k", 32)
+	}
+	if f.mode == "reject" || !validConfig || string(r.Secrets["token"]) != wantSecret {
 		return &pluginv1.ConfigureResponse{FieldErrors: []*pluginv1.FieldError{{Field: "token", Message: "invalid"}}}, nil
 	}
 	f.configured = true
