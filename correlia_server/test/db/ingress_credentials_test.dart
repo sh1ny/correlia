@@ -103,7 +103,11 @@ void main() {
 
       late WebServer web;
 
-      Future<void> start(IngestBootstrap input, {bool slow = false}) async {
+      Future<void> start(
+        IngestBootstrap input, {
+        bool slow = false,
+        Future<void> Function()? bodyGate,
+      }) async {
         web = WebServer(serverpod: session.serverpod);
         ingress = IngressSubsystem(
           pod: session.serverpod,
@@ -112,12 +116,14 @@ void main() {
           log: logs.add,
           clock: () => _now,
           secretResolver: testSecretResolver(session).resolve,
-          beforeBody: slow
-              ? () async {
-                  beforeBody.complete();
-                  await resume.future;
-                }
-              : null,
+          beforeBody:
+              bodyGate ??
+              (slow
+                  ? () async {
+                      beforeBody.complete();
+                      await resume.future;
+                    }
+                  : null),
         );
         ingress.mountRoutes(_Routes(web));
         await ingress.start();
@@ -300,6 +306,32 @@ void main() {
         expect(await send(bearer: 1, body: '[]'), (429, '1'));
         expect(await rawCount(), 1);
         expect(ingress.counters.snapshot()[sourceId]?.rejected, 1);
+      });
+
+      test('hmac_slots_leave_bearer_admission_available', () async {
+        final full = Completer<void>();
+        var readers = 0;
+        await start(
+          await publish(1, [_credential(1), _credential(3, type: 'hmac')]),
+          bodyGate: () async {
+            if (++readers == 8) full.complete();
+            if (readers <= 8) await resume.future;
+          },
+        );
+        final invalid = 'sha256=${'0' * 64}';
+        final held = Future.wait(
+          List.generate(8, (_) => send(signature: invalid)),
+        );
+        try {
+          await full.future.timeout(const Duration(seconds: 5));
+          expect(await send(signature: invalid), (503, '1'));
+          expect((await send(bearer: 1)).$1, 202);
+        } finally {
+          resume.complete();
+          expect((await held).map((result) => result.$1), everyElement(401));
+        }
+        expect((await send(signature: _sign('[]'), body: '[]')).$1, 202);
+        expect(await rawCount(), 2);
       });
 
       test('unauthenticated_traffic_spends_no_budget', () async {

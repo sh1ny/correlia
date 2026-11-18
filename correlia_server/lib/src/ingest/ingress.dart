@@ -92,6 +92,7 @@ final class IngressSubsystem extends Subsystem {
   final IngressCounters counters;
   bool _ready = false;
   int _inflight = 0;
+  int _hmacInFlight = 0;
   final SecretLookupGate _lookupGate;
   final Future<Uint8List> Function(String, String)? _resolve;
   final DateTime Function() _clock;
@@ -177,11 +178,20 @@ final class _IngressRoute extends Route {
     if (owner._inflight >= 16) return _reject(503, source);
     owner._inflight++;
     var result = const _Result(503);
+    var signedSlot = false;
     try {
       final assertion = _assertion(request, segments, observedAt);
       if (source == null || assertion == null) {
         result = const _Result(401);
+      } else if (assertion is _Hmac && owner._hmacInFlight >= 8) {
+        // Keep half the admission slots available without trusting a client
+        // address or any peer-provided headers.
+        result = const _Result(503);
       } else {
+        if (assertion is _Hmac) {
+          owner._hmacInFlight++;
+          signedSlot = true;
+        }
         final session = await owner.pod.createSession(enableLogging: false);
         try {
           result = await _authenticateAndAdmit(
@@ -200,6 +210,7 @@ final class _IngressRoute extends Route {
       result = const _Result(503);
     } finally {
       owner._inflight--;
+      if (signedSlot) owner._hmacInFlight--;
       owner.counters._increment(source, result.outcome);
       try {
         owner.log(
