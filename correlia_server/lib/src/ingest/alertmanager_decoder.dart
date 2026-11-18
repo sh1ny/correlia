@@ -268,13 +268,13 @@ CanonicalEvent _decodeAlert(
       maxScalars: CanonicalEventBounds.CanonicalEventSummaryLength.max!,
       singleLine: true,
     ),
-    description: projectedAnnotations['description'] == null
-        ? null
-        : normalizeDisplayText(
-            projectedAnnotations['description']!,
-            maxScalars:
-                CanonicalEventBounds.CanonicalEventDescriptionLength.max!,
-          ),
+    description: switch (annotations['description']) {
+      final description? => normalizeDisplayText(
+        description,
+        maxScalars: CanonicalEventBounds.CanonicalEventDescriptionLength.max!,
+      ),
+      null => null,
+    },
     severityOriginal: severityText == null
         ? null
         : normalizeDisplayText(

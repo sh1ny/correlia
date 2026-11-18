@@ -7,12 +7,12 @@ Test paths are relative to `correlia_server/`. Tiers follow AGENTS.md: `test/uni
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| secret-store → External key-encryption key | Key file accepted | `test/e2e/secret_store_e2e_test.dart` | `key_file_accepted` | red |
+| secret-store → External key-encryption key | Key file accepted | `test/e2e/secret_store_e2e_test.dart` | `key_file_accepted` | green |
 | secret-store → External key-encryption key | Key file rejected | `test/unit/secrets/key_file_test.dart` | `key_file_rejected` | green |
 | secret-store → Encrypted secret records | Import seals secrets | `test/db/secret_store_test.dart` | `import_seals_secrets` | green |
 | secret-store → Encrypted secret records | Rebinding refused | `test/db/secret_store_test.dart` | `rebinding_refused` | green |
 | secret-store → Encrypted secret records | Tampered or moved record | `test/db/secret_store_test.dart` | `tampered_or_moved_record` | green |
-| secret-store → Resolution from the store | Secret file not needed after import | `test/e2e/secret_store_e2e_test.dart` | `secret_file_not_needed_after_import` | red |
+| secret-store → Resolution from the store | Secret file not needed after import | `test/e2e/secret_store_e2e_test.dart` | `secret_file_not_needed_after_import` | green |
 | secret-store → Resolution from the store | Fileless worker delivers both outputs | `test/plugin/fileless_worker_test.dart` | `fileless_worker_delivers_both_outputs` | green |
 | secret-store → Resolution from the store | New reference without secret file | `test/db/secret_store_test.dart` | `new_reference_without_secret_file` | green |
 | secret-store → Resolution from the store | M1 plugin work drains after upgrade | `test/plugin/secret_upgrade_test.dart` | `m1_plugin_work_drains_after_upgrade` | green |
@@ -26,12 +26,12 @@ Test paths are relative to `correlia_server/`. Tiers follow AGENTS.md: `test/uni
 | secret-store → Resolution from the store | Plugin and webhook share a stored reference | `test/plugin/secret_upgrade_test.dart` | `plugin_and_webhook_share_a_stored_reference` | green |
 | secret-store → Resolution from the store | More stored references than a process caches | `test/db/secret_store_test.dart` | `more_stored_references_than_a_process_caches` | green |
 | secret-store → Resolution from the store | Wrong key after restore | `test/db/secret_store_test.dart` | `wrong_key_after_restore` | green |
-| secret-store → Secret bytes never leave their consumer | SEC-3 plugin config secret | `test/e2e/secret_store_e2e_test.dart` | `sec_3_plugin_config_secret` | red |
+| secret-store → Secret bytes never leave their consumer | SEC-3 plugin config secret | `test/e2e/secret_store_e2e_test.dart` | `sec_3_plugin_config_secret` | green |
 | secret-store → Secret bytes never leave their consumer | Decryption failure stays sanitized | `test/db/secret_store_test.dart` | `decryption_failure_stays_sanitized` | green |
 | source-ingress → Source scoped authentication | Authenticated source delivery | `test/e2e/ingress_e2e_test.dart` | `authenticated_source_delivery` (existing; re-run) | green |
 | source-ingress → Source scoped authentication | SEC-1 another source token | `test/e2e/ingress_e2e_test.dart` | `sec_1_another_source_token` (existing; re-run) | green |
 | source-ingress → Source scoped authentication | Route kind mismatch | `test/db/ingress_credentials_test.dart` | `route_kind_mismatch` | green |
-| source-ingress → Source configuration format | Version 1 file still starts | `test/e2e/secret_store_e2e_test.dart` | `version_1_file_still_starts` | red |
+| source-ingress → Source configuration format | Version 1 file still starts | `test/e2e/secret_store_e2e_test.dart` | `version_1_file_still_starts` | green |
 | source-ingress → Source configuration format | Unsupported kind or field | `test/unit/ingest/source_config_test.dart` | `unsupported_kind_or_field` | green |
 | source-ingress → Credential rotation with overlap | Overlapping rotation | `test/db/ingress_credentials_test.dart` | `overlapping_rotation` | green |
 | source-ingress → Credential rotation with overlap | Expired and not yet valid credentials | `test/db/ingress_credentials_test.dart` | `expired_and_not_yet_valid_credentials` | green |
@@ -44,13 +44,13 @@ Test paths are relative to `correlia_server/`. Tiers follow AGENTS.md: `test/uni
 | source-ingress → Per source request rate | Burst within budget | `test/unit/ingest/rate_limiter_test.dart` | `burst_within_budget` | green |
 | source-ingress → Per source request rate | Budget exceeded | `test/db/ingress_credentials_test.dart` | `budget_exceeded` | green |
 | source-ingress → Per source request rate | Unauthenticated traffic spends no budget | `test/db/ingress_credentials_test.dart` | `unauthenticated_traffic_spends_no_budget` | green |
-| source-ingress → Declared shared namespaces | ID-2 same names from two sources | `test/db/ingest_scenarios_test.dart` | `id_2_same_names_from_two_sources` | red |
+| source-ingress → Declared shared namespaces | ID-2 same names from two sources | `test/db/ingest_scenarios_test.dart` | `id_2_same_names_from_two_sources` | green |
 | source-ingress → Declared shared namespaces | Undeclared or UUID shaped namespace | `test/unit/ingest/source_config_test.dart` | `undeclared_or_uuid_shaped_namespace` | green |
 | integration-alertmanager → Bounded explicit display and metadata mapping | Display and provenance mapping | `test/unit/ingest/alertmanager_decoder_test.dart` | `display_and_provenance_mapping` (existing; re-run) | green |
 | integration-alertmanager → Bounded explicit display and metadata mapping | Map or aggregate event overflow | `test/unit/ingest/alertmanager_decoder_test.dart` | `map_or_aggregate_event_overflow` (existing; re-run) | green |
 | integration-alertmanager → Bounded explicit display and metadata mapping | Oversize identity label projection | `test/unit/ingest/alertmanager_decoder_test.dart` | `oversize_identity_label_projection` (existing; re-run) | green |
-| integration-alertmanager → Bounded explicit display and metadata mapping | Oversize annotation value | `test/unit/ingest/alertmanager_decoder_test.dart` | `oversize_annotation_value` (extended in 7.1) | red |
-| integration-alertmanager → Bounded explicit display and metadata mapping | ID-3 maximum length values through HTTP ingress | `test/db/ingest_scenarios_test.dart` | `id_3_maximum_length_values_through_http_ingress` | red |
+| integration-alertmanager → Bounded explicit display and metadata mapping | Oversize annotation value | `test/unit/ingest/alertmanager_decoder_test.dart` | `oversize_annotation_value` (extended in 7.1) | green |
+| integration-alertmanager → Bounded explicit display and metadata mapping | ID-3 maximum length values through HTTP ingress | `test/db/ingest_scenarios_test.dart` | `id_3_maximum_length_values_through_http_ingress` | green |
 
 Scenario names in `test/` match the scenario names above, so the M2 close can find ID-2, ID-3 and SEC-3 by
 name. Every `withServerpod` call names its tier tag. Clocks, rate-limit time and HMAC timestamps are
@@ -216,7 +216,7 @@ Skills: `serverpod-webserver`, `serverpod-database`, `serverpod-testing`, plus g
 
 Skills: `serverpod-testing`, `dart-add-unit-test`.
 
-- [ ] 7.1 Write `test/db/ingest_scenarios_test.dart`: `id_2_same_names_from_two_sources` (two default
+- [x] 7.1 Write `test/db/ingest_scenarios_test.dart`: `id_2_same_names_from_two_sources` (two default
   namespaces → two fingerprints and two alerts; two sources in one declared namespace → one fingerprint and
   one alert; distinct observation ids) and `id_3_maximum_length_values_through_http_ingress` (256-byte
   `instance` label, 4097-scalar description, second delivery differing only in the last scalar, neither
@@ -226,7 +226,7 @@ Skills: `serverpod-testing`, `dart-add-unit-test`.
   changing the display description to use the original annotation; include a value between the bounds.
   Identity and deduplication are unchanged.
   Verify: both named DB scenarios and the decoder regression pass; flip green.
-- [ ] 7.2 Write `test/e2e/secret_store_e2e_test.dart` over real `bin/main.dart --mode test` children:
+- [x] 7.2 Write `test/e2e/secret_store_e2e_test.dart` over real `bin/main.dart --mode test` children:
   `key_file_accepted` (no table dump or child log contains the key or its text), `version_1_file_still_starts`
   (seed the old M1 revision, assert the equal-revision publication conflicts and leaves the old snapshot active,
   then bump the revision and verify the existing token, UUID and namespace), `secret_file_not_needed_after_import` and
@@ -234,7 +234,7 @@ Skills: `serverpod-testing`, `dart-add-unit-test`.
   endpoint and the public snapshot read back, console and persistent logging on; the bytes and their
   base64url form appear in no response, row dump, log file or captured output). Verify: all pass with
   `mise run test -- --tags e2e`, and flip green.
-- [ ] 7.3 Re-run the unchanged rows (`display_and_provenance_mapping`, `map_or_aggregate_event_overflow`,
+- [x] 7.3 Re-run the unchanged rows (`display_and_provenance_mapping`, `map_or_aggregate_event_overflow`,
   `oversize_identity_label_projection`, `authenticated_source_delivery`, `sec_1_another_source_token`): all pass.
 
 ## 8. Integration

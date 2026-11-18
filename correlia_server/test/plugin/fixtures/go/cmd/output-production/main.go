@@ -51,6 +51,13 @@ func (f *fixture) Configure(_ context.Context, r *pluginv1.ConfigureRequest) (*p
 		_ = syscall.Kill(os.Getpid(), syscall.SIGSTOP)
 		select {}
 	}
+	if string(r.ConfigJson) == `{"echo_configure_secret":true}` {
+		secret := string(r.Secrets["token"])
+		if secret != "sec3_fixture_private_canary" {
+			return &pluginv1.ConfigureResponse{ErrorClass: "missing_expected_secret"}, nil
+		}
+		return &pluginv1.ConfigureResponse{ErrorClass: secret, FieldErrors: []*pluginv1.FieldError{{Field: secret, Message: secret}}}, nil
+	}
 	if strings.Contains(string(r.ConfigJson), `"unknown"`) {
 		return &pluginv1.ConfigureResponse{FieldErrors: []*pluginv1.FieldError{{Field: "unknown", Message: "invalid"}}}, nil
 	}

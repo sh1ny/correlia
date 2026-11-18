@@ -159,7 +159,7 @@ Only Alertmanager webhook version `"4"` is supported. Every supplied alert uses 
 | `endsAt` | Resolved source time; firing zero sentinel is absent from canonical resolution time but remains exact observation-key evidence |
 | Severity label | Exact critical/error/warning/info, otherwise unknown with original text retained |
 | Summary annotation | Summary; falls back to nonempty alertname, then `Alertmanager alert` |
-| Description annotation | Description |
+| Description annotation | Display text from the original value, truncated at 4096 Unicode scalars; the stored annotation is separately capped at 1024 |
 | Generator/external URL | Canonical-valid HTTP(S) links; empty omitted, invalid nonempty rejected |
 | Upstream fingerprint | Namespaced extension evidence, never canonical identity or labels_origin |
 
