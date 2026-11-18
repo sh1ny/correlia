@@ -1,41 +1,29 @@
-# Review: source-model-and-secrets, round 4 recheck (M7 only)
+I've finished rechecking the required edits against `tasks.md` and `design.md`. All five are in place.
 
-- **Scope:** I rechecked only M7 against `tasks.md` group 3 (3.3). M1–M6, M8, N1, N2, S7, D8 and S9–S13 stay closed and are not reopened.
-- **Read:** `review.md` (M7 and Required Changes 1) and `tasks.md:1-160`. I relied on the round 3 caller evidence (`relay_subsystem.dart:66-69, 114-117`, `plugin_supervisor.dart:340`) and did not re-read those files.
-- Read-only review. No files were edited and no builds or tests were run.
+# Recheck: source-model-and-secrets, findings C1–C4
 
-## Recheck
+- **Scope:** I checked only findings C1–C4 and required changes 1–5 from `review.md` against the amended `tasks.md:165-213` and `design.md:242-260`. I did not reopen closed findings or the optional notes.
+- **How:** I only read files; I ran no builds or tests. I also read `_publish` in `correlia_server/lib/src/ingest/config_repository.dart:109-153` to confirm what runs before secret validation.
 
-| ID | Finding | Status | Evidence |
-|---|---|---|---|
-| M7 | Red gate for `historical_outputs_drain_after_a_revision_change` | **Resolved** | `tasks.md:122-127`, option (a) |
+## Required changes
 
-### M7: resolved
+| # | Finding | Required change | Amended text | Status |
+|---|---|---|---|---|
+| 1 | C1 | One shared publication gate in `_publish`, after parsing and before any write, with a distinct code under `format_version` | `tasks.md:177-179`: "In the common `_publish` path, after parsing and before any writes, reject v2 at `format_version` with a distinct `not_enabled` code." Because `publishConfig` and `publish(IngestBootstrap)` both reach `_publish`, one gate there covers both. | Resolved |
+| 2 | C4 | A named DB test that blocks writes and still proves v1 works over HTTP | `tasks.md:179-182`: `v2_publication_cutover` in `test/db/ingest_config_test.dart`. Both publication paths reject v2, including a fileless input using stored references. The active snapshot is kept, and no snapshot, secret or credential rows are added. A higher v1 revision still publishes, and its bearer token is still accepted over HTTP. | Resolved |
+| 3 | C2 | Full group 5 regression gates, and existing snapshot keys kept | `tasks.md:176`: "retain the existing routing and identity fields so M1 and v2 pins both work". `tasks.md:187-188`: `mise run check`, the DB and plugin tiers, and the `authenticated_source_delivery` and `sec_1_another_source_token` end-to-end cases. | Resolved |
+| 4 | C3 | Stored-reference lookup covers v2 references; group 6 tests a fileless v2 publication | `tasks.md:176-177`: "Share reference parsing with stored-material lookup (`token_ref` and `credentials[].ref`)." `tasks.md:210-211`: fileless v2 publication using stored credentials. | Resolved |
+| 5 | C4 | Group 6 replaces the gate assertion | `tasks.md:210-211`: "Remove the temporary publication gate. Replace the rejection in `v2_publication_cutover` with a fileless v2 publication using stored credentials and a 202 bearer admission." | Resolved |
 
-- **Option (a) is in 3.3.** "Restart without the secret file after importing revision A in both cases" (`tasks.md:124`). The restart comes after A's import and before B. B is then published "while the fileless worker stays running" (`tasks.md:125`), so the worker is already fileless when B lands.
-- **The no-restart-after-B assertion is unchanged.** "Then drain revision A's pinned work without another restart" (`tasks.md:125-126`) still holds. Nothing else in 3.3 allows a restart, a reload or a reinjected file map after B. The scenario still proves that A's pinned work drains once B has removed both references.
-- **The red run is now real.** Before the reader cutover, both consumers read the startup `bootstrap` map:
-  - webhook relay: `relay_subsystem.dart:66-69, 114-117`
-  - plugin Configure: `plugin_supervisor.dart:340`
+`design.md:251-254` (the "V2 activation cutover" paragraph in D11) matches this split: group 5 rejects v2 publication, and group 6 enables it.
 
-  The worker restarted without the file, so that map does not contain A's references. Two things can happen, and both fail:
-  - The worker cannot start without the file.
-  - The worker starts but cannot sign the webhook delivery or configure the plugin.
+## Remaining wording (non-blocking)
 
-  In both cases the failure comes from the missing store-backed reader, not from a fixture fault. The round 3 objection depended on a worker that still held revision A's file map after B was published. That case can no longer occur.
-- **The red gate is still in place.** The red-run command and "confirm both fail" stay before the consumer switch (`tasks.md:126-127, 131`), and the flip-to-green comes after it (`tasks.md:136`).
-
-## Notes (non-blocking)
-
-- **The red signal does not isolate B.** Before the cutover, this test fails for the same reason as `fileless_worker_delivers_both_outputs`: a fileless worker cannot sign or configure. B's removal of the references is only exercised by the green run. That is acceptable for a gate that must be red before the cutover, and option (a) allowed it.
-- **Wording clash in 3.3.** `tasks.md:111` makes the secret file optional in `IngestBootstrap.load` before the consumers switch, but `tasks.md:131-132` says "before allowing fileless startup". Either order still produces a real red, but one phrasing would help whoever implements it. Consider settling on one order: either fileless startup is allowed only after the readers move, or it is allowed early and the red is expected to be a signing or Configure failure.
+- **Gate position:** Required change 1 asked for the gate before secret validation; the task says "before any writes". In `_publish`, the revision-conflict check (`config_repository.dart:132-146`) and `_validateCommitments` (`:148`) are both read-only and run before the first write. So the no-write guarantee holds either way. But a v2 input at an equal revision could fail with an activation conflict instead of `not_enabled`. Saying "immediately after `prepare`" in the task, or using a higher revision in the test, would rule that out.
+- **Asserted code:** The test text says "reject v2" but doesn't explicitly say to assert `not_enabled` at `format_version`. The sentence just before it defines that code, so this is only a clarity gap.
 
 ## Verdict
 
 VERDICT: APPROVE_WITH_CHANGES
-
-## Required Changes
-
-None remain for M7. The two notes above are optional.
 
 CHANGES_APPLIED: yes

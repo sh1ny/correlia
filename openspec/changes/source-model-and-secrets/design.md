@@ -247,6 +247,11 @@ credential-window behavior. The final credential and admission contracts do not 
   an already-active revision conflicts with its M1 snapshot id. Operators bump the revision once during
   upgrade. Stored references are immutable for all secret kinds: rotate source tokens by publishing a new
   `token_ref` (v1) or credential reference (v2), not by replacing bytes under the old name.
+
+  **V2 activation cutover (Chosen by: user):** Group 5 implements and proves the v2 parser and public
+  snapshot shape, including v1 mapping, but configured publication rejects v2 input until group 6.
+  Group 6 enables publication together with multiple-credential, HMAC and rate-limit behavior. Rejected:
+  advertising v2 readiness before ingress can authenticate every supported credential.
 - **Rejected:** dropping version 1 because the owner's dev instance uses it and the cost of reading it is a
   small mapping function; storing version 1 snapshots as they were, because every reader would then handle two
   shapes forever.

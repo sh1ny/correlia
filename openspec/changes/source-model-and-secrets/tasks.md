@@ -173,12 +173,19 @@ Skills: group 2's.
   `mise run test -- test/unit/ingest/source_config_test.dart`: they fail.
 - [ ] 5.2 Implement the version 2 parser (in a new `lib/src/ingest/source_config.dart`, keeping
   `bootstrap.dart` focused on files and secrets), the version 1 mapping, declared namespaces and the snapshot
-  version 2 shape; failures stay `BootstrapError` with field path and code only. Update `docs/ingest-pipeline.md`
-  ("Bootstrap and rotation"): version 2 example, credentials and windows, namespaces, rate limits,
+  version 2 shape; retain the existing routing and identity fields so M1 and v2 pins both work. Share
+  reference parsing with stored-material lookup (`token_ref` and `credentials[].ref`). In the common
+  `_publish` path, after parsing and before any writes, reject v2 at `format_version` with a distinct
+  `not_enabled` code. In `test/db/ingest_config_test.dart`, add `v2_publication_cutover`: both publication
+  paths reject v2 (including fileless input using stored references), preserve the active snapshot and
+  add no snapshot, secret or credential rows; a higher v1 revision still publishes and admits its bearer
+  over HTTP. In `docs/ingest-pipeline.md` ("Bootstrap and rotation"), document the upcoming v2 example,
+  credentials and windows, namespaces and rate limits without advertising live activation yet,
   `CORRELIA_SECRET_KEY_FILE` with key generation, the one-time revision bump on upgrade, key backup and loss,
   per-process rate limits with several api processes, rotation under new source references instead of
   overwriting an existing `token_ref`, and rotating low-entropy M1 plugin secrets. Verify:
-  group 5 tests pass and flip green; `mise run check` passes.
+  group 5 tests pass and flip green; `mise run check`, the DB and plugin tiers, and the
+  `authenticated_source_delivery` and `sec_1_another_source_token` e2e cases pass.
 
 ## 6. Ingress: kinds, credentials, HMAC and rate limits
 
@@ -200,8 +207,9 @@ Skills: `serverpod-webserver`, `serverpod-database`, `serverpod-testing`, plus g
   receipt-time windows, HMAC (header checks and timestamp before buffering, signature after bounded read,
   keys from the resolver), and the post-authentication token bucket (429 with `Retry-After`, counted as
   rejected). Complete the `FOR SHARE` recheck of credential, kind, enabled and path-token policy.
-  Verify: group 6 tests pass and
-  flip green; `authenticated_source_delivery`, `sec_1_another_source_token`, `test/db/ingress_http_test.dart`,
+  Remove the temporary publication gate. Replace the rejection in `v2_publication_cutover` with a
+  fileless v2 publication using stored credentials and a 202 bearer admission. Verify group 6 tests pass and flip green;
+  `authenticated_source_delivery`, `sec_1_another_source_token`, `test/db/ingress_http_test.dart`,
   `test/db/ingress_test.dart` and `test/db/transport_dedup_test.dart` still pass.
 
 ## 7. Named scenarios and process-level proofs
