@@ -17,8 +17,8 @@ simulator, and failures are visible and replayable. M2 retires the risk that rea
 **Exit criteria:**
 - Golden fixtures for Icinga2 (webhook and Event Streams), Alertmanager and Thanos pass. Fixtures are
   captured from real releases, never hand-authored. (agent)
-- Scenarios ORD-4, ORD-6, ORD-7, ID-2, ID-3, DUR-4, DUR-5, DUR-9, DUR-10, DUR-11, DUR-12, DUR-13, RUL-1,
-  RUL-2, RUL-3, RUL-4, RUL-6, RUL-7, RUL-8, SEC-2 and SEC-3 pass as named tests. (agent)
+- Scenarios ORD-4, ORD-6, ORD-7, ID-2, ID-3, ID-7 (a), DUR-4, DUR-5, DUR-9, DUR-10, DUR-11, DUR-12,
+  DUR-13, RUL-1, RUL-2, RUL-3, RUL-4, RUL-6, RUL-7, RUL-8, SEC-2 and SEC-3 pass as named tests. (agent)
 - The owner's real Icinga2 and Alertmanager/Thanos feed a dev instance for a day, and the owner checks
   that the enriched events look right. (user)
 
@@ -31,7 +31,8 @@ simulator, and failures are visible and replayable. M2 retires the risk that rea
 2. `icinga2-ingest`:
    - the Icinga2 webhook (notification command) and the Event Streams API consumer (`CheckResult`,
      `StateChange`, acknowledgements, downtimes, flapping);
-   - state sync on startup; the soft/hard state policy per source;
+   - state sync on startup; the soft/hard state policy per source; a WARNING to CRITICAL change updates
+     one alert's severity (ID-7 a);
    - captured golden fixtures for both paths; skew clamp and late-event fence (ORD-4, ORD-6, ORD-7).
 
    Needs 1.
