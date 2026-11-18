@@ -13,6 +13,7 @@ Test paths are relative to `correlia_server/`. Tiers follow AGENTS.md: `test/uni
 | secret-store → Encrypted secret records | Rebinding refused | `test/db/secret_store_test.dart` | `rebinding_refused` | red |
 | secret-store → Encrypted secret records | Tampered or moved record | `test/db/secret_store_test.dart` | `tampered_or_moved_record` | red |
 | secret-store → Resolution from the store | Secret file not needed after import | `test/e2e/secret_store_e2e_test.dart` | `secret_file_not_needed_after_import` | red |
+| secret-store → Resolution from the store | Fileless worker delivers both outputs | `test/plugin/fileless_worker_test.dart` | `fileless_worker_delivers_both_outputs` | red |
 | secret-store → Resolution from the store | New reference without secret file | `test/db/secret_store_test.dart` | `new_reference_without_secret_file` | red |
 | secret-store → Resolution from the store | M1 plugin work drains after upgrade | `test/plugin/secret_upgrade_test.dart` | `m1_plugin_work_drains_after_upgrade` | red |
 | output-delivery → Kind-aware startup validation | M1 work with historical secret references drains after upgrade | `test/plugin/secret_upgrade_test.dart` | `m1_plugin_work_drains_after_upgrade` | red |
@@ -20,7 +21,8 @@ Test paths are relative to `correlia_server/`. Tiers follow AGENTS.md: `test/uni
 | output-delivery → Kind-aware startup validation | Mixed live work with a missing plugin secret | `test/db/plugin_startup_secrets_test.dart` | `mixed_live_work_missing_plugin_secret` | red |
 | output-delivery → Signing key availability before acquisition | Loaded historical signing reference | `test/db/output_relay_test.dart` | `loaded_historical_signing_reference` | red |
 | output-delivery → Signing key availability before acquisition | Unloaded live signing reference | `test/db/output_relay_test.dart` | `unloaded_live_signing_reference` | red |
-| secret-store → Resolution from the store | Historical outputs drain after a revision change | `test/plugin/secret_upgrade_test.dart` | `historical_outputs_drain_after_a_revision_change` | red |
+| output-delivery → Signing key availability before acquisition | Unverifiable pinned signing commitment | `test/db/output_relay_test.dart` | `unverifiable_pinned_signing_commitment` | red |
+| secret-store → Resolution from the store | Historical outputs drain after a revision change | `test/plugin/fileless_worker_test.dart` | `historical_outputs_drain_after_a_revision_change` | red |
 | secret-store → Resolution from the store | Plugin and webhook share a stored reference | `test/plugin/secret_upgrade_test.dart` | `plugin_and_webhook_share_a_stored_reference` | red |
 | secret-store → Resolution from the store | More stored references than a process caches | `test/db/secret_store_test.dart` | `more_stored_references_than_a_process_caches` | red |
 | secret-store → Resolution from the store | Wrong key after restore | `test/db/secret_store_test.dart` | `wrong_key_after_restore` | red |
@@ -111,15 +113,30 @@ Skills: `serverpod-models`, `serverpod-database`, `serverpod-migrations`, `serve
   In the same group as the column
   drop, move existing bearer/path lookup and the transactional admission fence to credential rows in
   `ingress.dart` and `admission.dart`. In `test/db/ingest_config_test.dart`, assert credential rows instead
-  of `tokenDigest` and rotate under new references. Keep plugin snapshot commitments in their M1 scheme
-  until the Configure resolver and commitment writer cut over together in group 4. Update
+  of `tokenDigest` and rotate under new references. Keep plugin snapshots in the M1 commitment scheme
+  until group 4; the group 3 resolver must already verify both schemes. Update
   `test/unit/ingest/bootstrap_file_test.dart` for an optional secret file, and update affected admission
   test inputs. Add `secret_record` and `ingest_source_credential` to explicit DB/plugin cleanup wherever
   rollback is disabled (including ingest config, startup secrets, transport dedup, pipeline, alert state,
   and plugin supervision suites). Update the e2e harness to supply a 0600 key file to configured children.
-  Verify: group 3 tests pass and flip their rows green; affected unit and DB tests pass, including
-  `plugin_startup_secrets_test.dart`, `ingress_http_test.dart` and `ingress_test.dart`, plus
-  `transport_dedup_test.dart`. `mise run test -- --tags plugin` passes.
+  Before switching consumers, add `fileless_worker_delivers_both_outputs` and
+  `historical_outputs_drain_after_a_revision_change` in `test/plugin/fileless_worker_test.dart` (`plugin`).
+  Restart without the secret file after importing revision A in both cases. In the second case, publish
+  revision B to remove both references while the fileless worker stays running, then drain revision A's
+  pinned work without another restart. Run `mise run test -- --tags plugin test/plugin/fileless_worker_test.dart`
+  and confirm both fail. Add `unverifiable_pinned_signing_commitment` in `test/db/output_relay_test.dart`
+  before the cutover: a present record with a mismatched pinned commitment leaves its intent queued,
+  keeps `attempt_count` unchanged, writes no attempt row, emits a rate-limited diagnostic with only
+  output, reference and fixed code, and does not block unrelated outputs.
+  Move webhook relay and plugin Configure readers to `SecretResolver.resolve(reference, commitment)`
+  before allowing fileless startup. Discover candidates by record reference, resolve before holding
+  the claim transaction, and recheck the selected reference and pinned commitment before starting
+  an attempt. Emit the same rate-limited diagnostic on claim-time resolution failure; remove
+  `loadedReferences`. Verify the affected unit tests and `mise run test -- --tags db` and
+  `mise run test -- --tags plugin`. Flip the group 3 rows green, including the two new plugin tests,
+  `loaded_historical_signing_reference`, `unloaded_live_signing_reference`,
+  `unverifiable_pinned_signing_commitment`, `missing_webhook_key_fails_startup` and
+  `mixed_live_work_missing_plugin_secret`.
 
 ## 4. Secret consumers and historical work
 
@@ -130,19 +147,19 @@ Skills: group 3's.
   row pinned to a historical signing key; both references are absent from the upgraded config but present
   in the M1 secret file. Publish with the M1 secret file and key, assert historical records imported and
   startup succeeded, restart without the file at a higher revision, and assert both deliveries succeed with
-  the original bytes and unchanged pinned digest; new plugin definitions carry `hmac-sha256:` commitments) and
-  `historical_outputs_drain_after_a_revision_change` (webhook and plugin rows queued under revision A both
-  deliver after revision B drops their references, with no restart), and
-  `plugin_and_webhook_share_a_stored_reference` (both drain using one record with different pinned
-  schemes; an intent with the wrong commitment cannot start a delivery attempt). Run
-  `mise run test -- --tags plugin test/plugin/secret_upgrade_test.dart`: they fail.
-- [ ] 4.2 Route every consumer through `SecretResolver.resolve(reference, commitment)`:
-  `plugin_supervisor.dart` Configure and webhook relay signing. Webhook discovery and claim join
-  `secret_record` by reference rather than matching loaded commitments; verify the pinned commitment before
-  starting an attempt. Remove `loadedReferences` from the relay subsystem. Switch the plugin snapshot
-  commitment writer to `hmac-sha256:` with the Configure resolver and update the `plugin_output_activates`
-  assertion in `ingest_config_test.dart` in the same group. Update the existing webhook availability tests
-  to distinguish a store hit from a missing record; verify mixed live work still starts.
+  the original bytes and unchanged pinned digest; new plugin definitions carry `hmac-sha256:` commitments)
+  and `plugin_and_webhook_share_a_stored_reference` (both drain using one record with different pinned
+  schemes; an intent with the wrong commitment cannot start a delivery attempt). Before changing the
+  writer, also add assertions in `test/db/ingest_config_test.dart` for the keyed commitment, an unchanged
+  restart with the file present, and a rejected rebinding of the stored keyed reference
+  (`reference_rebound`; record and active snapshot unchanged). Run the focused plugin and DB tests
+  (`mise run test -- --tags plugin test/plugin/secret_upgrade_test.dart` and
+  `mise run test -- --tags db test/db/ingest_config_test.dart`); the new keyed-commitment cases are red.
+- [ ] 4.2 Switch the plugin snapshot commitment writer to `hmac-sha256:` and update the
+  `plugin_output_activates` assertion in `ingest_config_test.dart`. The consumer cutover is already
+  verified in group 3; preserve the old pins and prove that both schemes resolve. Write keyed
+  plugin values to `ingest_secret_commitment`; limit the legacy comparison to references without
+  a stored record in the transaction and verify by the recorded scheme.
   Verify: group 4 tests pass and flip green; `mise run test -- --tags db` and `--tags plugin` pass.
 
 ## 5. Source configuration format version 2

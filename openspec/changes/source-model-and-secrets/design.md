@@ -125,6 +125,12 @@ Scope decisions S1–S5 are in `proposal.md`.
   that transaction; a missing historical plugin secret still blocks only its definition. At runtime all
   consumers use `SecretResolver.resolve(reference, commitment)` and verify their own pinned commitments.
 
+  **Runtime cutover (Chosen by: user):** Make the import file optional in the same group that switches
+  webhook signing and plugin Configure to the store. Verify a fileless worker delivers both before
+  committing that group. The next group enables keyed plugin snapshot commitments after both schemes
+  already resolve and proves historical upgrade behavior. Rejected: delaying fileless startup or
+  letting a worker report ready before its output consumers can resolve stored keys.
+
   **M1 history (Chosen by: user):** Preserve live work even when the new configuration omits its
   references. Rejected: importing only the active configuration, which strands work whose keys are still
   present in the operator file. Reversal cost: medium (queued deliveries would need operator recovery).
@@ -275,6 +281,7 @@ credential-window behavior. The final credential and admission contracts do not 
 | D4 | Key source | 0600 key file named by `CORRELIA_SECRET_KEY_FILE` | Env var; passphrase KDF | low | yes | agent |
 | D5 | Secret flow | Import at publication, resolve from store | File at runtime; per-request decrypt | medium | yes | agent |
 | D5 upgrade | Historical imports | Import and verify file references pinned by live work in the publication transaction | Import only active references | medium | yes | user |
+| D5 runtime cutover | Apply order | Enable fileless startup with store-backed output consumers in group 3 | Delay fileless startup until group 4 | low | yes | user |
 | D6 | Credential storage | `ingest_source_credential`, admission fence and persisted `alertmanager` kind default | Snapshot JSON only; list column | low | yes | agent |
 | D6 cutover | Apply order | Drop the old column and switch its bearer callers in group 3 | Separate drop migration in group 6 | low | yes | user |
 | D7 | HMAC verification | Signature over timestamp, idempotency key and body, verified after bounded read | Pre-read digest header; no timestamp; unsigned key | low | yes | agent |
