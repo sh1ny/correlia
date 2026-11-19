@@ -135,7 +135,7 @@ identifies retries. The ten-minute reservation window is fixed from first admiss
 
 Bodies default to—and cannot exceed—1 MiB; a source may select a lower positive limit. A ten-second total body deadline and sixteen request slots bound admission, with a smaller authentication lookup bound protecting the shared connection pool. In-memory source/unknown counters reset on restart and rekey to the active registry; they are not a durable ledger.
 
-At most eight HMAC requests can occupy the sixteen admission slots. Each source can have at most two unverified HMAC requests reading bodies concurrently, leaving room for other sources. Saturation returns 503 with `Retry-After: 1`.
+At most eight HMAC requests can occupy the sixteen admission slots, with at most two per source UUID. Both limits apply before database lookup and return 503 with `Retry-After: 1` when full.
 
 | Status | Meaning |
 |---|---|

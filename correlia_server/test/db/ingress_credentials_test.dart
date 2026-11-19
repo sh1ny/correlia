@@ -338,7 +338,28 @@ void main() {
           );
           try {
             await full.future.timeout(const Duration(seconds: 5));
-            expect(await send(signature: invalid), (503, '1'));
+            final locked = Completer<void>();
+            final unlock = Completer<void>();
+            final lockSession = builder.build();
+            final lock = lockSession.db.transaction((tx) async {
+              await lockSession.db.unsafeSimpleExecute(
+                'LOCK TABLE ingest_source IN ACCESS EXCLUSIVE MODE',
+                transaction: tx,
+              );
+              locked.complete();
+              await unlock.future;
+            });
+            try {
+              await locked.future.timeout(const Duration(seconds: 5));
+              final overflowWhileLocked = send(signature: invalid);
+              expect(
+                await overflowWhileLocked.timeout(const Duration(seconds: 2)),
+                (503, '1'),
+              );
+            } finally {
+              unlock.complete();
+              await lock;
+            }
             expect(
               (await send(
                 path:

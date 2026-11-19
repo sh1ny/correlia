@@ -177,46 +177,51 @@ final class _IngressRoute extends Route {
     if (request.method != Method.post) return _reject(405, source);
     if (request.url.hasQuery) return _reject(400, source);
     if (owner._inflight >= 16) return _reject(503, source);
+    final assertion = _assertion(request, segments, observedAt);
+    if (source == null || assertion == null) return _reject(401, source);
+    final signed = assertion is _Hmac;
+    final signedCount = signed ? owner._hmacBySource[source] ?? 0 : 0;
+    // Reject before using shared capacity or a connection. At most eight
+    // request-owned entries exist, including unknown source IDs.
+    if (signed && (signedCount >= 2 || owner._hmacInFlight >= 8)) {
+      return _reject(503, source);
+    }
     owner._inflight++;
+    if (signed) {
+      owner._hmacInFlight++;
+      owner._hmacBySource[source] = signedCount + 1;
+    }
     var result = const _Result(503);
-    var signedSlot = false;
     try {
-      final assertion = _assertion(request, segments, observedAt);
-      if (source == null || assertion == null) {
-        result = const _Result(401);
-      } else if (assertion is _Hmac && owner._hmacInFlight >= 8) {
-        // Keep half the admission slots available without trusting a client
-        // address or any peer-provided headers.
-        result = const _Result(503);
-      } else {
-        if (assertion is _Hmac) {
-          owner._hmacInFlight++;
-          signedSlot = true;
-        }
-        final session = await owner.pod.createSession(enableLogging: false);
-        try {
-          result = await _authenticateAndAdmit(
-            session,
-            request,
-            source,
-            kind,
-            assertion,
-            observedAt,
-          );
-        } finally {
-          await session.close();
-        }
+      final session = await owner.pod.createSession(enableLogging: false);
+      try {
+        result = await _authenticateAndAdmit(
+          session,
+          request,
+          source,
+          kind,
+          assertion,
+          observedAt,
+        );
+      } finally {
+        await session.close();
       }
     } catch (_) {
       result = const _Result(503);
     } finally {
       owner._inflight--;
-      if (signedSlot) owner._hmacInFlight--;
+      if (signed) {
+        owner._hmacInFlight--;
+        final remaining = owner._hmacBySource[source]! - 1;
+        if (remaining == 0) {
+          owner._hmacBySource.remove(source);
+        } else {
+          owner._hmacBySource[source] = remaining;
+        }
+      }
       owner.counters._increment(source, result.outcome);
       try {
-        owner.log(
-          'ingress source=${source ?? 'unknown'} outcome=${result.status}',
-        );
+        owner.log('ingress source=$source outcome=${result.status}');
       } catch (_) {}
     }
     return _response(result.status, result.retryAfter);
@@ -362,25 +367,7 @@ final class _IngressRoute extends Route {
       return const _Result(400);
     }
     final idempotencyKey = keys?.single;
-    final limit = entry['body_limit_bytes']! as int;
-    final Uint8List? body;
-    if (assertion is _Hmac) {
-      final reading = owner._hmacBySource[source] ?? 0;
-      if (reading >= 2) return const _Result(503);
-      owner._hmacBySource[source] = reading + 1;
-      try {
-        body = await _readBody(request, limit);
-      } finally {
-        final remaining = owner._hmacBySource[source]! - 1;
-        if (remaining == 0) {
-          owner._hmacBySource.remove(source);
-        } else {
-          owner._hmacBySource[source] = remaining;
-        }
-      }
-    } else {
-      body = await _readBody(request, limit);
-    }
+    final body = await _readBody(request, entry['body_limit_bytes']! as int);
     if (body == null) return const _Result(413);
     if (assertion case _Hmac(:final timestamp, :final signature)) {
       final resolve = owner._resolve;
