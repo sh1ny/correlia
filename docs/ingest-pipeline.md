@@ -84,8 +84,9 @@ per API process: `per_second` 1–1000, `burst` 1–10000, default 20/40. Replic
 
 V1 accepts `token_ref` instead of `kind`, `credentials`, and `rate_limit`; it maps to one Alertmanager bearer
 credential and keeps any existing namespace. For an M1 upgrade supply the key file and original import
-file, retaining values pinned by live outputs, and bump the revision once even if the v1 input is otherwise
-unchanged. New public snapshots use the v2 shape. Rotate v1 source tokens under a new `token_ref`; never
+file, including keys needed by live deliveries and by outputs routed from already-pinned pending raw rows.
+Bump the revision once even if the v1 input is otherwise unchanged. New public snapshots use the v2 shape.
+Rotate v1 source tokens under a new `token_ref`; never
 replace bytes under an existing reference.
 
 Plugin outputs use exactly `id`, `"kind": "plugin"`, `plugin`, `sha256`, `config` and `secret_refs`. `plugin` is a filename matching `^[a-z0-9][a-z0-9._-]{0,63}$`; `sha256` is its 64-character lowercase executable digest. `config` is a JSON object of at most 16 KiB; `secret_refs` maps at most eight plugin secret names to references in the secret file. Workers require `CORRELIA_PLUGIN_DIR`, owned by the process user and not writable by group or others. Api-only processes validate the definition without requiring that directory. Executable safety and digest are checked again at every launch.

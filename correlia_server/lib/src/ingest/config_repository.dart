@@ -301,17 +301,40 @@ final class IngestConfigRepository {
     };
     if (imported.isNotEmpty) {
       final rows = await session.db.unsafeQuery(
-        '''SELECT DISTINCT o.signing_key_ref, o.signing_key_commitment, false
+        // Read both sides of the pending-to-outbox transition in one MVCC
+        // snapshot: a processing commit cannot hide a pin between reads.
+        '''WITH pending_routes AS (
+          SELECT DISTINCT config_snapshot_id,source_id FROM raw_inbox
+          WHERE status='pending' AND config_snapshot_id IS NOT NULL
+        ), pinned_outputs AS (
+          SELECT output
+          FROM pending_routes r
+          JOIN ingest_config_snapshot s ON s."snapshotId"=r.config_snapshot_id
+          CROSS JOIN LATERAL jsonb_array_elements(s."publicJson"::jsonb->'sources') source
+          CROSS JOIN LATERAL jsonb_array_elements(s."publicJson"::jsonb->'outputs') output
+          WHERE source->>'id'=r.source_id::text AND source->'enabled'='true'::jsonb
+            AND (source->'output_ids') ? (output->>'id')
+          UNION
+          SELECT output
+          FROM outbox o
+          JOIN ingest_config_snapshot s ON s."snapshotId"=o.config_snapshot_id
+          CROSS JOIN LATERAL jsonb_array_elements(s."publicJson"::jsonb->'outputs') output
+          WHERE o.output_kind='plugin' AND o.status IN ('queued','delivering')
+            AND output->>'id'=o.output_id::text
+        )
+        SELECT o.signing_key_ref, o.signing_key_commitment, false
         FROM outbox o WHERE o.output_kind='webhook' AND o.status IN ('queued','delivering')
           AND CAST(@refs AS jsonb) ? o.signing_key_ref
         UNION
-        SELECT DISTINCT entry.value->>'reference', entry.value->>'commitment', true
-        FROM outbox o
-        JOIN ingest_config_snapshot s ON s."snapshotId"=o.config_snapshot_id
-        CROSS JOIN LATERAL jsonb_array_elements(s."publicJson"::jsonb->'outputs') output
+        SELECT output->>'signing_key_ref', output->>'signing_key_commitment', false
+        FROM pinned_outputs
+        WHERE output->>'kind'='webhook'
+          AND CAST(@refs AS jsonb) ? (output->>'signing_key_ref')
+        UNION
+        SELECT entry.value->>'reference', entry.value->>'commitment', true
+        FROM pinned_outputs
         CROSS JOIN LATERAL jsonb_each(COALESCE(output->'secret_refs','{}'::jsonb)) entry
-        WHERE o.output_kind='plugin' AND o.status IN ('queued','delivering')
-          AND output->>'id'=o.output_id::text
+        WHERE output->>'kind'='plugin'
           AND CAST(@refs AS jsonb) ? (entry.value->>'reference')''',
         parameters: QueryParameters.named({
           'refs': jsonEncode(imported.keys.toList()),

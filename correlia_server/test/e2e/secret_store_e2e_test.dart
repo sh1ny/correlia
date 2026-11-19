@@ -244,6 +244,136 @@ void main() {
   );
 
   test(
+    'm1_pending_raw_delivers_with_historical_signing_key',
+    () => _withFixture((fixture, db) async {
+      await _bootstrapSchema(fixture);
+      final receiver = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final received = Completer<(List<int>, String?)>();
+      receiver.listen((request) async {
+        final body = await request.fold(
+          <int>[],
+          (all, chunk) => all..addAll(chunk),
+        );
+        final signature = request.headers.value('x-correlia-signature');
+        request.response.statusCode = 204;
+        await request.response.close();
+        if (!received.isCompleted) received.complete((body, signature));
+      });
+      try {
+        final key = List<int>.filled(32, 2);
+        final legacy = jsonEncode(
+          {
+            'format_version': 1,
+            'revision': 1,
+            'sources': [
+              {
+                'id': outputSource,
+                'enabled': true,
+                'namespace': _namespace,
+                'token_ref': 'token',
+                'token_digest': sha256
+                    .convert(base64Url.decode(base64Url.normalize(outputToken)))
+                    .toString(),
+                'body_limit_bytes': 1048576,
+                'path_token_enabled': false,
+                'excluded_identity_labels': <String>[],
+                'output_ids': [outputId],
+              },
+            ],
+            'outputs': [
+              {
+                'id': outputId,
+                'kind': 'webhook',
+                'url': 'http://127.0.0.1:${receiver.port}/events',
+                'signing_key_ref': 'old-output-key',
+                'signing_key_commitment': sha256.convert(key).toString(),
+              },
+            ],
+          },
+        );
+        final snapshot = sha256.convert(utf8.encode(legacy)).toString();
+        await db.execute(
+          Sql.named(
+            'INSERT INTO ingest_config_snapshot ("snapshotId",revision,"publicJson") VALUES (@id,1,@json)',
+          ),
+          parameters: {'id': snapshot, 'json': legacy},
+        );
+        await db.execute(
+          Sql.named(
+            'INSERT INTO ingest_active_config (singleton,"snapshotId") VALUES (1,@id)',
+          ),
+          parameters: {'id': snapshot},
+        );
+        final observed = DateTime.now().toUtc();
+        final body = utf8.encode(
+          jsonEncode({
+            'version': '4',
+            'status': 'firing',
+            'alerts': [
+              {
+                'status': 'firing',
+                'labels': {'alertname': 'PinnedBeforeUpgrade'},
+                'annotations': <String, String>{},
+                'startsAt': observed.toIso8601String(),
+              },
+            ],
+          }),
+        );
+        await db.execute(
+          Sql.named(
+            '''INSERT INTO raw_inbox
+            (observed_at,raw_id,source_id,body,body_sha256,content_type,config_snapshot_id)
+            VALUES (@observed,gen_random_uuid(),CAST(@source AS uuid),@body,@digest,'application/json',@pin)''',
+          ),
+          parameters: {
+            'observed': observed,
+            'source': outputSource,
+            'body': body,
+            'digest': sha256.convert(body).toString(),
+            'pin': snapshot,
+          },
+        );
+        expect(await db.execute('SELECT 1 FROM outbox'), isEmpty);
+        await fixture.config.writeAsString(jsonEncode(_config(2)));
+        await _private(
+          fixture.secrets,
+          jsonEncode({'token': outputToken, 'old-output-key': _base64(key)}),
+        );
+        final upgraded = await fixture.start();
+        await upgraded.waitUntilReady();
+        expect(
+          (await db.execute(
+            "SELECT reference FROM secret_record WHERE reference='old-output-key'",
+          )).map((row) => row[0]),
+          ['old-output-key'],
+        );
+        final (event, signature) = await received.future.timeout(
+          _awaitEvent,
+          onTimeout: () async {
+            final outcomes = await db.execute(
+              'SELECT status,outcome_json FROM raw_inbox',
+            );
+            final failures = await db.execute(
+              'SELECT "errorClass","fieldPath" FROM pipeline_failures',
+            );
+            throw StateError(
+              'No webhook received: raw=$outcomes failures=$failures',
+            );
+          },
+        );
+        expect(signature, 'sha256=${Hmac(sha256, key).convert(event)}');
+        expect(
+          (await db.execute('SELECT config_snapshot_id FROM outbox')).single[0],
+          snapshot,
+        );
+      } finally {
+        await receiver.close(force: true);
+      }
+    }),
+    timeout: _timeout,
+  );
+
+  test(
     'secret_file_not_needed_after_import',
     () => _withFixture((fixture, db) async {
       final imported = await fixture.start();
