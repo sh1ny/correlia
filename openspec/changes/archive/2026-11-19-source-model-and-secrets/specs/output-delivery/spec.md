@@ -4,7 +4,7 @@
 
 ### Requirement: Signing key availability before acquisition
 
-Relays SHALL acquire only webhook intents whose signing reference resolves from the secret store and matches the pinned commitment. A missing or unavailable record SHALL leave its webhook intents queued without consuming attempts and emit a fixed sanitized availability diagnostic. Dead intents SHALL retain their key commitment but SHALL not require signing material until explicit future replay. Plugin intents carry no signing reference; their secret availability is governed by plugin supervision.
+A relay SHALL acquire a webhook intent only if its stored signing key matches the pinned commitment. An unavailable key leaves work queued with no attempt and a fixed, sanitized diagnostic. Dead intents retain their commitments and need keys only for future explicit replay. Plugin intents have no signing reference; plugin supervision governs their availability.
 
 #### Scenario: Loaded historical signing reference
 - **WHEN** an intent retains an older output definition whose committed signing key is in the store
@@ -20,7 +20,7 @@ Relays SHALL acquire only webhook intents whose signing reference resolves from 
 
 ### Requirement: Kind-aware startup validation
 
-Startup SHALL require matching signing material in the store only for live webhook intents; a matching record imported in the publication transaction satisfies this check. Publication SHALL also import supplied secrets still pinned by live plugin intents, when they match the pinned commitment, without changing pinned definitions. Unavailable historical plugin secrets SHALL NOT block startup: they are checked when their plugin is launched. Publication SHALL record commitments for webhook signing references and plugin secret references alike, and SHALL reject a reference rebound to different material.
+Startup SHALL require matching stored signing material only for live webhook intents; publication may import it in the same transaction. Publication SHALL import supplied historical plugin secrets that match live pins without changing those pins. Missing historical plugin secrets SHALL NOT block startup; they are checked at plugin launch. Publication SHALL record webhook and plugin secret commitments and reject reference rebinding.
 
 #### Scenario: Restart with pending unauthenticated plugin work
 - **WHEN** a worker restarts while queued and delivering intents exist for a NATS output that uses no secrets

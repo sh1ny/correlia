@@ -4,7 +4,7 @@
 
 ### Requirement: Bounded explicit display and metadata mapping
 
-Severity SHALL map exact critical/error/warning/info values and otherwise unknown, preserving bounded original severity. Summary SHALL choose nonempty annotation summary, then nonempty label alertname, then `Alertmanager alert`; the display description SHALL use the original description annotation with the 4096-scalar description bound, independently of the stored annotation's 1024-scalar value bound. Display text, annotation values and label projections SHALL truncate with a marker; identity SHALL use complete originals. Other canonical map/count bounds SHALL reject overflow; links SHALL be canonical HTTP(S).
+The decoder SHALL map critical/error/warning/info exactly and preserve bounded original text for unknown severity. Use the first nonempty summary annotation, alertname label or `Alertmanager alert`. Project the original description at 4096 scalars and its stored annotation at 1024. Mark truncated display text, annotation values and labels; derive identity from complete originals. Reject other canonical map or count overflow and require canonical HTTP(S) links.
 
 #### Scenario: Display and provenance mapping
 - **WHEN** a bounded alert contains labels, annotations, unknown severity text, generatorURL and a long display summary
