@@ -93,6 +93,7 @@ final class IngressSubsystem extends Subsystem {
   bool _ready = false;
   int _inflight = 0;
   int _hmacInFlight = 0;
+  final _hmacBySource = <String, int>{};
   final SecretLookupGate _lookupGate;
   final Future<Uint8List> Function(String, String)? _resolve;
   final DateTime Function() _clock;
@@ -361,7 +362,25 @@ final class _IngressRoute extends Route {
       return const _Result(400);
     }
     final idempotencyKey = keys?.single;
-    final body = await _readBody(request, entry['body_limit_bytes']! as int);
+    final limit = entry['body_limit_bytes']! as int;
+    final Uint8List? body;
+    if (assertion is _Hmac) {
+      final reading = owner._hmacBySource[source] ?? 0;
+      if (reading >= 2) return const _Result(503);
+      owner._hmacBySource[source] = reading + 1;
+      try {
+        body = await _readBody(request, limit);
+      } finally {
+        final remaining = owner._hmacBySource[source]! - 1;
+        if (remaining == 0) {
+          owner._hmacBySource.remove(source);
+        } else {
+          owner._hmacBySource[source] = remaining;
+        }
+      }
+    } else {
+      body = await _readBody(request, limit);
+    }
     if (body == null) return const _Result(413);
     if (assertion case _Hmac(:final timestamp, :final signature)) {
       final resolve = owner._resolve;

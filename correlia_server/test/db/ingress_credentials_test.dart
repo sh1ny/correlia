@@ -64,6 +64,7 @@ void main() {
         int burst = 40,
         bool enabled = true,
         bool pathTokens = false,
+        bool secondHmacSource = false,
       }) => config.publishConfig(
         {
           'format_version': 2,
@@ -79,6 +80,14 @@ void main() {
               'path_token_enabled': pathTokens,
               'rate_limit': {'per_second': 1, 'burst': burst},
             },
+            if (secondHmacSource)
+              {
+                'id': '33333333-3333-4333-8333-333333333333',
+                'kind': 'alertmanager',
+                'enabled': true,
+                'credentials': [_credential(3, type: 'hmac')],
+                'output_ids': <Object?>[],
+              },
           ],
         },
         <String, Object?>{for (var i = 1; i <= 4; i++) 'test-key-$i': token(i)},
@@ -308,31 +317,45 @@ void main() {
         expect(ingress.counters.snapshot()[sourceId]?.rejected, 1);
       });
 
-      test('hmac_slots_leave_bearer_admission_available', () async {
-        final full = Completer<void>();
-        var readers = 0;
-        await start(
-          await publish(1, [_credential(1), _credential(3, type: 'hmac')]),
-          bodyGate: () async {
-            if (++readers == 8) full.complete();
-            if (readers <= 8) await resume.future;
-          },
-        );
-        final invalid = 'sha256=${'0' * 64}';
-        final held = Future.wait(
-          List.generate(8, (_) => send(signature: invalid)),
-        );
-        try {
-          await full.future.timeout(const Duration(seconds: 5));
-          expect(await send(signature: invalid), (503, '1'));
-          expect((await send(bearer: 1)).$1, 202);
-        } finally {
-          resume.complete();
-          expect((await held).map((result) => result.$1), everyElement(401));
-        }
-        expect((await send(signature: _sign('[]'), body: '[]')).$1, 202);
-        expect(await rawCount(), 2);
-      });
+      test(
+        'hmac_slots_isolate_sources_and_preserve_bearer_admission',
+        () async {
+          final full = Completer<void>();
+          var readers = 0;
+          await start(
+            await publish(1, [
+              _credential(1),
+              _credential(3, type: 'hmac'),
+            ], secondHmacSource: true),
+            bodyGate: () async {
+              if (++readers == 2) full.complete();
+              if (readers <= 2) await resume.future;
+            },
+          );
+          final invalid = 'sha256=${'0' * 64}';
+          final held = Future.wait(
+            List.generate(2, (_) => send(signature: invalid)),
+          );
+          try {
+            await full.future.timeout(const Duration(seconds: 5));
+            expect(await send(signature: invalid), (503, '1'));
+            expect(
+              (await send(
+                path:
+                    '/hooks/alertmanager/33333333-3333-4333-8333-333333333333',
+                signature: _sign('{}'),
+              )).$1,
+              202,
+            );
+            expect((await send(bearer: 1)).$1, 202);
+          } finally {
+            resume.complete();
+            expect((await held).map((result) => result.$1), everyElement(401));
+          }
+          expect((await send(signature: _sign('[]'), body: '[]')).$1, 202);
+          expect(await rawCount(), 3);
+        },
+      );
 
       test('unauthenticated_traffic_spends_no_budget', () async {
         await start(await publish(1, [_credential(1)], burst: 1));
