@@ -1,5 +1,9 @@
+import 'dart:io';
+
 import 'package:serverpod/serverpod.dart';
 
+import '../secrets/key_file.dart';
+import '../secrets/secret_store.dart';
 import '../runtime/process_options.dart';
 import '../runtime/subsystem.dart';
 import 'bootstrap.dart';
@@ -12,14 +16,22 @@ final class IngestStartup extends Subsystem {
     required this.role,
     required this.runMode,
     required this.environment,
+    this.log = _logToStderr,
   });
   final Serverpod pod;
   final ProcessRole role;
   final String runMode;
   final Map<String, String> environment;
+  final void Function(String) log;
 
   /// The validated process-local startup material, absent when unconfigured.
   IngestBootstrap? bootstrap;
+
+  /// The process-local resolver shared by runtime consumers.
+  SecretResolver? resolver;
+
+  /// The lookup limit shared by ingress and the secret store.
+  final lookupGate = SecretLookupGate();
 
   /// Whether admission may run after startup publication.
   bool ready = false;
@@ -32,25 +44,55 @@ final class IngestStartup extends Subsystem {
   @override
   Future<void> start() async {
     ready = false;
-    final input = await IngestBootstrap.load(
-      environment,
-      runMode: runMode,
-      requirePluginDirectory: role != ProcessRole.api,
-    );
+    final keyPath = environment['CORRELIA_SECRET_KEY_FILE'];
+    final configured = environment['CORRELIA_INGEST_CONFIG'] != null;
+    final store = configured
+        ? SecretStore(
+            await loadSecretKey(
+              keyPath ??
+                  (throw const BootstrapError(
+                    'secret_key',
+                    r'$',
+                    'regular_file',
+                  )),
+            ),
+          )
+        : null;
     final session = await pod.createSession(enableLogging: false);
     try {
-      final repository = IngestConfigRepository(session);
-      if (input == null) {
-        if (role != ProcessRole.api) {
-          await repository.validateWithoutBootstrap();
-        }
-      } else {
-        await repository.publish(
-          input,
-          requireLiveSecrets: role != ProcessRole.api,
-        );
+      final repository = IngestConfigRepository(session, secretStore: store);
+      final input = await IngestBootstrap.load(
+        environment,
+        runMode: runMode,
+        requirePluginDirectory: role != ProcessRole.api,
+        publish: store == null
+            ? null
+            : (config, secrets) => repository.publishConfig(
+                config,
+                secrets,
+                runMode: runMode,
+                requireLiveSecrets: role != ProcessRole.api,
+              ),
+      );
+      if (input == null && role != ProcessRole.api) {
+        await repository.validateWithoutBootstrap();
       }
-      bootstrap = input;
+      resolver = store == null
+          ? null
+          : SecretResolver(
+              store: store,
+              openSession: () => pod.createSession(enableLogging: false),
+              log: log,
+              gate: lookupGate,
+            );
+      if (input != null) {
+        await resolver!.prefill(session, [
+          for (final source in input.sources)
+            for (final credential in source.credentials) credential.reference,
+          for (final output in input.outputs) ...output.commitments.keys,
+        ]);
+      }
+      bootstrap = input?.withoutImport();
       ready = true;
     } finally {
       await session.close();
@@ -62,3 +104,5 @@ final class IngestStartup extends Subsystem {
     ready = false;
   }
 }
+
+void _logToStderr(String message) => stderr.writeln(message);

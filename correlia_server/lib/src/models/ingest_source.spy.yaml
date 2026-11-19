@@ -3,6 +3,6 @@ table: ingest_source
 serverOnly: true
 fields:
   sourceId: UuidValue, unique
-  tokenDigest: String
+  kind: String, default='alertmanager'
   enabled: bool
   allowPathToken: bool

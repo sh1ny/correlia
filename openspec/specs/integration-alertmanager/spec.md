@@ -52,7 +52,7 @@ The decoder SHALL validate offset-bearing timestamps without arrival-time fallba
 
 ### Requirement: Bounded explicit display and metadata mapping
 
-Severity SHALL map exact critical/error/warning/info values and otherwise unknown, preserving bounded original severity. Summary SHALL choose nonempty annotation summary, then nonempty label alertname, then `Alertmanager alert`; description SHALL use annotation description. Display text, annotation values and label projections SHALL truncate with a marker; identity SHALL use complete originals. Other canonical map/count bounds SHALL reject overflow; links SHALL be canonical HTTP(S).
+The decoder SHALL map critical/error/warning/info exactly and preserve bounded original text for unknown severity. Use the first nonempty summary annotation, alertname label or `Alertmanager alert`. Project the original description at 4096 scalars and its stored annotation at 1024. Mark truncated display text, annotation values and labels; derive identity from complete originals. Reject other canonical map or count overflow and require canonical HTTP(S) links.
 
 #### Scenario: Display and provenance mapping
 - **WHEN** a bounded alert contains labels, annotations, unknown severity text, generatorURL and a long display summary
@@ -68,7 +68,11 @@ Severity SHALL map exact critical/error/warning/info values and otherwise unknow
 
 #### Scenario: Oversize annotation value
 - **WHEN** an alert's description annotation exceeds the canonical annotation value bound
-- **THEN** the delivery completes, its annotation and description projections visibly truncate, full original text remains in raw bytes, and its fingerprint and event id are unchanged
+- **THEN** the delivery completes and the stored annotation visibly truncates; the display description is whole up to its own bound and visibly truncates beyond it. Full original text remains in raw bytes, and the fingerprint and event id are unchanged.
+
+#### Scenario: ID-3 maximum length values through HTTP ingress
+- **WHEN** an authenticated delivery carries an `instance` label of 256 bytes and a 4097-scalar description annotation, and a second delivery repeats it with only the description's last scalar changed
+- **THEN** both receive 202 and their exact, distinct bodies are stored; only one event is emitted and the second delivery records a duplicate observation. The event has the whole label, a 4096-scalar description and a 1024-scalar stored description annotation, both ending with the truncation marker. Neither delivery nor processing returns or records a 500-class failure.
 
 ### Requirement: Recognised group metadata
 

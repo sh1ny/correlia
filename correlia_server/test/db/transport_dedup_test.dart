@@ -1,3 +1,5 @@
+import '../support/secret_fixture.dart';
+
 import 'dart:typed_data';
 
 import 'package:correlia_server/src/ingest/admission.dart';
@@ -22,10 +24,15 @@ void main() {
           'ingest_source',
           'ingest_config_snapshot',
           'ingest_secret_commitment',
+          'secret_record',
+          'ingest_source_credential',
         ]) {
           await session.db.unsafeSimpleExecute('DELETE FROM "$table"');
         }
-        await IngestConfigRepository(session).publish(fixture.input(1));
+        await IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        ).publish(fixture.input(1));
       });
 
       test('ord_5a_concurrent_exact_retries', () async {
@@ -33,7 +40,8 @@ void main() {
         Future<AdmissionOutcome> submit() =>
             IngestAdmission(builder.build()).admit(
               sourceId: fixture.sourceId,
-              tokenDigest: fixture.input(1).sources.single.tokenDigest,
+              kind: 'alertmanager',
+              credential: fixture.input(1).sources.single.credentials.single,
               pathToken: false,
               body: Uint8List.fromList([1, 2, 3]),
               contentType: 'application/json',
@@ -58,7 +66,8 @@ void main() {
         Future<AdmissionOutcome> submit(int byte, DateTime time) =>
             admission.admit(
               sourceId: fixture.sourceId,
-              tokenDigest: fixture.input(1).sources.single.tokenDigest,
+              kind: 'alertmanager',
+              credential: fixture.input(1).sources.single.credentials.single,
               pathToken: false,
               body: Uint8List.fromList([byte]),
               contentType: 'application/json',

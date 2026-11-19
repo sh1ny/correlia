@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:correlia_server/src/ingest/bootstrap.dart';
 import 'package:correlia_server/src/output/delivery_permit.dart';
 import 'package:correlia_server/src/output/output_relay.dart';
 import 'package:correlia_server/src/output/plugin_output_router.dart';
@@ -9,6 +8,7 @@ import 'package:test/test.dart';
 
 import '../integration/test_tools/serverpod_test_tools.dart';
 import '../support/ingest_schema.dart';
+import '../support/secret_fixture.dart';
 import 'plugin_relay_test.dart' as fixture;
 
 final class _RecordingRouter implements PluginOutputRouter {
@@ -53,16 +53,7 @@ void main() {
         final router = _RecordingRouter();
         final relay = RelaySubsystem(
           pod: session.serverpod,
-          bootstrap: IngestBootstrap.parse(
-            {
-              'format_version': 1,
-              'revision': 1,
-              'sources': <Object>[],
-              'outputs': <Object>[],
-            },
-            <String, Object?>{},
-            runMode: 'test',
-          ),
+          resolveKey: noSigningKey,
           runMode: 'test',
           pluginRouter: router,
           beforeClaimCommit: () async {

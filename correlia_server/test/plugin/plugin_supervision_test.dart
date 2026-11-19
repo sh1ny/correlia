@@ -23,6 +23,7 @@ import 'package:test/test.dart';
 
 import '../integration/test_tools/serverpod_test_tools.dart';
 import '../support/ingest_schema.dart';
+import '../support/secret_fixture.dart';
 import 'support/plugin_fixture_support.dart';
 
 const output = '22222222-2222-4222-8222-222222222222';
@@ -80,6 +81,7 @@ void main() {
             },
           },
           runMode: 'test',
+          pluginCommitment: testSecretStore.commitments.plugin,
         );
         session = builder.build();
         await initializeIngestSchema(session);
@@ -90,10 +92,15 @@ void main() {
           'ingest_active_config',
           'ingest_config_snapshot',
           'ingest_secret_commitment',
+          'secret_record',
+          'ingest_source_credential',
         ]) {
           await session.db.unsafeSimpleExecute('DELETE FROM "$table"');
         }
-        await IngestConfigRepository(session).publish(bootstrap);
+        await IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        ).publish(bootstrap);
         final definition = bootstrap.outputs.single as PluginIngestOutput;
         await session.db.unsafeExecute(
           '''INSERT INTO outbox
@@ -125,6 +132,7 @@ void main() {
                 environment: {'CORRELIA_PLUGIN_DIR': testDirectory.path},
               )
               ..bootstrap = bootstrap
+              ..resolver = testSecretResolver(session)
               ..ready = true;
         workers = IngestWorkers(
           pod: session.serverpod,
@@ -382,8 +390,12 @@ void main() {
                 },
               },
               runMode: 'test',
+              pluginCommitment: testSecretStore.commitments.plugin,
             );
-            await IngestConfigRepository(session).publish(bootstrap);
+            await IngestConfigRepository(
+              session,
+              secretStore: testSecretStore,
+            ).publish(bootstrap);
             await session.db.unsafeExecute(
               'UPDATE outbox SET config_snapshot_id=@snapshot,definition_digest=@digest',
               parameters: QueryParameters.named({
@@ -402,7 +414,7 @@ void main() {
           final supervisor = PluginSupervisor(
             openSession: () =>
                 session.serverpod.createSession(enableLogging: false),
-            bootstrap: bootstrap,
+            resolveSecret: testSecretResolver(session).resolve,
             pluginDirectory: testDirectory.path,
             hostInstanceId: 'forced-$mode',
             log: supervisorLog.add,
@@ -590,8 +602,12 @@ void main() {
             },
           },
           runMode: 'test',
+          pluginCommitment: testSecretStore.commitments.plugin,
         );
-        await IngestConfigRepository(session).publish(bootstrap);
+        await IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        ).publish(bootstrap);
         final newDigest =
             (bootstrap.outputs.single as PluginIngestOutput).definitionDigest;
         await session.db.unsafeExecute(
@@ -644,8 +660,12 @@ void main() {
           },
           <String, Object?>{},
           runMode: 'test',
+          pluginCommitment: testSecretStore.commitments.plugin,
         );
-        await IngestConfigRepository(session).publish(bootstrap);
+        await IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        ).publish(bootstrap);
         final definition = bootstrap.outputs.single as PluginIngestOutput;
         await session.db.unsafeExecute(
           '''UPDATE outbox SET config_snapshot_id=@snapshot,
@@ -707,7 +727,7 @@ void main() {
           final supervisor = PluginSupervisor(
             openSession: () =>
                 session.serverpod.createSession(enableLogging: false),
-            bootstrap: bootstrap,
+            resolveSecret: testSecretResolver(session).resolve,
             pluginDirectory: testDirectory.path,
             hostInstanceId: 'drain-$stopMode',
             clock: () => now,
@@ -732,8 +752,7 @@ void main() {
             held = supervisor.tryAcquire(output, definition.definitionDigest)!;
             final repo = OutputRelayRepository(
               session,
-              bootstrap.secret,
-              loadedReferences: bootstrap.loadedReferences,
+              noSigningKey,
             );
             final batch = (await repo.claim(
               output,

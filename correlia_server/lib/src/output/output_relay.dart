@@ -2,9 +2,9 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-import 'package:crypto/crypto.dart';
 import 'package:serverpod/serverpod.dart';
 
+import '../secrets/secret_store.dart';
 import 'delivery_permit.dart';
 import 'relay_deadline.dart';
 
@@ -104,8 +104,9 @@ final class _RollbackClaim implements Exception {}
 
 final class _RollbackCompletion implements Exception {}
 
-/// Resolves a process-local signing reference.
-typedef SigningKeyResolver = Uint8List? Function(String reference);
+/// Resolves a signing reference against its pinned commitment.
+typedef SigningKeyResolver =
+    Future<Uint8List> Function(String reference, String commitment);
 
 /// Performs short, fenced PostgreSQL relay transactions.
 final class OutputRelayRepository {
@@ -117,12 +118,8 @@ final class OutputRelayRepository {
     this.beforeClaimCommit,
     this.afterCompletionAttempts,
     this.afterCompletionOutbox,
-    Set<String> loadedReferences = const {},
-  }) : _commitments = {
-         for (final reference in loadedReferences)
-           if (resolveKey(reference) case final key?)
-             reference: sha256.convert(key).toString(),
-       };
+    Map<String, DateTime>? diagnostics,
+  }) : _lastDiagnostic = diagnostics ?? {};
   final Session session;
   final SigningKeyResolver resolveKey;
 
@@ -137,14 +134,21 @@ final class OutputRelayRepository {
 
   /// Optional test barrier after the completion outbox update.
   final Future<void> Function()? afterCompletionOutbox;
-  final Map<String, DateTime> _lastDiagnostic = {};
-  final Map<String, String> _commitments;
+  final Map<String, DateTime> _lastDiagnostic;
 
-  Uint8List? _key(String reference, String commitment) {
-    final key = resolveKey(reference);
-    return key != null && sha256.convert(key).toString() == commitment
-        ? key
-        : null;
+  void _unavailable(String id, String reference) {
+    final diagnostic = '$id/$reference';
+    final now = DateTime.now();
+    final previous = _lastDiagnostic[diagnostic];
+    if (previous != null &&
+        now.difference(previous) < const Duration(seconds: 60)) {
+      return;
+    }
+    if (_lastDiagnostic.length >= 8192 && previous == null) {
+      _lastDiagnostic.remove(_lastDiagnostic.keys.first);
+    }
+    _lastDiagnostic[diagnostic] = now;
+    onUnavailable?.call(id, reference);
   }
 
   /// Finds webhook lanes with loaded keys and plugin lanes with ready definitions.
@@ -156,7 +160,7 @@ final class OutputRelayRepository {
       '''WITH due AS (
         SELECT output_id::text AS output_id, signing_key_ref, output_kind,
           CASE WHEN output_kind='webhook'
-            THEN (CAST(@keys AS jsonb)->>signing_key_ref = signing_key_commitment) IS TRUE
+            THEN EXISTS (SELECT 1 FROM secret_record WHERE reference=signing_key_ref)
             ELSE (CAST(@ready AS jsonb)->output_id::text ? definition_digest) IS TRUE END AS available
         FROM outbox
         WHERE status='queued'
@@ -169,7 +173,6 @@ final class OutputRelayRepository {
       WHERE available OR output_kind='webhook'
       ORDER BY available DESC, output_id, signing_key_ref LIMIT 8192''',
       parameters: QueryParameters.named({
-        'keys': jsonEncode(_commitments),
         'busy': jsonEncode(busy.toList()),
         'ready': jsonEncode({
           for (final e in readyDefinitions.entries) e.key: e.value.toList(),
@@ -184,18 +187,7 @@ final class OutputRelayRepository {
       if (m['available'] as bool) {
         result.add(id);
       } else {
-        final ref = m['signing_key_ref'] as String;
-        final diagnostic = '$id/$ref';
-        final now = DateTime.now();
-        final previous = _lastDiagnostic[diagnostic];
-        if (previous == null ||
-            now.difference(previous) >= const Duration(seconds: 60)) {
-          if (_lastDiagnostic.length >= 8192 && previous == null) {
-            _lastDiagnostic.remove(_lastDiagnostic.keys.first);
-          }
-          _lastDiagnostic[diagnostic] = now;
-          onUnavailable?.call(id, ref);
-        }
+        _unavailable(id, m['signing_key_ref'] as String);
       }
     }
     return result;
@@ -255,6 +247,39 @@ final class OutputRelayRepository {
     }
     final budget = deadline ?? RelayDeadline();
     try {
+      String? signingReference;
+      String? signingCommitment;
+      Uint8List? key;
+      if (permit == null) {
+        final signing = await session.db.unsafeQuery(
+          '''SELECT signing_key_ref,signing_key_commitment FROM (
+            SELECT DISTINCT ON (signing_key_ref,signing_key_commitment)
+              signing_key_ref,signing_key_commitment,created_at,delivery_id
+            FROM outbox
+            WHERE output_id=CAST(@output AS uuid) AND status='queued' AND output_kind='webhook'
+              AND (next_attempt_at IS NULL OR next_attempt_at<=clock_timestamp())
+              AND EXISTS (SELECT 1 FROM secret_record WHERE reference=signing_key_ref)
+            ORDER BY signing_key_ref,signing_key_commitment,created_at,delivery_id
+          ) pins ORDER BY created_at,delivery_id''',
+          parameters: QueryParameters.named({'output': outputId}),
+          timeoutInSeconds: 5,
+        );
+        for (final row in signing) {
+          budget.checkClaim();
+          final reference = row[0]! as String;
+          final commitment = row[1]! as String;
+          try {
+            key = await resolveKey(reference, commitment);
+            signingReference = reference;
+            signingCommitment = commitment;
+            break;
+          } on SecretResolutionError catch (error) {
+            _unavailable(outputId, reference);
+            if (error.code == 'store_unavailable') return null;
+          }
+        }
+        if (key == null) return null;
+      }
       return await session.db.transaction((tx) async {
         await _timeout(tx, budget, claim: true);
         final lock = await session.db.unsafeQuery(
@@ -277,12 +302,14 @@ final class OutputRelayRepository {
           '''SELECT output_kind,definition_digest,signing_key_ref,signing_key_commitment
           FROM outbox WHERE output_id=CAST(@output AS uuid) AND status='queued'
           AND (next_attempt_at IS NULL OR next_attempt_at<=clock_timestamp())
-          AND ((NOT @plugin AND output_kind='webhook' AND CAST(@keys AS jsonb)->>signing_key_ref=signing_key_commitment)
+          AND ((NOT @plugin AND output_kind='webhook' AND signing_key_ref=@ref
+            AND signing_key_commitment=@commitment)
             OR (@plugin AND output_kind='plugin' AND CAST(@ready AS jsonb) ? definition_digest))
           ORDER BY created_at,delivery_id LIMIT 1''',
           parameters: QueryParameters.named({
             'output': outputId,
-            'keys': jsonEncode(_commitments),
+            'ref': signingReference,
+            'commitment': signingCommitment,
             'plugin': permit != null,
             'ready': jsonEncode(readyDigests.toList()),
           }),
@@ -294,10 +321,6 @@ final class OutputRelayRepository {
         final plugin = selection[0] == 'plugin';
         final digest = selection[1] as String?;
         if (plugin && (permit == null || !permit.isValid)) return null;
-        final key = plugin
-            ? null
-            : _key(selection[2] as String, selection[3] as String);
-        if (!plugin && key == null) return null;
         await _timeout(tx, budget, claim: true);
         final candidates = await session.db.unsafeQuery(
           '''SELECT created_at,delivery_id::text,event_id::text,target_url,payload,attempt_count

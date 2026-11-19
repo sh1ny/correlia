@@ -11,6 +11,7 @@ import 'package:test/test.dart';
 
 import '../integration/test_tools/serverpod_test_tools.dart';
 import '../support/ingest_schema.dart';
+import '../support/secret_fixture.dart';
 
 const output = '11111111-1111-4111-8111-111111111111';
 const webhook = '11111111-1111-4111-8111-111111111112';
@@ -68,6 +69,7 @@ Future<void> seedPlugin(
 }
 
 Future<void> seedWebhook(Session session) async {
+  await seedSigningSecret(session, 'key', key);
   await session.db.unsafeExecute(
     '''INSERT INTO outbox
       (created_at, delivery_id, event_observed_at, event_id, event_disposition,
@@ -90,8 +92,7 @@ OutputRelayRepository repository(
   Future<void> Function()? beforeClaimCommit,
 }) => OutputRelayRepository(
   session,
-  (ref) => ref == 'key' ? key : null,
-  loadedReferences: {'key'},
+  testSecretResolver(session).resolve,
   beforeClaimCommit: beforeClaimCommit,
 );
 
@@ -110,7 +111,7 @@ void main() {
         final session = builder.build();
         await initializeIngestSchema(session);
         await session.db.unsafeSimpleExecute(
-          'DELETE FROM delivery_attempts; DELETE FROM outbox',
+          'DELETE FROM delivery_attempts; DELETE FROM outbox; DELETE FROM secret_record',
         );
       });
 
@@ -581,7 +582,7 @@ void main() {
         final diagnostics = <String>[];
         final repo = OutputRelayRepository(
           session,
-          (_) => null,
+          noSigningKey,
           onUnavailable: (id, ref) => diagnostics.add('$id/$ref'),
         );
         expect(await repo.discover({}, readyDefinitions: {}), isEmpty);

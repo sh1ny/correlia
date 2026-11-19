@@ -330,10 +330,10 @@ void main() {
         final newKey = base64Url
             .encode(List<int>.filled(32, 3))
             .replaceAll('=', '');
+        // The queued delivery must use the retained historical record.
         File(env['CORRELIA_INGEST_SECRETS']!).writeAsStringSync(
           jsonEncode({
             'token': outputToken,
-            'key': outputKey,
             'new-key': newKey,
           }),
         );

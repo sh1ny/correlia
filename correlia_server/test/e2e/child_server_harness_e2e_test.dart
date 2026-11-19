@@ -2,6 +2,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:test/test.dart';
@@ -35,6 +36,21 @@ Future<void> _withDatabase(
 }
 
 void main() {
+  test('database_key_is_private_canonical_and_stable', () async {
+    await _withDatabase((db, children, logs) async {
+      final path = db.secretKeyFile;
+      final file = File(path);
+      final encoded = await file.readAsString();
+      expect(encoded, hasLength(43));
+      final bytes = base64Url.decode('$encoded=');
+      expect(bytes, hasLength(32));
+      expect(base64Url.encode(bytes), '$encoded=');
+      expect((await file.stat()).mode & 0x1ff, 0x180);
+      expect(db.secretKeyFile, path);
+      expect(await file.readAsString(), encoded);
+    });
+  }, timeout: _timeout);
+
   test('never_ready_fails_with_harness_error', () async {
     await _withDatabase((db, children, logs) async {
       final child = await ChildServer.startOnSharedCluster(

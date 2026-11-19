@@ -16,6 +16,7 @@ import 'package:test/test.dart';
 
 import '../integration/test_tools/serverpod_test_tools.dart';
 import '../support/ingest_schema.dart';
+import '../support/secret_fixture.dart';
 import 'support/plugin_fixture_support.dart';
 
 void main() {
@@ -60,6 +61,7 @@ void main() {
                 },
               },
               runMode: 'test',
+              pluginCommitment: testSecretStore.commitments.plugin,
             );
             final current = IngestBootstrap.parse(
               {
@@ -73,7 +75,10 @@ void main() {
             );
             final session = builder.build();
             await initializeIngestSchema(session);
-            final repository = IngestConfigRepository(session);
+            final repository = IngestConfigRepository(
+              session,
+              secretStore: testSecretStore,
+            );
             await repository.publish(old);
             await session.db.unsafeExecute(
               '''INSERT INTO outbox
@@ -88,6 +93,9 @@ void main() {
                     (old.outputs.single as PluginIngestOutput).definitionDigest,
               }),
             );
+            await session.db.unsafeSimpleExecute(
+              "DELETE FROM secret_record WHERE reference='token'",
+            );
             await repository.publish(current);
             final startup =
                 IngestStartup(
@@ -99,6 +107,7 @@ void main() {
                     },
                   )
                   ..bootstrap = current
+                  ..resolver = testSecretResolver(session)
                   ..ready = true;
             final messages = <String>[];
             workers = IngestWorkers(

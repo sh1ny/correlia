@@ -18,15 +18,15 @@ abstract class IngestSourceRow
   IngestSourceRow._({
     this.id,
     required this.sourceId,
-    required this.tokenDigest,
+    String? kind,
     required this.enabled,
     required this.allowPathToken,
-  });
+  }) : kind = kind ?? 'alertmanager';
 
   factory IngestSourceRow({
     int? id,
     required _is.UuidValue sourceId,
-    required String tokenDigest,
+    String? kind,
     required bool enabled,
     required bool allowPathToken,
   }) = _IngestSourceRowImpl;
@@ -37,7 +37,7 @@ abstract class IngestSourceRow
       sourceId: _is.UuidValueJsonExtension.fromJson(
         jsonSerialization['sourceId'],
       ),
-      tokenDigest: jsonSerialization['tokenDigest'] as String,
+      kind: jsonSerialization['kind'] as String?,
       enabled: _is.BoolJsonExtension.fromJson(jsonSerialization['enabled']),
       allowPathToken: _is.BoolJsonExtension.fromJson(
         jsonSerialization['allowPathToken'],
@@ -54,7 +54,7 @@ abstract class IngestSourceRow
 
   _is.UuidValue sourceId;
 
-  String tokenDigest;
+  String kind;
 
   bool enabled;
 
@@ -69,7 +69,7 @@ abstract class IngestSourceRow
   IngestSourceRow copyWith({
     int? id,
     _is.UuidValue? sourceId,
-    String? tokenDigest,
+    String? kind,
     bool? enabled,
     bool? allowPathToken,
   });
@@ -79,7 +79,7 @@ abstract class IngestSourceRow
       '__className__': 'IngestSourceRow',
       if (id != null) 'id': id,
       'sourceId': sourceId.toJson(),
-      'tokenDigest': tokenDigest,
+      'kind': kind,
       'enabled': enabled,
       'allowPathToken': allowPathToken,
     };
@@ -124,13 +124,13 @@ class _IngestSourceRowImpl extends IngestSourceRow {
   _IngestSourceRowImpl({
     int? id,
     required _is.UuidValue sourceId,
-    required String tokenDigest,
+    String? kind,
     required bool enabled,
     required bool allowPathToken,
   }) : super._(
          id: id,
          sourceId: sourceId,
-         tokenDigest: tokenDigest,
+         kind: kind,
          enabled: enabled,
          allowPathToken: allowPathToken,
        );
@@ -142,14 +142,14 @@ class _IngestSourceRowImpl extends IngestSourceRow {
   IngestSourceRow copyWith({
     Object? id = _Undefined,
     _is.UuidValue? sourceId,
-    String? tokenDigest,
+    String? kind,
     bool? enabled,
     bool? allowPathToken,
   }) {
     return IngestSourceRow(
       id: id is int? ? id : this.id,
       sourceId: sourceId ?? this.sourceId,
-      tokenDigest: tokenDigest ?? this.tokenDigest,
+      kind: kind ?? this.kind,
       enabled: enabled ?? this.enabled,
       allowPathToken: allowPathToken ?? this.allowPathToken,
     );
@@ -165,8 +165,8 @@ class IngestSourceRowUpdateTable extends _is.UpdateTable<IngestSourceRowTable> {
         value,
       );
 
-  _is.ColumnValue<String, String> tokenDigest(String value) => _is.ColumnValue(
-    table.tokenDigest,
+  _is.ColumnValue<String, String> kind(String value) => _is.ColumnValue(
+    table.kind,
     value,
   );
 
@@ -189,9 +189,10 @@ class IngestSourceRowTable extends _is.Table<int?> {
       'sourceId',
       this,
     );
-    tokenDigest = _is.ColumnString(
-      'tokenDigest',
+    kind = _is.ColumnString(
+      'kind',
       this,
+      hasDefault: true,
     );
     enabled = _is.ColumnBool(
       'enabled',
@@ -207,7 +208,7 @@ class IngestSourceRowTable extends _is.Table<int?> {
 
   late final _is.ColumnUuid sourceId;
 
-  late final _is.ColumnString tokenDigest;
+  late final _is.ColumnString kind;
 
   late final _is.ColumnBool enabled;
 
@@ -217,7 +218,7 @@ class IngestSourceRowTable extends _is.Table<int?> {
   List<_is.Column> get columns => [
     id,
     sourceId,
-    tokenDigest,
+    kind,
     enabled,
     allowPathToken,
   ];

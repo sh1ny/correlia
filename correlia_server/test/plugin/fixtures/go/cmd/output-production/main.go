@@ -51,6 +51,13 @@ func (f *fixture) Configure(_ context.Context, r *pluginv1.ConfigureRequest) (*p
 		_ = syscall.Kill(os.Getpid(), syscall.SIGSTOP)
 		select {}
 	}
+	if string(r.ConfigJson) == `{"echo_configure_secret":true}` {
+		secret := string(r.Secrets["token"])
+		if secret != "sec3_fixture_private_canary" {
+			return &pluginv1.ConfigureResponse{ErrorClass: "missing_expected_secret"}, nil
+		}
+		return &pluginv1.ConfigureResponse{ErrorClass: secret, FieldErrors: []*pluginv1.FieldError{{Field: secret, Message: secret}}}, nil
+	}
 	if strings.Contains(string(r.ConfigJson), `"unknown"`) {
 		return &pluginv1.ConfigureResponse{FieldErrors: []*pluginv1.FieldError{{Field: "unknown", Message: "invalid"}}}, nil
 	}
@@ -64,7 +71,13 @@ func (f *fixture) Configure(_ context.Context, r *pluginv1.ConfigureRequest) (*p
 	case "reject-info":
 		return &pluginv1.ConfigureResponse{ConfigurationInfo: map[string]string{"stream": "alerts"}}, nil
 	}
-	if f.mode == "reject" || string(r.ConfigJson) != `{"subject":"alerts"}` || string(r.Secrets["token"]) != "fixture-secret" {
+	wantSecret := "fixture-secret"
+	validConfig := string(r.ConfigJson) == `{"subject":"alerts"}`
+	if string(r.ConfigJson) == `{"subject":"shared"}` {
+		validConfig = true
+		wantSecret = strings.Repeat("k", 32)
+	}
+	if f.mode == "reject" || !validConfig || string(r.Secrets["token"]) != wantSecret {
 		return &pluginv1.ConfigureResponse{FieldErrors: []*pluginv1.FieldError{{Field: "token", Message: "invalid"}}}, nil
 	}
 	f.configured = true

@@ -25,6 +25,7 @@ List<Subsystem> buildSubsystemRegistry({
     role: role,
     runMode: runMode,
     environment: environment,
+    log: log,
   );
   final watermark = FeedWatermarkSubsystem(
     openSession: () => pod.createSession(enableLogging: false),
@@ -39,6 +40,9 @@ List<Subsystem> buildSubsystemRegistry({
       bootstrap: () => ingest.bootstrap,
       ready: () => ingest.ready && startup.isReady,
       log: log,
+      lookupGate: ingest.lookupGate,
+      secretResolver: (reference, commitment) =>
+          ingest.resolver!.resolve(reference, commitment),
     ),
     IngestWorkers(
       pod: pod,

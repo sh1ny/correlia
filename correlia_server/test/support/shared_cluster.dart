@@ -1,9 +1,40 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:path/path.dart' as p;
 import 'package:serverpod/serverpod.dart' show PostgresDatabaseConfig;
 import 'package:serverpod_test/serverpod_test.dart'
     show EphemeralTestDatabase, TestDatabaseManager;
+
+/// Creates or reuses a private canonical key in [directory].
+///
+/// Atomic publication preserves the same key when multiple children start on
+/// the same database or a root is recovered after an interrupted run.
+String childSecretKeyFile(Directory directory) {
+  directory.createSync(recursive: true);
+  final target = File(p.join(directory.absolute.path, 'secret-key'));
+  if (target.existsSync()) return target.path;
+  final temporary = directory.createTempSync('.secret-key-');
+  try {
+    final candidate = File(p.join(temporary.path, 'key'))..createSync();
+    final chmod = Process.runSync('/usr/bin/chmod', ['600', candidate.path]);
+    if (chmod.exitCode != 0) throw StateError('Cannot protect child key file');
+    final random = Random.secure();
+    candidate.writeAsStringSync(
+      base64Url
+          .encode(List<int>.generate(32, (_) => random.nextInt(256)))
+          .replaceAll('=', ''),
+    );
+    final link = Process.runSync('/usr/bin/ln', [candidate.path, target.path]);
+    if (link.exitCode != 0 && !target.existsSync()) {
+      throw StateError('Cannot publish child key file');
+    }
+    return target.path;
+  } finally {
+    temporary.deleteSync(recursive: true);
+  }
+}
 
 /// An empty database on the shared test cluster `.serverpod/test/`, for a
 /// child server that does not supervise its own embedded Postgres (design D7).
@@ -18,6 +49,7 @@ final class SharedClusterDatabase {
     this.socketDir,
     this.port,
     this._serverDir,
+    this._keyDirectory,
   );
 
   /// Creates a database named for this process on the shared test cluster of
@@ -46,8 +78,14 @@ final class SharedClusterDatabase {
       socketDir.absolute.path,
       _socketPort(socketDir),
       serverDir.absolute.path,
+      Directory.systemTemp.createTempSync('correlia-child-key-'),
     );
   }
+
+  /// The private key shared by children using this database.
+  String get secretKeyFile => childSecretKeyFile(_keyDirectory);
+
+  final Directory _keyDirectory;
 
   /// The cluster's port is not TCP: it is the suffix of its socket file
   /// `.s.PGSQL.<port>` in the cluster's `run` directory (design D8).
@@ -106,7 +144,13 @@ final class SharedClusterDatabase {
 
   /// Drops the database, closing any connection to it (`WITH (FORCE)`).
   /// Does nothing if it is already gone.
-  Future<void> drop() => _database.drop();
+  Future<void> drop() async {
+    try {
+      await _database.drop();
+    } finally {
+      if (_keyDirectory.existsSync()) _keyDirectory.deleteSync(recursive: true);
+    }
+  }
 }
 
 /// The shorter of [socketPath] and its path relative to [workingDirectory].

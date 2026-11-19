@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:serverpod/serverpod.dart';
 
-import '../ingest/bootstrap.dart';
 import '../runtime/process_options.dart';
 import '../runtime/subsystem.dart';
 import 'output_relay.dart';
@@ -12,10 +11,10 @@ import 'webhook_output.dart';
 
 /// Runs bounded independent output lanes for a worker process.
 final class RelaySubsystem extends Subsystem {
-  /// Creates a relay using immutable process-local bootstrap secrets.
+  /// Creates a relay using the process-local secret resolver.
   RelaySubsystem({
     required this.pod,
-    required this.bootstrap,
+    required this.resolveKey,
     required String runMode,
     this.beforeAcquire,
     this.beforeClaimCommit,
@@ -25,7 +24,8 @@ final class RelaySubsystem extends Subsystem {
     this.pollInterval = const Duration(milliseconds: 250),
   }) : _webhook = WebhookOutput(runMode: runMode);
   final Serverpod pod;
-  final IngestBootstrap bootstrap;
+  final SigningKeyResolver resolveKey;
+  final _diagnostics = <String, DateTime>{};
 
   /// Optional test barrier before acquisition; never used to configure delivery.
   final Future<void> Function()? beforeAcquire;
@@ -65,8 +65,8 @@ final class RelaySubsystem extends Subsystem {
     try {
       final repository = OutputRelayRepository(
         session,
-        bootstrap.secret,
-        loadedReferences: bootstrap.loadedReferences,
+        resolveKey,
+        diagnostics: _diagnostics,
         onUnavailable: onUnavailable,
       );
       while (!_stopped.isCompleted) {
@@ -113,8 +113,9 @@ final class RelaySubsystem extends Subsystem {
     try {
       final repository = OutputRelayRepository(
         session,
-        bootstrap.secret,
-        loadedReferences: bootstrap.loadedReferences,
+        resolveKey,
+        diagnostics: _diagnostics,
+        onUnavailable: onUnavailable,
         beforeClaimCommit: beforeClaimCommit,
       );
       final router = pluginRouter;

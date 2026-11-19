@@ -1,3 +1,5 @@
+import '../support/secret_fixture.dart';
+
 import 'dart:typed_data';
 
 import 'package:correlia_server/src/ingest/admission.dart';
@@ -15,7 +17,10 @@ void main() {
       test('admission_commit_fails', () async {
         final session = builder.build();
         await initializeIngestSchema(session);
-        await IngestConfigRepository(session).publish(fixture.input(1));
+        await IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        ).publish(fixture.input(1));
         await session.db.unsafeSimpleExecute(
           "ALTER TABLE raw_inbox ADD CONSTRAINT forced_admission_failure CHECK (content_type <> 'application/json')",
         );
@@ -23,7 +28,8 @@ void main() {
           await expectLater(
             IngestAdmission(session).admit(
               sourceId: fixture.sourceId,
-              tokenDigest: fixture.input(1).sources.single.tokenDigest,
+              kind: 'alertmanager',
+              credential: fixture.input(1).sources.single.credentials.single,
               pathToken: false,
               body: Uint8List.fromList([1]),
               contentType: 'application/json',

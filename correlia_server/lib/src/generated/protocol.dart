@@ -25,11 +25,13 @@ import 'ingest_active_config.dart' as _ibsgqcqa;
 import 'ingest_config_snapshot.dart' as _iwupdujg;
 import 'ingest_secret_commitment.dart' as _iupiayjd;
 import 'ingest_source.dart' as _inhmna33;
+import 'ingest_source_credential.dart' as _ib6287mr;
 import 'invalid_cursor_exception.dart' as _iil3cq3h;
 import 'observation_key.dart' as _ii70ink4;
 import 'pipeline_failure.dart' as _ir1rifdz;
 import 'plugin_definition_health.dart' as _iqfe2rop;
 import 'plugin_instance_status.dart' as _i5barlkw;
+import 'secret_record.dart' as _ibz1p89x;
 import 'transport_key.dart' as _ix76ovok;
 export 'alert.dart';
 export 'alert_snapshot.dart';
@@ -43,11 +45,13 @@ export 'ingest_active_config.dart';
 export 'ingest_config_snapshot.dart';
 export 'ingest_secret_commitment.dart';
 export 'ingest_source.dart';
+export 'ingest_source_credential.dart';
 export 'invalid_cursor_exception.dart';
 export 'observation_key.dart';
 export 'pipeline_failure.dart';
 export 'plugin_definition_health.dart';
 export 'plugin_instance_status.dart';
+export 'secret_record.dart';
 export 'transport_key.dart';
 
 class Protocol extends _is.DatabaseSerializationManager
@@ -75,11 +79,13 @@ class Protocol extends _is.DatabaseSerializationManager
           _is.getType<_iwupdujg.IngestConfigSnapshot>,
           _is.getType<_iupiayjd.IngestSecretCommitment>,
           _is.getType<_inhmna33.IngestSourceRow>,
+          _is.getType<_ib6287mr.IngestSourceCredential>,
           _is.getType<_iil3cq3h.InvalidCursorException>,
           _is.getType<_ii70ink4.ObservationKeyRow>,
           _is.getType<_ir1rifdz.PipelineFailure>,
           _is.getType<_iqfe2rop.PluginDefinitionHealth>,
           _is.getType<_i5barlkw.PluginInstanceStatus>,
+          _is.getType<_ibz1p89x.SecretRecord>,
           _is.getType<_ix76ovok.TransportKey>,
           _is.getType<_iqmz6gj4.AlertRow?>,
           _is.getType<_iz3t21fy.AlertSnapshot?>,
@@ -93,11 +99,13 @@ class Protocol extends _is.DatabaseSerializationManager
           _is.getType<_iwupdujg.IngestConfigSnapshot?>,
           _is.getType<_iupiayjd.IngestSecretCommitment?>,
           _is.getType<_inhmna33.IngestSourceRow?>,
+          _is.getType<_ib6287mr.IngestSourceCredential?>,
           _is.getType<_iil3cq3h.InvalidCursorException?>,
           _is.getType<_ii70ink4.ObservationKeyRow?>,
           _is.getType<_ir1rifdz.PipelineFailure?>,
           _is.getType<_iqfe2rop.PluginDefinitionHealth?>,
           _is.getType<_i5barlkw.PluginInstanceStatus?>,
+          _is.getType<_ibz1p89x.SecretRecord?>,
           _is.getType<_ix76ovok.TransportKey?>,
           _is.getType<List<_i897ft9c.AlertView>>,
           _is.getType<List<_iywqxrq6.FeedEntry>>,
@@ -116,11 +124,13 @@ class Protocol extends _is.DatabaseSerializationManager
           'IngestConfigSnapshot',
           'IngestSecretCommitment',
           'IngestSourceRow',
+          'IngestSourceCredential',
           'InvalidCursorException',
           'ObservationKeyRow',
           'PipelineFailure',
           'PluginDefinitionHealth',
           'PluginInstanceStatus',
+          'SecretRecord',
           'TransportKey',
         ],
       );
@@ -523,10 +533,11 @@ class Protocol extends _is.DatabaseSerializationManager
           dartType: 'UuidValue',
         ),
         _isp.ColumnDefinition(
-          name: 'tokenDigest',
+          name: 'kind',
           columnType: _isp.ColumnType.text,
           isNullable: false,
           dartType: 'String',
+          columnDefault: '\'alertmanager\'',
         ),
         _isp.ColumnDefinition(
           name: 'enabled',
@@ -550,6 +561,78 @@ class Protocol extends _is.DatabaseSerializationManager
             _isp.IndexElementDefinition(
               type: _isp.IndexElementDefinitionType.column,
               definition: 'sourceId',
+            ),
+          ],
+          type: 'btree',
+          isUnique: true,
+          isPrimary: false,
+        ),
+      ],
+      managed: true,
+    ),
+    _isp.TableDefinition(
+      name: 'ingest_source_credential',
+      dartName: 'IngestSourceCredential',
+      schema: 'public',
+      module: 'correlia',
+      columns: [
+        _isp.ColumnDefinition(
+          name: 'id',
+          columnType: _isp.ColumnType.bigint,
+          isNullable: false,
+          dartType: 'int?',
+          columnDefault: 'serial',
+        ),
+        _isp.ColumnDefinition(
+          name: 'sourceId',
+          columnType: _isp.ColumnType.uuid,
+          isNullable: false,
+          dartType: 'UuidValue',
+        ),
+        _isp.ColumnDefinition(
+          name: 'reference',
+          columnType: _isp.ColumnType.text,
+          isNullable: false,
+          dartType: 'String',
+        ),
+        _isp.ColumnDefinition(
+          name: 'type',
+          columnType: _isp.ColumnType.text,
+          isNullable: false,
+          dartType: 'String',
+        ),
+        _isp.ColumnDefinition(
+          name: 'digest',
+          columnType: _isp.ColumnType.text,
+          isNullable: false,
+          dartType: 'String',
+        ),
+        _isp.ColumnDefinition(
+          name: 'notBefore',
+          columnType: _isp.ColumnType.timestampWithoutTimeZone,
+          isNullable: true,
+          dartType: 'DateTime?',
+        ),
+        _isp.ColumnDefinition(
+          name: 'notAfter',
+          columnType: _isp.ColumnType.timestampWithoutTimeZone,
+          isNullable: true,
+          dartType: 'DateTime?',
+        ),
+      ],
+      foreignKeys: [],
+      indexes: [
+        _isp.IndexDefinition(
+          indexName: 'ingest_source_credential_source_ref',
+          tableSpace: null,
+          elements: [
+            _isp.IndexElementDefinition(
+              type: _isp.IndexElementDefinitionType.column,
+              definition: 'sourceId',
+            ),
+            _isp.IndexElementDefinition(
+              type: _isp.IndexElementDefinitionType.column,
+              definition: 'reference',
             ),
           ],
           type: 'btree',
@@ -888,6 +971,80 @@ class Protocol extends _is.DatabaseSerializationManager
       managed: true,
     ),
     _isp.TableDefinition(
+      name: 'secret_record',
+      dartName: 'SecretRecord',
+      schema: 'public',
+      module: 'correlia',
+      columns: [
+        _isp.ColumnDefinition(
+          name: 'id',
+          columnType: _isp.ColumnType.bigint,
+          isNullable: false,
+          dartType: 'int?',
+          columnDefault: 'serial',
+        ),
+        _isp.ColumnDefinition(
+          name: 'reference',
+          columnType: _isp.ColumnType.text,
+          isNullable: false,
+          dartType: 'String',
+        ),
+        _isp.ColumnDefinition(
+          name: 'algorithm',
+          columnType: _isp.ColumnType.text,
+          isNullable: false,
+          dartType: 'String',
+        ),
+        _isp.ColumnDefinition(
+          name: 'nonce',
+          columnType: _isp.ColumnType.bytea,
+          isNullable: false,
+          dartType: 'dart:typed_data:ByteData',
+        ),
+        _isp.ColumnDefinition(
+          name: 'ciphertext',
+          columnType: _isp.ColumnType.bytea,
+          isNullable: false,
+          dartType: 'dart:typed_data:ByteData',
+        ),
+        _isp.ColumnDefinition(
+          name: 'commitment',
+          columnType: _isp.ColumnType.text,
+          isNullable: false,
+          dartType: 'String',
+        ),
+        _isp.ColumnDefinition(
+          name: 'keyCommitment',
+          columnType: _isp.ColumnType.text,
+          isNullable: false,
+          dartType: 'String',
+        ),
+        _isp.ColumnDefinition(
+          name: 'createdAt',
+          columnType: _isp.ColumnType.timestampWithoutTimeZone,
+          isNullable: false,
+          dartType: 'DateTime',
+        ),
+      ],
+      foreignKeys: [],
+      indexes: [
+        _isp.IndexDefinition(
+          indexName: 'secret_record__reference__unique_idx',
+          tableSpace: null,
+          elements: [
+            _isp.IndexElementDefinition(
+              type: _isp.IndexElementDefinitionType.column,
+              definition: 'reference',
+            ),
+          ],
+          type: 'btree',
+          isUnique: true,
+          isPrimary: false,
+        ),
+      ],
+      managed: true,
+    ),
+    _isp.TableDefinition(
       name: 'transport_keys',
       dartName: 'TransportKey',
       schema: 'public',
@@ -1028,6 +1185,9 @@ class Protocol extends _is.DatabaseSerializationManager
     if (t == _inhmna33.IngestSourceRow) {
       return _inhmna33.IngestSourceRow.fromJson(data) as T;
     }
+    if (t == _ib6287mr.IngestSourceCredential) {
+      return _ib6287mr.IngestSourceCredential.fromJson(data) as T;
+    }
     if (t == _iil3cq3h.InvalidCursorException) {
       return _iil3cq3h.InvalidCursorException.fromJson(data) as T;
     }
@@ -1042,6 +1202,9 @@ class Protocol extends _is.DatabaseSerializationManager
     }
     if (t == _i5barlkw.PluginInstanceStatus) {
       return _i5barlkw.PluginInstanceStatus.fromJson(data) as T;
+    }
+    if (t == _ibz1p89x.SecretRecord) {
+      return _ibz1p89x.SecretRecord.fromJson(data) as T;
     }
     if (t == _ix76ovok.TransportKey) {
       return _ix76ovok.TransportKey.fromJson(data) as T;
@@ -1095,6 +1258,12 @@ class Protocol extends _is.DatabaseSerializationManager
       return (data != null ? _inhmna33.IngestSourceRow.fromJson(data) : null)
           as T;
     }
+    if (t == _is.getType<_ib6287mr.IngestSourceCredential?>()) {
+      return (data != null
+              ? _ib6287mr.IngestSourceCredential.fromJson(data)
+              : null)
+          as T;
+    }
     if (t == _is.getType<_iil3cq3h.InvalidCursorException?>()) {
       return (data != null
               ? _iil3cq3h.InvalidCursorException.fromJson(data)
@@ -1120,6 +1289,9 @@ class Protocol extends _is.DatabaseSerializationManager
               ? _i5barlkw.PluginInstanceStatus.fromJson(data)
               : null)
           as T;
+    }
+    if (t == _is.getType<_ibz1p89x.SecretRecord?>()) {
+      return (data != null ? _ibz1p89x.SecretRecord.fromJson(data) : null) as T;
     }
     if (t == _is.getType<_ix76ovok.TransportKey?>()) {
       return (data != null ? _ix76ovok.TransportKey.fromJson(data) : null) as T;
@@ -1163,11 +1335,13 @@ class Protocol extends _is.DatabaseSerializationManager
       _iwupdujg.IngestConfigSnapshot => 'IngestConfigSnapshot',
       _iupiayjd.IngestSecretCommitment => 'IngestSecretCommitment',
       _inhmna33.IngestSourceRow => 'IngestSourceRow',
+      _ib6287mr.IngestSourceCredential => 'IngestSourceCredential',
       _iil3cq3h.InvalidCursorException => 'InvalidCursorException',
       _ii70ink4.ObservationKeyRow => 'ObservationKeyRow',
       _ir1rifdz.PipelineFailure => 'PipelineFailure',
       _iqfe2rop.PluginDefinitionHealth => 'PluginDefinitionHealth',
       _i5barlkw.PluginInstanceStatus => 'PluginInstanceStatus',
+      _ibz1p89x.SecretRecord => 'SecretRecord',
       _ix76ovok.TransportKey => 'TransportKey',
       _ => null,
     };
@@ -1207,6 +1381,8 @@ class Protocol extends _is.DatabaseSerializationManager
         return 'IngestSecretCommitment';
       case _inhmna33.IngestSourceRow():
         return 'IngestSourceRow';
+      case _ib6287mr.IngestSourceCredential():
+        return 'IngestSourceCredential';
       case _iil3cq3h.InvalidCursorException():
         return 'InvalidCursorException';
       case _ii70ink4.ObservationKeyRow():
@@ -1217,6 +1393,8 @@ class Protocol extends _is.DatabaseSerializationManager
         return 'PluginDefinitionHealth';
       case _i5barlkw.PluginInstanceStatus():
         return 'PluginInstanceStatus';
+      case _ibz1p89x.SecretRecord():
+        return 'SecretRecord';
       case _ix76ovok.TransportKey():
         return 'TransportKey';
     }
@@ -1269,6 +1447,9 @@ class Protocol extends _is.DatabaseSerializationManager
     if (dataClassName == 'IngestSourceRow') {
       return deserialize<_inhmna33.IngestSourceRow>(data['data']);
     }
+    if (dataClassName == 'IngestSourceCredential') {
+      return deserialize<_ib6287mr.IngestSourceCredential>(data['data']);
+    }
     if (dataClassName == 'InvalidCursorException') {
       return deserialize<_iil3cq3h.InvalidCursorException>(data['data']);
     }
@@ -1283,6 +1464,9 @@ class Protocol extends _is.DatabaseSerializationManager
     }
     if (dataClassName == 'PluginInstanceStatus') {
       return deserialize<_i5barlkw.PluginInstanceStatus>(data['data']);
+    }
+    if (dataClassName == 'SecretRecord') {
+      return deserialize<_ibz1p89x.SecretRecord>(data['data']);
     }
     if (dataClassName == 'TransportKey') {
       return deserialize<_ix76ovok.TransportKey>(data['data']);
@@ -1317,6 +1501,8 @@ class Protocol extends _is.DatabaseSerializationManager
         return _iupiayjd.IngestSecretCommitment.t;
       case _inhmna33.IngestSourceRow:
         return _inhmna33.IngestSourceRow.t;
+      case _ib6287mr.IngestSourceCredential:
+        return _ib6287mr.IngestSourceCredential.t;
       case _ii70ink4.ObservationKeyRow:
         return _ii70ink4.ObservationKeyRow.t;
       case _ir1rifdz.PipelineFailure:
@@ -1325,6 +1511,8 @@ class Protocol extends _is.DatabaseSerializationManager
         return _iqfe2rop.PluginDefinitionHealth.t;
       case _i5barlkw.PluginInstanceStatus:
         return _i5barlkw.PluginInstanceStatus.t;
+      case _ibz1p89x.SecretRecord:
+        return _ibz1p89x.SecretRecord.t;
       case _ix76ovok.TransportKey:
         return _ix76ovok.TransportKey.t;
     }

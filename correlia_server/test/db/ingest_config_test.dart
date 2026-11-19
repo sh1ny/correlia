@@ -1,7 +1,10 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:correlia_server/src/ingest/bootstrap.dart';
 import 'package:correlia_server/src/ingest/config_repository.dart';
+import 'package:correlia_server/src/ingest/ingress.dart';
+import 'package:correlia_server/src/runtime/subsystem.dart';
 import 'package:serverpod/serverpod.dart';
 import 'package:test/test.dart';
 import 'package:crypto/crypto.dart';
@@ -12,70 +15,148 @@ import 'pipeline_test.dart' as pipeline_fixture;
 
 import '../integration/test_tools/serverpod_test_tools.dart';
 import '../support/ingest_schema.dart';
+import '../support/secret_fixture.dart';
 
 const sourceId = '11111111-1111-4111-8111-111111111111';
 const outputId = '22222222-2222-4222-8222-222222222222';
+
+final class _Routes implements RouteHost {
+  _Routes(this.web);
+  final WebServer web;
+  @override
+  void addRoute(Route route, String path) => web.addRoute(route, path);
+}
+
 String token(int byte) =>
     base64Url.encode(List<int>.filled(32, byte)).replaceAll('=', '');
 IngestBootstrap input(
   int revision, {
   int credential = 1,
+  String? tokenRef,
   String keyRef = 'key-v1',
   int key = 2,
   bool includeSource = true,
-}) => IngestBootstrap.parse(
-  {
-    'format_version': 1,
-    'revision': revision,
-    'sources': [
-      if (includeSource)
-        {
-          'id': sourceId,
-          'enabled': true,
-          'token_ref': 'source-token',
-          'output_ids': [outputId],
-        },
-    ],
-    'outputs': [
-      {
-        'id': outputId,
-        'kind': 'webhook',
-        'url': 'http://127.0.0.1:9099/events',
-        'signing_key_ref': keyRef,
-      },
-    ],
-  },
-  {'source-token': token(credential), keyRef: token(key)},
-  runMode: 'test',
-);
-
-IngestBootstrap pluginInput(int revision, {int secret = 7}) =>
-    IngestBootstrap.parse(
-      {
-        'format_version': 1,
-        'revision': revision,
-        'sources': [
+}) {
+  final reference =
+      tokenRef ??
+      (credential == 1 ? 'source-token' : 'source-token-$credential');
+  return IngestBootstrap.parse(
+    {
+      'format_version': 1,
+      'revision': revision,
+      'sources': [
+        if (includeSource)
           {
             'id': sourceId,
             'enabled': true,
-            'token_ref': 'source-token',
+            'token_ref': reference,
             'output_ids': [outputId],
           },
-        ],
-        'outputs': [
-          {
-            'id': outputId,
-            'kind': 'plugin',
-            'plugin': 'output-nats',
-            'sha256': 'a' * 64,
-            'config': {'subject': 'events'},
-            'secret_refs': {'token': 'plugin-token'},
-          },
-        ],
-      },
-      {'source-token': token(1), 'plugin-token': token(secret)},
-      runMode: 'test',
+      ],
+      'outputs': [
+        {
+          'id': outputId,
+          'kind': 'webhook',
+          'url': 'http://127.0.0.1:9099/events',
+          'signing_key_ref': keyRef,
+        },
+      ],
+    },
+    {reference: token(credential), keyRef: token(key)},
+    runMode: 'test',
+  );
+}
+
+Map<String, Object?> pluginConfig(int revision) => {
+  'format_version': 1,
+  'revision': revision,
+  'sources': [
+    {
+      'id': sourceId,
+      'enabled': true,
+      'token_ref': 'source-token',
+      'output_ids': [outputId],
+    },
+  ],
+  'outputs': [
+    {
+      'id': outputId,
+      'kind': 'plugin',
+      'plugin': 'output-nats',
+      'sha256': 'a' * 64,
+      'config': {'subject': 'events'},
+      'secret_refs': {'token': 'plugin-token'},
+    },
+  ],
+};
+
+Map<String, Object?> pluginSecrets(int value) => {
+  'source-token': token(1),
+  'plugin-token': token(value),
+};
+
+IngestBootstrap pluginInput(int revision) => IngestBootstrap.parse(
+  pluginConfig(revision),
+  pluginSecrets(7),
+  runMode: 'test',
+  pluginCommitment: testSecretStore.commitments.plugin,
+);
+
+Map<String, Object?> cutoverV2(int revision) => {
+  'format_version': 2,
+  'revision': revision,
+  'sources': [
+    {
+      'id': sourceId,
+      'kind': 'alertmanager',
+      'enabled': true,
+      'credentials': [
+        {'ref': 'source-token', 'type': 'bearer'},
+      ],
+      'output_ids': [outputId],
+    },
+  ],
+  'outputs': [
+    {
+      'id': outputId,
+      'kind': 'webhook',
+      'url': 'http://127.0.0.1:9099/events',
+      'signing_key_ref': 'key-v1',
+    },
+  ],
+};
+
+Future<int> _sendBearer(Session session, IngestBootstrap config) async {
+  final pod = session.serverpod;
+  final ingress = IngressSubsystem(
+    pod: pod,
+    bootstrap: () => config,
+    ready: () => true,
+    log: (_) {},
+  );
+  ingress.mountRoutes(_Routes(pod.webServer));
+  await ingress.start();
+  final startedHere = !pod.webServer.running;
+  if (startedHere) expect(await pod.webServer.start(), isTrue);
+  final client = HttpClient();
+  try {
+    final request = await client.post(
+      '127.0.0.1',
+      pod.webServer.port!,
+      '/hooks/alertmanager/$sourceId',
     );
+    request.headers.contentType = ContentType.json;
+    request.headers.set('authorization', 'Bearer ${token(1)}');
+    request.write('{}');
+    final response = await request.close();
+    await response.drain<void>();
+    return response.statusCode;
+  } finally {
+    client.close(force: true);
+    await ingress.stop();
+    if (startedHere) await pod.webServer.stop();
+  }
+}
 
 void main() {
   withServerpod(
@@ -91,13 +172,43 @@ void main() {
           'ingest_source',
           'ingest_config_snapshot',
           'ingest_secret_commitment',
+          'secret_record',
+          'ingest_source_credential',
         ]) {
           await session.db.unsafeSimpleExecute('DELETE FROM "$table"');
         }
       });
+      test('v2_publication_cutover', () async {
+        final session = builder.build();
+        final repository = IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        );
+        final first = input(1);
+        await repository.publish(first);
+        final next = await repository.publishConfig(
+          cutoverV2(2),
+          <String, Object?>{},
+          runMode: 'test',
+        );
+        expect(
+          (await repository.activeSnapshot())!['snapshotId'],
+          next.snapshotId,
+        );
+        final counts = (await session.db.unsafeQuery('''
+          SELECT (SELECT count(*) FROM ingest_config_snapshot),
+                 (SELECT count(*) FROM secret_record),
+                 (SELECT count(*) FROM ingest_source_credential)
+        ''')).single.toList();
+        expect(counts, [2, 2, 1]);
+        expect(await _sendBearer(session, next), 202);
+      });
       test('bootstrap_publication_and_rotation', () async {
         final session = builder.build();
-        final repository = IngestConfigRepository(session);
+        final repository = IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        );
         final first = input(1);
         await repository.publish(first);
         await repository.publish(first);
@@ -114,10 +225,17 @@ void main() {
         final second = input(2, credential: 3);
         await repository.publish(second);
         final row = (await session.db.unsafeQuery(
-          'SELECT "tokenDigest" FROM ingest_source',
+          'SELECT reference,digest FROM ingest_source_credential',
         )).single.toColumnMap();
-        expect(row['tokenDigest'], second.sources.single.tokenDigest);
-        expect(row['tokenDigest'], isNot(first.sources.single.tokenDigest));
+        expect(
+          row['reference'],
+          second.sources.single.credentials.single.reference,
+        );
+        expect(row['digest'], second.sources.single.credentials.single.digest);
+        expect(
+          row['digest'],
+          isNot(first.sources.single.credentials.single.digest),
+        );
         expect(
           (await session.db.unsafeQuery(
             'SELECT count(*) AS count FROM ingest_config_snapshot',
@@ -126,7 +244,10 @@ void main() {
         );
       });
       test('empty_registry_and_missing_secret', () async {
-        final repository = IngestConfigRepository(builder.build());
+        final repository = IngestConfigRepository(
+          builder.build(),
+          secretStore: testSecretStore,
+        );
         final first = input(1);
         await repository.publish(first);
         expect(
@@ -163,7 +284,10 @@ void main() {
         );
       });
       test('stale_bootstrap_cannot_revoke_the_rotation', () async {
-        final repository = IngestConfigRepository(builder.build());
+        final repository = IngestConfigRepository(
+          builder.build(),
+          secretStore: testSecretStore,
+        );
         final first = input(1);
         final second = input(2, credential: 3);
         await repository.publish(first);
@@ -178,7 +302,10 @@ void main() {
         );
       });
       test('revert_by_higher_revision', () async {
-        final repository = IngestConfigRepository(builder.build());
+        final repository = IngestConfigRepository(
+          builder.build(),
+          secretStore: testSecretStore,
+        );
         await repository.publish(input(1));
         await repository.publish(input(2, credential: 3));
         final reverted = input(3);
@@ -189,7 +316,10 @@ void main() {
         );
       });
       test('conflicting_equal_revision', () async {
-        final repository = IngestConfigRepository(builder.build());
+        final repository = IngestConfigRepository(
+          builder.build(),
+          secretStore: testSecretStore,
+        );
         final first = input(1);
         await repository.publish(first);
         await expectLater(
@@ -205,7 +335,10 @@ void main() {
         'omitted source is disabled and active config requires worker bootstrap',
         () async {
           final session = builder.build();
-          final repository = IngestConfigRepository(session);
+          final repository = IngestConfigRepository(
+            session,
+            secretStore: testSecretStore,
+          );
           await repository.validateWithoutBootstrap();
           await repository.publish(input(1));
           await expectLater(
@@ -223,7 +356,10 @@ void main() {
       );
       test('dead_intent_does_not_require_signing_material', () async {
         final session = builder.build();
-        final repository = IngestConfigRepository(session);
+        final repository = IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        );
         final first = input(1);
         await repository.publish(first);
         await session.db.unsafeExecute(
@@ -250,10 +386,7 @@ void main() {
           'key-v1',
         );
         await session.db.unsafeExecute("UPDATE outbox SET status='queued'");
-        await expectLater(
-          repository.validateLiveSecrets(rotated),
-          throwsA(isA<BootstrapError>()),
-        );
+        await repository.validateLiveSecrets();
         final operatorInput = <String, Object?>{
           'format_version': 1,
           'revision': 3,
@@ -287,7 +420,10 @@ void main() {
       });
       test('retained live output lanes cannot exceed capacity', () async {
         final session = builder.build();
-        final repository = IngestConfigRepository(session);
+        final repository = IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        );
         final first = input(1);
         await repository.publish(first);
         await session.db.unsafeExecute(
@@ -319,15 +455,42 @@ void main() {
       });
       test('plugin_output_activates', () async {
         final session = builder.build();
-        final repository = IngestConfigRepository(session);
-        final definition = pluginInput(1);
-        await repository.publish(definition);
+        final repository = IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        );
+        final definition = await repository.publishConfig(
+          pluginConfig(1),
+          pluginSecrets(7),
+          runMode: 'test',
+        );
         final stored = await repository.snapshot(definition.snapshotId);
         final text = jsonEncode(stored);
+        final expected = testSecretStore.commitments.plugin(
+          'plugin-token',
+          base64Url.decode('${token(7)}='),
+        );
+        expect(text, contains(expected));
         expect(
           text,
-          contains(sha256.convert(base64Url.decode('${token(7)}=')).toString()),
+          isNot(
+            contains(
+              sha256.convert(base64Url.decode('${token(7)}=')).toString(),
+            ),
+          ),
         );
+        expect(
+          (await session.db.unsafeSimpleQuery(
+            "SELECT digest FROM ingest_secret_commitment WHERE reference='plugin-token'",
+          )).single[0],
+          expected,
+        );
+        final same = await repository.publishConfig(
+          pluginConfig(1),
+          pluginSecrets(7),
+          runMode: 'test',
+        );
+        expect(same.snapshotId, definition.snapshotId);
         expect(text, isNot(contains(token(7))));
         await pipeline_fixture.seed(session, [
           payload.alert(startsAt: '2026-11-10T12:00:00Z'),
@@ -350,11 +513,26 @@ void main() {
         expect(row[3], isNull);
       });
       test('plugin_secret_reference_rebound', () async {
-        final repository = IngestConfigRepository(builder.build());
-        final first = pluginInput(1);
-        await repository.publish(first);
+        final session = builder.build();
+        final repository = IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        );
+        final first = await repository.publishConfig(
+          pluginConfig(1),
+          pluginSecrets(7),
+          runMode: 'test',
+        );
+        final record = (await session.db.unsafeSimpleQuery(
+          "SELECT encode(ciphertext,'hex'),commitment FROM secret_record WHERE reference='plugin-token'",
+        )).single;
+        expect(record[1], startsWith('hmac-sha256:'));
         await expectLater(
-          repository.publish(pluginInput(2, secret: 8)),
+          repository.publishConfig(
+            pluginConfig(2),
+            pluginSecrets(8),
+            runMode: 'test',
+          ),
           throwsA(
             isA<BootstrapError>().having(
               (e) => e.code,
@@ -377,6 +555,10 @@ void main() {
           (await repository.activeSnapshot())!['snapshotId'],
           first.snapshotId,
         );
+        final after = (await session.db.unsafeSimpleQuery(
+          "SELECT encode(ciphertext,'hex'),commitment FROM secret_record WHERE reference='plugin-token'",
+        )).single;
+        expect(after.toList(), record.toList());
       });
     },
     rollbackDatabase: RollbackDatabase.disabled,

@@ -590,11 +590,19 @@ void main() {
   });
   test('oversize_annotation_value', () {
     final original = alert(annotations: {'description': 'x'});
-    final long = alert(annotations: {'description': 'x' * 5000});
-    final events = decode(groupOf([original, long])).events;
-    expect(events[0].fingerprint, events[1].fingerprint);
-    expect(events[0].eventId, events[1].eventId);
-    expect(events[1].annotations['description'], contains('…'));
-    expect(events[1].description, contains('…'));
+    final intermediate = '🚨' * 1025;
+    final events = decode(
+      groupOf([
+        original,
+        alert(annotations: {'description': intermediate}),
+        alert(annotations: {'description': '🚨' * 4097}),
+      ]),
+    ).events;
+    expect(events.map((event) => event.fingerprint).toSet(), hasLength(1));
+    expect(events.map((event) => event.eventId).toSet(), hasLength(1));
+    expect(events[1].description, intermediate);
+    expect(events[1].annotations['description'], '${'🚨' * 1023}…');
+    expect(events[2].annotations['description'], '${'🚨' * 1023}…');
+    expect(events[2].description, '${'🚨' * 4095}…');
   });
 }

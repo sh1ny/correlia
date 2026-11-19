@@ -1,3 +1,5 @@
+import '../support/secret_fixture.dart';
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -51,6 +53,8 @@ Future<void> reset(Session session, {bool excludeSeverity = false}) async {
     'ingest_source',
     'ingest_config_snapshot',
     'ingest_secret_commitment',
+    'secret_record',
+    'ingest_source_credential',
   ]) {
     await session.db.unsafeSimpleExecute('DELETE FROM "$table"');
   }
@@ -81,7 +85,10 @@ Future<void> reset(Session session, {bool excludeSeverity = false}) async {
           runMode: 'test',
         )
       : fixture.input(1);
-  await IngestConfigRepository(session).publish(config);
+  await IngestConfigRepository(
+    session,
+    secretStore: testSecretStore,
+  ).publish(config);
 }
 
 Future<void> deliver(

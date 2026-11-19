@@ -5,6 +5,7 @@ import 'package:serverpod/serverpod.dart';
 import '../event/identity.dart' show transportKey;
 
 import '../schema/ingest_records.dart';
+import 'bootstrap.dart';
 
 /// The committed result of a delivery admission.
 enum AdmissionOutcome { accepted, duplicate, conflict, unauthorized }
@@ -36,7 +37,8 @@ final class IngestAdmission {
   /// Stores a delivery or returns its existing reservation's outcome.
   Future<AdmissionOutcome> admit({
     required String sourceId,
-    required String tokenDigest,
+    required String kind,
+    required SourceCredential credential,
     required bool pathToken,
     required Uint8List body,
     required String contentType,
@@ -63,15 +65,36 @@ final class IngestAdmission {
         transaction: tx,
       );
       final sources = await session.db.unsafeQuery(
-        'SELECT "tokenDigest", enabled, "allowPathToken" FROM ingest_source WHERE "sourceId"=CAST(@source AS uuid) FOR SHARE',
+        'SELECT enabled, "allowPathToken", kind FROM ingest_source WHERE "sourceId"=CAST(@source AS uuid) FOR SHARE',
         parameters: QueryParameters.named({'source': sourceId}),
         transaction: tx,
         timeoutInSeconds: 5,
       );
       if (sources.isEmpty ||
-          sources.single[1] != true ||
-          (pathToken && sources.single[2] != true) ||
-          !constantTimeDigestEquals(sources.single[0] as String, tokenDigest)) {
+          sources.single[0] != true ||
+          sources.single[2] != kind ||
+          (pathToken && sources.single[1] != true)) {
+        return AdmissionOutcome.unauthorized;
+      }
+      final credentials = await session.db.unsafeQuery(
+        '''SELECT digest,type,"notBefore","notAfter" FROM ingest_source_credential
+        WHERE "sourceId"=CAST(@source AS uuid) AND reference=@reference''',
+        parameters: QueryParameters.named({
+          'source': sourceId,
+          'reference': credential.reference,
+        }),
+        transaction: tx,
+        timeoutInSeconds: 5,
+      );
+      if (credentials.singleOrNull case final row?) {
+        if (row[1] != credential.type.name ||
+            (row[2] as DateTime?)?.toUtc() != credential.notBefore ||
+            (row[3] as DateTime?)?.toUtc() != credential.notAfter ||
+            !credential.validAt(observedAt) ||
+            !constantTimeDigestEquals(row[0]! as String, credential.digest)) {
+          return AdmissionOutcome.unauthorized;
+        }
+      } else {
         return AdmissionOutcome.unauthorized;
       }
       final params = QueryParameters.named({

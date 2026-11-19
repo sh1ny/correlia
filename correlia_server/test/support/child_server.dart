@@ -72,6 +72,9 @@ final class ChildServer {
         'SERVERPOD_DATABASE_DATA_PATH': p.join(root.path, 'pgdata'),
         'CORRELIA_TEST_ROOT_LOCK': p.join(root.path, 'owner.lock'),
         'CORRELIA_TEST_ROOT_LOCK_TIMEOUT': '${readyTimeout.inSeconds}',
+        if (environment.containsKey('CORRELIA_INGEST_CONFIG') &&
+            !environment.containsKey('CORRELIA_SECRET_KEY_FILE'))
+          'CORRELIA_SECRET_KEY_FILE': childSecretKeyFile(root),
         ...environment,
       },
     );
@@ -84,6 +87,7 @@ final class ChildServer {
   /// startup attempts. [portPicker] injects port selection for tests.
   /// Tests budget at least `n × (readiness deadline + 30 s shutdown) + 60 s`
   /// for sequential children; children started together count once.
+  /// An optional [logs] directory is kept for full-output assertions.
   static Future<ChildServer> startOnSharedCluster({
     required Directory serverDir,
     required SharedClusterDatabase database,
@@ -91,6 +95,7 @@ final class ChildServer {
     Map<String, String> environment = const {},
     List<String> vmArgs = const [],
     Duration readyTimeout = const Duration(seconds: 60),
+    Directory? logs,
     @visibleForTesting Future<int> Function()? portPicker,
   }) => _spawn(
     serverDir: serverDir,
@@ -98,7 +103,14 @@ final class ChildServer {
     vmArgs: vmArgs,
     readyTimeout: readyTimeout,
     portPicker: portPicker,
-    environment: {...database.environment, ...environment},
+    logs: logs,
+    environment: {
+      ...database.environment,
+      if (environment.containsKey('CORRELIA_INGEST_CONFIG') &&
+          !environment.containsKey('CORRELIA_SECRET_KEY_FILE'))
+        'CORRELIA_SECRET_KEY_FILE': database.secretKeyFile,
+      ...environment,
+    },
   );
 
   static Future<ChildServer> _spawn({

@@ -7,6 +7,7 @@ import 'package:test/test.dart';
 
 import '../integration/test_tools/serverpod_test_tools.dart';
 import '../support/ingest_schema.dart';
+import '../support/secret_fixture.dart';
 
 const output = '11111111-1111-4111-8111-111111111111';
 const delivery = '22222222-2222-4222-8222-222222222222';
@@ -17,7 +18,9 @@ Future<void> seed(
   Session session, {
   String ref = 'key',
   String? commitment,
+  bool storeKey = true,
 }) async {
+  if (storeKey) await seedSigningSecret(session, ref, key);
   await session.db.unsafeExecute(
     '''INSERT INTO outbox
     (created_at,delivery_id,event_observed_at,event_id,event_disposition,output_id,
@@ -43,7 +46,7 @@ void main() {
         final session = builder.build();
         await initializeIngestSchema(session);
         await session.db.unsafeSimpleExecute(
-          'DELETE FROM delivery_attempts; DELETE FROM outbox',
+          'DELETE FROM delivery_attempts; DELETE FROM outbox; DELETE FROM secret_record',
         );
       });
       test('expired_owner_completion', () async {
@@ -51,8 +54,7 @@ void main() {
         await seed(session);
         final repository = OutputRelayRepository(
           session,
-          (ref) => ref == 'key' ? key : null,
-          loadedReferences: {'key'},
+          testSecretResolver(session).resolve,
         );
         final old = (await repository.claim(output))!.claims.single;
         await session.db.unsafeSimpleExecute(
@@ -96,8 +98,7 @@ void main() {
         await seed(session);
         final repository = OutputRelayRepository(
           session,
-          (ref) => ref == 'key' ? key : null,
-          loadedReferences: {'key'},
+          testSecretResolver(session).resolve,
         );
         for (var i = 0; i < 20; i++) {
           expect(await repository.claim(output), isNotNull);
@@ -135,13 +136,11 @@ void main() {
       """);
         final first = OutputRelayRepository(
           session,
-          (_) => key,
-          loadedReferences: {'key'},
+          testSecretResolver(session).resolve,
         );
         final second = OutputRelayRepository(
           builder.build(),
-          (_) => key,
-          loadedReferences: {'key'},
+          testSecretResolver(session).resolve,
         );
         final claims = await Future.wait([
           first.claim(output),
@@ -151,7 +150,8 @@ void main() {
       });
       test('discovery_skips_busy_and_unavailable_lanes', () async {
         final session = builder.build();
-        await seed(session, ref: 'missing');
+        await seed(session, ref: 'missing', storeKey: false);
+        await seedSigningSecret(session, 'key', key);
         const healthy = '55555555-5555-4555-8555-555555555555';
         await session.db.unsafeExecute(
           '''
@@ -170,52 +170,101 @@ void main() {
         final diagnostics = <String>[];
         final repository = OutputRelayRepository(
           session,
-          (ref) => ref == 'key' ? key : null,
-          loadedReferences: {'key'},
+          testSecretResolver(session).resolve,
           onUnavailable: (id, ref) => diagnostics.add('$id/$ref'),
         );
         expect(await repository.discover({}), {healthy});
         expect(await repository.discover({healthy}), isEmpty);
         expect(diagnostics, ['$output/missing']);
       });
-      test('mismatched_signing_commitment_stays_queued', () async {
+      test('unverifiable_pinned_signing_commitment', () async {
         final session = builder.build();
         await seed(
           session,
           commitment: sha256.convert(List<int>.filled(32, 9)).toString(),
         );
+        const healthy = '55555555-5555-4555-8555-555555555555';
+        await session.db.unsafeExecute(
+          '''INSERT INTO outbox (created_at, delivery_id, event_observed_at, event_id,
+            event_disposition, output_id, config_snapshot_id, target_url,
+            signing_key_ref, signing_key_commitment, payload)
+          SELECT now(), '66666666-6666-4666-8666-666666666666', event_observed_at,
+            event_id, event_disposition, CAST(@output AS uuid), config_snapshot_id,
+            target_url, signing_key_ref, @commitment, payload FROM outbox''',
+          parameters: QueryParameters.named({
+            'output': healthy,
+            'commitment': sha256.convert(key).toString(),
+          }),
+        );
         final diagnostics = <String>[];
         final repository = OutputRelayRepository(
           session,
-          (_) => key,
-          loadedReferences: {'key'},
+          testSecretResolver(session).resolve,
           onUnavailable: (id, ref) => diagnostics.add('$id/$ref'),
         );
-        expect(await repository.discover({}), isEmpty);
+        expect(await repository.discover({}), {output, healthy});
+        expect(await repository.claim(output), isNull);
         expect(await repository.claim(output), isNull);
         expect(diagnostics, ['$output/key']);
-        final row = (await session.db.unsafeQuery(
-          'SELECT status,attempt_count FROM outbox',
-        )).single;
-        expect(row[0], 'queued');
-        expect(row[1], 0);
+        final claim = (await repository.claim(healthy))!.claims.single;
         expect(
-          await session.db.unsafeQuery('SELECT 1 FROM delivery_attempts'),
+          await repository.complete(claim, const DeliveryAcknowledged()),
+          isTrue,
+        );
+        final rows = await session.db.unsafeQuery(
+          'SELECT output_id::text,status,attempt_count FROM outbox ORDER BY output_id',
+        );
+        expect(rows.first[1], 'queued');
+        expect(rows.first[2], 0);
+        expect(rows.last[1], 'delivered');
+        expect(rows.last[2], 1);
+        expect(
+          await session.db.unsafeQuery(
+            'SELECT 1 FROM delivery_attempts WHERE "deliveryId"=CAST(@delivery AS uuid)',
+            parameters: QueryParameters.named({'delivery': delivery}),
+          ),
           isEmpty,
         );
+      });
+      test('bad_signing_pin_does_not_block_its_output', () async {
+        final session = builder.build();
+        await seed(session, commitment: '0' * 64);
+        const healthy = '66666666-6666-4666-8666-666666666666';
+        await session.db.unsafeExecute(
+          '''INSERT INTO outbox (created_at, delivery_id, event_observed_at, event_id,
+            event_disposition, output_id, config_snapshot_id, target_url,
+            signing_key_ref, signing_key_commitment, payload)
+          SELECT created_at + interval '1 second', CAST(@id AS uuid), event_observed_at,
+            event_id, event_disposition, output_id, config_snapshot_id,
+            target_url, signing_key_ref, @commitment, payload FROM outbox''',
+          parameters: QueryParameters.named({
+            'id': healthy,
+            'commitment': sha256.convert(key).toString(),
+          }),
+        );
+        final repository = OutputRelayRepository(
+          session,
+          testSecretResolver(session).resolve,
+        );
+        final batch = await repository.claim(output);
+        expect(batch?.claims.single.deliveryId, healthy);
+        final rows = await session.db.unsafeQuery(
+          'SELECT status,attempt_count FROM outbox ORDER BY created_at',
+        );
+        expect(rows.first.toList(), ['queued', 0]);
+        expect(rows.last.toList(), ['delivering', 1]);
       });
       test('loaded_historical_signing_reference', () async {
         final session = builder.build();
         await seed(session, ref: 'historical');
-        final currentKey = Uint8List.fromList(List.filled(32, 8));
+        await seedSigningSecret(
+          session,
+          'current',
+          Uint8List.fromList(List.filled(32, 8)),
+        );
         final repository = OutputRelayRepository(
           session,
-          (ref) => switch (ref) {
-            'historical' => key,
-            'current' => currentKey,
-            _ => null,
-          },
-          loadedReferences: {'historical', 'current'},
+          testSecretResolver(session).resolve,
         );
         final claim = (await repository.claim(output))!.claims.single;
         expect(claim.key, orderedEquals(key));
@@ -232,11 +281,11 @@ void main() {
       });
       test('unloaded_live_signing_reference', () async {
         final session = builder.build();
-        await seed(session, ref: 'unloaded');
+        await seed(session, ref: 'unloaded', storeKey: false);
         final diagnostics = <String>[];
         final repository = OutputRelayRepository(
           session,
-          (_) => null,
+          testSecretResolver(session).resolve,
           onUnavailable: (id, ref) => diagnostics.add('$id/$ref'),
         );
         expect(await repository.discover({}), isEmpty);

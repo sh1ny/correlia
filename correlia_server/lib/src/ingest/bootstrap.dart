@@ -4,6 +4,8 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 
+part 'source_config.dart';
+
 /// A sanitized bootstrap rejection without operator-controlled values.
 final class BootstrapError implements Exception {
   /// Creates a rejection with a fixed file kind, field path and code.
@@ -21,45 +23,6 @@ final class BootstrapError implements Exception {
   @override
   String toString() =>
       'ingest bootstrap $fileKind ${field.length > 256 ? field.substring(0, 256) : field}: $code';
-}
-
-/// A source definition pinned by an immutable configuration snapshot.
-final class IngestSource {
-  /// Creates an immutable source definition.
-  IngestSource({
-    required this.id,
-    required this.namespace,
-    required this.enabled,
-    required this.tokenRef,
-    required this.tokenDigest,
-    required this.pathTokenEnabled,
-    required this.bodyLimitBytes,
-    required Set<String> excludedIdentityLabels,
-    required List<String> outputIds,
-  }) : excludedIdentityLabels = Set.unmodifiable(excludedIdentityLabels),
-       outputIds = List.unmodifiable(outputIds);
-  final String id;
-  final String namespace;
-  final bool enabled;
-  final String tokenRef;
-  final String tokenDigest;
-  final bool pathTokenEnabled;
-  final int bodyLimitBytes;
-  final Set<String> excludedIdentityLabels;
-  final List<String> outputIds;
-
-  /// The deterministic public source representation.
-  Map<String, Object?> toJson() => {
-    'id': id,
-    'namespace': namespace,
-    'enabled': enabled,
-    'token_ref': tokenRef,
-    'token_digest': tokenDigest,
-    'path_token_enabled': pathTokenEnabled,
-    'body_limit_bytes': bodyLimitBytes,
-    'excluded_identity_labels': excludedIdentityLabels.toList()..sort(),
-    'output_ids': outputIds.toList()..sort(),
-  };
 }
 
 /// A validated output definition pinned in a configuration snapshot.
@@ -180,6 +143,13 @@ final class IngestBootstrap {
   final int revision;
   final List<IngestSource> sources;
   final List<IngestOutput> outputs;
+
+  IngestBootstrap._runtime(this.revision, this.sources, this.outputs)
+    : _secrets = const {};
+
+  /// Returns the validated configuration without its publication material.
+  IngestBootstrap withoutImport() =>
+      IngestBootstrap._runtime(revision, sources, outputs);
   final Map<String, Uint8List> _secrets;
 
   /// The loaded reference names; values never enter persisted configuration.
@@ -191,7 +161,7 @@ final class IngestBootstrap {
 
   /// The canonical public snapshot bytes.
   String get publicJson => jsonEncode({
-    'format_version': 1,
+    'format_version': 2,
     'revision': revision,
     'sources': sources.map((source) => source.toJson()).toList(),
     'outputs': outputs.map((output) => output.toJson()).toList(),
@@ -205,30 +175,42 @@ final class IngestBootstrap {
     Object? config,
     Object? secretInput, {
     required String runMode,
+    String Function(String reference, List<int> bytes)? pluginCommitment,
+    DateTime Function()? clock,
+  }) {
+    return parseResolved(
+      config,
+      decodeBootstrapSecrets(secretInput),
+      runMode: runMode,
+      pluginCommitment: pluginCommitment,
+      clock: clock,
+    );
+  }
+
+  /// Parses a publication using material already decoded or read from the store.
+  static IngestBootstrap parseResolved(
+    Object? config,
+    Map<String, Uint8List> secrets, {
+    required String runMode,
+    String Function(String reference, List<int> bytes)? pluginCommitment,
+    DateTime Function()? clock,
   }) {
     try {
       final root = _map(config, 'config', r'$');
-      _keys(
-        root,
-        {'format_version', 'revision', 'sources', 'outputs'},
-        'config',
-        r'$',
-      );
-      if (root['format_version'] != 1) {
-        _bad('config', 'format_version', 'version');
-      }
+      final version = _inputVersion(root);
+      _sourceFields(root, {
+        'format_version',
+        'revision',
+        'sources',
+        'outputs',
+        if (version == 2) 'namespaces',
+      }, r'$');
       final revision = _integer(root['revision'], 1, 2147483647, 'revision');
-      final secretMap = _map(secretInput, 'secrets', r'$');
-      if (secretMap.length > 128) _bad('secrets', r'$', 'bound');
-      final secrets = <String, Uint8List>{};
-      var totalBytes = 0;
-      for (final MapEntry(:key, :value) in secretMap.entries) {
-        if (!_reference.hasMatch(key)) _bad('secrets', r'$', 'reference');
-        final bytes = _decodeSecret(value);
-        totalBytes += bytes.length;
-        if (totalBytes > 256 * 1024) _bad('secrets', r'$', 'bound');
-        secrets[key] = bytes;
-      }
+      final namespaces = version == 2
+          ? _namespaces(root['namespaces'])
+          : const <String>{};
+      final now = (clock ?? DateTime.now)();
+
       final outputs = <IngestOutput>[];
       final outputIds = <String>{};
       for (final (index, value) in _list(
@@ -306,7 +288,8 @@ final class IngestBootstrap {
               }
               references[name] = PluginSecretReference(
                 ref,
-                sha256.convert(bytes).toString(),
+                pluginCommitment?.call(ref, bytes) ??
+                    sha256.convert(bytes).toString(),
               );
             }
             outputs.add(
@@ -330,72 +313,17 @@ final class IngestBootstrap {
         'sources',
       ).indexed) {
         final field = 'sources[$index]';
-        final row = _map(value, 'config', field);
-        _keys(
-          row,
-          {
-            'id',
-            'namespace',
-            'enabled',
-            'token_ref',
-            'path_token_enabled',
-            'body_limit_bytes',
-            'excluded_identity_labels',
-            'output_ids',
-          },
-          'config',
+        final source = _parseSource(
+          _map(value, 'config', field),
           field,
+          version,
+          namespaces,
+          outputIds,
+          secrets,
+          now,
         );
-        final id = _uuid(row['id'], '$field.id');
-        if (!sourceIds.add(id)) _bad('config', '$field.id', 'duplicate');
-        final ref = _ref(row['token_ref'], '$field.token_ref');
-        final token = secrets[ref];
-        if (token == null) _bad('config', '$field.token_ref', 'missing_secret');
-        if (token.length != 32) _bad('secrets', 'value', 'credential_encoding');
-        final namespace = row['namespace'] == null
-            ? id
-            : _string(row['namespace'], 1024, '$field.namespace');
-        final routes =
-            _list(row['output_ids'], 8, '$field.output_ids')
-                .map((value) => _uuid(value, '$field.output_ids'))
-                .toSet()
-                .toList()
-              ..sort();
-        if (routes.any((id) => !outputIds.contains(id))) {
-          _bad('config', '$field.output_ids', 'missing_output');
-        }
-        final exclusions =
-            _list(
-                  row['excluded_identity_labels'] ?? <Object?>[],
-                  128,
-                  '$field.excluded_identity_labels',
-                )
-                .map(
-                  (value) =>
-                      _string(value, 256, '$field.excluded_identity_labels'),
-                )
-                .toSet();
-        sources.add(
-          IngestSource(
-            id: id,
-            namespace: namespace,
-            enabled: _boolean(row['enabled'], '$field.enabled'),
-            tokenRef: ref,
-            tokenDigest: sha256.convert(token).toString(),
-            pathTokenEnabled: _boolean(
-              row['path_token_enabled'] ?? false,
-              '$field.path_token_enabled',
-            ),
-            bodyLimitBytes: _integer(
-              row['body_limit_bytes'] ?? 1048576,
-              1,
-              1048576,
-              '$field.body_limit_bytes',
-            ),
-            excludedIdentityLabels: exclusions,
-            outputIds: routes,
-          ),
-        );
+        if (!sourceIds.add(source.id)) _bad('config', '$field.id', 'duplicate');
+        sources.add(source);
       }
       sources.sort((a, b) => a.id.compareTo(b.id));
       outputs.sort((a, b) => a.id.compareTo(b.id));
@@ -407,20 +335,64 @@ final class IngestBootstrap {
     }
   }
 
+  /// Lists configuration references with the same source parser used at activation.
+  static Iterable<String> references(Object? config) sync* {
+    final root = _map(config, 'config', r'$');
+    final version = _inputVersion(root);
+    for (final (index, value) in _list(
+      root['sources'],
+      64,
+      'sources',
+    ).indexed) {
+      final field = 'sources[$index]';
+      for (final credential in _credentialInputs(
+        _map(value, 'config', field),
+        version,
+        field,
+      )) {
+        yield credential.reference;
+      }
+    }
+    for (final output in _list(root['outputs'], 64, 'outputs')) {
+      switch (output) {
+        case {'kind': 'webhook', 'signing_key_ref': final String ref}
+            when _reference.hasMatch(ref):
+          yield ref;
+        case {'kind': 'plugin', 'secret_refs': final Map<String, Object?> refs}
+            when refs.length <= 8:
+          yield* refs.values.whereType<String>().where(_reference.hasMatch);
+      }
+    }
+  }
+
   /// Reads both startup files with a hard byte cap and secret ownership checks.
   static Future<IngestBootstrap?> load(
     Map<String, String> environment, {
     required String runMode,
     bool requirePluginDirectory = true,
+    Future<IngestBootstrap> Function(Object? config, Object? secrets)? publish,
   }) async {
     final configPath = environment['CORRELIA_INGEST_CONFIG'];
     final secretPath = environment['CORRELIA_INGEST_SECRETS'];
     if (configPath == null && secretPath == null) return null;
-    if (configPath == null || secretPath == null) {
+    if (configPath == null) {
       throw const BootstrapError('config', r'$', 'paired_files_required');
     }
     final config = await _readFile(configPath, 'config');
-    final secrets = await _readFile(secretPath, 'secrets');
+    final secrets = secretPath == null
+        ? <String, Object?>{}
+        : await _readFile(secretPath, 'secrets');
+    if (publish != null) {
+      final outputs = config is Map<String, Object?> ? config['outputs'] : null;
+      if (requirePluginDirectory &&
+          outputs is List<Object?> &&
+          outputs.any(
+            (o) => o is Map<String, Object?> && o['kind'] == 'plugin',
+          )) {
+        await _validatePluginDirectory(environment['CORRELIA_PLUGIN_DIR']);
+      }
+      return publish(config, secrets);
+    }
     final input = parse(config, secrets, runMode: runMode);
     if (requirePluginDirectory &&
         input.outputs.any((o) => o is PluginIngestOutput)) {
@@ -428,6 +400,22 @@ final class IngestBootstrap {
     }
     return input;
   }
+}
+
+/// Decodes the bounded import file without exposing its values in errors.
+Map<String, Uint8List> decodeBootstrapSecrets(Object? input) {
+  final entries = _map(input, 'secrets', r'$');
+  if (entries.length > 128) _bad('secrets', r'$', 'bound');
+  final secrets = <String, Uint8List>{};
+  var total = 0;
+  for (final MapEntry(:key, :value) in entries.entries) {
+    if (!_reference.hasMatch(key)) _bad('secrets', r'$', 'reference');
+    final bytes = _decodeSecret(value);
+    total += bytes.length;
+    if (total > 256 * 1024) _bad('secrets', r'$', 'bound');
+    secrets[key] = bytes;
+  }
+  return secrets;
 }
 
 final _reference = RegExp(r'^[A-Za-z0-9_.-]{1,128}$');
@@ -553,7 +541,17 @@ Uri validateWebhookUrl(
   }
 }
 
-Future<Object?> _readFile(String path, String kind) async {
+/// Reads a regular input file with a bounded size and sanitized failures.
+///
+/// Private inputs are checked against the process owner and mode 0600 or
+/// stricter. [effectiveUid] allows testing the owner comparison without root.
+Future<Uint8List> readBootstrapFile(
+  String path,
+  String kind, {
+  required int cap,
+  bool private = false,
+  int? effectiveUid,
+}) async {
   try {
     if (await FileSystemEntity.type(path, followLinks: false) !=
         FileSystemEntityType.file) {
@@ -561,9 +559,8 @@ Future<Object?> _readFile(String path, String kind) async {
     }
     final file = File(path);
     final stat = await file.stat();
-    final cap = kind == 'secrets' ? 512 * 1024 : 64 * 1024;
     if (stat.size > cap) _bad(kind, r'$', 'bound');
-    if (kind == 'secrets') {
+    if (private) {
       if ((stat.mode & 0x7f) != 0) _bad(kind, r'$', 'permissions');
       final owner = await Process.run('/usr/bin/stat', [
         '-c',
@@ -571,10 +568,16 @@ Future<Object?> _readFile(String path, String kind) async {
         '--',
         path,
       ]);
-      final user = await Process.run('/usr/bin/id', ['-u']);
+      final int uid;
+      if (effectiveUid != null) {
+        uid = effectiveUid;
+      } else {
+        final user = await Process.run('/usr/bin/id', ['-u']);
+        if (user.exitCode != 0) _bad(kind, r'$', 'owner');
+        uid = int.parse((user.stdout as String).trim());
+      }
       if (owner.exitCode != 0 ||
-          user.exitCode != 0 ||
-          owner.stdout.toString().trim() != user.stdout.toString().trim()) {
+          int.tryParse((owner.stdout as String).trim()) != uid) {
         _bad(kind, r'$', 'owner');
       }
     }
@@ -583,9 +586,24 @@ Future<Object?> _readFile(String path, String kind) async {
       if (bytes.length + chunk.length > cap) _bad(kind, r'$', 'bound');
       bytes.add(chunk);
     }
-    return jsonDecode(utf8.decode(bytes.takeBytes()));
+    return bytes.takeBytes();
   } on BootstrapError {
     rethrow;
+  } catch (_) {
+    throw BootstrapError(kind, r'$', 'read_or_parse');
+  }
+}
+
+Future<Object?> _readFile(String path, String kind) async {
+  final secrets = kind == 'secrets';
+  final bytes = await readBootstrapFile(
+    path,
+    kind,
+    cap: (secrets ? 512 : 64) * 1024,
+    private: secrets,
+  );
+  try {
+    return jsonDecode(utf8.decode(bytes));
   } catch (_) {
     throw BootstrapError(kind, r'$', 'read_or_parse');
   }
