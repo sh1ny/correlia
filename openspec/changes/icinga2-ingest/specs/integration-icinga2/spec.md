@@ -11,9 +11,8 @@ stable identity and ordering.
 ### Requirement: Icinga2 webhook document
 
 `/hooks/icinga2/<source>` SHALL accept one JSON object per delivery in Correlia's Icinga2 webhook format,
-`format: "correlia.icinga2.v1"`: required object type, host, state, state type, last state change time,
-notification type and notification time, `service` for a service object; optional `output`,
-author and comment. A missing required field (`missing_field`), a wrong type (`invalid_type`) or an unknown
+`format: "correlia.icinga2.v1"`: required object type, host, state, state type, notification type and
+time, `service` for a service object; optional `output`, author and comment. A missing required field (`missing_field`), a wrong type (`invalid_type`) or an unknown
 field (`unknown_field`) SHALL fail decoding with a bounded field path.
 
 #### Scenario: Service problem notification
@@ -35,6 +34,33 @@ field (`unknown_field`) SHALL fail decoding with a bounded field path.
 #### Scenario: Unsupported format version
 - **WHEN** a delivery declares `format: "correlia.icinga2.v2"`
 - **THEN** the raw row fails with error code `unsupported_version` and stored failure path `format`
+
+### Requirement: State change time is required only for state notifications
+
+The webhook document SHALL require `last_state_change` for `PROBLEM` and `RECOVERY` notifications and accept
+its absence for every other notification type, validating it like any time when present. The shipped command
+SHALL pass it for `PROBLEM` and `RECOVERY` only, from one read per command; with no usable time the sender
+SHALL refuse it.
+
+#### Scenario: State notification without a state change time
+- **WHEN** a `PROBLEM` delivery has no `last_state_change`
+- **THEN** decoding fails with error code `missing_field` and stored failure path `last_state_change`
+
+#### Scenario: Non-state key without the state change time
+- **WHEN** two otherwise equal `ACKNOWLEDGEMENT` deliveries differ only in that one carries `last_state_change` and the other does not
+- **THEN** both have the same observation key and event id
+
+#### Scenario: Non-state notification for an object with an unusable state change time
+- **WHEN** a supported release sends an `ACKNOWLEDGEMENT` through the shipped host command for a host whose last state change time is a negative passive execution end
+- **THEN** the delivery carries no `last_state_change`, is accepted with 202 and stores one `ack` event
+
+#### Scenario: Invalid state change time on a non-state delivery
+- **WHEN** a `CUSTOM` delivery carries `last_state_change: "0.000000"`
+- **THEN** decoding fails with error code `invalid_time` and stored failure path `last_state_change`
+
+#### Scenario: Custom notification without a state change time
+- **WHEN** a `CUSTOM` delivery for a service has no `last_state_change` and no `output`
+- **THEN** one `comment` event with status `info` is stored, keyed and timed by its notification time, and no alert is created or changed
 
 ### Requirement: Webhook text is storable
 
@@ -149,6 +175,16 @@ and is not restarted afterwards (an older worker decodes every row as Alertmanag
 - **WHEN** the documentation check reads the Icinga2 section of `docs/ingest-pipeline.md`
 - **THEN** it finds the no-retry, SOFT and suppression limits, the convergence conditions and the worker upgrade order
 
+### Requirement: State change time limits are documented
+
+The documentation SHALL state the shipped formatter's input domain (`1 <= seconds < 2^32`, no time after
+2106), which time a new object's first problem carries, and that a volatile object with no state value change
+yet publishes one event per distinct, eligible HARD time that a command samples, not per check.
+
+#### Scenario: Documentation names the state change time limits
+- **WHEN** the documentation check reads the Icinga2 section of `docs/ingest-pipeline.md`
+- **THEN** it finds the formatter's input domain, the first-problem time and the volatile-object limit
+
 ### Requirement: Downtime removal limits are documented
 
 The documentation SHALL state that the webhook cannot tell a cancelled downtime from an expired one on releases
@@ -254,7 +290,7 @@ and the signature out of its output.
 
 ### Requirement: Webhook state change time precision
 
-The shipped command SHALL send the object's last state change time and the notification time with their
+The shipped command SHALL send the notification time, and every last state change time it sends, with their
 sub-second fraction, obtained through argument functions in the shipped command, so distinct state
 changes within one second are distinct observations.
 
@@ -273,6 +309,37 @@ changes within one second are distinct observations.
 #### Scenario: Host command keeps sub-second precision
 - **WHEN** a supported release runs the shipped host command for DOWN, UP and DOWN of one host, with both DOWN samples in the same integer Unix second
 - **THEN** the two DOWN deliveries carry distinct, increasing microsecond last state change times, and the three observations have three different event ids
+
+### Requirement: State change time of a new object
+
+The shipped command's state change time SHALL be the object's `last_state_change` once it has had a state
+value change (a nonzero result time in UP for a host; in OK, WARNING or CRITICAL for a service), otherwise,
+in state type HARD, its `last_hard_state_change`, and never Icinga 2's initial value. The shipped time formatter's input
+domain SHALL be `1 <= seconds < 2^32`.
+
+#### Scenario: First check result of a new host is DOWN
+- **WHEN** a supported release runs the shipped host command for the first HARD DOWN of a host defined in configuration at startup and of a host created at runtime through the API, each from a passive result with a known execution end and followed by a second HARD DOWN result and a reminder
+- **THEN** each first delivery carries that first HARD result's execution end as the capture driver recorded it, which for the runtime host differs from the daemon start time, one `firing` event is stored per host, its alert fires, and the reminder's raw row commits a `duplicate_observation` outcome
+
+#### Scenario: Earlier result with a negative execution end
+- **WHEN** a supported release receives a passive UP result with execution end -1 for a host, then passive SOFT DOWN and HARD DOWN results at current times, and runs the shipped host command
+- **THEN** the delivery carries the SOFT DOWN result's execution end, the host's real last state change
+
+#### Scenario: Retained state across a restart
+- **WHEN** a supported release restarts the daemon with its retained state while a host from "First check result of a new host is DOWN" stays HARD DOWN, then sends a reminder
+- **THEN** the reminder carries the same state change time and its raw row commits a `duplicate_observation` outcome
+
+#### Scenario: Initialized state change time of a runtime-created host
+- **WHEN** a supported release evaluates the shipped host helper on a value with state type HARD, `last_state_up` 0, `last_state_change` eight days before now and `last_hard_state_change` one second before now
+- **THEN** the helper yields the time of one second before now, and a delivery built from it opens a firing alert instead of being `late`
+
+#### Scenario: Volatile host with no state change yet
+- **WHEN** a supported release runs the shipped host command for a HARD DOWN result of a volatile host whose results have all been DOWN, submits a second HARD DOWN result with a distinct, later, eligible execution end only after the first delivery's raw row has committed, then sends a reminder with no result between
+- **THEN** the two deliveries are two observations with two `firing` events on one alert, the second moves the alert's fence without increasing its version, and the reminder's raw row commits a `duplicate_observation` outcome
+
+#### Scenario: Time outside the formatter's domain
+- **WHEN** a supported release evaluates the shipped time formatter on 0.5, on 4294967296 and on 4294967295.999999
+- **THEN** the first two yield the empty string and the third yields `"4294967295.999999"`
 
 ### Requirement: Webhook state is the object's state when the command runs
 
@@ -400,8 +467,8 @@ recovers. In such a delivery an OK or UP state SHALL resolve whatever its state 
 A state notification's observation key SHALL be `ObservationKey.native` over the canonical JSON array of the
 domain `icinga2.notify.v1`, state, state type and the object's last state change time in integer microseconds as
 a decimal string; that time is also the source time. Times SHALL be strings of Unix seconds with exactly six
-fraction digits, converted to microseconds exactly; a missing, non-string, malformed or out-of-range time SHALL
-fail decoding with a field error before conversion.
+fraction digits, converted to microseconds exactly; a missing required or invalid time SHALL fail
+decoding with a field error before conversion.
 
 #### Scenario: Out-of-range time
 - **WHEN** a delivery carries `last_state_change: "253402300800.000000"`
@@ -496,16 +563,17 @@ within the body limit SHALL NOT fail decoding.
 ### Requirement: Supported Icinga 2 releases
 
 Support SHALL be stated per Icinga 2 minor release and architecture, from captures of a real Icinga 2 made by a
-committed capture script; the list SHALL NOT be empty. A pair is listed only if the release's five gate captures
+committed capture script; the list SHALL NOT be empty. A pair is listed only if the release's six gate captures
 pass (same-second host and service state, same-second notification time, production notification clock,
-downtime removal) and that architecture's exact artifact delivers with 202 an event the pipeline decodes.
+downtime removal, first problem of a new object) and that architecture's exact artifact delivers with 202 an
+event the pipeline decodes.
 
 #### Scenario: Each shipped architecture is run
 - **WHEN** the capture runs for a release, once per shipped architecture in that release's official image for it
 - **THEN** it records the 202 of one real notification through that architecture's exact artifact and the canonical event the pipeline decoded from that row, and a pair without both, or whose row fails decoding, is not listed
 
 #### Scenario: Listed release missing a capture
-- **WHEN** the supported-release statement lists a release and architecture pair for which one of the five gates' captures, the architecture's 202 record, or the canonical event decoded from the raw row of that 202 is not committed, or that event does not match the expected one
+- **WHEN** the supported-release statement lists a release and architecture pair for which one of the six gates' captures, the architecture's 202 record, or the canonical event decoded from the raw row of that 202 is not committed, or that event does not match the expected one
 - **THEN** the version-matrix test fails naming the pair and the missing or mismatched evidence
 
 #### Scenario: 202 recorded but event missing
@@ -514,7 +582,7 @@ downtime removal) and that architecture's exact artifact delivers with 202 an ev
 
 #### Scenario: Every capture decodes
 - **WHEN** the version-matrix test runs over the committed captures
-- **THEN** every capture decodes to the expected kinds, statuses, severities and fingerprints, none fails, and the test re-evaluates each listed pair's five gates on the committed evidence: distinct microsecond times and three event ids in each same-second capture, distinct notification times, a clock sample whose microsecond part is not a multiple of 10, informational downtime events, and, for both shipped commands, every committed known timestamp input equal to its decoded value to the microsecond
+- **THEN** every capture decodes to the expected kinds, statuses, severities and fingerprints, none fails, and the test re-evaluates each listed pair's six gates on the committed evidence: distinct microsecond times and three event ids in each same-second capture, distinct notification times, a clock sample whose microsecond part is not a multiple of 10, informational downtime events, the first-problem predicate, and, for both shipped commands, every committed known timestamp input equal to its decoded value to the microsecond
 
 #### Scenario: Known timestamp mismatch
 - **WHEN** a listed pair's captures have distinct same-second times and event ids, but one known timestamp input decodes one microsecond away from its committed value
@@ -525,8 +593,8 @@ downtime removal) and that architecture's exact artifact delivers with 202 an ev
 - **THEN** the version-matrix test fails naming the pair and that gate
 
 #### Scenario: Multiline recovery and custom notification without output
-- **WHEN** a supported release sends the RECOVERY of a firing service whose check output has several lines, and a CUSTOM notification for a service that has no check result yet
-- **THEN** the recovery is accepted with 202, its description holds every line, and the alert is resolved; the CUSTOM delivery carries no `output` and is accepted with 202
+- **WHEN** a supported release sends the RECOVERY of a firing service whose check output has several lines, and a CUSTOM notification for a service defined in configuration at startup that has no check result yet
+- **THEN** the recovery is accepted with 202, its description holds every line, and the alert is resolved; the CUSTOM delivery carries neither `output` nor `last_state_change`, is accepted with 202, stores one `comment` event with status `info`, and creates no alert
 
 #### Scenario: Macro text in a setting is literal
 - **WHEN** a supported release runs the shipped command with `CorreliaBaseUrl` set to `https://$host.name$`, and in a second run with a token file path that contains `$` and names a valid token file
@@ -553,9 +621,43 @@ downtime removal) and that architecture's exact artifact delivers with 202 an ev
 - **THEN** both observations have the host-only fingerprint, statuses firing `critical` and then resolved, and the source times the evidence requirements name, and the alert ends resolved
 
 #### Scenario: No release passes
-- **WHEN** no release and architecture pair qualifies: no release passes the five gates, or no architecture has its 202 record on a passing release
+- **WHEN** no release and architecture pair qualifies: no release passes the six gates, or no architecture has its 202 record on a passing release
 - **THEN** the version-matrix test fails, and the webhook contract is not published; an artifact with no qualified pair is not shipped
 
 #### Scenario: A capture changes shape
 - **WHEN** a newly captured release adds a field the decoder does not know
 - **THEN** the version-matrix test fails naming the release, the capture file and the field
+
+### Requirement: First problem of a new object qualifies a release
+
+The first-problem gate SHALL pass only when each
+non-volatile host has exactly one firing event across its first and second HARD DOWN and reminder, carrying
+the first HARD result's end, each reminder decodes to that event's id and its own raw row ends with
+`duplicate_observation: 1`, and the unchecked CUSTOM omits `output` and `last_state_change`, gets 202, stores one
+`comment` event and leaves alert state unchanged.
+
+#### Scenario: Five gates pass but the first problem is lost
+- **WHEN** a listed pair's captures pass the other five gates and record the 202 and its decoded event, but the runtime host's first HARD DOWN delivery carries the daemon start time and its decoded row is `late`
+- **THEN** the version-matrix test fails naming the pair and the first-problem gate
+
+#### Scenario: Reminder of a first problem is a new observation
+- **WHEN** a listed pair's captures pass every other predicate, but the startup host's reminder after the second HARD DOWN result has a different event id from its first delivery
+- **THEN** the version-matrix test fails naming the pair and the first-problem gate
+
+#### Scenario: Reminder accepted without a committed duplicate outcome
+- **WHEN** a listed pair's captures pass every other predicate, and the startup host's reminder has a 202 and no new event but its raw row has no committed `duplicate_observation` outcome
+- **THEN** the version-matrix test fails naming the pair and the first-problem gate
+
+#### Scenario: Second HARD check emits a second event
+- **WHEN** a listed pair's captures pass every other predicate, but the startup host's second HARD DOWN produced a second firing event and its reminder is a `duplicate_observation` of that second event
+- **THEN** the version-matrix test fails naming the pair and the first-problem gate
+
+### Requirement: First-problem gate evidence
+
+The capture SHALL record the driver's own execution ends, each newly admitted request's terminal raw outcome,
+and committed alert state and event counts, and SHALL record transport-deduplicated 202s, rejections and
+recorder-only requests as separate kinds; the first-problem gate SHALL be judged on that evidence.
+
+#### Scenario: Transport duplicate counted as a reminder outcome
+- **WHEN** a listed pair's reminder evidence is a transport-deduplicated 202 with no newly admitted raw row
+- **THEN** the version-matrix test fails naming the pair and the first-problem gate
