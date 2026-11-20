@@ -365,7 +365,9 @@ list. Group 9's capture answers it, and the answer does not change what gets bui
 
 - [ ] 9.1 Write `tool/icinga2_capture.sh`, modelled on `tool/alertmanager_capture.sh`. It works in its own
   temp directory with cleanup on exit, never touches another service, and does the following:
-  - Runs each official Icinga 2 image from 2.13 onwards, per shipped architecture (QEMU for arm64).
+  - Runs each official Icinga 2 image from 2.13 onwards for linux-x64. linux-arm64 is not captured in this
+    change (owner, 2026-11-20: no QEMU registration on the capture host), so it has no qualified pair and its
+    artifact is built but not published ("Only one architecture qualifies").
   - Installs the built sender and the `contrib/icinga2/` definitions the way an operator would.
   - Drives every capture scenario mapped to `icinga2_versions_test.dart` against a real Correlia child and a
     recording receiver.

@@ -292,7 +292,10 @@ Scope decisions S1-S6 are in `proposal.md`; their rows are in the summary below.
     the REST API with each request inside its 1 MiB body limit and invalid UTF-8 through an active check plugin
     (REST JSON decoding would repair it first), runs one real notification per shipped architecture with that
     exact release artifact
-    (linux-arm64 in the official arm64 image, under QEMU user emulation when the capture host is x64) and records
+    (linux-arm64 in the official arm64 image, on an arm64 capture host or under QEMU user emulation; this
+    change's capture host is x64 with no emulation registered, so this change runs and ships linux-x64 only, by
+    the owner's choice of 2026-11-20, and linux-arm64 is built but not published until a later capture
+    qualifies it) and records
     its 202 and the canonical event the pipeline produced from it; support is stated per release and
     architecture, a pair is advertised only with that recorded 202 and an expected, successfully decoded event.
     Both artifacts are always built; each is published only for an architecture with at least one qualified
