@@ -403,9 +403,9 @@ list. Group 9's capture answers it, and the answer does not change what gets bui
 
 ## 10. Integration
 
-- [ ] 10.1 Run `mise run check` and `mise run test:all`, plus the sender package's tests. Verify that everything
+- [x] 10.1 Run `mise run check` and `mise run test:all`, plus the sender package's tests. Verify that everything
   passes and that every test map row is green.
-- [ ] 10.2 Run `mise exec -- openspec validate icinga2-ingest --strict`, and verify that it reports the change
+- [x] 10.2 Run `mise exec -- openspec validate icinga2-ingest --strict`, and verify that it reports the change
   valid.
 
 ## Workflow follow-up
