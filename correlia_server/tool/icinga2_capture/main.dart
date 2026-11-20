@@ -28,6 +28,8 @@ const scriptVersion = '3';
 /// scenario: a partial run must select both.
 const prerequisites = {
   'retained_state_across_a_restart': 'first_check_result_of_a_new_host_is_down',
+  'macro_text_in_a_setting_is_literal':
+      'runtime_options_in_icinga_s_environment',
 };
 
 Future<void> main(List<String> arguments) async {

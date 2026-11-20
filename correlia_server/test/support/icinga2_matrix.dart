@@ -280,6 +280,33 @@ List<String> _sameSecond(Capture c, String file, {required bool service}) {
   }
   final notified = {for (final d in deliveries) d.body['notification_time']};
   if (notified.length != 3) out.add('notification times are not distinct');
+  // Problem, recovery, refire: the refire is the newest observation and must
+  // win, so the committed alert ends firing with the third event at its fence.
+  const sequence = [
+    'EVENT_STATUS_FIRING',
+    'EVENT_STATUS_RESOLVED',
+    'EVENT_STATUS_FIRING',
+  ];
+  final statuses = [
+    for (final d in deliveries)
+      d.events.length == 1 ? d.data()['status'] : '${d.events.length} events',
+  ];
+  if (jsonEncode(statuses) != jsonEncode(sequence)) {
+    out.add('event statuses are $statuses, not $sequence');
+  }
+  final states = c.of(file, 'state');
+  final last = states.isEmpty ? null : states.last.json;
+  final alert = last?['alert'] as Map<String, Object?>?;
+  if (last == null || last['after'] != deliveries.last.id) {
+    out.add('no committed state after the refire');
+  } else if (alert == null ||
+      alert['status'] != 'firing' ||
+      alert['fence_event_id'] != deliveries.last.eventId) {
+    out.add(
+      'the refire did not win: the alert is ${alert?['status']} at '
+      '${alert?['fence_event_id']}, not firing at ${deliveries.last.eventId}',
+    );
+  }
   return out;
 }
 
@@ -354,6 +381,16 @@ List<String> gateClock(Capture c) {
     }
   }
   final known = c.of(_clockFile, 'known');
+  // Exactly one known input per shipped command and converted field.
+  final covered = [
+    for (final k in known) '${k.json['command']} ${k.json['field']}',
+  ];
+  for (final command in ['correlia-service', 'correlia-host']) {
+    for (final field in ['last_state_change', 'notification_time']) {
+      final n = covered.where((x) => x == '$command $field').length;
+      if (n != 1) out.add('$command $field: $n known inputs, not one');
+    }
+  }
   if (known.length != 4) out.add('expected 4 known timestamps');
   final deliveries = {for (final d in c.admitted(_clockFile)) d.id: d};
   for (final k in known) {
@@ -363,6 +400,14 @@ List<String> gateClock(Capture c) {
     final command = k.json['command'];
     if (d == null) {
       out.add('$command $field: no delivery');
+      continue;
+    }
+    final objectType = command == 'correlia-host' ? 'host' : 'service';
+    if (d.body['object_type'] != objectType) {
+      out.add(
+        '$command $field: delivery ${d.id} is a '
+        '${d.body['object_type']} notification',
+      );
       continue;
     }
     final seen = d.body[field];
@@ -706,7 +751,26 @@ List<String> gateDecode(Capture c) {
         if (d.status != 202 || d.raw['status'] != 'done') {
           out.add('$name.json ${d.id}: row is ${d.raw['status']}');
         }
-        if (d.events.isEmpty) continue;
+        // One stored event per admitted delivery, or none when the committed
+        // outcome accounts for it as a duplicate.
+        final outcome = d.raw['outcome'] as Map<String, Object?>?;
+        final duplicates =
+            ((outcome?['duplicate_observation'] as int?) ?? 0) +
+            ((outcome?['duplicate_quarantine'] as int?) ?? 0);
+        if (d.events.isEmpty) {
+          if (duplicates != 1) {
+            out.add(
+              '$name.json ${d.id}: no stored event and no duplicate outcome',
+            );
+          }
+          continue;
+        }
+        if (d.events.length != 1 || duplicates != 0) {
+          out.add(
+            '$name.json ${d.id}: ${d.events.length} stored events with '
+            '$duplicates duplicates',
+          );
+        }
         final data = d.data();
         final recorded = (
           data['fingerprint'],

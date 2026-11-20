@@ -239,7 +239,11 @@ See [the compatibility runbook](runbooks/alertmanager-compatibility.md) for capt
 An `icinga2` source accepts one JSON object per delivery on `/hooks/icinga2/<source-uuid>`, in Correlia's own
 document format `correlia.icinga2.v1`. Icinga 2 has no webhook; the document is built by the notification command
 Correlia ships (see [Icinga2 sender setup](#icinga2-sender-setup)). Every delivery is one command execution and
-becomes exactly one canonical event.
+decodes to exactly one canonical event. A `202` only acknowledges that the delivery was stored; whether that event
+is committed is decided later. A document that fails validation is recorded as a pipeline failure and stores no
+event, and a repeat of an observation already stored (a reminder, or a retried delivery) completes as a
+`duplicate_observation` without storing another. An accepted delivery with no new event is therefore not data
+loss: its raw row's outcome says what happened to it.
 
 ### Document v1
 

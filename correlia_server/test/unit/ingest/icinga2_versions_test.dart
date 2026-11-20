@@ -373,6 +373,68 @@ void main() {
     expectNamed(evaluatePair(broken), broken, Gate.service, only: true);
   });
 
+  test('refire_that_does_not_win_fails_the_same_second_gate', () {
+    final broken = copy();
+    edit(broken, 'two_problems_within_one_second', (r) {
+      final last = r.lastWhere((x) => x['kind'] == 'state');
+      (last['alert']! as Map<String, Object?>)['status'] = 'resolved';
+    });
+    expectNamed(
+      evaluatePair(broken),
+      broken,
+      Gate.service,
+      mentions: 'the refire did not win',
+      only: true,
+    );
+  });
+
+  test('clock_evidence_must_cover_both_commands_and_fields', () {
+    final broken = copy();
+    edit(broken, 'production_notification_clock_keeps_microseconds', (r) {
+      // Two copies of the service record and no host one.
+      final known = r.where((x) => x['kind'] == 'known').toList();
+      final service = known.firstWhere(
+        (k) =>
+            k['command'] == 'correlia-service' &&
+            k['field'] == 'last_state_change',
+      );
+      final host = known.firstWhere(
+        (k) =>
+            k['command'] == 'correlia-host' &&
+            k['field'] == 'last_state_change',
+      );
+      host
+        ..clear()
+        ..addAll(service);
+    });
+    expectNamed(
+      evaluatePair(broken),
+      broken,
+      Gate.clock,
+      mentions: 'correlia-host last_state_change: 0 known inputs',
+      only: true,
+    );
+  });
+
+  test('admitted_delivery_without_an_event_or_a_duplicate_outcome', () {
+    final broken = copy();
+    edit(broken, 'captured_transition_sequence', (r) {
+      final ack = r.firstWhere(
+        (x) =>
+            x['kind'] == 'admitted' &&
+            Rec(x).notificationType == 'ACKNOWLEDGEMENT',
+      );
+      ack['events'] = <Object?>[];
+    });
+    expectNamed(
+      evaluatePair(broken),
+      broken,
+      Gate.decode,
+      mentions: 'no stored event and no duplicate outcome',
+      only: true,
+    );
+  });
+
   test('a_capture_changes_shape', () {
     final broken = copy();
     edit(broken, 'two_problems_within_one_second', (r) {
@@ -422,7 +484,11 @@ void main() {
         'late': 1,
         'applied': 0,
       };
-      first['events'] = <Object?>[];
+      // A late observation is still stored, as a `late` event.
+      final event =
+          (first['events']! as List<Object?>).single! as Map<String, Object?>;
+      event['disposition'] = 'late';
+      syncEvent(first);
     });
     expectNamed(
       evaluatePair(broken),
@@ -458,13 +524,24 @@ void main() {
         'duplicate_observation': 0,
       };
     });
+    final failures = evaluatePair(broken);
     expectNamed(
-      evaluatePair(broken),
+      failures,
       broken,
       Gate.firstProblem,
       mentions: 'duplicate_observation',
-      only: true,
     );
+    // With no stored event, the outcome must account for the delivery.
+    expectNamed(
+      failures,
+      broken,
+      Gate.decode,
+      mentions: 'no duplicate outcome',
+    );
+    expect(failures.map((f) => f.gate).toSet(), {
+      Gate.firstProblem,
+      Gate.decode,
+    });
   });
 
   test('second_hard_check_emits_a_second_event', () {
