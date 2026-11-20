@@ -5,3 +5,6 @@
 *.png binary
 *.jpg binary
 *.ico binary
+
+# Icinga 2 capture evidence (tool/icinga2_capture.sh): large generated JSON, kept out of text diffs.
+correlia_server/test/unit/ingest/fixtures/icinga2/[0-9]*/** -diff
