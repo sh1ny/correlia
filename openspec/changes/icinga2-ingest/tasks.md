@@ -16,14 +16,14 @@ that produces the evidence, and the test is what judges it.
 |---|---|---|---|---|
 | alert-state → State converges in any processing order | ORD-3 equal source times are ordered deterministically | `correlia_server/test/db/alert_state_test.dart` | `ord_3_equal_source_times_ordered_deterministically` (existing; re-run) | green |
 | alert-state → State converges in any processing order | Source times less than a microsecond apart | `correlia_server/test/db/alert_state_test.dart` | `source_times_less_than_a_microsecond_apart` (existing; re-run) | green |
-| alert-state → State converges in any processing order | ORD-7a two observations in both orders | `correlia_server/test/db/alert_state_test.dart` | `ord_7a_two_observations_in_both_orders` | red |
-| alert-state → State converges in any processing order | ORD-7b late and new observations in any schedule | `correlia_server/test/db/alert_state_test.dart` | `ord_7b_late_and_new_observations_in_any_schedule` | red |
-| alert-state → State converges in any processing order | Duplicate deliveries carry one observation | `correlia_server/test/db/alert_state_test.dart` | `duplicate_deliveries_carry_one_observation` | red |
-| alert-state → State converges in any processing order | Same observation key from two sources | `correlia_server/test/db/alert_state_test.dart` | `same_observation_key_from_two_sources` | red |
-| alert-state → State converges in any processing order | Late duplicate of a ready observation | `correlia_server/test/db/alert_state_test.dart` | `late_duplicate_of_a_ready_observation` | red |
-| alert-state → State converges in any processing order | ORD-7c duplicate of a late observation | `correlia_server/test/db/alert_state_test.dart` | `ord_7c_duplicate_of_a_late_observation` | red |
-| alert-state → Resolved alert fences late evidence after its events expire | ORD-6 late firing after resolution and expiry | `correlia_server/test/db/alert_state_test.dart` | `ord_6_late_firing_after_resolution_and_expiry` | red |
-| alert-state → Resolved alert fences late evidence after its events expire | Late firing for a fingerprint with no alert | `correlia_server/test/db/alert_state_test.dart` | `late_firing_for_a_fingerprint_with_no_alert` | red |
+| alert-state → State converges in any processing order | ORD-7a two observations in both orders | `correlia_server/test/db/alert_state_test.dart` | `ord_7a_two_observations_in_both_orders` | green |
+| alert-state → State converges in any processing order | ORD-7b late and new observations in any schedule | `correlia_server/test/db/alert_state_test.dart` | `ord_7b_late_and_new_observations_in_any_schedule` | green |
+| alert-state → State converges in any processing order | Duplicate deliveries carry one observation | `correlia_server/test/db/alert_state_test.dart` | `duplicate_deliveries_carry_one_observation` | green |
+| alert-state → State converges in any processing order | Same observation key from two sources | `correlia_server/test/db/alert_state_test.dart` | `same_observation_key_from_two_sources` | green |
+| alert-state → State converges in any processing order | Late duplicate of a ready observation | `correlia_server/test/db/alert_state_test.dart` | `late_duplicate_of_a_ready_observation` | green |
+| alert-state → State converges in any processing order | ORD-7c duplicate of a late observation | `correlia_server/test/db/alert_state_test.dart` | `ord_7c_duplicate_of_a_late_observation` | green |
+| alert-state → Resolved alert fences late evidence after its events expire | ORD-6 late firing after resolution and expiry | `correlia_server/test/db/alert_state_test.dart` | `ord_6_late_firing_after_resolution_and_expiry` | green |
+| alert-state → Resolved alert fences late evidence after its events expire | Late firing for a fingerprint with no alert | `correlia_server/test/db/alert_state_test.dart` | `late_firing_for_a_fingerprint_with_no_alert` | green |
 | durable-pipeline → Rows decode by their source's kind | Two kinds in one batch | `correlia_server/test/db/decoder_dispatch_test.dart` | `two_kinds_in_one_batch` | green |
 | durable-pipeline → Rows decode by their source's kind | Existing rows after the upgrade | `correlia_server/test/db/decoder_dispatch_test.dart` | `existing_rows_after_the_upgrade` | green |
 | durable-pipeline → Rows decode by their source's kind | Row pinned to a format version 1 snapshot | `correlia_server/test/db/decoder_dispatch_test.dart` | `row_pinned_to_a_format_version_1_snapshot` | green |
@@ -251,7 +251,7 @@ list. Group 9's capture answers it, and the answer does not change what gets bui
 
 ## 5. Alert-state ordering scenarios (ORD-6, ORD-7)
 
-- [ ] 5.1 Write the named tests in `alert_state_test.dart`:
+- [x] 5.1 Write the named tests in `alert_state_test.dart`:
   - `ord_7a_two_observations_in_both_orders`
   - `ord_7b_late_and_new_observations_in_any_schedule` (each order, plus two concurrent transactions released
     by completers)
@@ -263,7 +263,7 @@ list. Group 9's capture answers it, and the answer does not change what gets bui
   - `late_firing_for_a_fingerprint_with_no_alert`
 
   Use Icinga2 events. Run each new test, and fix whatever fails. Verify that every row of this group is green.
-- [ ] 5.2 Re-run `ord_3_equal_source_times_ordered_deterministically` and
+- [x] 5.2 Re-run `ord_3_equal_source_times_ordered_deterministically` and
   `source_times_less_than_a_microsecond_apart`. Verify that both pass.
 
 ## 6. The compiled sender `correlia-icinga2-notify`

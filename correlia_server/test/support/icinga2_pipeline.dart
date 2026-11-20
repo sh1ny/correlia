@@ -14,6 +14,12 @@ import 'secret_fixture.dart';
 /// The Icinga2 source the db tests deliver to.
 const icinga2DbSourceId = '33333333-3333-4333-8333-333333333333';
 
+/// A second Icinga2 source, published only when a test asks for it.
+const icinga2OtherDbSourceId = '55555555-5555-4555-8555-555555555555';
+
+/// The namespace both sources share when a test asks for two.
+const icinga2SharedNamespace = 'shared-icinga2';
+
 /// The two outputs that source routes to.
 const icinga2DbOutputIds = [
   '22222222-2222-4222-8222-222222222222',
@@ -42,6 +48,7 @@ Future<void> publishIcinga2Config(
   Session session, {
   int revision = 1,
   bool routed = true,
+  bool sharedNamespace = false,
 }) async {
   await IngestConfigRepository(
     session,
@@ -50,6 +57,7 @@ Future<void> publishIcinga2Config(
     {
       'format_version': 2,
       'revision': revision,
+      if (sharedNamespace) 'namespaces': [icinga2SharedNamespace],
       'outputs': [
         for (final (i, id) in icinga2DbOutputIds.indexed)
           {
@@ -67,12 +75,25 @@ Future<void> publishIcinga2Config(
           'credentials': [
             {'ref': 'icinga2-token', 'type': 'bearer'},
           ],
+          if (sharedNamespace) 'namespace': icinga2SharedNamespace,
           'output_ids': routed ? icinga2DbOutputIds : <Object?>[],
         },
+        if (sharedNamespace)
+          {
+            'id': icinga2OtherDbSourceId,
+            'kind': 'icinga2',
+            'enabled': true,
+            'credentials': [
+              {'ref': 'icinga2-token-2', 'type': 'bearer'},
+            ],
+            'namespace': icinga2SharedNamespace,
+            'output_ids': routed ? icinga2DbOutputIds : <Object?>[],
+          },
       ],
     },
     <String, Object?>{
       'icinga2-token': token(7),
+      'icinga2-token-2': token(10),
       'icinga2-key-0': token(8),
       'icinga2-key-1': token(9),
     },
@@ -87,8 +108,9 @@ Future<void> publishIcinga2Config(
 Future<String> seedIcinga2(
   Session session,
   Object? document,
-  DateTime observed,
-) async {
+  DateTime observed, {
+  String source = icinga2DbSourceId,
+}) async {
   final bytes = document is Uint8List ? document : body(document);
   final id = const Uuid().v4();
   await session.db.unsafeExecute(
@@ -98,7 +120,7 @@ VALUES (@time,CAST(@id AS uuid),CAST(@source AS uuid),@body,@digest,'application
     parameters: QueryParameters.named({
       'time': observed,
       'id': id,
-      'source': icinga2DbSourceId,
+      'source': source,
       'body': bytes,
       'digest': sha256.convert(bytes).toString(),
     }),
@@ -117,9 +139,10 @@ Future<void> processIcinga2(Session session, DateTime observed) async {
 Future<String> deliverIcinga2(
   Session session,
   Object? document,
-  DateTime observed,
-) async {
-  final id = await seedIcinga2(session, document, observed);
+  DateTime observed, {
+  String source = icinga2DbSourceId,
+}) async {
+  final id = await seedIcinga2(session, document, observed, source: source);
   await processIcinga2(session, observed);
   return id;
 }
