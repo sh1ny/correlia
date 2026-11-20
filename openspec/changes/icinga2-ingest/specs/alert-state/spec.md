@@ -43,8 +43,10 @@ The final status, severity, display fields and fence of an alert SHALL NOT depen
 ### Requirement: Resolved alert fences late evidence after its events expire
 
 A resolved alert's row SHALL keep its fence after the alert's events and observation keys are gone. A firing
-observation older than the lateness horizon SHALL be stored as `late` and change no alert, whether
-or not its event or key still exists.
+observation older than the lateness horizon SHALL change no alert, whether or not its event or key still exists.
+When its observation key does not exist (never written, or removed with the alert's events), it SHALL be stored
+as `late`; when its key still exists, it SHALL take the duplicate path instead: it is a `duplicate_observation`
+and no new event is stored.
 
 #### Scenario: ORD-6 late firing after resolution and expiry
 - **WHEN** an Icinga2 service alert resolves, its event rows and observation keys are removed, and a firing observation of it whose source time is 8 days old arrives
