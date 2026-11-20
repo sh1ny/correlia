@@ -97,7 +97,8 @@ Scope decisions S1-S6 are in `proposal.md`; their rows are in the summary below.
   Convergence is bounded (D4): coherent, eligible, unclamped deliveries with strictly increasing change times.
   The decoder accepts each time only as a string in that form whose value is below 253402300800 (before year
   10000, inside the canonical timestamp domain); the form excludes zero, a sign, an exponent and a leading zero.
-  A missing time fails with `missing_field`, a non-string (a JSON number included) with `invalid_type`, a string
+  A missing required time (`notification_time` always; `last_state_change` for `PROBLEM` and `RECOVERY`, D13)
+  fails with `missing_field`, a non-string (a JSON number included) with `invalid_type`, a string
   not in the form (`"0.000000"`, `"1.5"`, `"1e9"`) with `invalid_time`, and a value of 253402300800 or more with
   `out_of_range`, each on that field, so it is a validation outcome, not an internal retry. Distinct texts give
   distinct microseconds over the whole accepted range; committed vectors pin `"8589934592.000001"` and
@@ -218,8 +219,9 @@ Scope decisions S1-S6 are in `proposal.md`; their rows are in the summary below.
     share one microsecond are therefore one observation; this is the contract, not an accident of display
     truncation (the Icinga 2 DSL has no hash function to carry a digest of the full author), and is tested.
     Icinga 2 and Icinga Web user names are far shorter than 1 KiB.
-  - **Document.** It builds `{format, object_type, host, service?, state, state_type, last_state_change, output,
-    notification_type, notification_author?, notification_comment?, notification_time}` with
+  - **Document.** It builds `{format, object_type, host, service?, state, state_type, last_state_change?, output?,
+    notification_type, notification_author?, notification_comment?, notification_time}` (`last_state_change`
+    required for `PROBLEM` and `RECOVERY` only, D13, amended by the owner 2026-11-20) with
     `dart:convert`, writing each time's six-decimal text as a JSON string after checking it against the D2 form.
     The v1 notification types are Icinga 2's own `$notification.type$` strings, unchanged: PROBLEM, RECOVERY →
     state facts; ACKNOWLEDGEMENT → ack; DOWNTIMESTART, DOWNTIMEEND, DOWNTIMECANCELLED → downtime; FLAPPINGSTART,
@@ -304,7 +306,8 @@ Scope decisions S1-S6 are in `proposal.md`; their rows are in the summary below.
   newer one).
 - **Reversal cost:** medium (deployed binaries and command definitions).
 - **Important:** yes (binds a sender-facing contract and a shipped binary).
-- **Chosen by:** user (owner, 2026-11-19, after the round 13 escalation: "Compiled sender, round 14")
+- **Chosen by:** user (owner, 2026-11-19, after the round 13 escalation: "Compiled sender, round 14"); `last_state_change`
+  optional for non-state notification types by the owner, 2026-11-20, after design round 26 (D13)
 
 ### D4: A webhook delivery reports the object's state when the command runs
 
@@ -486,6 +489,108 @@ Scope decisions S1-S6 are in `proposal.md`; their rows are in the summary below.
 - **Important:** no.
 - **Chosen by:** agent
 
+### D13: State change time of an object with no state change yet, and the command's time range
+
+Found while writing `contrib/icinga2/` (apply, group 7); amended after design round 26 from the Icinga 2 source
+(`checkable.ti`, `checkable-check.cpp`, `host.cpp`, `service.cpp`, identical in this respect from v2.13.0 to
+v2.16.6).
+
+- **Facts.** Icinga 2 starts every checkable with raw state UNKNOWN and state type SOFT, and initializes
+  `last_state_change` and `last_hard_state_change` to `Application::GetStartTime()`: 0 for objects loaded at
+  startup (they are activated before the clock is set), the daemon's start time for objects created at runtime
+  through the API. `ProcessCheckResult` writes `last_state_change` only on a state value change (for hosts,
+  of the host state, where UNKNOWN and CRITICAL both mean DOWN), and `last_hard_state_change` on every SOFT to
+  HARD step, on every HARD to HARD value change, and on every check of a `volatile` object. It records each
+  result's state in `last_state_up` (OK or WARNING; host) or `last_state_ok`, `last_state_warning`,
+  `last_state_critical` (service), all 0 until such a result arrives. `ProcessCheckResult` replaces a zero
+  execution end with the current time but accepts any other value, a negative one from the passive API
+  included. So a host has had a state value change exactly when `last_state_up != 0`, and a service exactly
+  when one of its three is not 0; until then `last_state_change` holds the initializer, which can be a positive
+  time days old, not a transition. The test is for a recorded result, never for a valid time: a result whose
+  end is negative still marks a change.
+- **Choice.** The commands compute the state change time with one shipped helper per object type, from the live
+  object:
+  - An object that has had a state value change: its `last_state_change`, a real result's execution end.
+  - An object that has not, in state type HARD: its `last_hard_state_change`. Its state value has been the
+    initial one throughout, so the last SOFT to HARD step is its first HARD result, whose execution end is
+    recorded there; a later HARD result of the same value does not move it (no volatile object, below), so the
+    first HARD notification, a second HARD check and every reminder read the same value and share one key.
+  - Otherwise (no state value change and SOFT): no usable time.
+  The initializers are never sent, whatever their value: the `>= 1` test of round 25 is gone. The history test
+  and the validity of the chosen time are separate steps: the helper first picks the time by the rule above,
+  then passes it through `correlia_time_text`, and a chosen time outside its input domain (a negative passive
+  end, say) is no usable time; it never falls through to the other timestamp.
+  The guarantee is scoped to state maintained by Icinga 2's own check processing and to intact retained state
+  (`icinga2.state` written by Icinga 2 and restored at startup, which keeps the per-state times, the state type
+  and both change times together); a hand-edited or partially restored state file is outside it.
+- **Optional for non-state notifications (D3, amended by the owner).** `last_state_change` is required in the
+  v1 document for `PROBLEM` and `RECOVERY` and optional for every other type, whose key and source time use
+  `notification_time` only (D2, D11). The `--last-state-change` argument's `set_if` tests only the
+  notification type, which is fixed for the command: it is passed for `PROBLEM` and `RECOVERY` and never for
+  any other type. Its `value` is the one read of the object's timestamps in that command (Icinga 2 evaluates
+  `set_if` and `value` separately, `macroprocessor.cpp`, so no omission decision depends on a second read); it
+  renders the JSON empty string when no usable time exists, which the sender refuses with exit 2 naming the
+  argument. A non-state document therefore never carries the field from the shipped command, whatever the
+  object's timestamps; another sender may send it, and the decoder validates it then (an invalid one fails with
+  `invalid_time`). This narrows the owner's "omit when unknown" to "never sent for non-state types" on the
+  command side only: the document contract the owner chose (optional for non-state types) is unchanged, and the
+  field takes no part in a non-state key or source time.
+  The sender requires the argument only for `PROBLEM` and `RECOVERY`, and the decoder fails a state
+  notification without the field with `missing_field`; a present field is validated as before in every type.
+  A CUSTOM, acknowledgement, downtime or flapping notification for an object with no check result yet is
+  therefore delivered. `notification_time` stays required for every type. The mapper's `StateFact` keeps a
+  non-null state change time; only the parser's field becomes optional. A non-state delivery's key and event id
+  are the same with the field present or absent (tested). The decoder maps an identical wire document to the
+  same key and event id as before this amendment. The amended command can send a different time than the
+  round 25 command for the same object (the first HARD result's time instead of an initializer); that
+  command was never released, so no published event id changes.
+- **Volatile objects.** `volatile = true` makes Icinga 2 notify on every HARD problem check and move
+  `last_hard_state_change` with each. For a volatile object that has had a state value change, the key uses
+  `last_state_change`, so those notifications are one observation, as for any object. For a volatile object
+  with no state value change yet, a command carries the `last_hard_state_change` it reads from the live object
+  when it runs (D4), the execution end of the latest HARD check by then. Each distinct, eligible value that a
+  command actually samples is a new observation, stored and published as its own `firing` event with an output
+  intent per route; two checks that complete before either command runs are both read as the second check's
+  time and give one observation, so the guarantee is one observation per distinct, eligible time a command
+  samples, not one per check. The alert stays one alert: a newer eligible observation from the same source
+  with unchanged status and severity moves the fence, and D8 records no visible change, so the version does not
+  advance. A reminder with no check between reads the same time and is a duplicate. This is documented; no
+  stable time exists in Icinga 2 for that case.
+- **Formatter domain.** `correlia_time_text` is exact only for `1 <= seconds < 2^32` (Icinga 2 numbers are IEEE
+  doubles; above 2^32 some microsecond values do not round-trip): it computes `Math.round(seconds * 1000000)`,
+  splits it with integer arithmetic, zero-pads the fraction, and returns the empty string outside that domain.
+  This is the shipped formatter's input domain only. The decoder's range and D2's vectors
+  (`"8589934592.000001"`, `"253402300799.999999"`) are unchanged: they pin exact wire decoding, and the command
+  never produces a time after 2106. Known-input captures stay inside the formatter's domain.
+- **Two failure values.** Absent optional text (`correlia_text`) is the empty DSL string, which the argument's `set_if` turns into an absent argument.
+  An unusable required value (`correlia_exact`, `correlia_base_url`, `correlia_source`, and a state
+  notification's unknown time) is the two-character JSON literal `""`, so the argument stays one JSON string
+  literal and the sender refuses it, reporting `invalid_name` or naming the argument.
+- **Proof.** The capture runs the first HARD DOWN of a host defined in configuration at startup and of a host
+  created at runtime through the API, each followed by a second HARD DOWN check and a reminder: the delivered
+  time equals the first HARD result's execution end, as the capture driver recorded it when it submitted the
+  result, one `firing` event is stored, and the reminder's raw row ends with a committed
+  `duplicate_observation` outcome. It restarts the daemon with its retained state and sends another reminder,
+  which keeps the key. A passive regression submits an UP result with a negative execution end, then SOFT and
+  HARD DOWN at current times: the delivery carries the SOFT DOWN's time (`last_state_change`), not the HARD
+  one. The runtime host's delivery differs from the daemon start time read from the API. A
+  helper capture evaluates the shipped helpers on a value that mimics a runtime-created host of a daemon started
+  eight days earlier (`last_state_change` eight days old, `last_state_up` 0, a HARD state, a fresh
+  `last_hard_state_change`) and asserts the fresh time; the round 25 rule would have returned the old one, which
+  the pipeline marks `late` (D4). The capture also runs a volatile host's two HARD DOWN checks, the second
+  submitted with a distinct, later, eligible execution end only after the first delivery's raw row has
+  committed (two observations, one alert, the fence on the second, the version unchanged), and a CUSTOM notification on a startup-defined service before its first result (202,
+  no `output`, no `last_state_change`, one `comment` event, no alert).
+- **Rejected:** `>= 1` as the test for a real change (a runtime-created object's initializer is positive; round
+  26); `> 0` on the per-state times (a passive result with a negative end is a real change; round 27); sending notification time as the state change time (each reminder would be a new observation); dropping
+  the first notification silently (loses a real HARD DOWN); a decimal-text conversion of the double (prints
+  differently across releases, D2); keeping `last_state_change` required for non-state notifications (a CUSTOM
+  on an unchecked object could not be sent; owner's choice, 2026-11-20).
+- **Reversal cost:** low (command definitions, one optional field; no published event id changes).
+- **Important:** yes (decides which time keys a new object's first problem, and changes D3's document).
+- **Chosen by:** agent (the optional field: user, owner, 2026-11-20, after design round 26: "Optional for
+  non-state")
+
 ### Decision summary
 
 | # | Decision | Choice | Rejected | Reversal cost | Important | Chosen by |
@@ -508,6 +613,7 @@ Scope decisions S1-S6 are in `proposal.md`; their rows are in the summary below.
 | D10 | Source kind | Immutable per UUID (`kind_changed`) | Kind per raw row; strand rows | low | yes | agent |
 | D11 | Non-state events | One per command execution; same-microsecond executions coalesce; one Correlia user | `last_notification`; whole-second time | medium | yes | agent |
 | D12 | Path tokens, identity label exclusion | Alertmanager-only | Allow for Icinga2 | low | no | agent |
+| D13 | First state change time; command time range | Real change by the per-state result times, else HARD's `last_hard_state_change`; never an initializer; time optional for non-state types; volatile scoped; formatter exact below 2^32 s; empty DSL string omits, JSON `""` refuses | `>= 1` or `> 0` test; notification time; silent drop; decimal text; time required for every type | low | yes | agent; optional field: user |
 
 ## Diagrams (FULL)
 
@@ -603,6 +709,12 @@ event is unchanged.
 - **Old problem on a new source, reversed receipt under the clamp, equal change times.** Outside the
   convergence contract; tested and documented (D4).
 - **Two problems within one second.** Distinct keys through `last_state_change` µs (D2), proven by capture.
+- **First problem of a new object.** Its state value never changed, so `last_state_change` holds an
+  initializer (0, or a days-old daemon start time for a runtime-created object); the first HARD result's time
+  is sent instead, and a volatile object with no change yet gets one observation per distinct, eligible time a
+  command samples (D13).
+- **Notification for an object with no check result.** Non-state types carry no state change time and are
+  delivered (D13).
 - **Lost delivery on a webhook-only source.** Not recovered until a later eligible observation of that object;
   documented, and reconciled by state sync in `icinga2-event-streams`.
 - **SOFT then HARD with the same state change time.** State type is in the key, so the HARD observation is
