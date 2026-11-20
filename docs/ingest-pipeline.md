@@ -238,7 +238,7 @@ See [the compatibility runbook](runbooks/alertmanager-compatibility.md) for capt
 
 An `icinga2` source accepts one JSON object per delivery on `/hooks/icinga2/<source-uuid>`, in Correlia's own
 document format `correlia.icinga2.v1`. Icinga 2 has no webhook; the document is built by the notification command
-Correlia ships (setup and sender behaviour are documented separately). Every delivery is one command execution and
+Correlia ships (see [Icinga2 sender setup](#icinga2-sender-setup)). Every delivery is one command execution and
 becomes exactly one canonical event.
 
 ### Document v1
@@ -360,6 +360,107 @@ observation with a new event id outranks its fence. Tests assert these stale out
   processed first, it is stored `late`, the prompt delivery becomes the duplicate and no alert exists.
 
 Event Streams with state sync (`icinga2-event-streams`) is the path that reconciles these cases.
+
+## Icinga2 sender setup
+
+Icinga 2 reaches Correlia through a compiled sender, `correlia-icinga2-notify`, and the command definitions in
+`contrib/icinga2/`. Each notification runs the sender once; it builds one `correlia.icinga2.v1` document from its
+arguments and POSTs it to `<base url>/hooks/icinga2/<source>`.
+
+### Installation
+
+1. Build the sender with `mise run build:icinga2-notify` and install
+   `build/icinga2-notify/linux-x64/correlia-icinga2-notify` as `/usr/local/bin/correlia-icinga2-notify` (owned by
+   root, mode 0755). Only the linux-x64 build is qualified; the linux-arm64 build has no captured release and is not
+   published.
+2. Copy the three files of `contrib/icinga2/` together into `/etc/icinga2/correlia/` and add one line to
+   `/etc/icinga2/icinga2.conf`: `include "correlia/correlia.conf"`. Do not copy them into `conf.d`: Icinga 2 loads
+   that directory in file-name order, and the commands need the constants and helper functions loaded first.
+3. Edit the constants in `correlia.conf`: the sender path, the base URL (scheme and authority only), the source
+   UUID, exactly one of the token file or the HMAC key file, and optionally a CA file. Only file paths are
+   arguments, never a credential.
+4. Apply the `correlia-host` and `correlia-service` commands to one dedicated user (the commented example in
+   `correlia.conf`). Icinga 2 runs a command once per recipient, so each extra user is an extra event.
+5. Run `icinga2 daemon -C` and reload Icinga 2.
+
+The commands launch the sender through `/usr/bin/env -i` with Icinga 2's `timeout = 15`. The sender takes every
+input from its arguments, refuses a non-empty environment (`environment`), and has its own 10-second deadline.
+Exit status 0 means Correlia answered 202; 1 is any other HTTP status, 2 a configuration or argument error, and
+3 a connection, TLS or deadline failure.
+
+### Host requirements
+
+- **Loader variables.** Icinga 2's service environment must not set dynamic loader variables (`LD_PRELOAD`,
+  `LD_LIBRARY_PATH` or any other `LD_*`). `/usr/bin/env` itself starts with Icinga 2's environment, so the loader
+  acts on them before `env -i` clears them.
+- **Argument budget.** The sender's arguments take at most 256 KiB (texts cut at 8 KiB, the author at 1 KiB).
+  Icinga 2's service environment plus 256 KiB must fit the kernel's `ARG_MAX` (2 MiB with the usual 8 MiB stack).
+  A launch that does not fit fails, and Icinga 2 logs it like any failed command.
+- **Credential and CA files.** Every component of each credential and CA file's resolved path, symbolic link
+  targets included, must be writable only by root or the Icinga 2 user, and the files owned by one of them. The
+  token and key files must be readable only by the Icinga 2 user (any group or other bit exits 2 with
+  `credential_mode`); a CA file writable by group or others exits 2 with `ca_mode`. The token and key files are at
+  most 4 KiB and the CA file at most 1 MiB. The HMAC key file holds Correlia's 43-character unpadded base64url key.
+- **Transport.** The base URL must be `https://`, or `http://` only to a literal loopback address (`127.0.0.0/8`
+  or `::1`, not `localhost`). Proxies and redirects are never followed, and trust is exactly the CA file when one
+  is set, otherwise the distribution's bundle; no environment variable changes either.
+- **Names and settings.** A host or service name that is empty, holds a control character (U+0000-U+001F,
+  U+007F) or a byte that is not valid UTF-8, or is longer than 1024 bytes is not delivered: the command exits 2
+  with `invalid_name` in Icinga 2's log. A setting that cannot be passed exactly (a base URL over 4 KiB, a file
+  path with a NUL or invalid UTF-8) exits 2 naming its argument. Neither is retried.
+
+### Text exposure
+
+Host and service names, check output, the author and the comment are sender arguments, so they appear in:
+
+- the process list, for as long as the sender runs;
+- Icinga 2's log line for a failed command, which holds the complete command line: the texts, the base URL, the
+  source UUID and the credential file paths;
+- with Notice logging enabled, Icinga 2's launch log, which records the command line of every notification it
+  starts, successful ones included.
+
+The token, the HMAC key and the signature are never arguments or output, so none of these holds a credential.
+The sender's stderr line holds only the status or the error class, never Correlia's response body.
+
+### Delivery limits
+
+- **No retry.** Icinga 2 does not retry a failed notification command. A notification that is not delivered
+  (Correlia down, a non-202 answer, a deadline) is lost; reminders repeat only open problems.
+- **No SOFT states, and suppression.** Icinga 2 sends no notification for SOFT states, nor while downtime,
+  acknowledgement, dependencies or flapping suppress it. Correlia sees only what Icinga 2 sends; the
+  [convergence contract](#convergence-contract) lists the cases where an alert stays stale.
+- **Concurrency cap.** Ingress admits at most two signed requests per source and eight signed requests overall,
+  within sixteen request slots, and answers 503 beyond them. A notification answered 503 is lost like any other
+  failed one, so an HMAC source with bursts of concurrent notifications loses some. Use bearer mode for such
+  sources.
+- **Downtime removal.** Supported releases send both the expiry and the manual removal of a triggered downtime as
+  `DOWNTIMEEND`, so Correlia cannot tell a cancelled downtime from an expired one. Removing a downtime that
+  never triggered sends no notification.
+
+### State change time
+
+The shipped formatter turns Icinga 2 times into microsecond text only for `1 <= seconds < 2^32`, so the
+commands never send a time after 2106; a time outside that range is not delivered (exit 2 naming
+`--last-state-change` or `--notification-time`).
+
+`PROBLEM` and `RECOVERY` carry the object's state change time: `last_state_change` once the object has had a
+real state value change, otherwise, in a HARD state, `last_hard_state_change`. Icinga 2's initial values are
+never sent. So the first problem of a new object, whether loaded at startup or created through the API, carries
+the execution end of its first HARD result; a later HARD check and every reminder carry the same time and are
+duplicates of it. A first problem still in a SOFT state has no state change time and is not sent (Icinga 2 sends
+none for SOFT anyway). Other notification types never carry the field.
+
+A `volatile` object with no state value change yet moves `last_hard_state_change` on every HARD check. Correlia
+publishes one event per distinct, eligible HARD time that a command samples, not one per check: two checks that
+complete before either command runs give one event, and a reminder with no check in between is a duplicate. The
+alert stays one alert.
+
+### Upgrade order
+
+The upgrade is offline. Every older Correlia process, of every role (`api`, `worker` and `all`), stops before
+any process of this release starts, and none is restarted afterwards: an older worker decodes every row as
+Alertmanager, and an older process overwrites a source's kind when it publishes configuration at startup. Rows
+admitted meanwhile wait `pending` and are processed by the upgraded workers.
 
 ## Durable processing and failure inspection
 

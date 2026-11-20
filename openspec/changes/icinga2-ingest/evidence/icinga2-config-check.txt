@@ -1,0 +1,55 @@
+Configuration check of the shipped Icinga 2 definitions (task 8.3)
+
+Date: 2026-11-20
+Image: icinga/icinga2:2.16.6
+Digest: icinga/icinga2@sha256:2748b8d8166435f3419de68b704d5eac7671e74d97f7dea6ffa1f04738c74902
+Definitions: contrib/icinga2/ at commit febd291 (correlia.conf, correlia-functions.conf,
+correlia-commands.conf), unchanged in the working tree.
+
+Command (run from the repository root):
+
+  docker run --rm -v $PWD/contrib/icinga2:/etc/icinga2/correlia:ro --entrypoint sh icinga/icinga2:2.16.6 -c '
+    echo "include \"correlia/correlia.conf\"" >> /etc/icinga2/icinga2.conf
+    icinga2 daemon -C --dump-objects
+    icinga2 object list --type NotificationCommand | grep -E "^Object|  \* timeout ="'
+
+The definitions are installed as an operator would: mounted at /etc/icinga2/correlia/ and included from
+icinga2.conf with one line. The image's stock configuration is otherwise unchanged. The two correlia commands
+load alongside the two stock mail commands (4 NotificationCommands), each with timeout = 15.
+
+Output:
+
+$ icinga2 daemon -C --dump-objects
+[2026-11-20 09:44:11 +0000] information/cli: Icinga application loader (version: v2.16.6)
+[2026-11-20 09:44:11 +0000] information/cli: Loading configuration file(s).
+[2026-11-20 09:44:11 +0000] information/ConfigItem: Committing config item(s).
+[2026-11-20 09:44:11 +0000] information/ConfigItem: Instantiated 1 NotificationComponent.
+[2026-11-20 09:44:11 +0000] information/ConfigItem: Instantiated 1 CheckerComponent.
+[2026-11-20 09:44:11 +0000] information/ConfigItem: Instantiated 1 User.
+[2026-11-20 09:44:11 +0000] information/ConfigItem: Instantiated 1 UserGroup.
+[2026-11-20 09:44:11 +0000] information/ConfigItem: Instantiated 3 TimePeriods.
+[2026-11-20 09:44:11 +0000] information/ConfigItem: Instantiated 3 ServiceGroups.
+[2026-11-20 09:44:11 +0000] information/ConfigItem: Instantiated 3 Zones.
+[2026-11-20 09:44:11 +0000] information/ConfigItem: Instantiated 11 Services.
+[2026-11-20 09:44:11 +0000] information/ConfigItem: Instantiated 4 NotificationCommands.
+[2026-11-20 09:44:11 +0000] information/ConfigItem: Instantiated 12 Notifications.
+[2026-11-20 09:44:11 +0000] information/ConfigItem: Instantiated 1 IcingaApplication.
+[2026-11-20 09:44:11 +0000] information/ConfigItem: Instantiated 1 FileLogger.
+[2026-11-20 09:44:11 +0000] information/ConfigItem: Instantiated 1 Host.
+[2026-11-20 09:44:11 +0000] information/ConfigItem: Instantiated 2 HostGroups.
+[2026-11-20 09:44:11 +0000] information/ConfigItem: Instantiated 1 Endpoint.
+[2026-11-20 09:44:11 +0000] information/ConfigItem: Instantiated 1 ScheduledDowntime.
+[2026-11-20 09:44:11 +0000] information/ConfigItem: Instantiated 250 CheckCommands.
+[2026-11-20 09:44:11 +0000] information/ScriptGlobal: Dumping variables to file '/data/var/cache/icinga2/icinga2.vars'
+[2026-11-20 09:44:11 +0000] information/cli: Finished validating the configuration file(s).
+exit status: 0
+
+$ icinga2 object list --type NotificationCommand (Object and timeout lines)
+Object 'mail-service-notification' of type 'NotificationCommand':
+  * timeout = 60
+Object 'mail-host-notification' of type 'NotificationCommand':
+  * timeout = 60
+Object 'correlia-host' of type 'NotificationCommand':
+  * timeout = 15
+Object 'correlia-service' of type 'NotificationCommand':
+  * timeout = 15

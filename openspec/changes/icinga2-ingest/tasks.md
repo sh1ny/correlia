@@ -68,11 +68,11 @@ that produces the evidence, and the test is what judges it.
 | integration-icinga2 → Shipped notification command | Source that is not a UUID | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `source_that_is_not_a_uuid` | red |
 | integration-icinga2 → Shipped notification command | NUL in display text | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `nul_in_display_text` | red |
 | integration-icinga2 → Shipped notification command | Inherited Correlia settings are ignored | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `inherited_correlia_settings_are_ignored` | red |
-| integration-icinga2 → Webhook limits are documented | Documentation names the limits | `tool/test/icinga2_docs_test.dart` | `documentation_names_the_limits` | red |
-| integration-icinga2 → State change time limits are documented | Documentation names the state change time limits | `tool/test/icinga2_docs_test.dart` | `documentation_names_the_state_change_time_limits` | red |
-| integration-icinga2 → Downtime removal limits are documented | Documentation names the downtime limits | `tool/test/icinga2_docs_test.dart` | `documentation_names_the_downtime_limits` | red |
-| integration-icinga2 → Notification text exposure is documented | Documentation names the text exposure | `tool/test/icinga2_docs_test.dart` | `documentation_names_the_text_exposure` | red |
-| integration-icinga2 → Sender setup constraints are documented | Documentation names the setup constraints | `tool/test/icinga2_docs_test.dart` | `documentation_names_the_setup_constraints` | red |
+| integration-icinga2 → Webhook limits are documented | Documentation names the limits | `tool/test/icinga2_docs_test.dart` | `documentation_names_the_limits` | green |
+| integration-icinga2 → State change time limits are documented | Documentation names the state change time limits | `tool/test/icinga2_docs_test.dart` | `documentation_names_the_state_change_time_limits` | green |
+| integration-icinga2 → Downtime removal limits are documented | Documentation names the downtime limits | `tool/test/icinga2_docs_test.dart` | `documentation_names_the_downtime_limits` | green |
+| integration-icinga2 → Notification text exposure is documented | Documentation names the text exposure | `tool/test/icinga2_docs_test.dart` | `documentation_names_the_text_exposure` | green |
+| integration-icinga2 → Sender setup constraints are documented | Documentation names the setup constraints | `tool/test/icinga2_docs_test.dart` | `documentation_names_the_setup_constraints` | green |
 | integration-icinga2 → Sender transport and diagnostics | Rejected delivery leaves no secret in Icinga 2 logs | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `rejected_delivery_leaves_no_secret_in_icinga_2_logs` | red |
 | integration-icinga2 → Sender transport and diagnostics | Hostile inherited environment | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `hostile_inherited_environment` | red |
 | integration-icinga2 → Sender transport and diagnostics | Configured CA is the only trust | `correlia_icinga2_notify/test/sender_test.dart` | `configured_ca_is_the_only_trust` | green |
@@ -345,8 +345,8 @@ list. Group 9's capture answers it, and the answer does not change what gets bui
 
 ## 8. Icinga2 setup documentation
 
-- [ ] 8.1 Write failing `tool/test/icinga2_docs_test.dart` for the five documentation rows.
-- [ ] 8.2 Write the Icinga2 setup section of `docs/ingest-pipeline.md`, covering:
+- [x] 8.1 Write failing `tool/test/icinga2_docs_test.dart` for the five documentation rows.
+- [x] 8.2 Write the Icinga2 setup section of `docs/ingest-pipeline.md`, covering:
   - Installing the binary and the definitions.
   - The no-retry, SOFT and suppression limits.
   - Both downtime removal limits.
@@ -358,7 +358,7 @@ list. Group 9's capture answers it, and the answer does not change what gets bui
     (D13).
 
   Verify that the 8.1 test passes, and flip its rows green.
-- [ ] 8.3 [evidence] Run the configuration check of the shipped definitions in an official image, and record
+- [x] 8.3 [evidence] Run the configuration check of the shipped definitions in an official image, and record
   the image tag and the `icinga2 daemon -C` output → evidence/icinga2-config-check.txt
 
 ## 9. Captures, version matrix and supported releases
