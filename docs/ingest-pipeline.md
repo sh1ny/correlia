@@ -234,13 +234,140 @@ GROUP BY source_id, names, overflow;
 
 See [the compatibility runbook](runbooks/alertmanager-compatibility.md) for capture regeneration and real-Alertmanager verification.
 
+## Icinga2 webhook document and mapping
+
+An `icinga2` source accepts one JSON object per delivery on `/hooks/icinga2/<source-uuid>`, in Correlia's own
+document format `correlia.icinga2.v1`. Icinga 2 has no webhook; the document is built by the notification command
+Correlia ships (setup and sender behaviour are documented separately). Every delivery is one command execution and
+becomes exactly one canonical event.
+
+### Document v1
+
+| Field | Type | Rule |
+|---|---|---|
+| `format` | string | Required, exactly `correlia.icinga2.v1` |
+| `object_type` | string | Required, `host` or `service` |
+| `host` | string | Required, never empty, no control character (U+0000-U+001F, U+007F) |
+| `service` | string | Required for a service object, same rule as `host`; a host object must not carry it |
+| `state` | string | Required. Host: `UP`, `DOWN`, `UNREACHABLE`. Service: `OK`, `WARNING`, `CRITICAL`, `UNKNOWN` |
+| `state_type` | string | Required, `HARD` or `SOFT` |
+| `last_state_change` | string | Required time, see below |
+| `output` | string | Optional check output (every line); no U+0000 |
+| `notification_type` | string | Required, Icinga 2's own type: `PROBLEM`, `RECOVERY`, `ACKNOWLEDGEMENT`, `DOWNTIMESTART`, `DOWNTIMEEND`, `DOWNTIMECANCELLED`, `FLAPPINGSTART`, `FLAPPINGEND`, `CUSTOM` |
+| `notification_author` | string | Optional; no U+0000 |
+| `notification_comment` | string | Optional; no U+0000 |
+| `notification_time` | string | Required time, see below |
+
+Any other key fails the delivery. The body is checked against the Alertmanager decoder's nesting bound (32)
+before it is parsed, and a body of any length within the source's body limit decodes.
+
+**Time form.** Both times are JSON strings of Unix seconds with exactly six fraction digits,
+`^[1-9][0-9]{0,11}\.[0-9]{6}$`, with a value below 253402300800 (before year 10000). The two digit groups are
+converted to integer microseconds by integer arithmetic, never through a floating-point number, so distinct texts
+are distinct instants over the whole range (`"8589934592.000001"` and `"8589934592.000002"` are two observations).
+A JSON number, a sign, an exponent, a leading zero and zero itself are all rejected.
+
+**Error codes.** A failed delivery fails its raw row once, with a code and a bounded path; it is a validation
+outcome, not an internal retry, and nothing commits. Paths name only the fields above; an unknown key is reported as
+the single structural segment `*`, never by its name, so sender-chosen text (a dotted name such as `state.state_type`
+included) never reaches a stored failure or a log.
+
+| Code | Path | Cause |
+|---|---|---|
+| `invalid_json` | `body` | Not UTF-8 JSON |
+| `invalid_type` | `body` or the field | The body is not an object, or a field has the wrong JSON type (a time given as a number, a state given as `2`) |
+| `depth_bound` | `body` | Nesting deeper than 32 |
+| `missing_field` | the field | A required field is absent |
+| `unsupported_version` | `format` | Any other format string |
+| `unknown_field` | `*` | A key outside the table |
+| `invalid_object_type` | `object_type` | Neither `host` nor `service` |
+| `unexpected_field` | `service` | A host object carrying `service` |
+| `invalid_state` | `state` | A name not valid for the object type (`DEGRADED`, or `CRITICAL` on a host) |
+| `invalid_state_type` | `state_type` | Neither `HARD` nor `SOFT` |
+| `unsupported_type` | `notification_type` | A type outside the list (`ESCALATION`) |
+| `invalid_time` | the time field | A string not in the fixed form (`"1.5"`, `"1e9"`, `"0.000000"`) |
+| `out_of_range` | the time field | 253402300800 seconds or more |
+| `invalid_text` | the field | An empty or control-character name, U+0000 in a text, or an unpaired surrogate |
+
+### Mapping
+
+State and state type decide status and severity; `notification_type` only selects the kind of event and is never
+read for status. Only `PROBLEM` and `RECOVERY` are state observations. Every other type is informational whatever
+state it carries.
+
+| Delivery | Kind | Status | Severity |
+|---|---|---|---|
+| `PROBLEM` or `RECOVERY`, host `UP` or service `OK` (any state type) | `alert` | `resolved` | `info` |
+| `PROBLEM` or `RECOVERY`, HARD `DOWN` or `UNREACHABLE` or `CRITICAL` | `alert` | `firing` | `critical` |
+| `PROBLEM` or `RECOVERY`, HARD `WARNING` | `alert` | `firing` | `warning` |
+| `PROBLEM` or `RECOVERY`, HARD `UNKNOWN` | `alert` | `firing` | `unknown` |
+| `PROBLEM` or `RECOVERY`, SOFT non-OK state | `state` | `info` | `info` |
+| `ACKNOWLEDGEMENT` | `ack` | `info` | `info` |
+| `DOWNTIMESTART`, `DOWNTIMEEND`, `DOWNTIMECANCELLED` | `downtime` | `info` | `info` |
+| `FLAPPINGSTART`, `FLAPPINGEND` | `state` | `info` | `info` |
+| `CUSTOM` | `comment` | `info` | `info` |
+
+Icinga 2 sends no notification for a SOFT transition, so a SOFT problem cannot be followed by a recovery
+notification and does not create an alert; a recovery reported SOFT still resolves. UNREACHABLE is `critical`,
+like DOWN, and keeps its own name. The delivered state name is `severity_original`. Informational events do not
+change alert state, and a state observation from a delayed command reports the object's state when the command
+ran, which can differ from the transition that queued it.
+
+| Event field | Value |
+|---|---|
+| Identity | Source namespace, kind `icinga2`, `host`, and `service` for a service object. State, severity, output, times and acknowledgement or downtime flags are never identity inputs; identity uses the complete names |
+| Summary | `<host> <STATE>` or `<host>!<service> <STATE>`, UNREACHABLE shown as DOWN, truncated with the marker at 256 characters; no `starts_at`, no generator link |
+| Description | State events: `output`, absent when it is absent or empty (4096 characters with the marker). Other events: the comment, with the same bound and rule |
+| Annotations | `icinga2.notification_type` always; `icinga2.notification_author` (1024 characters with the marker) when the author is present and not empty |
+| Source time | `last_state_change` for a state observation, `notification_time` for every other event |
+
+Because the summary comes from the object and its state only, a new observation of an unchanged state from the same
+source records no visible alert change: the fence advances, the version and activity stay.
+
+### Observation keys
+
+The observation key is `ObservationKey.native` over a canonical JSON array of strings (no whitespace; times as
+decimal integer microseconds). A state notification is
+`["icinga2.notify.v1", state, state_type, last_state_change_us]`: re-notifications and reminders of one state are one
+observation, and SOFT and HARD of one change are two. Every other notification is one command execution,
+`["icinga2.notify.<TYPE>.v1", "<TYPE>", notification_time_us, author]` (author `""` when absent), with `<TYPE>` the
+notification type as delivered. The key uses the delivered author in full, which the shipped command has already
+cut to 1 KiB, so two authors equal in that cut and notified in the same microsecond are one event; executions in the
+same microsecond coalesce. The domain names are versioned. Committed vectors in
+`test/unit/ingest/fixtures/icinga2/key_vectors/` and `icinga2_keys_test.dart` pin the key string, key bytes and
+event id of one delivery of each kind, so a change that would alter a published event id fails a test.
+
+### Convergence contract
+
+A webhook-fed alert ends in the state of its highest-ranked committed, eligible, state-bearing observation after
+event-id deduplication, in any processing order. That is the object's latest state only when the latest state was
+delivered, committed as such, and outranks the rest: coherent, eligible (not late, not future-dated) and unclamped
+deliveries whose change times strictly increase. Otherwise the alert can stay stale until a later eligible
+observation with a new event id outranks its fence. Tests assert these stale outcomes, not convergence:
+
+- A command that runs late reads the live object, so a delayed `RECOVERY` after a refire reports the refire
+  (`CRITICAL`, the refire's time); the refire's own `PROBLEM` is then a `duplicate_observation`.
+- The state, state type and change time are read together but not atomically. A torn delivery that arrives after the
+  coherent one ties on source time and wins by its later receipt.
+- A recovery that is never delivered leaves the alert firing. Icinga 2 does not retry a failed command.
+- A passive result whose execution end regresses or repeats yields change times that go backwards or tie: the older
+  one is stale, and equal times collapse deliveries of one state into one observation carried by whichever row is
+  processed first.
+- A first delivery of a problem older than seven days is stored `late` and creates no alert.
+- Source times more than five minutes after receipt are clamped for ordering, so two deliveries received in reverse
+  order can swap (the clamp is stored in `events.effective_source_time`).
+- A late redelivery of a ready observation is a duplicate that leaves `lastObservedAt` alone. If the late one is
+  processed first, it is stored `late`, the prompt delivery becomes the duplicate and no alert exists.
+
+Event Streams with state sync (`icinga2-event-streams`) is the path that reconciles these cases.
+
 ## Durable processing and failure inspection
 
 A worker first commits the active immutable configuration pin, then decodes and processes under a separate raw-row lock. A killed worker retains the pin; replacements never substitute the current configuration. If that first-pinned snapshot omits/disables the source, the raw row fails as `source_not_configured`, retaining its bytes.
 
 Processing validates the complete batch before effects, folds repeated observations and inserts observation keys in stable event-id order. It then locks distinct alert fingerprints in ascending order before evaluating state, and finally writes event evidence and unique routed output intents in event-id order. Keys, alert state, activity, output intents and raw completion commit together. Invalid siblings or fanout beyond 16 MiB—including every event and intent payload copy—produce a failed raw delivery without partial effects.
 
-The authoritative alert row is keyed by tenant and fingerprint. Its fence compares effective source time, receipt time and event id at canonical nanosecond precision; effective time is capped at receipt plus five minutes. An observation at or below the fence is stale and cannot change state. Applied observations advance the fence; only visible changes increment the version and append activity. `lastObservedAt` advances monotonically for applied or stale observations and duplicates of originally ready observations, without changing the version or writing activity.
+The authoritative alert row is keyed by tenant and fingerprint. Its fence compares effective source time, receipt time and event id at canonical nanosecond precision; effective time is capped at receipt plus five minutes. An observation at or below the fence is stale and cannot change state. Applied observations advance the fence; only visible changes increment the version and append activity. `lastObservedAt` advances monotonically for applied or stale observations and by ready duplicates of originally ready observations (a late or future-dated redelivery of a ready observation does not refresh it), without changing the version or writing activity.
 
 Future-dated evidence (more than 24 hours ahead) has no observation key, state or output. Identical quarantined evidence at equal observed time collapses on the events key and increments `duplicate_quarantine`, not the error budget. Late evidence (older than seven days) retains a key and event but changes no state or output, including on duplicate delivery. Eligible duplicates preserve first evidence and produce no additional event/output effects. Empty routes record an unrouted event with no intent. Raw outcome JSON records committed, applied, stale, unrouted, upstream-omitted, duplicate-observation, future, duplicate-quarantine and late counts.
 

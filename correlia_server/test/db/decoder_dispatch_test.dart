@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:correlia_server/src/event/validation.dart';
 import 'package:correlia_server/src/ingest/config_repository.dart';
 import 'package:correlia_server/src/ingest/source_decoder.dart';
 import 'package:correlia_server/src/pipeline/pipeline.dart';
@@ -19,15 +18,12 @@ const _alertmanagerId = '11111111-1111-4111-8111-111111111111';
 const _icinga2Id = '33333333-3333-4333-8333-333333333333';
 final _now = DateTime.utc(2026, 11, 10, 12);
 
-/// An Icinga2 decoder that only records that it ran, or fails as asked.
+/// An Icinga2 decoder that only records that it ran.
 final class _StubDecoder {
-  _StubDecoder({this.failure});
-  final EventValidationError? failure;
   int calls = 0;
 
   DecodedBatch call(DecodeRequest request) {
     calls++;
-    if (failure case final error?) throw error;
     return DecodedBatch(events: const []);
   }
 }
@@ -272,16 +268,21 @@ VALUES (@time,CAST(@id AS uuid),CAST(@source AS uuid),@body,@digest,'application
 
       test('body_of_another_kind', () async {
         await publish(1);
-        final stub = _StubDecoder(
-          failure: const EventFieldError('body', 'invalid_json'),
-        );
         final raw = await seed(_icinga2Id, alertmanagerBody());
-        final pipeline = repo(stub);
+        // The real Icinga2 decoder, not a stub: an Alertmanager body is not
+        // an Icinga2 document.
+        final pipeline = PipelineRepository(session, clock: () => _now);
         await pinAll(pipeline);
         expect(await pipeline.processOne(), isTrue);
-        expect(stub.calls, 1);
         expect(await status(raw), 'failed');
-        expect(await failure(raw), 'invalid_json');
+        expect(await failure(raw), 'missing_field');
+        expect(
+          (await rows(
+            '''SELECT "fieldPath" FROM pipeline_failures
+        WHERE "rawId"=CAST('$raw' AS uuid)''',
+          )).single.single,
+          'format',
+        );
         expect(await count('events'), 0);
         expect(await count('outbox'), 0);
       });

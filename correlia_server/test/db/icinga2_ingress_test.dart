@@ -1,13 +1,18 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:correlia_server/src/ingest/bootstrap.dart';
+import 'package:correlia_server/src/event/identity.dart';
 import 'package:correlia_server/src/ingest/config_repository.dart';
 import 'package:correlia_server/src/ingest/ingress.dart';
+import 'package:correlia_server/src/pipeline/pipeline.dart';
 import 'package:correlia_server/src/runtime/subsystem.dart';
 import 'package:serverpod/serverpod.dart';
 import 'package:test/test.dart';
 
 import '../integration/test_tools/serverpod_test_tools.dart';
+import '../support/icinga2_delivery.dart';
+import '../support/icinga2_pipeline.dart' show timeText;
 import '../support/ingest_schema.dart';
 import '../support/secret_fixture.dart';
 import 'ingest_config_test.dart' show token;
@@ -67,7 +72,8 @@ void main() {
         session = builder.build();
         await initializeIngestSchema(session);
         await session.db.unsafeSimpleExecute(
-          '''TRUNCATE raw_inbox,transport_keys,
+          '''TRUNCATE activity,alerts,pipeline_failures,observation_keys,outbox,
+        events,raw_inbox,transport_keys,
         ingest_active_config,ingest_source_credential,ingest_source,
         ingest_config_snapshot,ingest_secret_commitment,secret_record CASCADE''',
         );
@@ -93,13 +99,13 @@ void main() {
         });
       }
 
-      Future<int> post(String path, {int? bearer}) async {
+      Future<int> post(String path, {int? bearer, String text = '{}'}) async {
         final request = await client.post('127.0.0.1', web.port!, path);
         request.headers.contentType = ContentType.json;
         if (bearer != null) {
           request.headers.set('authorization', 'Bearer ${token(bearer)}');
         }
-        request.write('{}');
+        request.write(text);
         final response = await request.close();
         await response.drain<void>();
         return response.statusCode;
@@ -132,6 +138,66 @@ void main() {
         // The header form of the same credential is admitted.
         expect(await post('/hooks/icinga2/$_icinga2Id', bearer: 2), 202);
         expect(await rawCount(), 1);
+      });
+
+      test('id_3_maximum_length_host_and_long_check_output', () async {
+        await start(await publish(both: false));
+        final host = 'h' * 256;
+        final output = 'o' * 4097;
+        final changed = _now.subtract(const Duration(minutes: 1));
+        final status = await post(
+          '/hooks/icinga2/$_icinga2Id',
+          bearer: 2,
+          text: jsonEncode(
+            delivery(
+              set: {
+                'host': host,
+                'output': output,
+                'last_state_change': timeText(changed),
+                'notification_time': timeText(_now),
+              },
+            ),
+          ),
+        );
+        expect(status, 202);
+        final repo = PipelineRepository(session, clock: () => _now);
+        expect(await repo.pinOne(), isTrue);
+        expect(await repo.processOne(), isTrue);
+        expect(
+          (await session.db.unsafeQuery(
+            'SELECT status FROM raw_inbox',
+          )).single[0],
+          'done',
+        );
+        final event =
+            jsonDecode(
+                  utf8.decode(
+                    (await session.db.unsafeQuery(
+                          'SELECT payload FROM events',
+                        )).single[0]!
+                        as List<int>,
+                  ),
+                )
+                as Map<String, Object?>;
+        final data = event['data']! as Map<String, Object?>;
+        final summary = data['summary']! as String;
+        final description = data['description']! as String;
+        expect(summary.runes, hasLength(256));
+        expect(summary, endsWith('…'));
+        expect(description.runes, hasLength(4096));
+        expect(description, '${'o' * 4095}…');
+        // Identity uses the complete host name.
+        final source = SourceContext(
+          sourceInstance: _icinga2Id,
+          sourceKind: 'icinga2',
+        );
+        expect(
+          event['subject'],
+          alertFingerprint(
+            source,
+            identityComponents({'host': host, 'service': 'disk'}),
+          ),
+        );
       });
     },
     rollbackDatabase: RollbackDatabase.disabled,

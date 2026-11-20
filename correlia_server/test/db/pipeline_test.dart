@@ -10,6 +10,8 @@ import 'package:serverpod/serverpod.dart';
 import 'package:test/test.dart';
 
 import '../integration/test_tools/serverpod_test_tools.dart';
+import '../support/icinga2_delivery.dart';
+import '../support/icinga2_pipeline.dart';
 import '../support/ingest_schema.dart';
 import '../unit/ingest/alertmanager_decoder_test.dart' as payload;
 import 'ingest_config_test.dart' as fixture;
@@ -279,8 +281,6 @@ LANGUAGE plpgsql AS \$\$ BEGIN RAISE EXCEPTION 'test failure' USING ERRCODE='400
         expect(await count(session, 'outbox'), 0);
       });
 
-      // The event source is one function so that the Icinga2 delivery can
-      // replace the Alertmanager observation without touching the assertions.
       Future<void> seedFiringAt(Session session, String sourceTime) =>
           seed(session, [payload.alert(startsAt: sourceTime)]);
 
@@ -313,7 +313,20 @@ LANGUAGE plpgsql AS \$\$ BEGIN RAISE EXCEPTION 'test failure' USING ERRCODE='400
 
       test('ord_4_future_source_time_beyond_the_skew_limit', () async {
         final session = builder.build();
-        await seedFiringAt(session, '2026-11-10T15:00:00Z');
+        // An Icinga2 firing observation whose source time is 3 hours after
+        // its observed time.
+        final changed = DateTime.utc(2026, 11, 10, 15);
+        await publishIcinga2Config(session, revision: 2);
+        await seedIcinga2(
+          session,
+          delivery(
+            set: {
+              'last_state_change': timeText(changed),
+              'notification_time': timeText(changed),
+            },
+          ),
+          now,
+        );
         await process();
         final result = await processedEvent(session);
         final expected = DateTime.utc(2026, 11, 10, 12, 5);

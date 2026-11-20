@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import '../event/canonical_event.dart';
 import '../event/identity.dart';
 import '../event_generated/correlia/event/v1/event_bounds.dart';
+import 'body_depth.dart';
 
 /// The complete decoded delivery, upstream omissions, and unknown group fields.
 final class AlertmanagerBatch {
@@ -44,7 +45,7 @@ AlertmanagerBatch decodeAlertmanager({
   required EventTimestamp processedAt,
   required String configVersion,
 }) {
-  _checkDepth(bytes);
+  checkBodyDepth(bytes);
   final Object? decoded;
   try {
     decoded = jsonDecode(utf8.decode(bytes));
@@ -366,28 +367,4 @@ Map<String, String> _projectMap(
     result[key] = normalizeDisplayText(value, maxScalars: maxValue);
   }
   return result;
-}
-
-// Check nesting before jsonDecode so deeply nested input cannot overflow its parser.
-void _checkDepth(Uint8List bytes) {
-  var depth = 0;
-  var inString = false;
-  var escaped = false;
-  for (final byte in bytes) {
-    if (inString) {
-      if (escaped) {
-        escaped = false;
-      } else if (byte == 0x5c) {
-        escaped = true;
-      } else if (byte == 0x22) {
-        inString = false;
-      }
-    } else if (byte == 0x22) {
-      inString = true;
-    } else if (byte == 0x7b || byte == 0x5b) {
-      if (++depth > 32) throw const EventFieldError('body', 'depth_bound');
-    } else if (byte == 0x7d || byte == 0x5d) {
-      depth--;
-    }
-  }
 }

@@ -12,6 +12,7 @@ import '../event/event_timestamp.dart';
 import '../event/validation.dart';
 import '../ingest/bootstrap.dart'
     show AlertmanagerSourceKind, Icinga2SourceKind, SourceKind, sha256Digest;
+import '../ingest/icinga2/decoder.dart';
 import '../ingest/source_decoder.dart';
 import '../runtime/process_options.dart';
 import '../runtime/subsystem.dart';
@@ -64,7 +65,9 @@ String formatUnknownFieldWarning(
   return 'pipeline source=$source unknown_top_level_fields=${names.length + overflow} tags=$tags';
 }
 
-String _safePath(String path) {
+/// Renders a validation path for storage: documented field names stay, any
+/// other segment (a sender-chosen name) becomes `*`, and the result is bounded.
+String safeFailurePath(String path) {
   const fields = {
     'body',
     'alerts',
@@ -90,6 +93,19 @@ String _safePath(String path) {
     'observation_key',
     'source_time',
     'reported_source_time',
+    // Icinga2 webhook document v1.
+    'format',
+    'object_type',
+    'host',
+    'service',
+    'state',
+    'state_type',
+    'last_state_change',
+    'output',
+    'notification_type',
+    'notification_author',
+    'notification_comment',
+    'notification_time',
   };
   final parts = path.split('.');
   final safe = parts
@@ -180,7 +196,7 @@ final class PipelineRepository {
     PipelineCounters? counters,
     this.stateSkewAllowance = skewAllowance,
     this.log,
-    this.icinga2Decoder,
+    this.icinga2Decoder = decodeIcinga2Request,
   }) : clock = clock ?? DateTime.now,
        _retryCounts = retryCounts ?? {},
        counters = counters ?? PipelineCounters();
@@ -196,7 +212,8 @@ final class PipelineRepository {
   /// The optional best-effort post-commit warning sink.
   final void Function(String)? log;
 
-  /// The decoder of `icinga2` sources; `null` means that kind has no decoder.
+  /// The decoder of `icinga2` sources, the real one by default; `null` means
+  /// that kind has no decoder.
   final KindDecoder? icinga2Decoder;
 
   Future<void> _limits(Transaction tx, _Deadline deadline) async {
@@ -365,7 +382,13 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
             prepared.add(_Prepared(event, disposition, data));
           }
         } on EventValidationError catch (error) {
-          await _fail(tx, deadline, raw, error.code, _safePath(error.path));
+          await _fail(
+            tx,
+            deadline,
+            raw,
+            error.code,
+            safeFailurePath(error.path),
+          );
           return true;
         }
         prepared.sort((a, b) => a.event.eventId.compareTo(b.event.eventId));
@@ -426,7 +449,11 @@ ON CONFLICT ("eventId") DO NOTHING RETURNING "eventId"''',
                   transaction: tx,
                   timeoutInSeconds: 5,
                 );
-                if (original.single[0] == 'ready') {
+                // A duplicate refreshes the alert only when both it and the
+                // original are ready: a late or future-dated redelivery of a
+                // ready observation says nothing about the object's freshness.
+                if (original.single[0] == 'ready' &&
+                    item.disposition == EvidenceDisposition.ready) {
                   stateInputs.add(StateInput(event, duplicate: true));
                 }
                 continue;
@@ -559,7 +586,13 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
           }
         } on EventValidationError catch (error) {
           await savepoint.rollback();
-          await _fail(tx, deadline, raw, error.code, _safePath(error.path));
+          await _fail(
+            tx,
+            deadline,
+            raw,
+            error.code,
+            safeFailurePath(error.path),
+          );
           return true;
         }
         await savepoint.release();

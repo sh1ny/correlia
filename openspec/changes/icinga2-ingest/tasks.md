@@ -36,13 +36,13 @@ that produces the evidence, and the test is what judges it.
 | durable-pipeline → Clamped source time is recorded | Events stored before the upgrade | `correlia_server/test/db/schema_step_test.dart` | `events_stored_before_the_upgrade` | green |
 | durable-pipeline → Clamped source time is recorded | Sub-microsecond evidence | `correlia_server/test/db/schema_step_test.dart` | `sub_microsecond_evidence` | green |
 | durable-pipeline → Clamped source time is recorded | Source time within the skew allowance | `correlia_server/test/db/pipeline_test.dart` | `source_time_within_the_skew_allowance` | green |
-| integration-icinga2 → Icinga2 webhook document | Service problem notification | `correlia_server/test/unit/ingest/icinga2_mapper_test.dart` | `service_problem_notification` | red |
-| integration-icinga2 → Icinga2 webhook document | Wrong type on a known field | `correlia_server/test/db/icinga2_ingest_test.dart` | `wrong_type_on_a_known_field` | red |
-| integration-icinga2 → Icinga2 webhook document | Unknown field name is not reflected | `correlia_server/test/unit/ingest/icinga2_webhook_test.dart` | `unknown_field_name_is_not_reflected` | red |
-| integration-icinga2 → Icinga2 webhook document | Dotted unknown field name | `correlia_server/test/unit/ingest/icinga2_webhook_test.dart` | `dotted_unknown_field_name` | red |
-| integration-icinga2 → Icinga2 webhook document | Unsupported format version | `correlia_server/test/unit/ingest/icinga2_webhook_test.dart` | `unsupported_format_version` | red |
-| integration-icinga2 → Webhook text is storable | NUL in a host name | `correlia_server/test/db/icinga2_ingest_test.dart` | `nul_in_a_host_name` | red |
-| integration-icinga2 → Webhook body nesting is bounded before parsing | Deeply nested body | `correlia_server/test/db/icinga2_ingest_test.dart` | `deeply_nested_body` | red |
+| integration-icinga2 → Icinga2 webhook document | Service problem notification | `correlia_server/test/unit/ingest/icinga2_mapper_test.dart` | `service_problem_notification` | green |
+| integration-icinga2 → Icinga2 webhook document | Wrong type on a known field | `correlia_server/test/db/icinga2_ingest_test.dart` | `wrong_type_on_a_known_field` | green |
+| integration-icinga2 → Icinga2 webhook document | Unknown field name is not reflected | `correlia_server/test/unit/ingest/icinga2_webhook_test.dart` | `unknown_field_name_is_not_reflected` | green |
+| integration-icinga2 → Icinga2 webhook document | Dotted unknown field name | `correlia_server/test/unit/ingest/icinga2_webhook_test.dart` | `dotted_unknown_field_name` | green |
+| integration-icinga2 → Icinga2 webhook document | Unsupported format version | `correlia_server/test/unit/ingest/icinga2_webhook_test.dart` | `unsupported_format_version` | green |
+| integration-icinga2 → Webhook text is storable | NUL in a host name | `correlia_server/test/db/icinga2_ingest_test.dart` | `nul_in_a_host_name` | green |
+| integration-icinga2 → Webhook body nesting is bounded before parsing | Deeply nested body | `correlia_server/test/db/icinga2_ingest_test.dart` | `deeply_nested_body` | green |
 | integration-icinga2 → Shipped notification command | Notification from a real Icinga 2 in both auth modes | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `notification_from_a_real_icinga_2_in_both_auth_modes` | red |
 | integration-icinga2 → Shipped notification command | Rejected delivery | `correlia_server/test/e2e/icinga2_sender_e2e_test.dart` | `rejected_delivery` | red |
 | integration-icinga2 → Shipped notification command | Long check output | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `long_check_output` | red |
@@ -85,43 +85,43 @@ that produces the evidence, and the test is what judges it.
 | integration-icinga2 → Webhook state change time precision | Microsecond values survive the command | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `microsecond_values_survive_the_command` | red |
 | integration-icinga2 → Webhook state change time precision | Production notification clock keeps microseconds | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `production_notification_clock_keeps_microseconds` | red |
 | integration-icinga2 → Webhook state change time precision | Host command keeps sub-second precision | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `host_command_keeps_sub_second_precision` | red |
-| integration-icinga2 → Webhook state is the object's state when the command runs | Recovery notification sent after a refire | `correlia_server/test/db/icinga2_ingest_test.dart` | `recovery_notification_sent_after_a_refire` | red |
+| integration-icinga2 → Webhook state is the object's state when the command runs | Recovery notification sent after a refire | `correlia_server/test/db/icinga2_ingest_test.dart` | `recovery_notification_sent_after_a_refire` | green |
 | integration-icinga2 → Webhook state is the object's state when the command runs | Delayed recovery publishes the live check output | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `delayed_recovery_publishes_the_live_check_output` | red |
-| integration-icinga2 → Webhook state is the object's state when the command runs | Delayed notifications in any order | `correlia_server/test/db/icinga2_ingest_test.dart` | `delayed_notifications_in_any_order` | red |
-| integration-icinga2 → Webhook convergence contract | Lost recovery | `correlia_server/test/db/icinga2_ingest_test.dart` | `lost_recovery` | red |
-| integration-icinga2 → Webhook convergence contract | Late reminder wins the event-ID insert | `correlia_server/test/db/icinga2_ingest_test.dart` | `late_reminder_wins_the_event_id_insert` | red |
-| integration-icinga2 → Webhook convergence contract | Torn delivery arrives after the coherent one | `correlia_server/test/db/icinga2_ingest_test.dart` | `torn_delivery_arrives_after_the_coherent_one` | red |
-| integration-icinga2 → Webhook convergence contract | Regressing execution end | `correlia_server/test/db/icinga2_ingest_test.dart` | `regressing_execution_end` | red |
-| integration-icinga2 → Webhook convergence contract | First delivery of an old problem | `correlia_server/test/db/icinga2_ingest_test.dart` | `first_delivery_of_an_old_problem` | red |
-| integration-icinga2 → Webhook convergence contract | Reversed receipt under the skew clamp | `correlia_server/test/db/icinga2_ingest_test.dart` | `reversed_receipt_under_the_skew_clamp` | red |
-| integration-icinga2 → Webhook convergence contract | Equal state change times | `correlia_server/test/db/icinga2_ingest_test.dart` | `equal_state_change_times` | red |
-| integration-icinga2 → Icinga2 alert identity | Host and service are distinct alerts | `correlia_server/test/unit/ingest/icinga2_mapper_test.dart` | `host_and_service_are_distinct_alerts` | red |
-| integration-icinga2 → Icinga2 alert identity | Same names on another source | `correlia_server/test/unit/ingest/icinga2_mapper_test.dart` | `same_names_on_another_source` | red |
-| integration-icinga2 → Icinga2 status and severity mapping | ID-7a WARNING to CRITICAL updates one alert | `correlia_server/test/db/icinga2_ingest_test.dart` | `id_7a_warning_to_critical_updates_one_alert` | red |
-| integration-icinga2 → Icinga2 status and severity mapping | Informational delivery carrying a problem state | `correlia_server/test/unit/ingest/icinga2_mapper_test.dart` | `informational_delivery_carrying_a_problem_state` | red |
-| integration-icinga2 → Icinga2 status and severity mapping | Unreachable host | `correlia_server/test/unit/ingest/icinga2_mapper_test.dart` | `unreachable_host` | red |
-| integration-icinga2 → Icinga2 status and severity mapping | Unknown state name | `correlia_server/test/unit/ingest/icinga2_webhook_test.dart` | `unknown_state_name` | red |
-| integration-icinga2 → Icinga2 alert projection | Same state with different check output | `correlia_server/test/db/icinga2_ingest_test.dart` | `same_state_with_different_check_output` | red |
-| integration-icinga2 → Icinga2 alert projection | Missing check output | `correlia_server/test/unit/ingest/icinga2_mapper_test.dart` | `missing_check_output` | red |
-| integration-icinga2 → SOFT states from the webhook are informational | Soft problem sampled by a delayed notification | `correlia_server/test/db/icinga2_ingest_test.dart` | `soft_problem_sampled_by_a_delayed_notification` | red |
-| integration-icinga2 → SOFT states from the webhook are informational | Soft recovery resolves | `correlia_server/test/db/icinga2_ingest_test.dart` | `soft_recovery_resolves` | red |
-| integration-icinga2 → Icinga2 webhook observation evidence | Out-of-range time | `correlia_server/test/db/icinga2_ingest_test.dart` | `out_of_range_time` | red |
-| integration-icinga2 → Icinga2 webhook observation evidence | Time not in the fixed form | `correlia_server/test/unit/ingest/icinga2_webhook_test.dart` | `time_not_in_the_fixed_form` | red |
-| integration-icinga2 → Icinga2 webhook observation evidence | Exact microseconds at the top of the range | `correlia_server/test/unit/ingest/icinga2_webhook_test.dart` | `exact_microseconds_at_the_top_of_the_range` | red |
-| integration-icinga2 → Icinga2 webhook observation evidence | Fixed key vectors | `correlia_server/test/unit/ingest/icinga2_keys_test.dart` | `fixed_key_vectors` | red |
-| integration-icinga2 → Icinga2 webhook observation evidence | Re-notification of an unchanged problem | `correlia_server/test/db/icinga2_ingest_test.dart` | `re_notification_of_an_unchanged_problem` | red |
-| integration-icinga2 → Icinga2 webhook observation evidence | Soft to hard without a state value change | `correlia_server/test/db/icinga2_ingest_test.dart` | `soft_to_hard_without_a_state_value_change` | red |
-| integration-icinga2 → Icinga2 webhook observation evidence | Zero state change time | `correlia_server/test/unit/ingest/icinga2_webhook_test.dart` | `zero_state_change_time` | red |
-| integration-icinga2 → Icinga2 webhook observation evidence | Missing notification time | `correlia_server/test/unit/ingest/icinga2_webhook_test.dart` | `missing_notification_time` | red |
-| integration-icinga2 → Acknowledgement, downtime and flapping events | Custom notification while the service is OK | `correlia_server/test/db/icinga2_ingest_test.dart` | `custom_notification_while_the_service_is_ok` | red |
-| integration-icinga2 → Acknowledgement, downtime and flapping events | Acknowledgement is published without state change | `correlia_server/test/db/icinga2_ingest_test.dart` | `acknowledgement_is_published_without_state_change` | red |
+| integration-icinga2 → Webhook state is the object's state when the command runs | Delayed notifications in any order | `correlia_server/test/db/icinga2_ingest_test.dart` | `delayed_notifications_in_any_order` | green |
+| integration-icinga2 → Webhook convergence contract | Lost recovery | `correlia_server/test/db/icinga2_ingest_test.dart` | `lost_recovery` | green |
+| integration-icinga2 → Webhook convergence contract | Late reminder wins the event-ID insert | `correlia_server/test/db/icinga2_ingest_test.dart` | `late_reminder_wins_the_event_id_insert` | green |
+| integration-icinga2 → Webhook convergence contract | Torn delivery arrives after the coherent one | `correlia_server/test/db/icinga2_ingest_test.dart` | `torn_delivery_arrives_after_the_coherent_one` | green |
+| integration-icinga2 → Webhook convergence contract | Regressing execution end | `correlia_server/test/db/icinga2_ingest_test.dart` | `regressing_execution_end` | green |
+| integration-icinga2 → Webhook convergence contract | First delivery of an old problem | `correlia_server/test/db/icinga2_ingest_test.dart` | `first_delivery_of_an_old_problem` | green |
+| integration-icinga2 → Webhook convergence contract | Reversed receipt under the skew clamp | `correlia_server/test/db/icinga2_ingest_test.dart` | `reversed_receipt_under_the_skew_clamp` | green |
+| integration-icinga2 → Webhook convergence contract | Equal state change times | `correlia_server/test/db/icinga2_ingest_test.dart` | `equal_state_change_times` | green |
+| integration-icinga2 → Icinga2 alert identity | Host and service are distinct alerts | `correlia_server/test/unit/ingest/icinga2_mapper_test.dart` | `host_and_service_are_distinct_alerts` | green |
+| integration-icinga2 → Icinga2 alert identity | Same names on another source | `correlia_server/test/unit/ingest/icinga2_mapper_test.dart` | `same_names_on_another_source` | green |
+| integration-icinga2 → Icinga2 status and severity mapping | ID-7a WARNING to CRITICAL updates one alert | `correlia_server/test/db/icinga2_ingest_test.dart` | `id_7a_warning_to_critical_updates_one_alert` | green |
+| integration-icinga2 → Icinga2 status and severity mapping | Informational delivery carrying a problem state | `correlia_server/test/unit/ingest/icinga2_mapper_test.dart` | `informational_delivery_carrying_a_problem_state` | green |
+| integration-icinga2 → Icinga2 status and severity mapping | Unreachable host | `correlia_server/test/unit/ingest/icinga2_mapper_test.dart` | `unreachable_host` | green |
+| integration-icinga2 → Icinga2 status and severity mapping | Unknown state name | `correlia_server/test/unit/ingest/icinga2_webhook_test.dart` | `unknown_state_name` | green |
+| integration-icinga2 → Icinga2 alert projection | Same state with different check output | `correlia_server/test/db/icinga2_ingest_test.dart` | `same_state_with_different_check_output` | green |
+| integration-icinga2 → Icinga2 alert projection | Missing check output | `correlia_server/test/unit/ingest/icinga2_mapper_test.dart` | `missing_check_output` | green |
+| integration-icinga2 → SOFT states from the webhook are informational | Soft problem sampled by a delayed notification | `correlia_server/test/db/icinga2_ingest_test.dart` | `soft_problem_sampled_by_a_delayed_notification` | green |
+| integration-icinga2 → SOFT states from the webhook are informational | Soft recovery resolves | `correlia_server/test/db/icinga2_ingest_test.dart` | `soft_recovery_resolves` | green |
+| integration-icinga2 → Icinga2 webhook observation evidence | Out-of-range time | `correlia_server/test/db/icinga2_ingest_test.dart` | `out_of_range_time` | green |
+| integration-icinga2 → Icinga2 webhook observation evidence | Time not in the fixed form | `correlia_server/test/unit/ingest/icinga2_webhook_test.dart` | `time_not_in_the_fixed_form` | green |
+| integration-icinga2 → Icinga2 webhook observation evidence | Exact microseconds at the top of the range | `correlia_server/test/unit/ingest/icinga2_webhook_test.dart` | `exact_microseconds_at_the_top_of_the_range` | green |
+| integration-icinga2 → Icinga2 webhook observation evidence | Fixed key vectors | `correlia_server/test/unit/ingest/icinga2_keys_test.dart` | `fixed_key_vectors` | green |
+| integration-icinga2 → Icinga2 webhook observation evidence | Re-notification of an unchanged problem | `correlia_server/test/db/icinga2_ingest_test.dart` | `re_notification_of_an_unchanged_problem` | green |
+| integration-icinga2 → Icinga2 webhook observation evidence | Soft to hard without a state value change | `correlia_server/test/db/icinga2_ingest_test.dart` | `soft_to_hard_without_a_state_value_change` | green |
+| integration-icinga2 → Icinga2 webhook observation evidence | Zero state change time | `correlia_server/test/unit/ingest/icinga2_webhook_test.dart` | `zero_state_change_time` | green |
+| integration-icinga2 → Icinga2 webhook observation evidence | Missing notification time | `correlia_server/test/unit/ingest/icinga2_webhook_test.dart` | `missing_notification_time` | green |
+| integration-icinga2 → Acknowledgement, downtime and flapping events | Custom notification while the service is OK | `correlia_server/test/db/icinga2_ingest_test.dart` | `custom_notification_while_the_service_is_ok` | green |
+| integration-icinga2 → Acknowledgement, downtime and flapping events | Acknowledgement is published without state change | `correlia_server/test/db/icinga2_ingest_test.dart` | `acknowledgement_is_published_without_state_change` | green |
 | integration-icinga2 → Acknowledgement, downtime and flapping events | Two comments from one author | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `two_comments_from_one_author` | red |
-| integration-icinga2 → Acknowledgement, downtime and flapping events | Same-microsecond executions coalesce | `correlia_server/test/db/icinga2_ingest_test.dart` | `same_microsecond_executions_coalesce` | red |
-| integration-icinga2 → Acknowledgement, downtime and flapping events | Unsupported notification type | `correlia_server/test/db/icinga2_ingest_test.dart` | `unsupported_notification_type` | red |
-| integration-icinga2 → Published author and comment | Published author and comment fields | `correlia_server/test/unit/ingest/icinga2_mapper_test.dart` | `published_author_and_comment_fields` | red |
-| integration-icinga2 → Non-state key uses the delivered author | Authors equal in their first 1 KiB | `correlia_server/test/db/icinga2_ingest_test.dart` | `authors_equal_in_their_first_1_kib` | red |
-| integration-icinga2 → Icinga2 display bounds | ID-3 maximum-length host and long check output | `correlia_server/test/db/icinga2_ingress_test.dart` | `id_3_maximum_length_host_and_long_check_output` | red |
-| integration-icinga2 → Icinga2 display bounds | Oversize identity value | `correlia_server/test/unit/ingest/icinga2_mapper_test.dart` | `oversize_identity_value` | red |
+| integration-icinga2 → Acknowledgement, downtime and flapping events | Same-microsecond executions coalesce | `correlia_server/test/db/icinga2_ingest_test.dart` | `same_microsecond_executions_coalesce` | green |
+| integration-icinga2 → Acknowledgement, downtime and flapping events | Unsupported notification type | `correlia_server/test/db/icinga2_ingest_test.dart` | `unsupported_notification_type` | green |
+| integration-icinga2 → Published author and comment | Published author and comment fields | `correlia_server/test/unit/ingest/icinga2_mapper_test.dart` | `published_author_and_comment_fields` | green |
+| integration-icinga2 → Non-state key uses the delivered author | Authors equal in their first 1 KiB | `correlia_server/test/db/icinga2_ingest_test.dart` | `authors_equal_in_their_first_1_kib` | green |
+| integration-icinga2 → Icinga2 display bounds | ID-3 maximum-length host and long check output | `correlia_server/test/db/icinga2_ingress_test.dart` | `id_3_maximum_length_host_and_long_check_output` | green |
+| integration-icinga2 → Icinga2 display bounds | Oversize identity value | `correlia_server/test/unit/ingest/icinga2_mapper_test.dart` | `oversize_identity_value` | green |
 | integration-icinga2 → Supported Icinga 2 releases | Each shipped architecture is run | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `each_shipped_architecture_is_run` | red |
 | integration-icinga2 → Supported Icinga 2 releases | Listed release missing a capture | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `listed_release_missing_a_capture` | red |
 | integration-icinga2 → Supported Icinga 2 releases | 202 recorded but event missing | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `202_recorded_but_event_missing` | red |
@@ -222,14 +222,14 @@ list. Group 9's capture answers it, and the answer does not change what gets bui
 
 ## 4. Icinga2 webhook parser, mapper and observation keys
 
-- [ ] 4.1 Write failing unit tests:
+- [x] 4.1 Write failing unit tests:
   - `icinga2_webhook_test.dart`: unknown and dotted field names, the format version, time form and range
     vectors, the zero time, the missing notification time, and an unknown state.
   - `icinga2_mapper_test.dart`: service problem, informational problem state, unreachable host, missing output,
     host versus service identity, ID-2, the oversize identity value, and the published author and comment.
   - `icinga2_keys_test.dart`: the fixed key vectors, with committed example deliveries and expected key
     strings, bytes and event ids.
-- [ ] 4.2 Implement `correlia_server/lib/src/ingest/icinga2/`:
+- [x] 4.2 Implement `correlia_server/lib/src/ingest/icinga2/`:
   - The document v1 parser. It bounds nesting before parsing, rejects unknown keys with the structural `*`
     path, and rejects NUL in identity text with `invalid_text`.
   - Fixed-form string times, converted to microseconds by integer arithmetic.
@@ -240,13 +240,13 @@ list. Group 9's capture answers it, and the answer does not change what gets bui
 
   Use sealed classes and exhaustive switches, with no `dynamic`. Verify that the 4.1 tests pass, and flip
   their rows green.
-- [ ] 4.3 Write failing db tests in `icinga2_ingest_test.dart` for every row mapped to it: decode failures
+- [x] 4.3 Write failing db tests in `icinga2_ingest_test.dart` for every row mapped to it: decode failures
   without retry or commits, ID-7a, the projection, SOFT handling, duplicates and re-notifications, non-state
   events, the coalescing and author rules, and the convergence contract scenarios. Run them against the
   real pipeline, then fix whatever they expose. Verify that they pass, and flip their rows green.
-- [ ] 4.4 Write `id_3_maximum_length_host_and_long_check_output` (`icinga2_ingress_test.dart`) through HTTP
+- [x] 4.4 Write `id_3_maximum_length_host_and_long_check_output` (`icinga2_ingress_test.dart`) through HTTP
   ingress. Make it pass, and flip its row green.
-- [ ] 4.5 Document the webhook document v1 (fields, time form, error codes), the mapping table and the
+- [x] 4.5 Document the webhook document v1 (fields, time form, error codes), the mapping table and the
   convergence contract in the Icinga2 section of `docs/ingest-pipeline.md`. Verify with `mise run check`.
 
 ## 5. Alert-state ordering scenarios (ORD-6, ORD-7)
