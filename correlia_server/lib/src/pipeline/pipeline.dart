@@ -15,6 +15,7 @@ import '../ingest/bootstrap.dart' show sha256Digest;
 import '../runtime/process_options.dart';
 import '../runtime/subsystem.dart';
 import '../state/alert_state_service.dart';
+import '../state/ordering_key.dart';
 
 const _transactionLimit = Duration(seconds: 10);
 const _fanoutLimit = 16 * 1024 * 1024;
@@ -363,7 +364,8 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
             late = 0,
             unrouted = 0,
             applied = 0,
-            stale = 0;
+            stale = 0,
+            clamped = 0;
         var aggregate = 0;
         final seen = <String>{};
         final savepoint = await tx.createSavepoint();
@@ -440,11 +442,20 @@ ON CONFLICT ("eventId") DO NOTHING RETURNING "eventId"''',
               EvidenceDisposition.late => 'late',
               EvidenceDisposition.futureDated => 'future_dated',
             };
+            // The same function the fence uses; the column keeps microseconds.
+            final effective = OrderingKey.fromSource(
+              sourceTime: event.sourceTime!,
+              observedAt: event.observedAt,
+              eventId: event.eventId,
+              skewAllowance: stateSkewAllowance,
+            );
+            final isClamped =
+                compareTimestamps(event.sourceTime!, effective.effectiveAt) > 0;
             await _limits(tx, deadline);
             final inserted = await session.db.unsafeQuery(
               '''INSERT INTO events
-(observed_at,event_id,disposition,raw_observed_at,raw_id,source_id,config_snapshot_id,source_time,payload,state_outcome)
-VALUES (@observed,CAST(@event AS uuid),@disposition,@observed,CAST(@raw AS uuid),CAST(@source AS uuid),@pin,@sourceTime,@payload,@stateOutcome)
+(observed_at,event_id,disposition,raw_observed_at,raw_id,source_id,config_snapshot_id,source_time,payload,state_outcome,effective_source_time)
+VALUES (@observed,CAST(@event AS uuid),@disposition,@observed,CAST(@raw AS uuid),CAST(@source AS uuid),@pin,@sourceTime,@payload,@stateOutcome,@effective)
 ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
               parameters: QueryParameters.named({
                 'observed': raw.observed,
@@ -456,11 +467,13 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
                 'sourceTime': _date(event.sourceTime!),
                 'payload': item.payload,
                 'stateOutcome': stateOutcomes[event.eventId],
+                'effective': _date(effective.effectiveAt),
               }),
               transaction: tx,
               timeoutInSeconds: 5,
             );
             if (inserted.isNotEmpty) {
+              if (isClamped) clamped++;
               aggregate +=
                   item.payload.length *
                   (1 +
@@ -556,6 +569,7 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
               'late': late,
               'applied': applied,
               'stale': stale,
+              'clamped': clamped,
             }),
           }),
           transaction: tx,

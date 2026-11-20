@@ -7,10 +7,16 @@ import 'subsystem.dart';
 /// The thin real [ServerpodPort] over a [Serverpod] instance.
 final class ServerpodAdapter implements ServerpodPort {
   /// Wraps [pod].
-  ServerpodAdapter(this.pod);
+  ServerpodAdapter(
+    this.pod, {
+    this.schemaLockTimeout = defaultSchemaLockTimeout,
+  });
 
   /// The wrapped server.
   final Serverpod pod;
+
+  /// How long each schema transaction waits for a lock.
+  final Duration schemaLockTimeout;
 
   static int _taskCounter = 0;
 
@@ -32,7 +38,7 @@ final class ServerpodAdapter implements ServerpodPort {
     await pod.start();
     final session = await pod.createSession(enableLogging: false);
     try {
-      await initializeSchema(session);
+      await initializeSchema(session, lockTimeout: schemaLockTimeout);
     } finally {
       await session.close();
     }

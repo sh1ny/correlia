@@ -27,15 +27,15 @@ that produces the evidence, and the test is what judges it.
 | durable-pipeline → Rows decode by their source's kind | Two kinds in one batch | `correlia_server/test/db/decoder_dispatch_test.dart` | `two_kinds_in_one_batch` | red |
 | durable-pipeline → Rows decode by their source's kind | Existing rows after the upgrade | `correlia_server/test/db/decoder_dispatch_test.dart` | `existing_rows_after_the_upgrade` | red |
 | durable-pipeline → Rows decode by their source's kind | Row pinned to a format version 1 snapshot | `correlia_server/test/db/decoder_dispatch_test.dart` | `row_pinned_to_a_format_version_1_snapshot` | red |
-| durable-pipeline → Rows decode by their source's kind | Schema step 4 under lock contention | `correlia_server/test/e2e/icinga2_upgrade_e2e_test.dart` | `schema_step_4_under_lock_contention` | red |
-| durable-pipeline → Rows decode by their source's kind | Schema runner waits behind another starter | `correlia_server/test/e2e/icinga2_upgrade_e2e_test.dart` | `schema_runner_waits_behind_another_starter` | red |
+| durable-pipeline → Rows decode by their source's kind | Schema step 4 under lock contention | `correlia_server/test/e2e/icinga2_upgrade_e2e_test.dart` | `schema_step_4_under_lock_contention` | green |
+| durable-pipeline → Rows decode by their source's kind | Schema runner waits behind another starter | `correlia_server/test/e2e/icinga2_upgrade_e2e_test.dart` | `schema_runner_waits_behind_another_starter` | green |
 | durable-pipeline → Rows decode by their source's kind | Missing kind in a version 2 snapshot | `correlia_server/test/db/decoder_dispatch_test.dart` | `missing_kind_in_a_version_2_snapshot` | red |
-| durable-pipeline → Rows decode by their source's kind | Offline upgrade with pending work | `correlia_server/test/e2e/icinga2_upgrade_e2e_test.dart` | `offline_upgrade_with_pending_work` | red |
+| durable-pipeline → Rows decode by their source's kind | Offline upgrade with pending work | `correlia_server/test/e2e/icinga2_upgrade_e2e_test.dart` | `offline_upgrade_with_pending_work` | green |
 | durable-pipeline → Rows decode by their source's kind | Body of another kind | `correlia_server/test/db/decoder_dispatch_test.dart` | `body_of_another_kind` | red |
-| durable-pipeline → Clamped source time is recorded | ORD-4 future source time beyond the skew limit | `correlia_server/test/db/pipeline_test.dart` | `ord_4_future_source_time_beyond_the_skew_limit` | red |
-| durable-pipeline → Clamped source time is recorded | Events stored before the upgrade | `correlia_server/test/db/schema_step_test.dart` | `events_stored_before_the_upgrade` | red |
-| durable-pipeline → Clamped source time is recorded | Sub-microsecond evidence | `correlia_server/test/db/schema_step_test.dart` | `sub_microsecond_evidence` | red |
-| durable-pipeline → Clamped source time is recorded | Source time within the skew allowance | `correlia_server/test/db/pipeline_test.dart` | `source_time_within_the_skew_allowance` | red |
+| durable-pipeline → Clamped source time is recorded | ORD-4 future source time beyond the skew limit | `correlia_server/test/db/pipeline_test.dart` | `ord_4_future_source_time_beyond_the_skew_limit` | green |
+| durable-pipeline → Clamped source time is recorded | Events stored before the upgrade | `correlia_server/test/db/schema_step_test.dart` | `events_stored_before_the_upgrade` | green |
+| durable-pipeline → Clamped source time is recorded | Sub-microsecond evidence | `correlia_server/test/db/schema_step_test.dart` | `sub_microsecond_evidence` | green |
+| durable-pipeline → Clamped source time is recorded | Source time within the skew allowance | `correlia_server/test/db/pipeline_test.dart` | `source_time_within_the_skew_allowance` | green |
 | integration-icinga2 → Icinga2 webhook document | Service problem notification | `correlia_server/test/unit/ingest/icinga2_mapper_test.dart` | `service_problem_notification` | red |
 | integration-icinga2 → Icinga2 webhook document | Wrong type on a known field | `correlia_server/test/db/icinga2_ingest_test.dart` | `wrong_type_on_a_known_field` | red |
 | integration-icinga2 → Icinga2 webhook document | Unknown field name is not reflected | `correlia_server/test/unit/ingest/icinga2_webhook_test.dart` | `unknown_field_name_is_not_reflected` | red |
@@ -183,21 +183,21 @@ list. Group 9's capture answers it, and the answer does not change what gets bui
 
 ## 2. Schema step 4 and the recorded clamp (ORD-4)
 
-- [ ] 2.1 Write failing tests:
+- [x] 2.1 Write failing tests:
   - `events_stored_before_the_upgrade` and `sub_microsecond_evidence` (`schema_step_test.dart`)
   - `ord_4_future_source_time_beyond_the_skew_limit` and `source_time_within_the_skew_allowance`
     (`pipeline_test.dart`)
 
   Verify that they fail on the missing column and counter.
-- [ ] 2.2 Add Correlia schema step 4: a nullable clamp column on `events`, catalog-only with no row rewrite,
+- [x] 2.2 Add Correlia schema step 4: a nullable clamp column on `events`, catalog-only with no row rewrite,
   under the step `lock_timeout`, plus the read expression design D5 defines for older rows. Record the clamp
   on the stored event and count clamped observations on the raw outcome; the published `source_time` stays
   as reported. Verify that the 2.1 tests pass, and flip their rows green.
-- [ ] 2.3 Write `schema_step_4_under_lock_contention`, `schema_runner_waits_behind_another_starter` and
+- [x] 2.3 Write `schema_step_4_under_lock_contention`, `schema_runner_waits_behind_another_starter` and
   `offline_upgrade_with_pending_work` (`icinga2_upgrade_e2e_test.dart`). Each starts a real child against its
   own e2e root. Fail first, implement the `lock_timeout` failure class exit, verify that they pass, and flip
   their rows green.
-- [ ] 2.4 Document step 4, the offline upgrade order and the clamp record in `docs/ingest-pipeline.md`.
+- [x] 2.4 Document step 4, the offline upgrade order and the clamp record in `docs/ingest-pipeline.md`.
   Verify with `mise run check`.
 
 ## 3. Decoder dispatch by the pinned source's kind

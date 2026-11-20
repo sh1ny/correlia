@@ -1,6 +1,8 @@
 import 'dart:io';
 
+import 'package:correlia_server/src/event/event_timestamp.dart';
 import 'package:correlia_server/src/schema/schema_steps.dart';
+import 'package:correlia_server/src/state/ordering_key.dart';
 import 'package:correlia_server/src/runtime/process_options.dart';
 import 'package:correlia_server/src/runtime/role_runtime.dart';
 import 'package:correlia_server/src/runtime/serverpod_adapter.dart';
@@ -171,6 +173,32 @@ WHERE n.nspname = current_schema() AND t.relname = 'events' AND c.contype = 'c'
   );
 }
 
+Future<void> insertEvent(
+  Session session,
+  String id,
+  String sourceTime, {
+  String? effective,
+}) => session.db.unsafeSimpleExecute('''
+INSERT INTO events
+  (observed_at, event_id, disposition, raw_observed_at, raw_id, source_id,
+   config_snapshot_id, source_time, payload${effective == null ? '' : ', effective_source_time'})
+VALUES
+  ('2026-01-01 12:00:00 UTC', '$id', 'ready', '2026-01-01 12:00:00 UTC',
+   '00000000-0000-0000-0000-000000000001',
+   '00000000-0000-0000-0000-000000000002', 'snapshot',
+   '$sourceTime', decode('01', 'hex')${effective == null ? '' : ", '$effective'"});
+''');
+
+Future<Map<String, DateTime>> effectiveTimes(Session session) async {
+  final rows = await session.db.unsafeQuery(
+    'SELECT event_id::text, events_effective_source_time(e) '
+    'FROM events e',
+  );
+  return {
+    for (final row in rows) row[0]! as String: row[1]! as DateTime,
+  };
+}
+
 void main() {
   test('fresh_and_populated_schema_paths normal startup', () async {
     final fixture = await PodFixture.create([]);
@@ -339,7 +367,78 @@ VALUES
         final versions = await session.db.unsafeQuery(
           'SELECT version FROM correlia_schema_versions ORDER BY version',
         );
-        expect(versions.map((row) => row.toColumnMap()['version']), [1, 2, 3]);
+        expect(versions.map((row) => row.toColumnMap()['version']), [
+          1,
+          2,
+          3,
+          4,
+        ]);
+      });
+    },
+    rollbackDatabase: RollbackDatabase.disabled,
+    testGroupTagsOverride: ['db'],
+  );
+  withServerpod(
+    'Schema step 4',
+    (sessionBuilder, _) {
+      test('events_stored_before_the_upgrade', () async {
+        final session = sessionBuilder.build();
+        await applySchemaSteps(session, schemaSteps.take(3).toList());
+        const id = '00000000-0000-0000-0000-0000000000a1';
+        await insertEvent(session, id, '2026-01-01 15:00:00 UTC');
+        Future<Object?> fileNode() async => (await session.db.unsafeQuery(
+          "SELECT relfilenode::text FROM pg_class WHERE oid = 'events'::regclass",
+        )).single[0];
+        final before = await fileNode();
+        await applySchemaSteps(session, schemaSteps);
+        expect(await fileNode(), before, reason: 'step 4 rewrote events');
+        final stored = await session.db.unsafeQuery(
+          'SELECT effective_source_time FROM events',
+        );
+        expect(stored.single[0], isNull);
+        expect(await effectiveTimes(session), {
+          id: DateTime.utc(2026, 1, 1, 12, 5),
+        });
+        final versions = await session.db.unsafeQuery(
+          'SELECT version FROM correlia_schema_versions WHERE version = 4',
+        );
+        expect(versions, hasLength(1));
+      });
+    },
+    rollbackDatabase: RollbackDatabase.disabled,
+    testGroupTagsOverride: ['db'],
+  );
+  withServerpod(
+    'Schema step 4 sub-microsecond evidence',
+    (sessionBuilder, _) {
+      test('sub_microsecond_evidence', () async {
+        final session = sessionBuilder.build();
+        await applySchemaSteps(session, schemaSteps.take(3).toList());
+        const older = '00000000-0000-0000-0000-0000000000b1';
+        const newer = '00000000-0000-0000-0000-0000000000b2';
+        // A row stored before the upgrade; the column keeps microseconds.
+        await insertEvent(session, older, '2026-01-01 12:00:00.000000 UTC');
+        await applySchemaSteps(session, schemaSteps);
+        // A row this release writes: the effective time truncated to micros.
+        await insertEvent(
+          session,
+          newer,
+          '2026-01-01 12:00:00.000000 UTC',
+          effective: '2026-01-01 12:00:00.000000 UTC',
+        );
+        final t = DateTime.utc(2026, 1, 1, 12);
+        expect(await effectiveTimes(session), {older: t, newer: t});
+        final seconds = t.millisecondsSinceEpoch ~/ 1000;
+        final observed = EventTimestamp.fromParts(seconds, 0);
+        OrderingKey key(int nanos, String id) => OrderingKey.fromSource(
+          sourceTime: EventTimestamp.fromParts(seconds, nanos),
+          observedAt: observed,
+          eventId: id,
+          skewAllowance: const Duration(minutes: 5),
+        );
+        // Both truncate to t, but the fence still orders by nanoseconds.
+        expect(key(800, older).compareTo(key(900, newer)), lessThan(0));
+        expect(key(900, older).compareTo(key(800, newer)), greaterThan(0));
       });
     },
     rollbackDatabase: RollbackDatabase.disabled,
