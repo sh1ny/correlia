@@ -386,7 +386,10 @@ arguments and POSTs it to `<base url>/hooks/icinga2/<source>`.
    UUID, exactly one of the token file or the HMAC key file, and optionally a CA file. Only file paths are
    arguments, never a credential.
 4. Apply the `correlia-host` and `correlia-service` commands to one dedicated user (the commented example in
-   `correlia.conf`). Icinga 2 runs a command once per recipient, so each extra user is an extra event.
+   `correlia.conf`). Icinga 2 runs a command once per recipient, so each extra user is an extra delivery.
+   Deliveries of one state notification (same state, state type and change time) are the same observation:
+   the copies are stored as duplicates and publish nothing. A non-state notification (acknowledgement,
+   downtime, flapping, custom) has no such key, so each extra copy can publish an extra event.
 5. Run `icinga2 daemon -C` and reload Icinga 2.
 
 The commands launch the sender through `/usr/bin/env -i` with Icinga 2's `timeout = 15`. The sender takes every

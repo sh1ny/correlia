@@ -1,10 +1,14 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:correlia_server/event.dart';
+import 'package:correlia_server/src/ingest/bootstrap.dart';
 import 'package:correlia_server/src/ingest/config_repository.dart';
+import 'package:correlia_server/src/ingest/ingress.dart';
 import 'package:correlia_server/src/ingest/source_decoder.dart';
 import 'package:correlia_server/src/pipeline/pipeline.dart';
+import 'package:correlia_server/src/runtime/subsystem.dart';
 import 'package:crypto/crypto.dart';
 import 'package:serverpod/serverpod.dart';
 import 'package:test/test.dart';
@@ -19,6 +23,13 @@ import 'ingest_config_test.dart' show token;
 const _alertmanagerId = '11111111-1111-4111-8111-111111111111';
 const _icinga2Id = '33333333-3333-4333-8333-333333333333';
 final _now = DateTime.utc(2026, 11, 10, 12);
+
+final class _Routes implements RouteHost {
+  _Routes(this.web);
+  final WebServer web;
+  @override
+  void addRoute(Route route, String path) => web.addRoute(route, path);
+}
 
 /// An Icinga2 decoder that only records that it ran.
 final class _StubDecoder {
@@ -46,7 +57,7 @@ void main() {
     (builder, _) {
       late Session session;
 
-      Future<void> publish(
+      Future<IngestBootstrap> publish(
         int revision, {
         bool icinga2 = true,
         bool icinga2Enabled = true,
@@ -80,7 +91,7 @@ void main() {
         await initializeIngestSchema(session);
         await session.db.unsafeSimpleExecute(
           '''TRUNCATE activity,alerts,pipeline_failures,observation_keys,outbox,
-        events,raw_inbox,ingest_active_config,ingest_source_credential,
+        events,raw_inbox,transport_keys,ingest_active_config,ingest_source_credential,
         ingest_source,ingest_config_snapshot,ingest_secret_commitment,
         secret_record CASCADE''',
         );
@@ -115,6 +126,59 @@ VALUES (@time,CAST(@id AS uuid),CAST(@source AS uuid),@body,@digest,'application
           }),
         );
         return id;
+      }
+
+      /// Admits [body] for [source] through a real ingress route under
+      /// [input], answering with the HTTP status and the new raw row's id.
+      Future<(int, String?)> admit(
+        IngestBootstrap input,
+        String kind,
+        String source,
+        int key,
+        Uint8List body, {
+        void Function(String)? log,
+      }) async {
+        final web = WebServer(serverpod: session.serverpod);
+        final ingress = IngressSubsystem(
+          pod: session.serverpod,
+          bootstrap: () => input,
+          ready: () => true,
+          log: log ?? (_) {},
+          clock: () => _now,
+        );
+        ingress.mountRoutes(_Routes(web));
+        await ingress.start();
+        expect(await web.start(), isTrue);
+        final client = HttpClient();
+        try {
+          final before = {
+            for (final r in await session.db.unsafeQuery(
+              'SELECT raw_id::text FROM raw_inbox',
+            ))
+              r[0]! as String,
+          };
+          final request = await client.post(
+            '127.0.0.1',
+            web.port!,
+            '/hooks/$kind/$source',
+          );
+          request.headers.contentType = ContentType.json;
+          request.headers.set('authorization', 'Bearer ${token(key)}');
+          request.add(body);
+          final response = await request.close();
+          await response.drain<void>();
+          final added = [
+            for (final r in await session.db.unsafeQuery(
+              'SELECT raw_id::text FROM raw_inbox',
+            ))
+              if (!before.contains(r[0])) r[0]! as String,
+          ];
+          return (response.statusCode, added.singleOrNull);
+        } finally {
+          client.close(force: true);
+          await ingress.stop();
+          await web.stop();
+        }
       }
 
       /// Stores a derived snapshot of the active one and returns its id.
@@ -313,9 +377,58 @@ VALUES (@time,CAST(@id AS uuid),CAST(@source AS uuid),@body,@digest,'application
         expect(await count('outbox'), 0);
       });
 
+      test('unknown_field_name_is_not_persisted_or_logged', () async {
+        final input = await publish(1);
+        final lines = <String>[];
+        for (final name in ['secret_token_abc', 'state.state_type']) {
+          final (code, raw) = await admit(
+            input,
+            'icinga2',
+            _icinga2Id,
+            2,
+            icinga2.body(icinga2.delivery(set: {name: 'x'})),
+            log: lines.add,
+          );
+          expect(code, 202);
+          final pipeline = PipelineRepository(
+            session,
+            clock: () => _now,
+            log: lines.add,
+          );
+          await pinAll(pipeline);
+          expect(await pipeline.processOne(), isTrue);
+          expect(await status(raw!), 'failed');
+          expect(await failure(raw), 'unknown_field');
+          final committed = await rows(
+            '''SELECT "fieldPath", row_to_json(f)::text FROM pipeline_failures f
+        WHERE "rawId"=CAST('$raw' AS uuid)''',
+          );
+          expect(committed.single[0], '*');
+          expect(committed.single[1], isNot(contains(name)), reason: name);
+          final rawRow = await rows(
+            '''SELECT row_to_json(r)::text FROM (SELECT status,outcome_json
+        FROM raw_inbox WHERE raw_id=CAST('$raw' AS uuid)) r''',
+          );
+          expect(rawRow.single.single, isNot(contains(name)), reason: name);
+          for (final line in lines) {
+            expect(line, isNot(contains(name)), reason: name);
+          }
+        }
+        expect(await count('events'), 0);
+      });
+
       test('admitted_row_decodes_with_its_kind', () async {
-        await publish(1);
-        final raw = await seed(_alertmanagerId, alertmanagerBody());
+        final first = await publish(1);
+        final (code, admitted) = await admit(
+          first,
+          'alertmanager',
+          _alertmanagerId,
+          1,
+          alertmanagerBody(),
+        );
+        expect(code, 202);
+        final raw = admitted!;
+        // The next revision is active before the worker's first claim.
         await publish(2);
         final stub = _StubDecoder();
         final pipeline = repo(stub);
@@ -327,9 +440,23 @@ VALUES (@time,CAST(@id AS uuid),CAST(@source AS uuid),@body,@digest,'application
       });
 
       test('source_disabled_before_the_first_claim', () async {
-        await publish(1);
-        final am = await seed(_alertmanagerId, alertmanagerBody());
-        final ic = await seed(_icinga2Id, icinga2Body());
+        final first = await publish(1);
+        final (amCode, am) = await admit(
+          first,
+          'alertmanager',
+          _alertmanagerId,
+          1,
+          alertmanagerBody(),
+        );
+        final (icCode, ic) = await admit(
+          first,
+          'icinga2',
+          _icinga2Id,
+          2,
+          icinga2Body(),
+        );
+        expect([amCode, icCode], [202, 202]);
+        expect(await count('raw_inbox'), 2);
         await publish(2, icinga2Enabled: false);
         // Disable the Alertmanager source too, in a third revision.
         await IngestConfigRepository(
@@ -359,7 +486,7 @@ VALUES (@time,CAST(@id AS uuid),CAST(@source AS uuid),@body,@digest,'application
         await pinAll(pipeline);
         expect(await pipeline.processOne(), isTrue);
         expect(await pipeline.processOne(), isTrue);
-        for (final raw in [am, ic]) {
+        for (final raw in [am!, ic!]) {
           expect(await status(raw), 'failed');
           expect(await failure(raw), 'source_not_configured');
         }
@@ -367,6 +494,9 @@ VALUES (@time,CAST(@id AS uuid),CAST(@source AS uuid),@body,@digest,'application
         expect(await count('events'), 0);
       });
     },
+    // Ingress admits on its own connection, so the test's writes must be
+    // committed for it to see them; setUp truncates every table instead.
+    rollbackDatabase: RollbackDatabase.disabled,
     testGroupTagsOverride: ['db'],
   );
 }

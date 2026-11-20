@@ -13,9 +13,9 @@ artifact is built but not published.
   `concurrent_signed_notifications_beyond_the_cap`: three signed notifications from one Icinga 2 action overlap
   at Correlia through a proxy that holds each request's last byte until Correlia logs its refusal. A partial run
   that selects `retained_state_across_a_restart` without the first-problem scenario it relies on is refused.
-- Full run (after the pre-ship review, round 2): `tool/icinga2_capture.sh 2.16.6`, then
-  `tool/icinga2_capture.sh 2.15.7 2.14.10 2.13.14`, every mapped scenario, no failed scenario.
-- Sender artifact (linux-x64): SHA-256 `65847848ef218ebbb836d76eeb97fb11747662399d18d0c1fb31311005cd0274`, the same in every manifest.
+- Full run (after the pre-ship review, round 4, which bounded the sender's time arguments):
+  `tool/icinga2_capture.sh 2.13.14 2.14.10 2.15.7 2.16.6`, every mapped scenario, no failed scenario.
+- Sender artifact (linux-x64): SHA-256 `feaeb73725caf8276e12d2c486f60059aa6c5a131b781f8dd9a1166cd73f62e9`, the same in every manifest.
   `mise run release:icinga2-notify` rebuilds it and publishes it only because the rebuild has this hash.
 - Definitions: `contrib/icinga2/` SHA-256 per file in each manifest
   (`correlia-commands.conf` `61ed6c9b80eaf5d1…`,
@@ -27,7 +27,7 @@ artifact is built but not published.
 Gates: S = same-second service state, H = same-second host state, N = same-second notification time,
 C = production notification clock, D = downtime removal, F = first problem of a new object,
 202 = recorded 202 and decoded event. Judged by `correlia_server/test/unit/ingest/icinga2_versions_test.dart`
-on the committed captures (55 tests, all passing).
+on the committed captures (60 tests, all passing).
 
 | Release | Architecture | Image | Digest | Icinga 2 | S | H | N | C | D | F | 202 |
 |---|---|---|---|---|---|---|---|---|---|---|---|

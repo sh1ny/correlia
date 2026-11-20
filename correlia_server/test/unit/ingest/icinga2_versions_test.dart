@@ -388,6 +388,36 @@ void main() {
     );
   });
 
+  test('service_capture_in_the_host_gate_fails_it', () {
+    final broken = copy();
+    File(
+      '${broken.directory.path}/two_problems_within_one_second.json',
+    ).copySync(
+      '${broken.directory.path}/host_command_keeps_sub_second_precision.json',
+    );
+    expectNamed(
+      evaluatePair(broken),
+      broken,
+      Gate.host,
+      mentions: 'object_type service, not host',
+      only: true,
+    );
+  });
+
+  test('results_and_deliveries_must_name_one_object', () {
+    final broken = copy();
+    edit(broken, 'two_problems_within_one_second', (r) {
+      r.firstWhere((x) => x['kind'] == 'result')['cap_id'] = 'other';
+    });
+    expectNamed(
+      evaluatePair(broken),
+      broken,
+      Gate.service,
+      mentions: 'result r1 is lab/other, delivery',
+      only: true,
+    );
+  });
+
   test('clock_evidence_must_cover_both_commands_and_fields', () {
     final broken = copy();
     edit(broken, 'production_notification_clock_keeps_microseconds', (r) {

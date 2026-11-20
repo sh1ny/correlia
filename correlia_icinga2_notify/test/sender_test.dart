@@ -633,6 +633,26 @@ void main() {
       });
     });
 
+    test('last_time_of_the_v1_range_is_sent', () async {
+      final receiver = await Receiver.start();
+      addTearDown(receiver.close);
+      final result = await run(
+        argv(
+          baseUrl: receiver.url,
+          over: {
+            '--last-state-change': '253402300799.999999',
+            '--notification-time': '253402300799.999999',
+          },
+        ),
+      );
+      expect(result.code, 0, reason: result.text);
+      final document =
+          jsonDecode(utf8.decode(receiver.requests.single.body))
+              as Map<String, Object?>;
+      expect(document['last_state_change'], '253402300799.999999');
+      expect(document['notification_time'], '253402300799.999999');
+    });
+
     test('hmac_request_is_signed_over_the_exact_body', () async {
       final receiver = await Receiver.start();
       addTearDown(receiver.close);
@@ -751,6 +771,13 @@ void main() {
         '--notification-type': 'CUSTOM',
         '--last-state-change': '',
       }, 'invalid_argument --last-state-change');
+    });
+
+    test('time_after_the_v1_range', () async {
+      for (final name in ['--last-state-change', '--notification-time']) {
+        await rejects({name: '253402300800.000000'}, 'invalid_argument $name');
+        await rejects({name: '999999999999.999999'}, 'invalid_argument $name');
+      }
     });
 
     test('non_empty_environment', () async {

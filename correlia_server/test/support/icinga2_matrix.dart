@@ -253,6 +253,45 @@ List<String> _sameSecond(Capture c, String file, {required bool service}) {
   if (deliveries.length != 3) {
     return ['expected 3 admitted deliveries, found ${deliveries.length}'];
   }
+  // Every result and delivery is the one object of this gate's command: a
+  // capture of the other command, or a mixed one, proves nothing here.
+  final kind = service ? 'service' : 'host';
+  String objectOf(Map<String, Object?> m, String hostKey, String serviceKey) =>
+      service ? '${m[hostKey]}/${m[serviceKey]}' : '${m[hostKey]}';
+  final objects = <String>{};
+  for (final r in results) {
+    if (r.json['object_type'] != kind) {
+      out.add(
+        'result ${r.id} has object_type ${r.json['object_type']}, '
+        'not $kind',
+      );
+    }
+    // The driver's results name services on the lab host by their id.
+    final object = service ? 'lab/${r.json['cap_id']}' : '${r.json['cap_id']}';
+    objects.add(object);
+    for (final d in deliveries) {
+      final named = objectOf(d.body, 'host', 'service');
+      if (named != object) {
+        out.add('result ${r.id} is $object, delivery ${d.id} is $named');
+      }
+    }
+  }
+  for (final d in deliveries) {
+    if (d.body['object_type'] != kind) {
+      out.add(
+        'delivery ${d.id} has object_type ${d.body['object_type']}, '
+        'not $kind',
+      );
+    }
+    if (objects.isEmpty) objects.add(objectOf(d.body, 'host', 'service'));
+  }
+  for (final s in c.of(file, 'state')) {
+    final o = s.json['object'] as Map<String, Object?>? ?? const {};
+    final named = objectOf(o, 'host', 'service');
+    if (!objects.contains(named) || (!service && o.containsKey('service'))) {
+      out.add('state after ${s.json['after']} is for $named');
+    }
+  }
   final times = [
     for (final d in deliveries) d.body['last_state_change']! as String,
   ];

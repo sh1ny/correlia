@@ -43,6 +43,10 @@ final _uuid = RegExp(
 );
 final _time = RegExp(r'^[1-9][0-9]{0,11}\.[0-9]{6}$');
 
+/// First whole second past the v1 time range (year 10000, UTC); the server
+/// refuses a time at or after it as out of range.
+const _secondsLimit = 253402300800;
+
 const _hostStates = {'UP', 'DOWN', 'UNREACHABLE'};
 const _serviceStates = {'OK', 'WARNING', 'CRITICAL', 'UNKNOWN'};
 const _notificationTypes = {
@@ -172,7 +176,10 @@ final class SenderArguments {
       throw const SenderExit.config('missing_argument --last-state-change');
     }
     for (final name in ['--last-state-change', '--notification-time']) {
-      if (values[name] case final value? when !_time.hasMatch(value)) {
+      if (values[name] case final value?
+          when !_time.hasMatch(value) ||
+              int.parse(value.substring(0, value.indexOf('.'))) >=
+                  _secondsLimit) {
         throw SenderExit.config('invalid_argument $name');
       }
     }
