@@ -139,18 +139,18 @@ that produces the evidence, and the test is what judges it.
 | integration-icinga2 → Supported Icinga 2 releases | A capture changes shape | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `a_capture_changes_shape` | red |
 | source-ingress → Source configuration format | Version 1 file still starts | `correlia_server/test/e2e/secret_store_e2e_test.dart` | `version_1_file_still_starts` (existing; re-run) | green |
 | source-ingress → Source configuration format | Unsupported kind or field | `correlia_server/test/unit/ingest/source_config_test.dart` | `unsupported_kind_or_field` (existing; re-run) | green |
-| source-ingress → Source configuration format | Supported kinds | `correlia_server/test/db/icinga2_ingress_test.dart` | `supported_kinds` | red |
+| source-ingress → Source configuration format | Supported kinds | `correlia_server/test/db/icinga2_ingress_test.dart` | `supported_kinds` | green |
 | source-ingress → Credential rotation with overlap | Overlapping rotation | `correlia_server/test/db/ingress_credentials_test.dart` | `overlapping_rotation` (existing; re-run) | green |
 | source-ingress → Credential rotation with overlap | Expired and not yet valid credentials | `correlia_server/test/db/ingress_credentials_test.dart` | `expired_and_not_yet_valid_credentials` (existing; re-run) | green |
 | source-ingress → Credential rotation with overlap | Rotation during a body read | `correlia_server/test/db/ingress_credentials_test.dart` | `rotation_during_a_body_read` (existing; re-run) | green |
 | source-ingress → Credential rotation with overlap | Activation without a usable credential | `correlia_server/test/unit/ingest/source_config_test.dart` | `activation_without_a_usable_credential` (existing; re-run) | green |
-| source-ingress → A source's kind never changes | Kind change refused | `correlia_server/test/db/ingest_config_test.dart` | `kind_change_refused` | red |
-| source-ingress → A source's kind never changes | Disabled source keeps its kind | `correlia_server/test/db/ingest_config_test.dart` | `disabled_source_keeps_its_kind` | red |
+| source-ingress → A source's kind never changes | Kind change refused | `correlia_server/test/db/ingest_config_test.dart` | `kind_change_refused` | green |
+| source-ingress → A source's kind never changes | Disabled source keeps its kind | `correlia_server/test/db/ingest_config_test.dart` | `disabled_source_keeps_its_kind` | green |
 | source-ingress → A source's kind never changes | Admitted row decodes with its kind | `correlia_server/test/db/decoder_dispatch_test.dart` | `admitted_row_decodes_with_its_kind` | red |
 | source-ingress → A source's kind never changes | Source disabled before the first claim | `correlia_server/test/db/decoder_dispatch_test.dart` | `source_disabled_before_the_first_claim` | red |
-| source-ingress → Path tokens stay Alertmanager-only | Icinga2 source declares a path token | `correlia_server/test/unit/ingest/source_config_test.dart` | `icinga2_source_declares_a_path_token` | red |
-| source-ingress → Path tokens stay Alertmanager-only | Path-token request on the Icinga2 route | `correlia_server/test/db/icinga2_ingress_test.dart` | `path_token_request_on_the_icinga2_route` | red |
-| source-ingress → Identity label exclusion stays Alertmanager-only | Icinga2 source declares excluded identity labels | `correlia_server/test/unit/ingest/source_config_test.dart` | `icinga2_source_declares_excluded_identity_labels` | red |
+| source-ingress → Path tokens stay Alertmanager-only | Icinga2 source declares a path token | `correlia_server/test/unit/ingest/source_config_test.dart` | `icinga2_source_declares_a_path_token` | green |
+| source-ingress → Path tokens stay Alertmanager-only | Path-token request on the Icinga2 route | `correlia_server/test/db/icinga2_ingress_test.dart` | `path_token_request_on_the_icinga2_route` | green |
+| source-ingress → Identity label exclusion stays Alertmanager-only | Icinga2 source declares excluded identity labels | `correlia_server/test/unit/ingest/source_config_test.dart` | `icinga2_source_declares_excluded_identity_labels` | green |
 
 The user-verified M2 exit criterion is not checked in this change. It needs the owner's real Icinga2 and
 Alertmanager/Thanos feeding a dev instance for a day, and it needs Thanos and the enrichment changes, so the
@@ -161,12 +161,12 @@ list. Group 9's capture answers it, and the answer does not change what gets bui
 
 ## 1. Source configuration: the `icinga2` kind and immutable kinds
 
-- [ ] 1.1 Write failing tests for `icinga2_source_declares_a_path_token` and
+- [x] 1.1 Write failing tests for `icinga2_source_declares_a_path_token` and
   `icinga2_source_declares_excluded_identity_labels` (`source_config_test.dart`), `kind_change_refused` and
   `disabled_source_keeps_its_kind` (`ingest_config_test.dart`), and `supported_kinds` and
   `path_token_request_on_the_icinga2_route` (`icinga2_ingress_test.dart`). Verify each one fails for the
   missing kind or rule, not a setup error.
-- [ ] 1.2 Add a sealed `SourceKind` (`alertmanager`, `icinga2`) to the source model and the format version 2
+- [x] 1.2 Add a sealed `SourceKind` (`alertmanager`, `icinga2`) to the source model and the format version 2
   parser:
   - `path_token_enabled` and `excluded_identity_labels` are refused on non-Alertmanager kinds.
   - The `kind_changed` check runs against every source UUID ever published, disabled sources included.
@@ -174,11 +174,11 @@ list. Group 9's capture answers it, and the answer does not change what gets bui
     its path is refused.
 
   Verify that the 1.1 tests pass, and flip their rows green.
-- [ ] 1.3 Re-run the carried tests (`version_1_file_still_starts`, `unsupported_kind_or_field`,
+- [x] 1.3 Re-run the carried tests (`version_1_file_still_starts`, `unsupported_kind_or_field`,
   `overlapping_rotation`, `expired_and_not_yet_valid_credentials`, `rotation_during_a_body_read`,
   `activation_without_a_usable_credential`). Remove any kind-change case from `rotation_during_a_body_read`,
   because the modified requirement dropped it. Verify all six pass.
-- [ ] 1.4 Document the `icinga2` kind, `kind_changed`, and the Alertmanager-only options in the configuration
+- [x] 1.4 Document the `icinga2` kind, `kind_changed`, and the Alertmanager-only options in the configuration
   section of `docs/ingest-pipeline.md`. Verify with `mise run check`.
 
 ## 2. Schema step 4 and the recorded clamp (ORD-4)

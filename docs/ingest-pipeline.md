@@ -82,6 +82,17 @@ credential must be unexpired when published. Rotate by adding the replacement re
 sender, then removing the old credential at a higher revision. V2 rate limits are per authenticated source
 per API process: `per_second` 1–1000, `burst` 1–10000, default 20/40. Replicas multiply the effective budget.
 
+A v2 source's `kind` is `alertmanager` or `icinga2`; any other value fails activation with a field error at
+`sources[i].kind`. Each source accepts deliveries only on its own kind's route, `/hooks/alertmanager/<source-uuid>`
+or `/hooks/icinga2/<source-uuid>`. `path_token_enabled` and `excluded_identity_labels` are Alertmanager-only
+options: an `icinga2` source that declares either fails activation with a field error naming
+`sources[i].path_token_enabled` or `sources[i].excluded_identity_labels` (code `alertmanager_only`), and a request
+with a credential in the path of the Icinga 2 route (`/hooks/icinga2/<source-uuid>/<credential>`) is answered 401
+with nothing stored. A source UUID keeps the kind it was first published with, so a pinned raw row always decodes
+with the kind it was admitted under. Publishing the same UUID with another kind fails with code `kind_changed` at
+`sources[i].kind`, also when the source was removed or disabled in between; the prior snapshot stays active. To
+change a source's kind, give it a new UUID.
+
 V1 accepts `token_ref` instead of `kind`, `credentials`, and `rate_limit`; it maps to one Alertmanager bearer
 credential and keeps any existing namespace. For an M1 upgrade supply the key file and original import
 file, including keys needed by live deliveries and by outputs routed from already-pinned pending raw rows.

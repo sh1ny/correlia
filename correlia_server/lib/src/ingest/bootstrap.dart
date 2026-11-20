@@ -315,6 +315,7 @@ final class IngestBootstrap {
         final field = 'sources[$index]';
         final source = _parseSource(
           _map(value, 'config', field),
+          index,
           field,
           version,
           namespaces,

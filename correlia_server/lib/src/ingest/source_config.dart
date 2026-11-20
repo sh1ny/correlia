@@ -47,11 +47,43 @@ final class SourceRateLimit {
   Map<String, int> toJson() => {'per_second': perSecond, 'burst': burst};
 }
 
+/// The contract a source speaks; fixed for a source UUID's lifetime.
+sealed class SourceKind {
+  const SourceKind._(this.name);
+
+  /// The Alertmanager webhook kind.
+  static const SourceKind alertmanager = AlertmanagerSourceKind._();
+
+  /// The Icinga 2 notification-command kind.
+  static const SourceKind icinga2 = Icinga2SourceKind._();
+
+  /// The configuration and route name of this kind.
+  final String name;
+
+  /// The kind named [value], or `null` when it is not supported.
+  static SourceKind? named(Object? value) => switch (value) {
+    'alertmanager' => alertmanager,
+    'icinga2' => icinga2,
+    _ => null,
+  };
+}
+
+/// See [SourceKind.alertmanager].
+final class AlertmanagerSourceKind extends SourceKind {
+  const AlertmanagerSourceKind._() : super._('alertmanager');
+}
+
+/// See [SourceKind.icinga2].
+final class Icinga2SourceKind extends SourceKind {
+  const Icinga2SourceKind._() : super._('icinga2');
+}
+
 /// A source definition pinned by an immutable configuration snapshot.
 final class IngestSource {
   IngestSource({
     required this.id,
     required this.kind,
+    required this.declaredAt,
     required this.namespace,
     required this.enabled,
     required List<SourceCredential> credentials,
@@ -64,7 +96,10 @@ final class IngestSource {
        excludedIdentityLabels = Set.unmodifiable(excludedIdentityLabels),
        outputIds = List.unmodifiable(outputIds);
   final String id;
-  final String kind;
+  final SourceKind kind;
+
+  /// The index of this source in the file's `sources` list, for field errors.
+  final int declaredAt;
   final String namespace;
   final bool enabled;
   final List<SourceCredential> credentials;
@@ -77,7 +112,7 @@ final class IngestSource {
   /// The deterministic public representation; old routing keys retain their shape.
   Map<String, Object?> toJson() => {
     'id': id,
-    'kind': kind,
+    'kind': kind.name,
     'namespace': namespace,
     'enabled': enabled,
     'credentials': credentials
@@ -207,6 +242,7 @@ final _fieldName = RegExp(r'^[a-z][a-z_]{0,31}$');
 
 IngestSource _parseSource(
   Map<String, Object?> row,
+  int index,
   String field,
   int version,
   Set<String> namespaces,
@@ -225,8 +261,20 @@ IngestSource _parseSource(
     if (version == 1) 'token_ref' else ...{'kind', 'credentials', 'rate_limit'},
   }, field);
   final id = _uuid(row['id'], '$field.id');
-  final kind = version == 1 ? 'alertmanager' : row['kind'];
-  if (kind != 'alertmanager') _bad('config', '$field.kind', 'kind');
+  final kind =
+      SourceKind.named(version == 1 ? 'alertmanager' : row['kind']) ??
+      _bad('config', '$field.kind', 'kind');
+  if (kind is! AlertmanagerSourceKind) {
+    // Only Alertmanager has a credential-bearing path and label identity.
+    for (final option in const [
+      'path_token_enabled',
+      'excluded_identity_labels',
+    ]) {
+      if (row.containsKey(option)) {
+        _bad('config', '$field.$option', 'alertmanager_only');
+      }
+    }
+  }
   final namespace = row['namespace'] == null
       ? id
       : _string(
@@ -294,7 +342,8 @@ IngestSource _parseSource(
   }
   return IngestSource(
     id: id,
-    kind: 'alertmanager',
+    kind: kind,
+    declaredAt: index,
     namespace: namespace,
     enabled: _boolean(row['enabled'], '$field.enabled'),
     credentials: credentials,

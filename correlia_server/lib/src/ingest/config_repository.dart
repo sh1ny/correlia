@@ -151,6 +151,7 @@ final class IngestConfigRepository {
             );
           }
         }
+        await _refuseKindChanges(input, transaction);
         await _validateCommitments(imported, transaction);
         await _importSecrets(input, imported, transaction);
         if (requireLiveSecrets) {
@@ -212,10 +213,10 @@ final class IngestConfigRepository {
           await session.db.unsafeExecute(
             '''INSERT INTO ingest_source ("sourceId",kind,enabled,"allowPathToken")
             VALUES (@id::uuid,@kind,@enabled,@path) ON CONFLICT ("sourceId") DO UPDATE
-            SET kind=EXCLUDED.kind,enabled=EXCLUDED.enabled,"allowPathToken"=EXCLUDED."allowPathToken"''',
+            SET enabled=EXCLUDED.enabled,"allowPathToken"=EXCLUDED."allowPathToken"''',
             parameters: QueryParameters.named({
               'id': source.id,
-              'kind': source.kind,
+              'kind': source.kind.name,
               'enabled': source.enabled,
               'path': source.pathTokenEnabled,
             }),
@@ -253,6 +254,32 @@ final class IngestConfigRepository {
       throw BootstrapError('secrets', r'$', error.code);
     } catch (_) {
       throw const BootstrapError('config', r'$', 'publication_failed');
+    }
+  }
+
+  /// A source UUID keeps the kind it was first published with, also once it is
+  /// disabled (its row is never deleted), so pinned raw rows decode with it.
+  Future<void> _refuseKindChanges(
+    IngestBootstrap input,
+    Transaction transaction,
+  ) async {
+    final stored = {
+      for (final row in await session.db.unsafeQuery(
+        'SELECT "sourceId"::text,kind FROM ingest_source',
+        transaction: transaction,
+        timeoutInSeconds: 5,
+      ))
+        row[0]! as String: row[1]! as String,
+    };
+    for (final source in input.sources) {
+      final existing = stored[source.id];
+      if (existing != null && existing != source.kind.name) {
+        throw BootstrapError(
+          'config',
+          'sources[${source.declaredAt}].kind',
+          'kind_changed',
+        );
+      }
     }
   }
 
