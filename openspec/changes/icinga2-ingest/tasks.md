@@ -44,7 +44,7 @@ that produces the evidence, and the test is what judges it.
 | integration-icinga2 → Webhook text is storable | NUL in a host name | `correlia_server/test/db/icinga2_ingest_test.dart` | `nul_in_a_host_name` | green |
 | integration-icinga2 → Webhook body nesting is bounded before parsing | Deeply nested body | `correlia_server/test/db/icinga2_ingest_test.dart` | `deeply_nested_body` | green |
 | integration-icinga2 → Shipped notification command | Notification from a real Icinga 2 in both auth modes | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `notification_from_a_real_icinga_2_in_both_auth_modes` | red |
-| integration-icinga2 → Shipped notification command | Rejected delivery | `correlia_server/test/e2e/icinga2_sender_e2e_test.dart` | `rejected_delivery` | red |
+| integration-icinga2 → Shipped notification command | Rejected delivery | `correlia_server/test/e2e/icinga2_sender_e2e_test.dart` | `rejected_delivery` | green |
 | integration-icinga2 → Shipped notification command | Long check output | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `long_check_output` | red |
 | integration-icinga2 → Shipped notification command | Recovery output with dollar signs | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `recovery_output_with_dollar_signs` | red |
 | integration-icinga2 → Shipped notification command | Oversized custom notification | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `oversized_custom_notification` | red |
@@ -52,7 +52,7 @@ that produces the evidence, and the test is what judges it.
 | integration-icinga2 → Shipped notification command | Invalid UTF-8 in check output | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `invalid_utf_8_in_check_output` | red |
 | integration-icinga2 → Shipped notification command | Burst of verbose notifications | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `burst_of_verbose_notifications` | red |
 | integration-icinga2 → Shipped notification command | Runtime options in Icinga's environment | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `runtime_options_in_icinga_s_environment` | red |
-| integration-icinga2 → Shipped notification command | Command definition without env -i | `correlia_icinga2_notify/test/binary_test.dart` | `command_definition_without_env_i` | red |
+| integration-icinga2 → Shipped notification command | Command definition without env -i | `correlia_icinga2_notify/test/binary_test.dart` | `command_definition_without_env_i` | green |
 | integration-icinga2 → Shipped notification command | Name with an embedded NUL is not delivered | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `name_with_an_embedded_nul_is_not_delivered` | red |
 | integration-icinga2 → Shipped notification command | Oversized or invalid name is not delivered | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `oversized_or_invalid_name_is_not_delivered` | red |
 | integration-icinga2 → Shipped notification command | Setting not deliverable exactly | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `setting_not_deliverable_exactly` | red |
@@ -68,19 +68,19 @@ that produces the evidence, and the test is what judges it.
 | integration-icinga2 → Sender setup constraints are documented | Documentation names the setup constraints | `tool/test/icinga2_docs_test.dart` | `documentation_names_the_setup_constraints` | red |
 | integration-icinga2 → Sender transport and diagnostics | Rejected delivery leaves no secret in Icinga 2 logs | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `rejected_delivery_leaves_no_secret_in_icinga_2_logs` | red |
 | integration-icinga2 → Sender transport and diagnostics | Hostile inherited environment | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `hostile_inherited_environment` | red |
-| integration-icinga2 → Sender transport and diagnostics | Configured CA is the only trust | `correlia_icinga2_notify/test/sender_test.dart` | `configured_ca_is_the_only_trust` | red |
-| integration-icinga2 → Sender transport and diagnostics | URL without a scheme or with a loopback name | `correlia_icinga2_notify/test/sender_test.dart` | `url_without_a_scheme_or_with_a_loopback_name` | red |
-| integration-icinga2 → Sender transport and diagnostics | Plain HTTP to a remote host | `correlia_icinga2_notify/test/sender_test.dart` | `plain_http_to_a_remote_host` | red |
-| integration-icinga2 → Sender transport and diagnostics | Non-regular credential file | `correlia_icinga2_notify/test/sender_test.dart` | `non_regular_credential_file` | red |
-| integration-icinga2 → Sender transport and diagnostics | Credential file larger than its check | `correlia_icinga2_notify/test/sender_test.dart` | `credential_file_larger_than_its_check` | red |
-| integration-icinga2 → Sender transport and diagnostics | Blocking file after the check | `correlia_icinga2_notify/test/sender_test.dart` | `blocking_file_after_the_check` | red |
-| integration-icinga2 → Sender transport and diagnostics | Credential file readable by others | `correlia_icinga2_notify/test/sender_test.dart` | `credential_file_readable_by_others` | red |
-| integration-icinga2 → Sender transport and diagnostics | Peer never answers | `correlia_icinga2_notify/test/sender_test.dart` | `peer_never_answers` | red |
-| integration-icinga2 → Sender transport and diagnostics | Only 202 counts as delivered | `correlia_icinga2_notify/test/sender_test.dart` | `only_202_counts_as_delivered` | red |
-| integration-icinga2 → Sender transport and diagnostics | Redirect is not followed | `correlia_icinga2_notify/test/sender_test.dart` | `redirect_is_not_followed` | red |
-| integration-icinga2 → Sender transport and diagnostics | Concurrent signed notifications beyond the cap | `correlia_server/test/e2e/icinga2_sender_e2e_test.dart` | `concurrent_signed_notifications_beyond_the_cap` | red |
-| integration-icinga2 → Sender credential handling | Canonical unpadded key file | `correlia_server/test/e2e/icinga2_sender_e2e_test.dart` | `canonical_unpadded_key_file` | red |
-| integration-icinga2 → Sender credential handling | HMAC vectors | `correlia_icinga2_notify/test/sender_test.dart` | `hmac_vectors` | red |
+| integration-icinga2 → Sender transport and diagnostics | Configured CA is the only trust | `correlia_icinga2_notify/test/sender_test.dart` | `configured_ca_is_the_only_trust` | green |
+| integration-icinga2 → Sender transport and diagnostics | URL without a scheme or with a loopback name | `correlia_icinga2_notify/test/sender_test.dart` | `url_without_a_scheme_or_with_a_loopback_name` | green |
+| integration-icinga2 → Sender transport and diagnostics | Plain HTTP to a remote host | `correlia_icinga2_notify/test/sender_test.dart` | `plain_http_to_a_remote_host` | green |
+| integration-icinga2 → Sender transport and diagnostics | Non-regular credential file | `correlia_icinga2_notify/test/sender_test.dart` | `non_regular_credential_file` | green |
+| integration-icinga2 → Sender transport and diagnostics | Credential file larger than its check | `correlia_icinga2_notify/test/sender_test.dart` | `credential_file_larger_than_its_check` | green |
+| integration-icinga2 → Sender transport and diagnostics | Blocking file after the check | `correlia_icinga2_notify/test/sender_test.dart` | `blocking_file_after_the_check` | green |
+| integration-icinga2 → Sender transport and diagnostics | Credential file readable by others | `correlia_icinga2_notify/test/sender_test.dart` | `credential_file_readable_by_others` | green |
+| integration-icinga2 → Sender transport and diagnostics | Peer never answers | `correlia_icinga2_notify/test/sender_test.dart` | `peer_never_answers` | green |
+| integration-icinga2 → Sender transport and diagnostics | Only 202 counts as delivered | `correlia_icinga2_notify/test/sender_test.dart` | `only_202_counts_as_delivered` | green |
+| integration-icinga2 → Sender transport and diagnostics | Redirect is not followed | `correlia_icinga2_notify/test/sender_test.dart` | `redirect_is_not_followed` | green |
+| integration-icinga2 → Sender transport and diagnostics | Concurrent signed notifications beyond the cap | `correlia_server/test/e2e/icinga2_sender_e2e_test.dart` | `concurrent_signed_notifications_beyond_the_cap` | green |
+| integration-icinga2 → Sender credential handling | Canonical unpadded key file | `correlia_server/test/e2e/icinga2_sender_e2e_test.dart` | `canonical_unpadded_key_file` | green |
+| integration-icinga2 → Sender credential handling | HMAC vectors | `correlia_icinga2_notify/test/sender_test.dart` | `hmac_vectors` | green |
 | integration-icinga2 → Webhook state change time precision | Two problems within one second | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `two_problems_within_one_second` | red |
 | integration-icinga2 → Webhook state change time precision | Microsecond values survive the command | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `microsecond_values_survive_the_command` | red |
 | integration-icinga2 → Webhook state change time precision | Production notification clock keeps microseconds | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `production_notification_clock_keeps_microseconds` | red |
@@ -268,17 +268,17 @@ list. Group 9's capture answers it, and the answer does not change what gets bui
 
 ## 6. The compiled sender `correlia-icinga2-notify`
 
-- [ ] 6.1 Scaffold the package `correlia_icinga2_notify/`, with crypto as its only dependency. Add
+- [x] 6.1 Scaffold the package `correlia_icinga2_notify/`, with crypto as its only dependency. Add
   `mise run build:icinga2-notify` for linux-x64 and linux-arm64 builds, and add the package to the
   `analyze`, `format` and `check` tasks. Verify that `mise run build:icinga2-notify` produces both binaries
   and that `mise run check` passes.
-- [ ] 6.2 Write failing tests:
+- [x] 6.2 Write failing tests:
   - `sender_test.dart`, in process, with an injected deadline, injected file hooks and local HTTP/TLS
     listeners: CA-only trust, URL rules, plain HTTP to a remote host, the FIFO credential, a file that grows
     after the check, a blocking file, file modes, a peer that never answers, the 202-only rule, redirects, and
     the RFC 4231 HMAC vectors.
   - `binary_test.dart`: `command_definition_without_env_i` against the compiled binary.
-- [ ] 6.3 Implement the sender:
+- [x] 6.3 Implement the sender:
   - Empty-environment check (exit 2 `environment`).
   - Argument validation: exact names, UUID source, base URL pattern, control characters, NUL replacement in
     texts.
@@ -289,7 +289,7 @@ list. Group 9's capture answers it, and the answer does not change what gets bui
   - Exit codes 0, 1, 2 and 3, with status-only logging.
 
   Verify that the 6.2 tests pass, and flip their rows green.
-- [ ] 6.4 Write `rejected_delivery`, `canonical_unpadded_key_file` and
+- [x] 6.4 Write `rejected_delivery`, `canonical_unpadded_key_file` and
   `concurrent_signed_notifications_beyond_the_cap` (`icinga2_sender_e2e_test.dart`). Each runs the built
   binary against a real Correlia child. Make them pass, and flip their rows green.
 
