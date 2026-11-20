@@ -5,6 +5,7 @@ import 'dart:math';
 
 import '../../test/support/icinga2_matrix.dart'
     show downtimeExpires, downtimeRemoved;
+import '../../test/support/holding_proxy.dart';
 import 'config.dart';
 import 'evidence.dart';
 import 'lab.dart';
@@ -336,6 +337,7 @@ final class Scenarios {
     await _burst();
     await _settingsFailures();
     await _hostileAndRejected();
+    await _overload();
     await _reconfigure();
   }
 
@@ -1283,6 +1285,59 @@ extension Batch2 on Scenarios {
         for (var i = 0; i < credentials.length; i++)
           'credential_header_$i': credentials[i],
       });
+      await _reconfigure();
+    });
+  }
+
+  /// Three signed notifications of one source overlap at Correlia, one more
+  /// than its in-flight cap. The holding proxy forwards each request to the
+  /// child except its last byte, so the admitted ones keep their slots until
+  /// the refusal is logged; then it lets them finish.
+  Future<void> _overload() async {
+    await scenario('concurrent_signed_notifications_beyond_the_cap', (
+      ev,
+    ) async {
+      final holding = await HoldingProxy.start(rig.child.webPort);
+      final refusal = RegExp('outcome=503');
+      try {
+        await _reconfigure(
+          credential: Credential.hmac,
+          baseUrl: dslString('http://127.0.0.1:${holding.port}'),
+        );
+        final refusalsBefore = refusal.allMatches(rig.child.output).length;
+        final rawBefore = await rig.rawIds();
+        ev.info('services', ['cap1', 'cap2', 'cap3']);
+        // One action notifies all three services; Icinga 2 runs their
+        // commands at the same time.
+        await _action('send-custom-notification', {
+          'type': 'Service',
+          'filter': 'service.vars.cap_id in ["cap1", "cap2", "cap3"]',
+          'author': 'operator',
+          'comment': 'overlap',
+        });
+        final deadline = DateTime.now().add(const Duration(seconds: 30));
+        while (refusal.allMatches(rig.child.output).length == refusalsBefore) {
+          if (DateTime.now().isAfter(deadline)) {
+            throw StateError('Correlia logged no 503 refusal');
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 25));
+        }
+        holding.release();
+        // Icinga 2 logs the refused command with its exit code and output.
+        await ev.failures(1, mustContain: 'status 503');
+        await waitQuiet(ev);
+        ev.info(
+          'correlia_refusals',
+          refusal.allMatches(rig.child.output).length - refusalsBefore,
+        );
+        ev.info(
+          'raw_rows_added',
+          (await rig.rawIds()).difference(rawBefore).length,
+        );
+      } finally {
+        await holding.close();
+      }
+      await ev.logExcerpt(label: 'overload');
       await _reconfigure();
     });
   }

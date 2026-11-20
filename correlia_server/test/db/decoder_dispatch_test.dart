@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:correlia_server/event.dart';
 import 'package:correlia_server/src/ingest/config_repository.dart';
 import 'package:correlia_server/src/ingest/source_decoder.dart';
 import 'package:correlia_server/src/pipeline/pipeline.dart';
@@ -9,6 +10,7 @@ import 'package:serverpod/serverpod.dart';
 import 'package:test/test.dart';
 
 import '../integration/test_tools/serverpod_test_tools.dart';
+import '../support/icinga2_delivery.dart' as icinga2;
 import '../support/ingest_schema.dart';
 import '../support/secret_fixture.dart';
 import '../unit/ingest/alertmanager_decoder_test.dart' as payload;
@@ -175,18 +177,42 @@ VALUES (@time,CAST(@id AS uuid),CAST(@source AS uuid),@body,@digest,'application
 
       test('two_kinds_in_one_batch', () async {
         await publish(1);
-        final stub = _StubDecoder();
+        // Both rows go through the production decoders: each kind's own
+        // decoder must decode its row and commit its event.
+        final seconds = _now.millisecondsSinceEpoch ~/ 1000 - 60;
         final am = await seed(_alertmanagerId, alertmanagerBody());
-        final ic = await seed(_icinga2Id, icinga2Body());
-        final pipeline = repo(stub);
+        final ic = await seed(
+          _icinga2Id,
+          icinga2.body(
+            icinga2.delivery(
+              set: {
+                'last_state_change': '$seconds.123456',
+                'notification_time': '${seconds + 5}.500000',
+              },
+            ),
+          ),
+        );
+        final pipeline = PipelineRepository(session, clock: () => _now);
         await pinAll(pipeline);
         expect(await pipeline.processOne(), isTrue);
         expect(await pipeline.processOne(), isTrue);
         expect(await status(am), 'done');
         expect(await status(ic), 'done');
-        expect(stub.calls, 1);
-        expect(await count('events'), 1);
         expect(await count('pipeline_failures'), 0);
+        final committed = await rows(
+          'SELECT raw_id::text, payload FROM events ORDER BY raw_id',
+        );
+        final byRaw = {
+          for (final row in committed)
+            row[0]! as String: CloudEvent.decode(
+              Uint8List.fromList(row[1]! as List<int>),
+            ).event,
+        };
+        expect(byRaw.keys.toSet(), {am, ic});
+        expect(committed, hasLength(2));
+        expect(byRaw[ic]!.source.sourceInstance, _icinga2Id);
+        expect(byRaw[ic]!.status, EventStatus.firing);
+        expect(byRaw[am]!.source.sourceInstance, _alertmanagerId);
       });
 
       test('existing_rows_after_the_upgrade', () async {

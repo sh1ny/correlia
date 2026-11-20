@@ -370,11 +370,12 @@ arguments and POSTs it to `<base url>/hooks/icinga2/<source>`.
 ### Installation
 
 1. Run `mise run release:icinga2-notify` and install `build/icinga2-notify/release/linux-x64/correlia-icinga2-notify`
-   as `/usr/local/bin/correlia-icinga2-notify` (owned by root, mode 0755). The release task publishes a sender only
-   when its SHA-256 is the artifact a passing capture ran, so only that file is qualified. The plain build output
-   under `build/icinga2-notify/<architecture>/` is unchecked: it is for development and captures, not for
-   installation. Today only linux-x64 is published; the linux-arm64 build has no captured release.
-2. Copy the three files of `contrib/icinga2/` together into `/etc/icinga2/correlia/` and add one line to
+   as `/usr/local/bin/correlia-icinga2-notify` (owned by root, mode 0755). The release task publishes only the
+   bundle (sender and definitions) that every listed capture of the architecture ran, so only the release directory
+   is qualified. The plain build output under `build/icinga2-notify/<architecture>/` and the `contrib/icinga2/`
+   sources are unchecked: they are for development and captures, not for installation. Today only linux-x64 is
+   published; the linux-arm64 build has no captured release.
+2. Copy the three files of `build/icinga2-notify/release/icinga2/` together into `/etc/icinga2/correlia/` and add one line to
    `/etc/icinga2/icinga2.conf`: `include "correlia/correlia.conf"`. Do not copy them into `conf.d`: Icinga 2 loads
    that directory in file-name order, and the commands need the constants and helper functions loaded first.
 3. Edit the constants in `correlia.conf`: the sender path, the base URL (scheme and authority only), the source
@@ -476,8 +477,11 @@ re-evaluates every listed pair on them. Adding a pair means capturing it, commit
 here; a pair that fails a gate is not listed. Each row names a minor release by the patch release that was captured.
 
 `mise run release:icinga2-notify` builds the sender for linux-x64 and linux-arm64 and publishes into
-`build/icinga2-notify/release/` only the architectures with at least one listed pair that passes every check. With
-no qualified pair it publishes nothing and fails. linux-arm64 has no captured pair yet, so its build is not
+`build/icinga2-notify/release/` only the architectures whose listed pairs all pass every check and all ran one
+bundle: the same sender SHA-256 and the same `contrib/icinga2/` file hashes, as their manifests record. It publishes
+an architecture's sender, and the definitions into `release/icinga2/`, only when the build and the definitions are
+exactly that bundle; recapturing one listed release with a new sender or changed definitions refuses the
+architecture until every listed release of it is recaptured. With no qualified pair it publishes nothing and fails. linux-arm64 has no captured pair yet, so its build is not
 published.
 
 <!-- icinga2-supported-releases:begin -->

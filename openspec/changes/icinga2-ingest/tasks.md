@@ -85,7 +85,7 @@ that produces the evidence, and the test is what judges it.
 | integration-icinga2 → Sender transport and diagnostics | Peer never answers | `correlia_icinga2_notify/test/sender_test.dart` | `peer_never_answers` | green |
 | integration-icinga2 → Sender transport and diagnostics | Only 202 counts as delivered | `correlia_icinga2_notify/test/sender_test.dart` | `only_202_counts_as_delivered` | green |
 | integration-icinga2 → Sender transport and diagnostics | Redirect is not followed | `correlia_icinga2_notify/test/sender_test.dart` | `redirect_is_not_followed` | green |
-| integration-icinga2 → Sender transport and diagnostics | Concurrent signed notifications beyond the cap | `correlia_server/test/e2e/icinga2_sender_e2e_test.dart` | `concurrent_signed_notifications_beyond_the_cap` | green |
+| integration-icinga2 → Sender transport and diagnostics | Concurrent signed notifications beyond the cap | `correlia_server/test/e2e/icinga2_sender_e2e_test.dart` (the overlap), `correlia_server/test/unit/ingest/icinga2_versions_test.dart` (Icinga 2 logs the status) | `concurrent_signed_notifications_beyond_the_cap` | green |
 | integration-icinga2 → Sender credential handling | Canonical unpadded key file | `correlia_server/test/e2e/icinga2_sender_e2e_test.dart` | `canonical_unpadded_key_file` | green |
 | integration-icinga2 → Sender credential handling | HMAC vectors | `correlia_icinga2_notify/test/sender_test.dart` | `hmac_vectors` | green |
 | integration-icinga2 → Webhook state change time precision | Two problems within one second | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `two_problems_within_one_second` | green |

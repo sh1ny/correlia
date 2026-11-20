@@ -823,33 +823,127 @@ const builtArchitectures = ['linux-x64', 'linux-arm64'];
 /// The sender's file name inside each architecture's build directory.
 const senderFileName = 'correlia-icinga2-notify';
 
-/// The qualified senders of [pairs]: for each architecture with at least one
-/// listed pair that passes every check, the SHA-256 of the exact artifacts
-/// those passing captures ran.
-Map<String, Set<String>> qualifiedSenders(List<Pair> pairs) {
-  final out = <String, Set<String>>{};
-  for (final pair in pairs) {
-    if (evaluatePair(pair).isNotEmpty) continue;
-    final sha = Capture(pair).manifest['sender_sha256'];
-    if (sha is String) (out[pair.architecture] ??= {}).add(sha);
+/// The exact artifacts a capture ran: the sender's SHA-256 and the SHA-256 of
+/// each `contrib/icinga2/` definition file, by file name.
+final class Bundle {
+  const Bundle(this.sender, this.definitions);
+
+  /// The bundle a capture's manifest records, or null when it records none.
+  static Bundle? of(Capture capture) {
+    final manifest = capture.manifest;
+    final sender = manifest['sender_sha256'];
+    final definitions = manifest['contrib_sha256'];
+    if (sender is! String || definitions is! Map<String, Object?>) return null;
+    return Bundle(sender, {
+      for (final MapEntry(:key, :value) in definitions.entries)
+        if (value is String) key: value,
+    });
   }
-  return out;
+
+  /// The bundle of the built [sender] and the definition files in [contrib].
+  static Bundle current(File sender, Directory contrib) => Bundle(
+    sha256.convert(sender.readAsBytesSync()).toString(),
+    definitionHashes(contrib),
+  );
+
+  final String sender;
+  final Map<String, String> definitions;
+
+  @override
+  bool operator ==(Object other) =>
+      other is Bundle &&
+      other.sender == sender &&
+      jsonEncode(_sorted(other.definitions)) ==
+          jsonEncode(_sorted(definitions));
+
+  @override
+  int get hashCode => Object.hash(sender, jsonEncode(_sorted(definitions)));
+
+  static Map<String, String> _sorted(Map<String, String> m) => {
+    for (final k in m.keys.toList()..sort()) k: m[k]!,
+  };
+
+  @override
+  String toString() =>
+      'sender $sender, definitions ${jsonEncode(_sorted(definitions))}';
 }
 
-/// Publishes the built sender of each architecture in [qualified] from
-/// `<build>/<architecture>/` to `<release>/<architecture>/`, and no other.
+/// The SHA-256 of each file directly in [contrib], by file name.
+Map<String, String> definitionHashes(Directory contrib) => {
+  for (final file
+      in contrib.listSync().whereType<File>().toList()
+        ..sort((a, b) => a.path.compareTo(b.path)))
+    file.uri.pathSegments.last: sha256
+        .convert(file.readAsBytesSync())
+        .toString(),
+};
+
+/// What [qualifiedBundles] found: the one bundle each qualified architecture
+/// ran, and why each other listed architecture is refused.
+typedef Qualification = ({
+  Map<String, Bundle> qualified,
+  Map<String, String> refused,
+});
+
+/// The qualified bundle of each architecture listed in [pairs].
 ///
-/// An artifact is published only when its SHA-256 is one a passing capture of
-/// that architecture ran, so the published file is the exact artifact that
-/// delivered. [release] is emptied first, so an architecture that no longer
-/// qualifies leaves no artifact behind. With nothing qualified, or a built
-/// sender that differs from every captured one, a [StateError] says so and
-/// nothing is published: the webhook contract is not shipped without a
-/// qualified pair. Returns the published architectures in build order.
+/// An architecture qualifies only when every listed pair of it passes every
+/// check and all of them ran one and the same bundle, so each advertised pair
+/// vouches for exactly the artifacts that would ship. A failing pair, a
+/// manifest without a bundle, or two pairs that ran different senders or
+/// definitions refuse the architecture.
+Qualification qualifiedBundles(List<Pair> pairs) {
+  final byArchitecture = <String, List<Pair>>{};
+  for (final pair in pairs) {
+    (byArchitecture[pair.architecture] ??= []).add(pair);
+  }
+  final qualified = <String, Bundle>{};
+  final refused = <String, String>{};
+  for (final MapEntry(key: architecture, value: listed)
+      in byArchitecture.entries) {
+    String? reason;
+    Bundle? bundle;
+    for (final pair in listed) {
+      if (evaluatePair(pair).isNotEmpty) {
+        reason = '${pair.name} does not pass';
+        break;
+      }
+      final ran = Bundle.of(Capture(pair));
+      if (ran == null) {
+        reason = '${pair.name} records no sender and definitions';
+        break;
+      }
+      if (bundle != null && ran != bundle) {
+        reason = '${pair.name} ran another bundle than ${listed.first.name}';
+        break;
+      }
+      bundle = ran;
+    }
+    if (reason != null) {
+      refused[architecture] = reason;
+    } else if (bundle != null) {
+      qualified[architecture] = bundle;
+    }
+  }
+  return (qualified: qualified, refused: refused);
+}
+
+/// Publishes, for each architecture in [qualified], the built sender from
+/// `<build>/<architecture>/` to `<release>/<architecture>/`, and the
+/// definition files of [contrib] to `<release>/icinga2/`.
+///
+/// Publishing requires the built sender and the current definitions to be
+/// exactly the bundle every listed pair of that architecture ran. [release]
+/// is emptied first, so an architecture that no longer qualifies leaves no
+/// artifact behind. With nothing qualified, or a built sender or a definition
+/// that differs from the captured bundle, a [StateError] says so and nothing
+/// is published: the webhook contract is not shipped without a qualified
+/// pair. Returns the published architectures in build order.
 List<String> publishSenders({
   required Directory build,
+  required Directory contrib,
   required Directory release,
-  required Map<String, Set<String>> qualified,
+  required Map<String, Bundle> qualified,
 }) {
   if (release.existsSync()) release.deleteSync(recursive: true);
   if (qualified.isEmpty) {
@@ -857,17 +951,17 @@ List<String> publishSenders({
   }
   final sources = <String, File>{};
   for (final architecture in builtArchitectures) {
-    final shas = qualified[architecture];
-    if (shas == null) continue;
+    final captured = qualified[architecture];
+    if (captured == null) continue;
     final source = File('${build.path}/$architecture/$senderFileName');
     if (!source.existsSync()) {
       throw StateError('no built sender for $architecture: ${source.path}');
     }
-    final sha = sha256.convert(source.readAsBytesSync()).toString();
-    if (!shas.contains(sha)) {
+    final built = Bundle.current(source, contrib);
+    if (built != captured) {
       throw StateError(
-        'the built $architecture sender ($sha) is not an artifact a '
-        'qualified capture ran (${shas.join(', ')})',
+        'the built $architecture bundle ($built) is not the bundle its '
+        'listed captures ran ($captured)',
       );
     }
     sources[architecture] = source;
@@ -876,6 +970,11 @@ List<String> publishSenders({
     final target = Directory('${release.path}/$architecture')
       ..createSync(recursive: true);
     source.copySync('${target.path}/$senderFileName');
+  }
+  final definitions = Directory('${release.path}/icinga2')
+    ..createSync(recursive: true);
+  for (final file in contrib.listSync().whereType<File>()) {
+    file.copySync('${definitions.path}/${file.uri.pathSegments.last}');
   }
   return sources.keys.toList();
 }

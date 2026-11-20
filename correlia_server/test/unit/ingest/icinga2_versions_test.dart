@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:crypto/crypto.dart';
 import 'package:test/test.dart';
 
 import '../../support/icinga2_delivery.dart';
@@ -57,9 +56,10 @@ void main() {
     return root;
   }
 
-  /// A copy of the first listed pair in a temporary directory.
-  Pair copy() {
-    final source = baseline();
+  /// A copy of [of] (default: the first listed pair) in a temporary
+  /// directory.
+  Pair copy([Pair? of]) {
+    final source = of ?? baseline();
     final root = Directory.systemTemp.createTempSync('icinga2-matrix-');
     temporary.add(root);
     final target = Directory(
@@ -148,6 +148,27 @@ void main() {
     expect({for (final p in pairs) p.architecture}, {'linux-x64'});
   });
 
+  /// A build directory with a sender per built architecture whose content is
+  /// its architecture name, and a contrib directory of three definitions.
+  ({Directory build, Directory contrib, Directory release}) workspace() {
+    final work = temp();
+    final build = Directory('${work.path}/build');
+    for (final architecture in builtArchitectures) {
+      File('${build.path}/$architecture/$senderFileName')
+        ..createSync(recursive: true)
+        ..writeAsStringSync(architecture);
+    }
+    final contrib = Directory('${work.path}/contrib')..createSync();
+    for (final name in ['correlia.conf', 'correlia-commands.conf']) {
+      File('${contrib.path}/$name').writeAsStringSync(name);
+    }
+    return (
+      build: build,
+      contrib: contrib,
+      release: Directory('${work.path}/release'),
+    );
+  }
+
   test('only_one_architecture_qualifies', () {
     final statement = parseStatement(
       '$_begin\n| Release | Architecture |\n|---|---|\n'
@@ -156,41 +177,76 @@ void main() {
     expect({for (final p in statement) p.architecture}, {'linux-x64'});
     expect({for (final p in pairs) p.architecture}, {'linux-x64'});
     expect(evaluateStatement(pairs), isEmpty);
+    final committed = qualifiedBundles(pairs);
+    expect(committed.qualified.keys, ['linux-x64']);
+    expect(committed.refused, isEmpty);
     // Both architectures are built; only the qualified one is published,
-    // and only as the exact artifact a passing capture ran.
-    String shaOf(String text) => sha256.convert(utf8.encode(text)).toString();
+    // and only as the exact bundle its listed captures ran.
+    final w = workspace();
     final qualified = {
-      'linux-x64': {shaOf('linux-x64')},
+      'linux-x64': Bundle.current(
+        File('${w.build.path}/linux-x64/$senderFileName'),
+        w.contrib,
+      ),
     };
-    expect(qualifiedSenders(pairs).keys, ['linux-x64']);
-    final work = temp();
-    final build = Directory('${work.path}/build');
-    for (final architecture in builtArchitectures) {
-      File('${build.path}/$architecture/$senderFileName')
-        ..createSync(recursive: true)
-        ..writeAsStringSync(architecture);
-    }
-    final release = Directory('${work.path}/release');
-    Directory('${release.path}/linux-arm64').createSync(recursive: true);
-    expect(
-      publishSenders(build: build, release: release, qualified: qualified),
-      ['linux-x64'],
+    Directory('${w.release.path}/linux-arm64').createSync(recursive: true);
+    List<String> publish() => publishSenders(
+      build: w.build,
+      contrib: w.contrib,
+      release: w.release,
+      qualified: qualified,
     );
+    expect(publish(), ['linux-x64']);
     expect(
-      File('${release.path}/linux-x64/$senderFileName').readAsStringSync(),
+      File('${w.release.path}/linux-x64/$senderFileName').readAsStringSync(),
       'linux-x64',
     );
-    expect(Directory('${release.path}/linux-arm64').existsSync(), isFalse);
+    expect(
+      File('${w.release.path}/icinga2/correlia.conf').readAsStringSync(),
+      'correlia.conf',
+    );
+    expect(Directory('${w.release.path}/linux-arm64').existsSync(), isFalse);
+    // A changed definition, with the same sender, is not published.
+    File('${w.contrib.path}/correlia-commands.conf').writeAsStringSync('new');
+    expect(publish, throwsStateError);
+    expect(w.release.existsSync(), isFalse);
+    File(
+      '${w.contrib.path}/correlia-commands.conf',
+    ).writeAsStringSync('correlia-commands.conf');
+    expect(publish(), ['linux-x64']);
     // A rebuilt sender that differs from the captured one is not published.
     File(
-      '${build.path}/linux-x64/$senderFileName',
+      '${w.build.path}/linux-x64/$senderFileName',
     ).writeAsStringSync('changed');
-    expect(
-      () =>
-          publishSenders(build: build, release: release, qualified: qualified),
-      throwsStateError,
-    );
-    expect(release.existsSync(), isFalse);
+    expect(publish, throwsStateError);
+    expect(w.release.existsSync(), isFalse);
+  });
+
+  test('listed_pairs_of_one_architecture_ran_one_bundle', () {
+    // Recapturing one listed release with another sender, or with other
+    // definitions, refuses the architecture until every row is recaptured.
+    final other = pairs.length > 1 ? pairs[1] : baseline();
+    for (final field in ['sender_sha256', 'contrib_sha256']) {
+      final first = copy();
+      final second = copy(other);
+      final manifest = File('${second.directory.path}/manifest.json');
+      final json =
+          jsonDecode(manifest.readAsStringSync()) as Map<String, Object?>;
+      json[field] = field == 'sender_sha256'
+          ? '0' * 64
+          : {
+              ...(json[field]! as Map<String, Object?>),
+              'correlia-commands.conf': '0' * 64,
+            };
+      manifest.writeAsStringSync(jsonEncode(json));
+      final found = qualifiedBundles([first, second]);
+      expect(found.qualified, isEmpty, reason: field);
+      expect(
+        found.refused['linux-x64'],
+        contains('ran another bundle'),
+        reason: field,
+      );
+    }
   });
 
   test('no_release_passes', () {
@@ -204,21 +260,21 @@ void main() {
     expect(failures, isNotEmpty);
     expectNamed(failures, broken, Gate.service);
     // No qualified pair: no artifact is published.
-    expect(qualifiedSenders([broken]), isEmpty);
-    final work = temp();
-    final build = Directory('${work.path}/build');
-    for (final architecture in builtArchitectures) {
-      File(
-        '${build.path}/$architecture/$senderFileName',
-      ).createSync(recursive: true);
-    }
-    final release = Directory('${work.path}/release');
-    Directory('${release.path}/linux-x64').createSync(recursive: true);
+    final found = qualifiedBundles([broken]);
+    expect(found.qualified, isEmpty);
+    expect(found.refused['linux-x64'], contains('does not pass'));
+    final w = workspace();
+    Directory('${w.release.path}/linux-x64').createSync(recursive: true);
     expect(
-      () => publishSenders(build: build, release: release, qualified: {}),
+      () => publishSenders(
+        build: w.build,
+        contrib: w.contrib,
+        release: w.release,
+        qualified: const {},
+      ),
       throwsStateError,
     );
-    expect(release.existsSync(), isFalse);
+    expect(w.release.existsSync(), isFalse);
   });
 
   test('listed_release_missing_a_capture', () {
@@ -1013,6 +1069,34 @@ void main() {
       ];
     });
   });
+  test('concurrent_signed_notifications_beyond_the_cap', () {
+    // The deterministic overlap is proved by the e2e test of the same name;
+    // this capture shows the shipped command under a real Icinga 2: three
+    // signed notifications overlap, Correlia refuses one with 503 and admits
+    // two, and Icinga 2 logs the refused command with its status.
+    eachPair((c) {
+      const file = 'concurrent_signed_notifications_beyond_the_cap';
+      final infos = {
+        for (final r in c.of(file, 'info')) r.json['name']: r.json['value'],
+      };
+      final failures = c.of(file, 'command_failure');
+      return [
+        if (infos['correlia_refusals'] != 1)
+          'Correlia logged ${infos['correlia_refusals']} refusals, not one',
+        if (infos['raw_rows_added'] != 2)
+          '${infos['raw_rows_added']} requests admitted, not two',
+        if (failures.length != 1)
+          '${failures.length} failed commands recorded, not one'
+        else ...[
+          if (failures.single.json['exit_code'] != 1)
+            'the refused command exited ${failures.single.json['exit_code']}',
+          if (!'${failures.single.json['detail']}'.contains('status 503'))
+            'Icinga 2 logged ${failures.single.json['detail']}, not the 503',
+        ],
+      ];
+    });
+  });
+
   test('hostile_inherited_environment', () {
     eachPair((c) {
       const file = 'hostile_inherited_environment';

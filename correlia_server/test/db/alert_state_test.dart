@@ -595,31 +595,69 @@ void main() {
           await expectConverged('late first: $lateFirst', lateRaw);
         }
 
-        // Two concurrent transactions, released together by a completer.
+        // Two overlapping transactions. The first claims its row and is held
+        // open at that boundary while the second claims, processes and
+        // commits the other row; then the first finishes. Each row is the
+        // first one claimed once.
+        Future<String?> statusOf(String raw) async =>
+            (await queryRows(
+                  s,
+                  "SELECT status FROM raw_inbox WHERE raw_id=CAST('$raw' AS uuid)",
+                )).single['status']
+                as String?;
         for (final lateStartsFirst in [false, true]) {
           await freshIcinga2(s);
           final freshRaw = await seedIcinga2(s, fresh, observedFresh);
           final lateRaw = await seedIcinga2(s, late, observedLate);
+          final (firstRaw, secondRaw) = lateStartsFirst
+              ? (lateRaw, freshRaw)
+              : (freshRaw, lateRaw);
           DateTime clock() => at(10, 11);
-          final r1 = PipelineRepository(builder.build(), clock: clock);
-          final r2 = PipelineRepository(builder.build(), clock: clock);
-          expect(await r1.pinOne(), isTrue);
-          expect(await r2.pinOne(), isTrue);
-          final entered = Completer<void>();
-          final go = Completer<void>();
-          Future<bool> run(PipelineRepository repo, bool signal) async {
-            if (signal) entered.complete();
-            await go.future;
-            return repo.processOne();
+          final pinner = PipelineRepository(builder.build(), clock: clock);
+          while (await pinner.pinOne()) {}
+          final claimed = Completer<void>();
+          final release = Completer<void>();
+          final first = PipelineRepository(
+            builder.build(),
+            clock: clock,
+            afterClaim: () async {
+              claimed.complete();
+              await release.future;
+            },
+          );
+          final second = PipelineRepository(builder.build(), clock: clock);
+          // Rows are claimed in observed order, fresh (10:06) before late
+          // (10:10): to have the late row claimed first, a third transaction
+          // locks the fresh row while the first claims.
+          final locked = Completer<void>();
+          final unlock = Completer<void>();
+          final hold = lateStartsFirst
+              ? builder.build().db.transaction((tx) async {
+                  await builder.build().db.unsafeQuery(
+                    "SELECT 1 FROM raw_inbox WHERE raw_id=CAST('$freshRaw' AS uuid) FOR UPDATE",
+                    transaction: tx,
+                  );
+                  locked.complete();
+                  await unlock.future;
+                })
+              : null;
+          if (hold != null) await locked.future;
+          final one = first.processOne();
+          await claimed.future;
+          if (hold != null) {
+            unlock.complete();
+            await hold;
           }
-
-          final one = run(r1, true);
-          final two = run(r2, false);
-          await entered.future;
-          go.complete();
-          expect(await Future.wait([one, two]), everyElement(isTrue));
+          final reason = 'late starts first: $lateStartsFirst';
+          expect(await second.processOne(), isTrue, reason: reason);
+          // The second committed while the first transaction is still open.
+          expect(release.isCompleted, isFalse, reason: reason);
+          expect(await statusOf(secondRaw), 'done', reason: reason);
+          expect(await statusOf(firstRaw), 'pending', reason: reason);
+          release.complete();
+          expect(await one, isTrue, reason: reason);
           expect(freshRaw, isNot(lateRaw));
-          await expectConverged('concurrent #$lateStartsFirst', lateRaw);
+          await expectConverged('overlapping, $reason', lateRaw);
           expect(
             (await queryRows(
               s,

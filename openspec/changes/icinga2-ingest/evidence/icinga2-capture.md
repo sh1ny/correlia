@@ -7,12 +7,14 @@ artifact is built but not published.
 ## Script
 
 - `tool/icinga2_capture.sh` (driver `correlia_server/tool/icinga2_capture/`), script version
-  `2` (recorded in every `manifest.json`). Version 2 routes the capture source to a webhook output and records
+  `3` (recorded in every `manifest.json`). Version 2 routes the capture source to a webhook output and records
   each committed event's outbox intents; its downtime scenario tells the expiring and the hand-removed downtime
-  apart by comment and records when the manual removal was requested.
-- Full run (after the pre-ship review, round 1): `tool/icinga2_capture.sh 2.16.6 2.15.7 2.14.10 2.13.14` with
-  the rebuilt sender, every mapped scenario, no failed scenario. 2.13.14 was re-run alone after the host
-  restarted mid-run; its earlier partial files were replaced whole.
+  apart by comment and records when the manual removal was requested. Version 3 adds
+  `concurrent_signed_notifications_beyond_the_cap`: three signed notifications from one Icinga 2 action overlap
+  at Correlia through a proxy that holds each request's last byte until Correlia logs its refusal. A partial run
+  that selects `retained_state_across_a_restart` without the first-problem scenario it relies on is refused.
+- Full run (after the pre-ship review, round 2): `tool/icinga2_capture.sh 2.16.6`, then
+  `tool/icinga2_capture.sh 2.15.7 2.14.10 2.13.14`, every mapped scenario, no failed scenario.
 - Sender artifact (linux-x64): SHA-256 `65847848ef218ebbb836d76eeb97fb11747662399d18d0c1fb31311005cd0274`, the same in every manifest.
   `mise run release:icinga2-notify` rebuilds it and publishes it only because the rebuild has this hash.
 - Definitions: `contrib/icinga2/` SHA-256 per file in each manifest
@@ -25,7 +27,7 @@ artifact is built but not published.
 Gates: S = same-second service state, H = same-second host state, N = same-second notification time,
 C = production notification clock, D = downtime removal, F = first problem of a new object,
 202 = recorded 202 and decoded event. Judged by `correlia_server/test/unit/ingest/icinga2_versions_test.dart`
-on the committed captures (53 tests, all passing).
+on the committed captures (55 tests, all passing).
 
 | Release | Architecture | Image | Digest | Icinga 2 | S | H | N | C | D | F | 202 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
@@ -39,6 +41,8 @@ Observations recorded by the captures:
 - Every release sends `DOWNTIMEEND` for both the expiry and the manual removal of a fixed downtime, and each
   commits an informational event with one outbox intent. 2.14.10 and later end the expired downtime at its end
   time; 2.13.14 ends it on its expiry timer, about 60 s later, still before the manual removal.
+- Three overlapping signed notifications: Correlia refuses one with 503 and admits two, and Icinga 2 logs the
+  refused command as exit code 1 with output `status 503`.
 - The runtime-created host's first HARD DOWN carries the first HARD result's execution end, about 24 s after
   the daemon's `program_start` on every release, and its row is applied, not `late`.
 - 2.13.14 and 2.14.10 log a failed command's output unquoted (`output: <text>`); 2.15.7 and 2.16.6 quote it.

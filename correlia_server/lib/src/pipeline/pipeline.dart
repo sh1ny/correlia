@@ -191,6 +191,7 @@ final class PipelineRepository {
     this.session, {
     DateTime Function()? clock,
     this.afterPin,
+    this.afterClaim,
     Map<String, int>? retryCounts,
     this.retryDelay,
     PipelineCounters? counters,
@@ -204,6 +205,10 @@ final class PipelineRepository {
   final Session session;
   final DateTime Function() clock;
   final Future<void> Function()? afterPin;
+
+  /// Runs inside [processOne]'s transaction right after it claimed a row,
+  /// before anything else; tests use it to hold that transaction open.
+  final Future<void> Function()? afterClaim;
   final Map<String, int> _retryCounts;
   final Duration Function(int)? retryDelay;
   final PipelineCounters counters;
@@ -304,6 +309,7 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
           row[5] as String,
         );
         claimed = raw;
+        if (afterClaim case final hook?) await hook();
         await _limits(tx, deadline);
         final snapshots = await session.db.unsafeQuery(
           'SELECT "publicJson" FROM ingest_config_snapshot WHERE "snapshotId"=@pin',

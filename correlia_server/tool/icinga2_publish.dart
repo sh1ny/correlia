@@ -4,10 +4,13 @@
 /// Run from `correlia_server` (the `release:icinga2-notify` mise task does
 /// this) after `mise run build:icinga2-notify`. It evaluates every pair the
 /// supported-release statement in `docs/ingest-pipeline.md` lists on the
-/// committed captures, and copies the sender of each architecture with at
-/// least one passing pair, when it is the exact artifact a passing capture ran, from `../build/icinga2-notify/<architecture>/` to
-/// `../build/icinga2-notify/release/<architecture>/`. With no qualified pair it
-/// publishes nothing and exits 1.
+/// committed captures. An architecture qualifies when every listed pair of it
+/// passes and all of them ran one bundle (sender and definitions). For each,
+/// it copies the sender from `../build/icinga2-notify/<architecture>/` to
+/// `../build/icinga2-notify/release/<architecture>/`, and `../contrib/icinga2/`
+/// to `../build/icinga2-notify/release/icinga2/`, only when the build and the
+/// definitions are exactly that bundle. With no qualified pair, or a build or
+/// definition that differs, it publishes nothing and exits 1.
 library;
 
 import 'dart:io';
@@ -20,10 +23,14 @@ void main() {
   for (final failure in failures) {
     stderr.writeln('not qualified: $failure');
   }
-  final qualified = qualifiedSenders(statement);
+  final (:qualified, :refused) = qualifiedBundles(statement);
+  for (final MapEntry(key: architecture, value: reason) in refused.entries) {
+    stderr.writeln('not qualified $architecture: $reason');
+  }
   try {
     final published = publishSenders(
       build: Directory('../build/icinga2-notify'),
+      contrib: Directory('../contrib/icinga2'),
       release: Directory('../build/icinga2-notify/release'),
       qualified: qualified,
     );

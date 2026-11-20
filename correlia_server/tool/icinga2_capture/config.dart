@@ -59,6 +59,9 @@ final class CaptureConfig {
     ('rej1', 'correlia-service'),
     ('rej2', 'correlia-service'),
     ('inactive', 'correlia-service'),
+    ('cap1', 'correlia-service'),
+    ('cap2', 'correlia-service'),
+    ('cap3', 'correlia-service'),
   ];
 
   String render() {

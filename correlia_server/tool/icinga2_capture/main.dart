@@ -22,7 +22,13 @@ import 'rig.dart';
 import 'scenarios.dart';
 
 /// Bumped when the evidence format or the scenario set changes.
-const scriptVersion = '2';
+const scriptVersion = '3';
+
+/// Scenarios that rely on objects another scenario prepared, with that
+/// scenario: a partial run must select both.
+const prerequisites = {
+  'retained_state_across_a_restart': 'first_check_result_of_a_new_host_is_down',
+};
 
 Future<void> main(List<String> arguments) async {
   final parser = ArgParser()
@@ -66,6 +72,18 @@ Future<void> main(List<String> arguments) async {
   // artifact that never ran the kept scenarios.
   var previouslyFailed = <String>[];
   if (only != null) {
+    // A scenario that relies on objects an earlier scenario prepared needs
+    // that scenario in the same run: alone it would wait for state that a
+    // fresh lab never reaches and overwrite good evidence with a failure.
+    final missing = [
+      for (final MapEntry(key: scenario, value: needs) in prerequisites.entries)
+        if (only.contains(scenario) && !only.contains(needs))
+          '$scenario needs $needs',
+    ];
+    if (missing.isNotEmpty) {
+      stderr.writeln('incomplete selection: ${missing.join('; ')}');
+      exit(2);
+    }
     final file = File('${out.path}/manifest.json');
     final previous = file.existsSync()
         ? jsonDecode(file.readAsStringSync()) as Map<String, Object?>
