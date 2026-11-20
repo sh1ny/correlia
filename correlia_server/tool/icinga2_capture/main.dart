@@ -22,7 +22,7 @@ import 'rig.dart';
 import 'scenarios.dart';
 
 /// Bumped when the evidence format or the scenario set changes.
-const scriptVersion = '1';
+const scriptVersion = '2';
 
 Future<void> main(List<String> arguments) async {
   final parser = ArgParser()
@@ -46,6 +46,49 @@ Future<void> main(List<String> arguments) async {
   }
   final sender = File(args.option('sender')!);
   final contrib = Directory(args.option('contrib')!);
+  // The inputs every capture file of a manifest was made with.
+  final inputs = <String, Object?>{
+    'script_version': scriptVersion,
+    'image_digest': args.option('digest'),
+    'sender_sha256': sha256.convert(sender.readAsBytesSync()).toString(),
+    'contrib_sha256': {
+      for (final file
+          in contrib.listSync().whereType<File>().toList()
+            ..sort((a, b) => a.path.compareTo(b.path)))
+        file.uri.pathSegments.last: sha256
+            .convert(file.readAsBytesSync())
+            .toString(),
+    },
+  };
+  final only = args.option('only')?.split(',').toSet();
+  // A partial recapture keeps the other captures, so it must run with exactly
+  // the inputs that made them: otherwise the manifest would vouch for an
+  // artifact that never ran the kept scenarios.
+  var previouslyFailed = <String>[];
+  if (only != null) {
+    final file = File('${out.path}/manifest.json');
+    final previous = file.existsSync()
+        ? jsonDecode(file.readAsStringSync()) as Map<String, Object?>
+        : null;
+    final changed = [
+      if (previous == null)
+        'no manifest of a complete run'
+      else
+        for (final MapEntry(:key, :value) in inputs.entries)
+          if (jsonEncode(previous[key]) != jsonEncode(value)) key,
+    ];
+    if (changed.isNotEmpty) {
+      stderr.writeln(
+        'a partial recapture needs the inputs of the complete run; '
+        'changed: ${changed.join(', ')}. Run every scenario instead.',
+      );
+      exit(2);
+    }
+    previouslyFailed = [
+      for (final name in previous!['failed_scenarios']! as List<Object?>)
+        if (!only.contains(name)) name! as String,
+    ];
+  }
   final lab = IcingaLab(
     image: args.option('image')!,
     name: args.option('container')!,
@@ -73,31 +116,24 @@ Future<void> main(List<String> arguments) async {
       capture,
       release: release,
       config: config,
-      only: args.option('only')?.split(',').toSet(),
+      only: only,
     );
     await run.installCredentials();
     await run.useSettings();
     await lab.start();
     stdout.writeln('icinga2 ${await lab.version()} running as ${lab.name}');
     await run.all();
-    failed = capture.failed;
+    failed = [...previouslyFailed, ...capture.failed];
 
     final manifest = {
-      'script_version': scriptVersion,
+      'script_version': inputs['script_version'],
       'release': release,
       'architecture': 'linux-x64',
       'image': args.option('image'),
-      'image_digest': args.option('digest'),
+      'image_digest': inputs['image_digest'],
       'icinga_version': await lab.version(),
-      'sender_sha256': sha256.convert(sender.readAsBytesSync()).toString(),
-      'contrib_sha256': {
-        for (final file
-            in contrib.listSync().whereType<File>().toList()
-              ..sort((a, b) => a.path.compareTo(b.path)))
-          file.uri.pathSegments.last: sha256
-              .convert(file.readAsBytesSync())
-              .toString(),
-      },
+      'sender_sha256': inputs['sender_sha256'],
+      'contrib_sha256': inputs['contrib_sha256'],
       'source': captureSource,
       'namespace': captureSource,
       'failed_scenarios': failed,

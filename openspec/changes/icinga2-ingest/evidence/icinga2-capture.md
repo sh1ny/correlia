@@ -7,13 +7,14 @@ artifact is built but not published.
 ## Script
 
 - `tool/icinga2_capture.sh` (driver `correlia_server/tool/icinga2_capture/`), script version
-  `1` (recorded in every `manifest.json`).
-- Full run: `tool/icinga2_capture.sh 2.16.6 2.15.7 2.14.10 2.13.14`, every mapped scenario, no failed scenario.
-- Re-run after review: `CAPTURE_ONLY=first_check_result_of_a_new_host_is_down,retained_state_across_a_restart
-  tool/icinga2_capture.sh 2.16.6 2.15.7 2.14.10 2.13.14`, adding the daemon start time
-  (`/v1/status/IcingaApplication` `program_start`) to the first-problem evidence; no failed scenario.
-- Sender artifact (linux-x64): SHA-256 `f61fb561668a32be0f2e09a4757bfa66f9007965e826262a66bac69da6f455c9`, the same in every manifest. A rebuild with
-  `mise run build:icinga2-notify` reproduced it byte for byte.
+  `2` (recorded in every `manifest.json`). Version 2 routes the capture source to a webhook output and records
+  each committed event's outbox intents; its downtime scenario tells the expiring and the hand-removed downtime
+  apart by comment and records when the manual removal was requested.
+- Full run (after the pre-ship review, round 1): `tool/icinga2_capture.sh 2.16.6 2.15.7 2.14.10 2.13.14` with
+  the rebuilt sender, every mapped scenario, no failed scenario. 2.13.14 was re-run alone after the host
+  restarted mid-run; its earlier partial files were replaced whole.
+- Sender artifact (linux-x64): SHA-256 `65847848ef218ebbb836d76eeb97fb11747662399d18d0c1fb31311005cd0274`, the same in every manifest.
+  `mise run release:icinga2-notify` rebuilds it and publishes it only because the rebuild has this hash.
 - Definitions: `contrib/icinga2/` SHA-256 per file in each manifest
   (`correlia-commands.conf` `61ed6c9b80eaf5d1…`,
   `correlia-functions.conf` `4f2e6549bc0b491c…`,
@@ -24,7 +25,7 @@ artifact is built but not published.
 Gates: S = same-second service state, H = same-second host state, N = same-second notification time,
 C = production notification clock, D = downtime removal, F = first problem of a new object,
 202 = recorded 202 and decoded event. Judged by `correlia_server/test/unit/ingest/icinga2_versions_test.dart`
-on the committed captures (52 tests, all passing).
+on the committed captures (53 tests, all passing).
 
 | Release | Architecture | Image | Digest | Icinga 2 | S | H | N | C | D | F | 202 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
@@ -35,7 +36,9 @@ on the committed captures (52 tests, all passing).
 
 Observations recorded by the captures:
 
-- Every release sends `DOWNTIMEEND` for both the expiry and the manual removal of a triggered downtime.
+- Every release sends `DOWNTIMEEND` for both the expiry and the manual removal of a fixed downtime, and each
+  commits an informational event with one outbox intent. 2.14.10 and later end the expired downtime at its end
+  time; 2.13.14 ends it on its expiry timer, about 60 s later, still before the manual removal.
 - The runtime-created host's first HARD DOWN carries the first HARD result's execution end, about 24 s after
   the daemon's `program_start` on every release, and its row is applied, not `late`.
 - 2.13.14 and 2.14.10 log a failed command's output unquoted (`output: <text>`); 2.15.7 and 2.16.6 quote it.

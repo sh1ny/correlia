@@ -1,8 +1,9 @@
+import 'dart:convert';
 import 'dart:io';
 
-import 'package:correlia_server/src/event/event_timestamp.dart';
 import 'package:correlia_server/src/schema/schema_steps.dart';
-import 'package:correlia_server/src/state/ordering_key.dart';
+import 'package:correlia_server/src/ingest/config_repository.dart';
+import 'package:correlia_server/src/pipeline/pipeline.dart';
 import 'package:correlia_server/src/runtime/process_options.dart';
 import 'package:correlia_server/src/runtime/role_runtime.dart';
 import 'package:correlia_server/src/runtime/serverpod_adapter.dart';
@@ -14,6 +15,10 @@ import 'package:test/test.dart';
 import '../integration/test_tools/serverpod_test_tools.dart';
 import '../support/ingest_schema.dart';
 import '../support/pod_fixture.dart';
+import '../support/secret_fixture.dart';
+import '../unit/ingest/alertmanager_decoder_test.dart' as payload;
+import 'ingest_config_test.dart' as config_fixture;
+import 'pipeline_test.dart' as pipeline_fixture;
 
 final class _SchemaPort implements ServerpodPort {
   _SchemaPort(this.session);
@@ -413,32 +418,82 @@ VALUES
     (sessionBuilder, _) {
       test('sub_microsecond_evidence', () async {
         final session = sessionBuilder.build();
+        // Before the upgrade: a stored row's column keeps microseconds, and
+        // the step's expression reads it truncated.
         await applySchemaSteps(session, schemaSteps.take(3).toList());
-        const older = '00000000-0000-0000-0000-0000000000b1';
-        const newer = '00000000-0000-0000-0000-0000000000b2';
-        // A row stored before the upgrade; the column keeps microseconds.
-        await insertEvent(session, older, '2026-01-01 12:00:00.000000 UTC');
+        const stored = '00000000-0000-0000-0000-0000000000b1';
+        await insertEvent(session, stored, '2026-01-01 12:00:00.000000 UTC');
         await applySchemaSteps(session, schemaSteps);
-        // A row this release writes: the effective time truncated to micros.
-        await insertEvent(
+        expect(await effectiveTimes(session), {
+          stored: DateTime.utc(2026, 1, 1, 12),
+        });
+
+        // After the upgrade: the real pipeline stores both observations and
+        // decides the second against the fence it reloads from the database.
+        await initializeIngestSchema(session);
+        for (final table in [
+          'activity',
+          'alerts',
+          'pipeline_failures',
+          'observation_keys',
+          'outbox',
+          'events',
+          'raw_inbox',
+          'ingest_active_config',
+          'ingest_source',
+          'ingest_config_snapshot',
+          'ingest_secret_commitment',
+          'secret_record',
+          'ingest_source_credential',
+        ]) {
+          await session.db.unsafeSimpleExecute('DELETE FROM "$table"');
+        }
+        await IngestConfigRepository(
           session,
-          newer,
-          '2026-01-01 12:00:00.000000 UTC',
-          effective: '2026-01-01 12:00:00.000000 UTC',
+          secretStore: testSecretStore,
+        ).publish(config_fixture.input(1));
+        final repo = PipelineRepository(
+          sessionBuilder.build(),
+          clock: () => pipeline_fixture.now,
         );
-        final t = DateTime.utc(2026, 1, 1, 12);
-        expect(await effectiveTimes(session), {older: t, newer: t});
-        final seconds = t.millisecondsSinceEpoch ~/ 1000;
-        final observed = EventTimestamp.fromParts(seconds, 0);
-        OrderingKey key(int nanos, String id) => OrderingKey.fromSource(
-          sourceTime: EventTimestamp.fromParts(seconds, nanos),
-          observedAt: observed,
-          eventId: id,
-          skewAllowance: const Duration(minutes: 5),
+        var observed = pipeline_fixture.now;
+        Future<Map<String, Object?>> observe(String name, int nanos) async {
+          observed = observed.add(const Duration(seconds: 1));
+          await pipeline_fixture.seed(session, [
+            payload.alert(
+              startsAt:
+                  '2026-11-10T11:59:00.000000${nanos.toString().padLeft(3, '0')}Z',
+              labels: {'alertname': name, 'severity': 'warning'},
+            ),
+          ], observed: observed);
+          await repo.pinOne();
+          await repo.processOne();
+          final outcome = (await session.db.unsafeQuery(
+            'SELECT outcome_json FROM raw_inbox ORDER BY observed_at DESC '
+            'LIMIT 1',
+          )).single[0];
+          return jsonDecode(outcome! as String) as Map<String, Object?>;
+        }
+
+        // t + 900 ns first: t + 800 ns is older than the fence, so stale.
+        expect((await observe('Reversed', 900))['applied'], 1);
+        final reversed = await observe('Reversed', 800);
+        expect((reversed['applied'], reversed['stale']), (0, 1));
+        // t + 800 ns first: t + 900 ns is newer, so applied.
+        expect((await observe('InOrder', 800))['applied'], 1);
+        final inOrder = await observe('InOrder', 900);
+        expect((inOrder['applied'], inOrder['stale']), (1, 0));
+
+        // All four stored effective times are t truncated to the microsecond.
+        final times = await session.db.unsafeQuery(
+          'SELECT effective_source_time, events_effective_source_time(e) '
+          'FROM events e',
         );
-        // Both truncate to t, but the fence still orders by nanoseconds.
-        expect(key(800, older).compareTo(key(900, newer)), lessThan(0));
-        expect(key(900, older).compareTo(key(800, newer)), greaterThan(0));
+        final t = DateTime.utc(2026, 11, 10, 11, 59);
+        expect(times, hasLength(4));
+        for (final row in times) {
+          expect(row.toList(), [t, t]);
+        }
       });
     },
     rollbackDatabase: RollbackDatabase.disabled,

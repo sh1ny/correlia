@@ -369,10 +369,11 @@ arguments and POSTs it to `<base url>/hooks/icinga2/<source>`.
 
 ### Installation
 
-1. Build the sender with `mise run build:icinga2-notify` and install
-   `build/icinga2-notify/linux-x64/correlia-icinga2-notify` as `/usr/local/bin/correlia-icinga2-notify` (owned by
-   root, mode 0755). Only the linux-x64 build is qualified; the linux-arm64 build has no captured release and is not
-   published.
+1. Run `mise run release:icinga2-notify` and install `build/icinga2-notify/release/linux-x64/correlia-icinga2-notify`
+   as `/usr/local/bin/correlia-icinga2-notify` (owned by root, mode 0755). The release task publishes a sender only
+   when its SHA-256 is the artifact a passing capture ran, so only that file is qualified. The plain build output
+   under `build/icinga2-notify/<architecture>/` is unchecked: it is for development and captures, not for
+   installation. Today only linux-x64 is published; the linux-arm64 build has no captured release.
 2. Copy the three files of `contrib/icinga2/` together into `/etc/icinga2/correlia/` and add one line to
    `/etc/icinga2/icinga2.conf`: `include "correlia/correlia.conf"`. Do not copy them into `conf.d`: Icinga 2 loads
    that directory in file-name order, and the commands need the constants and helper functions loaded first.
@@ -400,7 +401,8 @@ Exit status 0 means Correlia answered 202; 1 is any other HTTP status, 2 a confi
   targets included, must be writable only by root or the Icinga 2 user, and the files owned by one of them. The
   token and key files must be readable only by the Icinga 2 user (any group or other bit exits 2 with
   `credential_mode`); a CA file writable by group or others exits 2 with `ca_mode`. The token and key files are at
-  most 4 KiB and the CA file at most 1 MiB. The HMAC key file holds Correlia's 43-character unpadded base64url key.
+  most 4 KiB and the CA file at most 1 MiB. A file the sender may not open or read exits 2 with `unreadable`
+  and the argument's name. The HMAC key file holds Correlia's 43-character unpadded base64url key.
 - **Transport.** The base URL must be `https://`, or `http://` only to a literal loopback address (`127.0.0.0/8`
   or `::1`, not `localhost`). Proxies and redirects are never followed, and trust is exactly the CA file when one
   is set, otherwise the distribution's bundle; no environment variable changes either.

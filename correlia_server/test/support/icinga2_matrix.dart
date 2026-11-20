@@ -385,27 +385,71 @@ List<String> gateClock(Capture c) {
 const _downtimeFile = 'captured_downtime_removal';
 const removalTypes = {'DOWNTIMEEND', 'DOWNTIMECANCELLED'};
 
+/// The comment of the capture's downtime that expires.
+const downtimeExpires = 'expires';
+
+/// The comment of the capture's downtime that is removed by hand.
+const downtimeRemoved = 'removed by hand';
+
 /// Gate: downtime removal.
+///
+/// The capture schedules two downtimes, told apart by their comments: one
+/// that expires and one removed by hand at the recorded
+/// `manual_removal_requested` time. Each must produce exactly one removal
+/// notification, the expiry's before that time and the manual one after
+/// it, and each removal must commit an informational downtime event with an
+/// outbox intent for the capture's output, leaving the alert unchanged.
 List<String> gateDowntime(Capture c) {
   final out = <String>[];
+  final infos = {
+    for (final r in c.of(_downtimeFile, 'info'))
+      r.json['name']: r.json['value'],
+  };
+  final outputId = infos['output_id'];
+  final requested = infos['manual_removal_requested'];
+  if (outputId is! String || requested is! num) {
+    return ['no recorded output or manual removal time'];
+  }
   final removals = [
     for (final d in c.admitted(_downtimeFile))
       if (removalTypes.contains(d.notificationType)) d,
   ];
-  if (removals.length < 2) {
-    out.add(
-      'expected a removal of an expired and of a removed downtime, '
-      'found ${removals.length}',
-    );
-  }
-  for (final d in removals) {
+  for (final (comment, beforeRemoval) in [
+    (downtimeExpires, true),
+    (downtimeRemoved, false),
+  ]) {
+    final matching = [
+      for (final d in removals)
+        if (d.body['notification_comment'] == comment) d,
+    ];
+    if (matching.length != 1) {
+      out.add(
+        'expected one removal of the "$comment" downtime, '
+        'found ${matching.length}',
+      );
+      continue;
+    }
+    final d = matching.single;
+    final time = double.tryParse(d.body['notification_time'] as String? ?? '');
+    if (time == null || (time < requested) != beforeRemoval) {
+      out.add(
+        'the "$comment" removal at $time is not '
+        '${beforeRemoval ? 'before' : 'after'} the manual removal at '
+        '$requested',
+      );
+    }
     final data = d.data();
     if (data['kind'] != 'EVENT_KIND_DOWNTIME' ||
         data['status'] != 'EVENT_STATUS_INFO') {
-      out.add('${d.notificationType} is not an informational downtime event');
+      out.add('the "$comment" removal is not an informational downtime event');
     }
-    if (d.events.single['disposition'] != 'ready') {
-      out.add('${d.notificationType} event is not routed to outputs');
+    final event = d.events.single;
+    final intents = (event['outbox'] as List<Object?>?) ?? const [];
+    final routed = intents.any(
+      (i) => i is Map<String, Object?> && i['output_id'] == outputId,
+    );
+    if (event['disposition'] != 'ready' || !routed) {
+      out.add('the "$comment" removal has no output intent');
     }
   }
   final states = c.of(_downtimeFile, 'state');
@@ -678,6 +722,18 @@ List<String> gateDecode(Capture c) {
         );
         if (recorded != decoded) {
           out.add('$name.json ${d.id}: decoded $decoded, recorded $recorded');
+        }
+        // The stored event is the observation this 202 delivered: the same
+        // event id and source time as the request decodes to.
+        final sourceTime = d.events.first['source_time'];
+        if (data['event_id'] != event.eventId ||
+            sourceTime is! String ||
+            EventTimestamp.parse(sourceTime) != event.sourceTime) {
+          out.add(
+            '$name.json ${d.id}: stored event ${data['event_id']} at '
+            '$sourceTime is not the decoded ${event.eventId} at '
+            '${event.sourceTime}',
+          );
         }
       } on Object catch (error) {
         out.add(

@@ -8,7 +8,7 @@
       "auth": "bearer",
       "request": {
         "path": "/hooks/icinga2/33333333-3333-4333-8333-333333333333",
-        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"invalid-output\",\"state\":\"CRITICAL\",\"state_type\":\"HARD\",\"last_state_change\":\"1795179280.131325\",\"output\":\"bad �� bytes, still text\",\"notification_type\":\"PROBLEM\",\"notification_time\":\"1795179280.131768\"}"
+        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"invalid-output\",\"state\":\"CRITICAL\",\"state_type\":\"HARD\",\"last_state_change\":\"1795185341.498294\",\"output\":\"bad �� bytes, still text\",\"notification_type\":\"PROBLEM\",\"notification_time\":\"1795185341.498698\"}"
       },
       "response_status": 202,
       "raw": {
@@ -18,7 +18,7 @@
           "unknown_top_level_fields": [],
           "unknown_top_level_overflow": 0,
           "committed": 1,
-          "unrouted": 1,
+          "unrouted": 0,
           "duplicate_observation": 0,
           "future_dated": 0,
           "duplicate_quarantine": 0,
@@ -33,10 +33,10 @@
         {
           "disposition": "ready",
           "state_outcome": "applied",
-          "source_time": "2026-11-20T12:54:40.131325Z",
+          "source_time": "2026-11-20T14:35:41.498294Z",
           "cloud_event": {
             "specversion": "1.0",
-            "id": "5e6f9e65-20cf-5275-b2eb-062b4570370b",
+            "id": "eb1ee2e8-74d6-5812-a161-bec3761f637c",
             "source": "urn:correlia:source:33333333-3333-4333-8333-333333333333",
             "type": "io.correlia.alert.v1",
             "datacontenttype": "application/json",
@@ -44,9 +44,9 @@
             "subject": "b25454205ebf28329d34a38333a20384123032c25c949550344eab054892b1cc",
             "partitionkey": "b25454205ebf28329d34a38333a20384123032c25c949550344eab054892b1cc",
             "correliatenant": "default",
-            "time": "2026-11-20T12:54:40.131325Z",
+            "time": "2026-11-20T14:35:41.498294Z",
             "data": {
-              "event_id": "5e6f9e65-20cf-5275-b2eb-062b4570370b",
+              "event_id": "eb1ee2e8-74d6-5812-a161-bec3761f637c",
               "fingerprint": "b25454205ebf28329d34a38333a20384123032c25c949550344eab054892b1cc",
               "tenant": "default",
               "namespace": "33333333-3333-4333-8333-333333333333",
@@ -66,17 +66,17 @@
               "annotations": {
                 "icinga2.notification_type": "PROBLEM"
               },
-              "source_time": "2026-11-20T12:54:40.131325Z",
-              "reported_source_time": "2026-11-20T12:54:40.131325Z",
-              "observed_at": "2026-11-20T12:54:40.138071Z",
-              "processed_at": "2026-11-20T12:54:40.384891Z",
+              "source_time": "2026-11-20T14:35:41.498294Z",
+              "reported_source_time": "2026-11-20T14:35:41.498294Z",
+              "observed_at": "2026-11-20T14:35:41.504090Z",
+              "processed_at": "2026-11-20T14:35:41.601015Z",
               "raw": {
-                "ref": "raw:2026-11-20T12:54:40.138071Z/563551ce-a503-4d2f-9287-33156c846e59",
-                "sha256": "816e80f5c4cfd6a9be9a57836ceade471a42ab84ef4657f0fbdb0dae50c8a747",
+                "ref": "raw:2026-11-20T14:35:41.504090Z/d883d1aa-2a97-4e45-981b-d3ccd6fa1ac4",
+                "sha256": "37b07917858a91e5169d286a6be76977ea7105673ebe121741834739258937c7",
                 "size": 285
               },
               "pipeline": {
-                "version": "729f5ce51887189376c763d20ddffd506f6b5b3b37f7d8e58b8d0834d39b89ec",
+                "version": "f60cbf8af8a8479b08ad489141d4914e534774c59da8211f69de59819a5eee72",
                 "generation": 0
               },
               "extensions": {},
@@ -88,9 +88,15 @@
                   "raw": "invalid-output"
                 }
               },
-              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAADsAWyJpY2luZ2EyLm5vdGlmeS52MSIsIkNSSVRJQ0FMIiwiSEFSRCIsIjE3OTUxNzkyODAxMzEzMjUiXQ=="
+              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAADsAWyJpY2luZ2EyLm5vdGlmeS52MSIsIkNSSVRJQ0FMIiwiSEFSRCIsIjE3OTUxODUzNDE0OTgyOTQiXQ=="
             }
-          }
+          },
+          "outbox": [
+            {
+              "output_id": "44444444-4444-4444-8444-444444444444",
+              "kind": "webhook"
+            }
+          ]
         }
       ]
     }

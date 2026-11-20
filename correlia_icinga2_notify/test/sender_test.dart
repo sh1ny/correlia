@@ -396,6 +396,50 @@ void main() {
     expect(receiver.requests, isEmpty);
   });
 
+  test(
+    'unreadable_credential_or_ca_file_is_a_configuration_error',
+    () async {
+      final tripwire = await Tripwire.start();
+      addTearDown(tripwire.close);
+      final dir = Directory.systemTemp.createTempSync('sender-unreadable-');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      // Mode 000 passes the stat precheck, and the open then fails for a
+      // user without the DAC override privilege.
+      final token = File('${dir.path}/token')..writeAsStringSync('$_token\n');
+      final ca = File('${dir.path}/ca')..writeAsStringSync('x');
+      for (final file in [token, ca]) {
+        Process.runSync('chmod', ['000', file.path]);
+      }
+      final good = File('${dir.path}/good')..writeAsStringSync('$_token\n');
+      Process.runSync('chmod', ['600', good.path]);
+
+      final unreadableToken = await run(
+        argv(
+          baseUrl: 'http://127.0.0.1:${tripwire.port}',
+          over: {'--token-file': token.path},
+        ),
+        files: const DiskFiles(),
+      );
+      expect(unreadableToken.code, 2, reason: unreadableToken.text);
+      expect(unreadableToken.text, contains('unreadable --token-file'));
+
+      final unreadableCa = await run(
+        argv(
+          baseUrl: 'https://127.0.0.1:${tripwire.port}',
+          over: {'--token-file': good.path, '--ca-file': ca.path},
+        ),
+        files: const DiskFiles(),
+      );
+      expect(unreadableCa.code, 2, reason: unreadableCa.text);
+      expect(unreadableCa.text, contains('unreadable --ca-file'));
+      expect(await tripwire.contacted(), 0);
+    },
+    // Root reads a mode 000 file, so the open never fails.
+    skip: Platform.environment['USER'] == 'root'
+        ? 'root bypasses file modes'
+        : false,
+  );
+
   test('credential_file_readable_by_others', () async {
     final tripwire = await Tripwire.start();
     addTearDown(tripwire.close);

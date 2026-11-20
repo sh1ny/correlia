@@ -13,6 +13,9 @@ import '../../test/support/shared_cluster.dart';
 /// The Icinga2 source the capture's real Correlia child serves.
 const captureSource = '33333333-3333-4333-8333-333333333333';
 
+/// The webhook output every event of the capture source is routed to.
+const captureOutput = '44444444-4444-4444-8444-444444444444';
+
 String _secret(int bytes) {
   final random = Random.secure();
   return base64Url
@@ -69,6 +72,7 @@ final class CorreliaRig {
     this.connection,
     this.token,
     this.hmacKey,
+    this._sink,
   );
 
   static Future<CorreliaRig> start() async {
@@ -76,6 +80,14 @@ final class CorreliaRig {
     final files = Directory.systemTemp.createTempSync('icinga2-capture-');
     final token = _secret(32);
     final key = _secret(32);
+    // The output sink accepts every delivery; the evidence records the
+    // outbox intents, not what the sink saw.
+    final sink = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    sink.listen((request) async {
+      await request.drain<void>();
+      request.response.statusCode = 202;
+      await request.response.close();
+    });
     ChildServer? child;
     Connection? connection;
     try {
@@ -83,7 +95,14 @@ final class CorreliaRig {
         jsonEncode({
           'format_version': 2,
           'revision': 1,
-          'outputs': <Object?>[],
+          'outputs': [
+            {
+              'id': captureOutput,
+              'kind': 'webhook',
+              'url': 'http://127.0.0.1:${sink.port}/events',
+              'signing_key_ref': 'output-key',
+            },
+          ],
           'sources': [
             {
               'id': captureSource,
@@ -93,13 +112,19 @@ final class CorreliaRig {
                 {'ref': 'token', 'type': 'bearer'},
                 {'ref': 'key', 'type': 'hmac'},
               ],
-              'output_ids': <Object?>[],
+              'output_ids': [captureOutput],
             },
           ],
         }),
       );
       final secrets = File('${files.path}/secrets.json')
-        ..writeAsStringSync(jsonEncode({'token': token, 'key': key}));
+        ..writeAsStringSync(
+          jsonEncode({
+            'token': token,
+            'key': key,
+            'output-key': _secret(32),
+          }),
+        );
       await Process.run('chmod', ['600', secrets.path]);
       child = await ChildServer.startOnSharedCluster(
         serverDir: Directory.current,
@@ -123,8 +148,17 @@ final class CorreliaRig {
         ),
         settings: const ConnectionSettings(sslMode: SslMode.disable),
       );
-      return CorreliaRig._(database, files, child, connection, token, key);
+      return CorreliaRig._(
+        database,
+        files,
+        child,
+        connection,
+        token,
+        key,
+        sink,
+      );
     } catch (_) {
+      await sink.close(force: true);
       await connection?.close();
       if (child != null) await tearDownChildren([child]);
       await database.drop();
@@ -142,6 +176,7 @@ final class CorreliaRig {
   final String token;
   final String hmacKey;
 
+  final HttpServer _sink;
   HttpServer? _proxy;
   HttpServer? _receiver;
   final List<SeenRequest> proxied = [];
@@ -286,8 +321,9 @@ final class CorreliaRig {
         final events = <Map<String, Object?>>[];
         final e = await connection.execute(
           Sql.named(
-            'SELECT disposition, state_outcome, source_time, payload '
-            'FROM events WHERE raw_id = @id::uuid ORDER BY event_id',
+            'SELECT disposition, state_outcome, source_time, payload, '
+            'event_id::text FROM events WHERE raw_id = @id::uuid '
+            'ORDER BY event_id',
           ),
           parameters: {'id': id},
         );
@@ -295,11 +331,22 @@ final class CorreliaRig {
           final payload = jsonDecode(
             utf8.decode(row[3]! as List<int>),
           );
+          // The output intents the event's commit wrote.
+          final intents = await connection.execute(
+            Sql.named(
+              'SELECT output_id::text, output_kind FROM outbox '
+              'WHERE event_id = @e::uuid ORDER BY output_id',
+            ),
+            parameters: {'e': row[4]},
+          );
           events.add({
             'disposition': row[0],
             'state_outcome': row[1],
             'source_time': (row[2]! as DateTime).toUtc().toIso8601String(),
             'cloud_event': payload,
+            'outbox': [
+              for (final i in intents) {'output_id': i[0], 'kind': i[1]},
+            ],
           });
         }
         return RawResult(
@@ -369,6 +416,7 @@ final class CorreliaRig {
   }
 
   Future<void> dispose() async {
+    await _sink.close(force: true);
     await _proxy?.close(force: true);
     await _receiver?.close(force: true);
     await connection.close();

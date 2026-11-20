@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import '../../test/support/icinga2_matrix.dart'
+    show downtimeExpires, downtimeRemoved;
 import 'config.dart';
 import 'evidence.dart';
 import 'lab.dart';
@@ -407,7 +409,7 @@ final class Scenarios {
       output: 'CRITICAL: before downtime',
       end: timeText(s, 100001),
     );
-    Future<String> schedule(int seconds) async {
+    Future<String> schedule(int seconds, String comment) async {
       final now = c.nowSeconds();
       final result = await _action('schedule-downtime', {
         'type': 'Service',
@@ -416,25 +418,50 @@ final class Scenarios {
         'end_time': now + seconds,
         'fixed': true,
         'author': 'operator',
-        'comment': 'maintenance',
+        'comment': comment,
       });
       return jsonEncode(result);
     }
 
-    // One downtime that expires, one removed by hand.
-    await schedule(4);
-    await ev.deliveries(1); // DOWNTIMESTART
-    await settle(ev); // DOWNTIMEEND once it expires
-    await schedule(3600);
+    // Takes deliveries until the removal of the downtime with [comment]
+    // arrives. Icinga 2.13 ends an expired downtime on its expiry timer,
+    // up to a minute after the end time; the take waits up to 90 s.
+    Future<void> untilRemoval(String comment) async {
+      while (true) {
+        final d = (await ev.deliveries(1)).single;
+        final request = d['request']! as Map<String, Object?>;
+        final body = jsonDecode(request['body']! as String);
+        if (body case {
+          'notification_type': 'DOWNTIMEEND' || 'DOWNTIMECANCELLED',
+          'notification_comment': final String c,
+        } when c == comment) {
+          return;
+        }
+      }
+    }
+
+    // Every event is routed to this output; the gate checks its intents.
+    ev.info('output_id', captureOutput);
+    // One downtime that expires; its removal comes from Icinga 2 alone.
+    await schedule(4, downtimeExpires);
+    await untilRemoval(downtimeExpires);
     await settle(ev);
+    // One downtime removed by hand, after the expiry's removal arrived.
+    await schedule(3600, downtimeRemoved);
+    await settle(ev);
+    final micros = DateTime.now().microsecondsSinceEpoch;
+    ev.info('manual_removal_requested', micros / 1000000);
     await lab.ok(
       'POST',
       '/v1/actions/remove-downtime',
       body: {
         'type': 'Downtime',
-        'filter': 'downtime.service_name == "dt"',
+        'filter':
+            'downtime.service_name == "dt" && '
+            'downtime.comment == ${dslString(downtimeRemoved)}',
       },
     );
+    await untilRemoval(downtimeRemoved);
     await settle(ev);
     await ev.snapshot('removal', host: 'lab', service: 'dt');
     await ev.logExcerpt(label: 'downtime');

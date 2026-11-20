@@ -93,6 +93,17 @@ void main() {
     request['body'] = jsonEncode(body);
   }
 
+  /// Makes [record]'s stored event the observation its (edited) body
+  /// decodes to, so synthetic evidence stays coherent for the decode gate.
+  void syncEvent(Map<String, Object?> record) {
+    final decoded = decodeBody(Rec(record).bodyText);
+    final event =
+        (record['events']! as List<Object?>).single! as Map<String, Object?>;
+    event['source_time'] = decoded.sourceTime?.toRfc3339();
+    final cloud = event['cloud_event']! as Map<String, Object?>;
+    (cloud['data']! as Map<String, Object?>)['event_id'] = decoded.eventId;
+  }
+
   /// Fails unless [failures] names [pair] and [gate] (and only those gates in
   /// [only], when given).
   void expectNamed(
@@ -232,6 +243,29 @@ void main() {
       Gate.delivery,
       mentions: 'missing capture',
     );
+    // The stored event is another observation of the same object: same
+    // fingerprint, status, kind and severity, another event id and time.
+    final otherEvent = copy();
+    edit(otherEvent, 'notification_from_a_real_icinga_2_in_both_auth_modes', (
+      r,
+    ) {
+      final event =
+          (r.firstWhere((x) => x['kind'] == 'admitted')['events']!
+                      as List<Object?>)
+                  .first!
+              as Map<String, Object?>;
+      event['source_time'] = '2026-01-01T00:00:00.000001Z';
+      final cloud = event['cloud_event']! as Map<String, Object?>;
+      (cloud['data']! as Map<String, Object?>)['event_id'] =
+          '00000000-0000-5000-8000-000000000000';
+    });
+    expectNamed(
+      evaluatePair(otherEvent),
+      otherEvent,
+      Gate.decode,
+      mentions: 'is not the decoded',
+      only: true,
+    );
   });
 
   test('202_recorded_but_event_missing', () {
@@ -277,11 +311,8 @@ void main() {
         'last_state_change',
         first.body['last_state_change'],
       );
-      final events = admitted.last['events']! as List<Object?>;
-      final cloud =
-          (events.single! as Map<String, Object?>)['cloud_event']!
-              as Map<String, Object?>;
-      (cloud['data']! as Map<String, Object?>)['event_id'] = first.eventId;
+      syncEvent(admitted.last);
+      expect(Rec(admitted.last).eventId, first.eventId);
     });
     expectNamed(evaluatePair(broken), broken, Gate.service, only: true);
   });
@@ -394,12 +425,7 @@ void main() {
             x['cap_id'] == 'fp-startup',
       )['execution_end'];
       setBody(second, 'last_state_change', secondEnd);
-      final cloud =
-          ((second['events']! as List<Object?>).single!
-                  as Map<String, Object?>)['cloud_event']!
-              as Map<String, Object?>;
-      (cloud['data']! as Map<String, Object?>)['event_id'] =
-          '00000000-0000-5000-8000-000000000002';
+      syncEvent(second);
       r.insert(r.indexOf(reminder), second);
       setBody(reminder, 'last_state_change', secondEnd);
       final states = r.where(
@@ -465,6 +491,65 @@ void main() {
     });
   });
   test('captured_downtime_removal', () => eachPair(gateDowntime));
+
+  test('downtime_removal_without_a_route_or_an_expiry', () {
+    const file = 'captured_downtime_removal';
+    Map<String, Object?> removal(
+      List<Map<String, Object?>> records,
+      String comment,
+    ) => records.firstWhere(
+      (r) =>
+          r['kind'] == 'admitted' &&
+          removalTypes.contains(Rec(r).notificationType) &&
+          Rec(r).body['notification_comment'] == comment,
+    );
+
+    // An event committed with no output intent is not routed.
+    final unrouted = copy();
+    edit(unrouted, file, (r) {
+      final events = removal(r, downtimeExpires)['events']! as List<Object?>;
+      (events.single! as Map<String, Object?>)['outbox'] = <Object?>[];
+    });
+    expectNamed(
+      evaluatePair(unrouted),
+      unrouted,
+      Gate.downtime,
+      mentions: 'no output intent',
+      only: true,
+    );
+
+    // Two removals of the manual downtime and none of the expiry.
+    final noExpiry = copy();
+    edit(noExpiry, file, (r) {
+      final expiry = removal(r, downtimeExpires);
+      setBody(expiry, 'notification_comment', downtimeRemoved);
+      syncEvent(expiry);
+    });
+    expectNamed(
+      evaluatePair(noExpiry),
+      noExpiry,
+      Gate.downtime,
+      mentions: 'one removal of the "expires" downtime, found 0',
+      only: true,
+    );
+
+    // The expiry's removal only arrived with the manual removal.
+    final late = copy();
+    edit(late, file, (r) {
+      final expiry = Rec(removal(r, downtimeExpires));
+      final time = double.parse(expiry.body['notification_time']! as String);
+      r.firstWhere(
+        (x) => x['name'] == 'manual_removal_requested',
+      )['value'] = time - 1;
+    });
+    expectNamed(
+      evaluatePair(late),
+      late,
+      Gate.downtime,
+      mentions: 'is not before the manual removal',
+      only: true,
+    );
+  });
   test('same_named_custom_variables_are_ignored', () {
     eachPair((c) {
       final out = <String>[];

@@ -222,9 +222,15 @@ Future<Uint8List> _readChecked(
   }
   if (info.size > cap) throw SenderExit.config('too_large $argument');
   final bytes = BytesBuilder(copy: false);
-  await for (final chunk in files.open(path, cap + 1)) {
-    bytes.add(chunk);
-    if (bytes.length > cap) throw SenderExit.config('too_large $argument');
+  try {
+    await for (final chunk in files.open(path, cap + 1)) {
+      bytes.add(chunk);
+      if (bytes.length > cap) throw SenderExit.config('too_large $argument');
+    }
+  } on FileSystemException {
+    // An open or read the user may not make (mode 000, say) is a
+    // configuration error naming only the argument, never the OS message.
+    throw SenderExit.config('unreadable $argument');
   }
   return bytes.takeBytes();
 }
