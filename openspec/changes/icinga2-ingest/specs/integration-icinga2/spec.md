@@ -98,7 +98,7 @@ when the delivery is not accepted, so Icinga 2 logs the failure.
 
 #### Scenario: Long check output
 - **WHEN** a supported release runs the shipped service command after a passive check result with 200 KiB of output
-- **THEN** the command starts, the delivery is accepted with 202, and the stored description ends with the truncation marker
+- **THEN** the command starts, the delivery is accepted with 202, the delivered output ends with the sender's truncation marker, and the stored description, cut again at the display bound, ends with the display truncation marker
 
 #### Scenario: Recovery output with dollar signs
 - **WHEN** a supported release sends the RECOVERY of a firing service whose check output is `OK: cost below $5, see $host.name$` followed by enough text to be cut
