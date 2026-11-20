@@ -104,6 +104,29 @@ String hex(List<int> bytes) =>
     bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
 
 void main() {
+  test('non_state_key_without_the_state_change_time', () {
+    for (final type in [
+      'ACKNOWLEDGEMENT',
+      'DOWNTIMESTART',
+      'FLAPPINGSTART',
+      'CUSTOM',
+    ]) {
+      final present = delivery(
+        set: {'notification_type': type, 'notification_author': 'alice'},
+      );
+      final absent = {...present}..remove('last_state_change');
+      final withField = decodeOne(present);
+      final without = decodeOne(absent);
+      expect(
+        hex(without.observationKey.bytes),
+        hex(withField.observationKey.bytes),
+        reason: type,
+      );
+      expect(without.eventId, withField.eventId, reason: type);
+      expect(without.sourceTime, withField.sourceTime, reason: type);
+    }
+  });
+
   test('fixed_key_vectors', () {
     final directory = 'test/unit/ingest/fixtures/icinga2/key_vectors';
     // Every committed example is a vector, and every vector is committed.

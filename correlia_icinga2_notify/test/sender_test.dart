@@ -609,6 +609,40 @@ void main() {
       expect(result.text, isNot(contains(_key)));
     });
 
+    test('non_state_notification_without_a_state_change_time', () async {
+      for (final type in [
+        'CUSTOM',
+        'ACKNOWLEDGEMENT',
+        'DOWNTIMESTART',
+        'FLAPPINGSTART',
+      ]) {
+        final receiver = await Receiver.start();
+        addTearDown(receiver.close);
+        final result = await run(
+          argv(
+            baseUrl: receiver.url,
+            over: {
+              '--notification-type': type,
+              '--last-state-change': null,
+              '--output': null,
+            },
+          ),
+        );
+        expect(result.code, 0, reason: '$type ${result.text}');
+        final document =
+            jsonDecode(utf8.decode(receiver.requests.single.body))
+                as Map<String, Object?>;
+        expect(
+          document.containsKey('last_state_change'),
+          isFalse,
+          reason: type,
+        );
+        expect(document.containsKey('output'), isFalse, reason: type);
+        expect(document['notification_type'], type);
+        expect(document['notification_time'], '1700000001.654321');
+      }
+    });
+
     test('host_notification_omits_the_service', () async {
       final receiver = await Receiver.start();
       addTearDown(receiver.close);
@@ -657,6 +691,23 @@ void main() {
       expect(files.statted, isEmpty, reason: 'no file touched');
       expect(await tripwire.contacted(), 0);
     }
+
+    test('state_notification_without_a_state_change_time', () async {
+      for (final type in ['PROBLEM', 'RECOVERY']) {
+        await rejects({
+          '--notification-type': type,
+          '--last-state-change': null,
+        }, 'missing_argument --last-state-change');
+        await rejects({
+          '--notification-type': type,
+          '--last-state-change': '',
+        }, 'invalid_argument --last-state-change');
+      }
+      await rejects({
+        '--notification-type': 'CUSTOM',
+        '--last-state-change': '',
+      }, 'invalid_argument --last-state-change');
+    });
 
     test('non_empty_environment', () async {
       final files = creds();

@@ -29,10 +29,13 @@ const _required = [
   '--host',
   '--state',
   '--state-type',
-  '--last-state-change',
   '--notification-type',
   '--notification-time',
 ];
+
+/// Notification types whose document must carry the state change time
+/// (design D13); every other type may omit it.
+const _stateNotificationTypes = {'PROBLEM', 'RECOVERY'};
 
 final _baseUrl = RegExp(r'^https?://[A-Za-z0-9.:\[\]-]+$');
 final _uuid = RegExp(
@@ -163,8 +166,13 @@ final class SenderArguments {
     if (!_notificationTypes.contains(values['--notification-type'])) {
       throw const SenderExit.config('invalid_argument --notification-type');
     }
+    final notificationType = values['--notification-type']!;
+    if (_stateNotificationTypes.contains(notificationType) &&
+        !values.containsKey('--last-state-change')) {
+      throw const SenderExit.config('missing_argument --last-state-change');
+    }
     for (final name in ['--last-state-change', '--notification-time']) {
-      if (!_time.hasMatch(values[name]!)) {
+      if (values[name] case final value? when !_time.hasMatch(value)) {
         throw SenderExit.config('invalid_argument $name');
       }
     }
@@ -182,9 +190,9 @@ final class SenderArguments {
       'service': ?values['--service'],
       'state': state,
       'state_type': values['--state-type']!,
-      'last_state_change': values['--last-state-change']!,
+      'last_state_change': ?values['--last-state-change'],
       'output': ?output,
-      'notification_type': values['--notification-type']!,
+      'notification_type': notificationType,
       'notification_author': ?author,
       'notification_comment': ?comment,
       'notification_time': values['--notification-time']!,

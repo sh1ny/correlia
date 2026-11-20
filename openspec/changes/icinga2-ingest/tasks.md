@@ -42,11 +42,11 @@ that produces the evidence, and the test is what judges it.
 | integration-icinga2 → Icinga2 webhook document | Unknown field name is not reflected | `correlia_server/test/unit/ingest/icinga2_webhook_test.dart` | `unknown_field_name_is_not_reflected` | green |
 | integration-icinga2 → Icinga2 webhook document | Dotted unknown field name | `correlia_server/test/unit/ingest/icinga2_webhook_test.dart` | `dotted_unknown_field_name` | green |
 | integration-icinga2 → Icinga2 webhook document | Unsupported format version | `correlia_server/test/unit/ingest/icinga2_webhook_test.dart` | `unsupported_format_version` | green |
-| integration-icinga2 → State change time is required only for state notifications | State notification without a state change time | `correlia_server/test/unit/ingest/icinga2_webhook_test.dart` | `state_notification_without_a_state_change_time` | red |
-| integration-icinga2 → State change time is required only for state notifications | Non-state key without the state change time | `correlia_server/test/unit/ingest/icinga2_keys_test.dart` | `non_state_key_without_the_state_change_time` | red |
+| integration-icinga2 → State change time is required only for state notifications | State notification without a state change time | `correlia_server/test/unit/ingest/icinga2_webhook_test.dart` | `state_notification_without_a_state_change_time` | green |
+| integration-icinga2 → State change time is required only for state notifications | Non-state key without the state change time | `correlia_server/test/unit/ingest/icinga2_keys_test.dart` | `non_state_key_without_the_state_change_time` | green |
 | integration-icinga2 → State change time is required only for state notifications | Non-state notification for an object with an unusable state change time | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `non_state_notification_for_an_object_with_an_unusable_state_change_time` | red |
-| integration-icinga2 → State change time is required only for state notifications | Invalid state change time on a non-state delivery | `correlia_server/test/unit/ingest/icinga2_webhook_test.dart` | `invalid_state_change_time_on_a_non_state_delivery` | red |
-| integration-icinga2 → State change time is required only for state notifications | Custom notification without a state change time | `correlia_server/test/db/icinga2_ingest_test.dart` | `custom_notification_without_a_state_change_time` | red |
+| integration-icinga2 → State change time is required only for state notifications | Invalid state change time on a non-state delivery | `correlia_server/test/unit/ingest/icinga2_webhook_test.dart` | `invalid_state_change_time_on_a_non_state_delivery` | green |
+| integration-icinga2 → State change time is required only for state notifications | Custom notification without a state change time | `correlia_server/test/db/icinga2_ingest_test.dart` | `custom_notification_without_a_state_change_time` | green |
 | integration-icinga2 → Webhook text is storable | NUL in a host name | `correlia_server/test/db/icinga2_ingest_test.dart` | `nul_in_a_host_name` | green |
 | integration-icinga2 → Webhook body nesting is bounded before parsing | Deeply nested body | `correlia_server/test/db/icinga2_ingest_test.dart` | `deeply_nested_body` | green |
 | integration-icinga2 → Shipped notification command | Notification from a real Icinga 2 in both auth modes | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `notification_from_a_real_icinga_2_in_both_auth_modes` | red |
@@ -313,7 +313,7 @@ list. Group 9's capture answers it, and the answer does not change what gets bui
 
 ## 7. Shipped command definitions
 
-- [ ] 7.1 Write `contrib/icinga2/`:
+- [x] 7.1 Write `contrib/icinga2/`:
   - The host and service `NotificationCommand`s. They launch through `/usr/bin/env -i`, use
     `timeout = 15`, and define argument functions that read only qualified macros, with the output read from
     the live object's `last_check_result`.
@@ -329,14 +329,14 @@ list. Group 9's capture answers it, and the answer does not change what gets bui
 
   Verify that `icinga2 daemon -C` accepts the files inside an official image. The capture script runs this
   as its first step; record its output in 8.2's evidence.
-- [ ] 7.2 Write failing tests for D13's optional field: `state_notification_without_a_state_change_time`
+- [x] 7.2 Write failing tests for D13's optional field: `state_notification_without_a_state_change_time`
   (`icinga2_webhook_test.dart`), `non_state_key_without_the_state_change_time` (`icinga2_keys_test.dart`),
   `invalid_state_change_time_on_a_non_state_delivery` (`icinga2_webhook_test.dart`),
   `custom_notification_without_a_state_change_time` (`icinga2_ingest_test.dart`),
   and sender tests in `sender_test.dart`: a `CUSTOM`, `ACKNOWLEDGEMENT`, `DOWNTIMESTART` and `FLAPPINGSTART`
   run without `--last-state-change` delivers a document without the field; a `PROBLEM` or `RECOVERY` run
   without it, or with the JSON empty string, exits 2 naming it before any connection. Confirm them red.
-- [ ] 7.3 Make `last_state_change` optional in the parser and required by the mapper for `PROBLEM` and
+- [x] 7.3 Make `last_state_change` optional in the parser and required by the mapper for `PROBLEM` and
   `RECOVERY` only (`missing_field` on that path; `StateFact` keeps a non-null time, `notification_time` stays
   required for every type), and the sender's `--last-state-change` required for those two types only, the
   document omitting the field when the argument is absent. Update the field table of the webhook document in

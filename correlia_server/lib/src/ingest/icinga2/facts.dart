@@ -96,7 +96,6 @@ sealed class Icinga2Fact {
     required this.object,
     required this.state,
     required this.stateType,
-    required this.lastStateChange,
     required this.notificationType,
     required this.notificationTime,
   });
@@ -109,9 +108,6 @@ sealed class Icinga2Fact {
 
   /// Whether that state is HARD or SOFT.
   final Icinga2StateType stateType;
-
-  /// The object's last state change time.
-  final Icinga2Time lastStateChange;
 
   /// Icinga 2's notification type.
   final Icinga2NotificationType notificationType;
@@ -127,11 +123,15 @@ final class StateFact extends Icinga2Fact {
     required super.object,
     required super.state,
     required super.stateType,
-    required super.lastStateChange,
+    required this.lastStateChange,
     required super.notificationType,
     required super.notificationTime,
     this.output,
   });
+
+  /// The object's last state change time: the observation's key and source
+  /// time.
+  final Icinga2Time lastStateChange;
 
   /// The live check output, absent when the object has none.
   final String? output;
@@ -143,12 +143,16 @@ sealed class NotificationFact extends Icinga2Fact {
     required super.object,
     required super.state,
     required super.stateType,
-    required super.lastStateChange,
     required super.notificationType,
     required super.notificationTime,
+    this.lastStateChange,
     this.author,
     this.comment,
   });
+
+  /// The object's last state change time, when the delivery carries one. It
+  /// takes no part in the key or the source time (design D13).
+  final Icinga2Time? lastStateChange;
 
   /// The delivered author, absent when the delivery carries none.
   final String? author;
@@ -164,9 +168,9 @@ final class AckFact extends NotificationFact {
     required super.object,
     required super.state,
     required super.stateType,
-    required super.lastStateChange,
     required super.notificationType,
     required super.notificationTime,
+    super.lastStateChange,
     super.author,
     super.comment,
   });
@@ -179,9 +183,9 @@ final class DowntimeFact extends NotificationFact {
     required super.object,
     required super.state,
     required super.stateType,
-    required super.lastStateChange,
     required super.notificationType,
     required super.notificationTime,
+    super.lastStateChange,
     super.author,
     super.comment,
   });
@@ -194,9 +198,9 @@ final class FlappingFact extends NotificationFact {
     required super.object,
     required super.state,
     required super.stateType,
-    required super.lastStateChange,
     required super.notificationType,
     required super.notificationTime,
+    super.lastStateChange,
     super.author,
     super.comment,
   });
@@ -209,9 +213,9 @@ final class CommentFact extends NotificationFact {
     required super.object,
     required super.state,
     required super.stateType,
-    required super.lastStateChange,
     required super.notificationType,
     required super.notificationTime,
+    super.lastStateChange,
     super.author,
     super.comment,
   });

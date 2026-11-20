@@ -522,6 +522,30 @@ void main() {
           expect(await countRows(s, 'activity'), 1);
         });
 
+        test('custom_notification_without_a_state_change_time', () async {
+          final custom = notify(
+            type: 'CUSTOM',
+            changed: at(0),
+            notified: at(1),
+            set: {
+              'last_state_change': null,
+              'output': null,
+              'notification_author': 'bob',
+              'notification_comment': 'before the first check',
+            },
+          );
+          expect(custom.containsKey('last_state_change'), isFalse);
+          await deliverIcinga2(s, custom, at(1));
+          final event = await storedEvent(s, eventIdOf(custom));
+          expect(event['type'], 'io.correlia.comment.v1');
+          expect(
+            (event['data']! as Map<String, Object?>)['status'],
+            'EVENT_STATUS_INFO',
+          );
+          expect(await countRows(s, 'events'), 1);
+          expect(await countRows(s, 'alerts'), 0);
+        });
+
         test('acknowledgement_is_published_without_state_change', () async {
           final problem = notify(changed: at(-10));
           await deliverIcinga2(s, problem, at(0));

@@ -77,7 +77,11 @@ Icinga2Fact parseIcinga2Webhook(Uint8List bytes) {
   if (stateType == null) {
     throw const EventFieldError('state_type', 'invalid_state_type');
   }
-  final lastStateChange = _time(document, 'last_state_change');
+  // Required for PROBLEM and RECOVERY only (design D13); validated whenever
+  // present.
+  final lastStateChange = document.containsKey('last_state_change')
+      ? _time(document, 'last_state_change')
+      : null;
   final typeText = _string(document, 'notification_type');
   final type = Icinga2NotificationType.values
       .where((value) => value.wire == typeText)
@@ -96,7 +100,9 @@ Icinga2Fact parseIcinga2Webhook(Uint8List bytes) {
       object: object,
       state: state,
       stateType: stateType,
-      lastStateChange: lastStateChange,
+      lastStateChange:
+          lastStateChange ??
+          (throw const EventFieldError('last_state_change', 'missing_field')),
       notificationType: type,
       notificationTime: notificationTime,
       output: output,

@@ -41,6 +41,31 @@ void main() {
     expect(error.path, 'format');
   });
 
+  test('state_notification_without_a_state_change_time', () {
+    for (final type in ['PROBLEM', 'RECOVERY']) {
+      final error = rejected(
+        delivery(set: {'notification_type': type, 'last_state_change': null}),
+      );
+      expect(
+        (error.code, error.path),
+        (
+          'missing_field',
+          'last_state_change',
+        ),
+        reason: type,
+      );
+    }
+  });
+
+  test('invalid_state_change_time_on_a_non_state_delivery', () {
+    final error = rejected(
+      delivery(
+        set: {'notification_type': 'CUSTOM', 'last_state_change': '0.000000'},
+      ),
+    );
+    expect((error.code, error.path), ('invalid_time', 'last_state_change'));
+  });
+
   test('time_not_in_the_fixed_form', () {
     for (final text in [
       '1.5',

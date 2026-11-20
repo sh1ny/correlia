@@ -251,7 +251,7 @@ becomes exactly one canonical event.
 | `service` | string | Required for a service object, same rule as `host`; a host object must not carry it |
 | `state` | string | Required. Host: `UP`, `DOWN`, `UNREACHABLE`. Service: `OK`, `WARNING`, `CRITICAL`, `UNKNOWN` |
 | `state_type` | string | Required, `HARD` or `SOFT` |
-| `last_state_change` | string | Required time, see below |
+| `last_state_change` | string | Time, see below. Required for `PROBLEM` and `RECOVERY`; optional for every other type, validated when present and unused by its key and source time. The shipped command sends it only for `PROBLEM` and `RECOVERY` |
 | `output` | string | Optional check output (every line); no U+0000 |
 | `notification_type` | string | Required, Icinga 2's own type: `PROBLEM`, `RECOVERY`, `ACKNOWLEDGEMENT`, `DOWNTIMESTART`, `DOWNTIMEEND`, `DOWNTIMECANCELLED`, `FLAPPINGSTART`, `FLAPPINGEND`, `CUSTOM` |
 | `notification_author` | string | Optional; no U+0000 |
