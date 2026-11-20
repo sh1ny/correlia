@@ -44,37 +44,37 @@ that produces the evidence, and the test is what judges it.
 | integration-icinga2 → Icinga2 webhook document | Unsupported format version | `correlia_server/test/unit/ingest/icinga2_webhook_test.dart` | `unsupported_format_version` | green |
 | integration-icinga2 → State change time is required only for state notifications | State notification without a state change time | `correlia_server/test/unit/ingest/icinga2_webhook_test.dart` | `state_notification_without_a_state_change_time` | green |
 | integration-icinga2 → State change time is required only for state notifications | Non-state key without the state change time | `correlia_server/test/unit/ingest/icinga2_keys_test.dart` | `non_state_key_without_the_state_change_time` | green |
-| integration-icinga2 → State change time is required only for state notifications | Non-state notification for an object with an unusable state change time | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `non_state_notification_for_an_object_with_an_unusable_state_change_time` | red |
+| integration-icinga2 → State change time is required only for state notifications | Non-state notification for an object with an unusable state change time | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `non_state_notification_for_an_object_with_an_unusable_state_change_time` | green |
 | integration-icinga2 → State change time is required only for state notifications | Invalid state change time on a non-state delivery | `correlia_server/test/unit/ingest/icinga2_webhook_test.dart` | `invalid_state_change_time_on_a_non_state_delivery` | green |
 | integration-icinga2 → State change time is required only for state notifications | Custom notification without a state change time | `correlia_server/test/db/icinga2_ingest_test.dart` | `custom_notification_without_a_state_change_time` | green |
 | integration-icinga2 → Webhook text is storable | NUL in a host name | `correlia_server/test/db/icinga2_ingest_test.dart` | `nul_in_a_host_name` | green |
 | integration-icinga2 → Webhook body nesting is bounded before parsing | Deeply nested body | `correlia_server/test/db/icinga2_ingest_test.dart` | `deeply_nested_body` | green |
-| integration-icinga2 → Shipped notification command | Notification from a real Icinga 2 in both auth modes | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `notification_from_a_real_icinga_2_in_both_auth_modes` | red |
+| integration-icinga2 → Shipped notification command | Notification from a real Icinga 2 in both auth modes | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `notification_from_a_real_icinga_2_in_both_auth_modes` | green |
 | integration-icinga2 → Shipped notification command | Rejected delivery | `correlia_server/test/e2e/icinga2_sender_e2e_test.dart` | `rejected_delivery` | green |
-| integration-icinga2 → Shipped notification command | Long check output | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `long_check_output` | red |
-| integration-icinga2 → Shipped notification command | Recovery output with dollar signs | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `recovery_output_with_dollar_signs` | red |
-| integration-icinga2 → Shipped notification command | Oversized custom notification | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `oversized_custom_notification` | red |
-| integration-icinga2 → Shipped notification command | Multibyte character across the cut | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `multibyte_character_across_the_cut` | red |
-| integration-icinga2 → Shipped notification command | Invalid UTF-8 in check output | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `invalid_utf_8_in_check_output` | red |
-| integration-icinga2 → Shipped notification command | Burst of verbose notifications | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `burst_of_verbose_notifications` | red |
-| integration-icinga2 → Shipped notification command | Runtime options in Icinga's environment | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `runtime_options_in_icinga_s_environment` | red |
+| integration-icinga2 → Shipped notification command | Long check output | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `long_check_output` | green |
+| integration-icinga2 → Shipped notification command | Recovery output with dollar signs | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `recovery_output_with_dollar_signs` | green |
+| integration-icinga2 → Shipped notification command | Oversized custom notification | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `oversized_custom_notification` | green |
+| integration-icinga2 → Shipped notification command | Multibyte character across the cut | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `multibyte_character_across_the_cut` | green |
+| integration-icinga2 → Shipped notification command | Invalid UTF-8 in check output | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `invalid_utf_8_in_check_output` | green |
+| integration-icinga2 → Shipped notification command | Burst of verbose notifications | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `burst_of_verbose_notifications` | green |
+| integration-icinga2 → Shipped notification command | Runtime options in Icinga's environment | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `runtime_options_in_icinga_s_environment` | green |
 | integration-icinga2 → Shipped notification command | Command definition without env -i | `correlia_icinga2_notify/test/binary_test.dart` | `command_definition_without_env_i` | green |
-| integration-icinga2 → Shipped notification command | Name with an embedded NUL is not delivered | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `name_with_an_embedded_nul_is_not_delivered` | red |
-| integration-icinga2 → Shipped notification command | Oversized or invalid name is not delivered | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `oversized_or_invalid_name_is_not_delivered` | red |
-| integration-icinga2 → Shipped notification command | Setting not deliverable exactly | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `setting_not_deliverable_exactly` | red |
-| integration-icinga2 → Shipped notification command | NUL in a file path | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `nul_in_a_file_path` | red |
-| integration-icinga2 → Shipped notification command | Base URL carrying a credential | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `base_url_carrying_a_credential` | red |
-| integration-icinga2 → Shipped notification command | Multiline settings | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `multiline_settings` | red |
-| integration-icinga2 → Shipped notification command | Source that is not a UUID | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `source_that_is_not_a_uuid` | red |
-| integration-icinga2 → Shipped notification command | NUL in display text | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `nul_in_display_text` | red |
-| integration-icinga2 → Shipped notification command | Inherited Correlia settings are ignored | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `inherited_correlia_settings_are_ignored` | red |
+| integration-icinga2 → Shipped notification command | Name with an embedded NUL is not delivered | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `name_with_an_embedded_nul_is_not_delivered` | green |
+| integration-icinga2 → Shipped notification command | Oversized or invalid name is not delivered | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `oversized_or_invalid_name_is_not_delivered` | green |
+| integration-icinga2 → Shipped notification command | Setting not deliverable exactly | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `setting_not_deliverable_exactly` | green |
+| integration-icinga2 → Shipped notification command | NUL in a file path | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `nul_in_a_file_path` | green |
+| integration-icinga2 → Shipped notification command | Base URL carrying a credential | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `base_url_carrying_a_credential` | green |
+| integration-icinga2 → Shipped notification command | Multiline settings | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `multiline_settings` | green |
+| integration-icinga2 → Shipped notification command | Source that is not a UUID | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `source_that_is_not_a_uuid` | green |
+| integration-icinga2 → Shipped notification command | NUL in display text | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `nul_in_display_text` | green |
+| integration-icinga2 → Shipped notification command | Inherited Correlia settings are ignored | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `inherited_correlia_settings_are_ignored` | green |
 | integration-icinga2 → Webhook limits are documented | Documentation names the limits | `tool/test/icinga2_docs_test.dart` | `documentation_names_the_limits` | green |
 | integration-icinga2 → State change time limits are documented | Documentation names the state change time limits | `tool/test/icinga2_docs_test.dart` | `documentation_names_the_state_change_time_limits` | green |
 | integration-icinga2 → Downtime removal limits are documented | Documentation names the downtime limits | `tool/test/icinga2_docs_test.dart` | `documentation_names_the_downtime_limits` | green |
 | integration-icinga2 → Notification text exposure is documented | Documentation names the text exposure | `tool/test/icinga2_docs_test.dart` | `documentation_names_the_text_exposure` | green |
 | integration-icinga2 → Sender setup constraints are documented | Documentation names the setup constraints | `tool/test/icinga2_docs_test.dart` | `documentation_names_the_setup_constraints` | green |
-| integration-icinga2 → Sender transport and diagnostics | Rejected delivery leaves no secret in Icinga 2 logs | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `rejected_delivery_leaves_no_secret_in_icinga_2_logs` | red |
-| integration-icinga2 → Sender transport and diagnostics | Hostile inherited environment | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `hostile_inherited_environment` | red |
+| integration-icinga2 → Sender transport and diagnostics | Rejected delivery leaves no secret in Icinga 2 logs | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `rejected_delivery_leaves_no_secret_in_icinga_2_logs` | green |
+| integration-icinga2 → Sender transport and diagnostics | Hostile inherited environment | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `hostile_inherited_environment` | green |
 | integration-icinga2 → Sender transport and diagnostics | Configured CA is the only trust | `correlia_icinga2_notify/test/sender_test.dart` | `configured_ca_is_the_only_trust` | green |
 | integration-icinga2 → Sender transport and diagnostics | URL without a scheme or with a loopback name | `correlia_icinga2_notify/test/sender_test.dart` | `url_without_a_scheme_or_with_a_loopback_name` | green |
 | integration-icinga2 → Sender transport and diagnostics | Plain HTTP to a remote host | `correlia_icinga2_notify/test/sender_test.dart` | `plain_http_to_a_remote_host` | green |
@@ -88,18 +88,18 @@ that produces the evidence, and the test is what judges it.
 | integration-icinga2 → Sender transport and diagnostics | Concurrent signed notifications beyond the cap | `correlia_server/test/e2e/icinga2_sender_e2e_test.dart` | `concurrent_signed_notifications_beyond_the_cap` | green |
 | integration-icinga2 → Sender credential handling | Canonical unpadded key file | `correlia_server/test/e2e/icinga2_sender_e2e_test.dart` | `canonical_unpadded_key_file` | green |
 | integration-icinga2 → Sender credential handling | HMAC vectors | `correlia_icinga2_notify/test/sender_test.dart` | `hmac_vectors` | green |
-| integration-icinga2 → Webhook state change time precision | Two problems within one second | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `two_problems_within_one_second` | red |
-| integration-icinga2 → Webhook state change time precision | Microsecond values survive the command | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `microsecond_values_survive_the_command` | red |
-| integration-icinga2 → Webhook state change time precision | Production notification clock keeps microseconds | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `production_notification_clock_keeps_microseconds` | red |
-| integration-icinga2 → State change time of a new object | First check result of a new host is DOWN | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `first_check_result_of_a_new_host_is_down` | red |
-| integration-icinga2 → State change time of a new object | Earlier result with a negative execution end | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `earlier_result_with_a_negative_execution_end` | red |
-| integration-icinga2 → State change time of a new object | Retained state across a restart | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `retained_state_across_a_restart` | red |
-| integration-icinga2 → State change time of a new object | Initialized state change time of a runtime-created host | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `initialized_state_change_time_of_a_runtime_created_host` | red |
-| integration-icinga2 → State change time of a new object | Volatile host with no state change yet | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `volatile_host_with_no_state_change_yet` | red |
-| integration-icinga2 → State change time of a new object | Time outside the formatter's domain | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `time_outside_the_formatter_s_domain` | red |
-| integration-icinga2 → Webhook state change time precision | Host command keeps sub-second precision | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `host_command_keeps_sub_second_precision` | red |
+| integration-icinga2 → Webhook state change time precision | Two problems within one second | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `two_problems_within_one_second` | green |
+| integration-icinga2 → Webhook state change time precision | Microsecond values survive the command | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `microsecond_values_survive_the_command` | green |
+| integration-icinga2 → Webhook state change time precision | Production notification clock keeps microseconds | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `production_notification_clock_keeps_microseconds` | green |
+| integration-icinga2 → State change time of a new object | First check result of a new host is DOWN | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `first_check_result_of_a_new_host_is_down` | green |
+| integration-icinga2 → State change time of a new object | Earlier result with a negative execution end | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `earlier_result_with_a_negative_execution_end` | green |
+| integration-icinga2 → State change time of a new object | Retained state across a restart | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `retained_state_across_a_restart` | green |
+| integration-icinga2 → State change time of a new object | Initialized state change time of a runtime-created host | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `initialized_state_change_time_of_a_runtime_created_host` | green |
+| integration-icinga2 → State change time of a new object | Volatile host with no state change yet | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `volatile_host_with_no_state_change_yet` | green |
+| integration-icinga2 → State change time of a new object | Time outside the formatter's domain | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `time_outside_the_formatter_s_domain` | green |
+| integration-icinga2 → Webhook state change time precision | Host command keeps sub-second precision | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `host_command_keeps_sub_second_precision` | green |
 | integration-icinga2 → Webhook state is the object's state when the command runs | Recovery notification sent after a refire | `correlia_server/test/db/icinga2_ingest_test.dart` | `recovery_notification_sent_after_a_refire` | green |
-| integration-icinga2 → Webhook state is the object's state when the command runs | Delayed recovery publishes the live check output | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `delayed_recovery_publishes_the_live_check_output` | red |
+| integration-icinga2 → Webhook state is the object's state when the command runs | Delayed recovery publishes the live check output | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `delayed_recovery_publishes_the_live_check_output` | green |
 | integration-icinga2 → Webhook state is the object's state when the command runs | Delayed notifications in any order | `correlia_server/test/db/icinga2_ingest_test.dart` | `delayed_notifications_in_any_order` | green |
 | integration-icinga2 → Webhook convergence contract | Lost recovery | `correlia_server/test/db/icinga2_ingest_test.dart` | `lost_recovery` | green |
 | integration-icinga2 → Webhook convergence contract | Late reminder wins the event-ID insert | `correlia_server/test/db/icinga2_ingest_test.dart` | `late_reminder_wins_the_event_id_insert` | green |
@@ -128,33 +128,33 @@ that produces the evidence, and the test is what judges it.
 | integration-icinga2 → Icinga2 webhook observation evidence | Missing notification time | `correlia_server/test/unit/ingest/icinga2_webhook_test.dart` | `missing_notification_time` | green |
 | integration-icinga2 → Acknowledgement, downtime and flapping events | Custom notification while the service is OK | `correlia_server/test/db/icinga2_ingest_test.dart` | `custom_notification_while_the_service_is_ok` | green |
 | integration-icinga2 → Acknowledgement, downtime and flapping events | Acknowledgement is published without state change | `correlia_server/test/db/icinga2_ingest_test.dart` | `acknowledgement_is_published_without_state_change` | green |
-| integration-icinga2 → Acknowledgement, downtime and flapping events | Two comments from one author | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `two_comments_from_one_author` | red |
+| integration-icinga2 → Acknowledgement, downtime and flapping events | Two comments from one author | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `two_comments_from_one_author` | green |
 | integration-icinga2 → Acknowledgement, downtime and flapping events | Same-microsecond executions coalesce | `correlia_server/test/db/icinga2_ingest_test.dart` | `same_microsecond_executions_coalesce` | green |
 | integration-icinga2 → Acknowledgement, downtime and flapping events | Unsupported notification type | `correlia_server/test/db/icinga2_ingest_test.dart` | `unsupported_notification_type` | green |
 | integration-icinga2 → Published author and comment | Published author and comment fields | `correlia_server/test/unit/ingest/icinga2_mapper_test.dart` | `published_author_and_comment_fields` | green |
 | integration-icinga2 → Non-state key uses the delivered author | Authors equal in their first 1 KiB | `correlia_server/test/db/icinga2_ingest_test.dart` | `authors_equal_in_their_first_1_kib` | green |
 | integration-icinga2 → Icinga2 display bounds | ID-3 maximum-length host and long check output | `correlia_server/test/db/icinga2_ingress_test.dart` | `id_3_maximum_length_host_and_long_check_output` | green |
 | integration-icinga2 → Icinga2 display bounds | Oversize identity value | `correlia_server/test/unit/ingest/icinga2_mapper_test.dart` | `oversize_identity_value` | green |
-| integration-icinga2 → Supported Icinga 2 releases | Each shipped architecture is run | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `each_shipped_architecture_is_run` | red |
-| integration-icinga2 → Supported Icinga 2 releases | Listed release missing a capture | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `listed_release_missing_a_capture` | red |
-| integration-icinga2 → Supported Icinga 2 releases | 202 recorded but event missing | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `202_recorded_but_event_missing` | red |
-| integration-icinga2 → Supported Icinga 2 releases | Every capture decodes | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `every_capture_decodes` | red |
-| integration-icinga2 → Supported Icinga 2 releases | Known timestamp mismatch | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `known_timestamp_mismatch` | red |
-| integration-icinga2 → Supported Icinga 2 releases | Gate evidence present but failing | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `gate_evidence_present_but_failing` | red |
-| integration-icinga2 → First problem of a new object qualifies a release | Five gates pass but the first problem is lost | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `five_gates_pass_but_the_first_problem_is_lost` | red |
-| integration-icinga2 → First problem of a new object qualifies a release | Reminder of a first problem is a new observation | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `reminder_of_a_first_problem_is_a_new_observation` | red |
-| integration-icinga2 → First problem of a new object qualifies a release | Reminder accepted without a committed duplicate outcome | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `reminder_accepted_without_a_committed_duplicate_outcome` | red |
-| integration-icinga2 → First problem of a new object qualifies a release | Second HARD check emits a second event | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `second_hard_check_emits_a_second_event` | red |
-| integration-icinga2 → First-problem gate evidence | Transport duplicate counted as a reminder outcome | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `transport_duplicate_counted_as_a_reminder_outcome` | red |
-| integration-icinga2 → Supported Icinga 2 releases | Multiline recovery and custom notification without output | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `multiline_recovery_and_custom_notification_without_output` | red |
-| integration-icinga2 → Supported Icinga 2 releases | Macro text in a setting is literal | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `macro_text_in_a_setting_is_literal` | red |
-| integration-icinga2 → Supported Icinga 2 releases | Same-named custom variables are ignored | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `same_named_custom_variables_are_ignored` | red |
-| integration-icinga2 → Supported Icinga 2 releases | Only one architecture qualifies | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `only_one_architecture_qualifies` | red |
-| integration-icinga2 → Supported Icinga 2 releases | Captured downtime removal | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `captured_downtime_removal` | red |
-| integration-icinga2 → Supported Icinga 2 releases | Captured transition sequence | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `captured_transition_sequence` | red |
-| integration-icinga2 → Supported Icinga 2 releases | Captured host transitions | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `captured_host_transitions` | red |
-| integration-icinga2 → Supported Icinga 2 releases | No release passes | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `no_release_passes` | red |
-| integration-icinga2 → Supported Icinga 2 releases | A capture changes shape | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `a_capture_changes_shape` | red |
+| integration-icinga2 → Supported Icinga 2 releases | Each shipped architecture is run | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `each_shipped_architecture_is_run` | green |
+| integration-icinga2 → Supported Icinga 2 releases | Listed release missing a capture | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `listed_release_missing_a_capture` | green |
+| integration-icinga2 → Supported Icinga 2 releases | 202 recorded but event missing | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `202_recorded_but_event_missing` | green |
+| integration-icinga2 → Supported Icinga 2 releases | Every capture decodes | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `every_capture_decodes` | green |
+| integration-icinga2 → Supported Icinga 2 releases | Known timestamp mismatch | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `known_timestamp_mismatch` | green |
+| integration-icinga2 → Supported Icinga 2 releases | Gate evidence present but failing | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `gate_evidence_present_but_failing` | green |
+| integration-icinga2 → First problem of a new object qualifies a release | Five gates pass but the first problem is lost | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `five_gates_pass_but_the_first_problem_is_lost` | green |
+| integration-icinga2 → First problem of a new object qualifies a release | Reminder of a first problem is a new observation | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `reminder_of_a_first_problem_is_a_new_observation` | green |
+| integration-icinga2 → First problem of a new object qualifies a release | Reminder accepted without a committed duplicate outcome | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `reminder_accepted_without_a_committed_duplicate_outcome` | green |
+| integration-icinga2 → First problem of a new object qualifies a release | Second HARD check emits a second event | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `second_hard_check_emits_a_second_event` | green |
+| integration-icinga2 → First-problem gate evidence | Transport duplicate counted as a reminder outcome | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `transport_duplicate_counted_as_a_reminder_outcome` | green |
+| integration-icinga2 → Supported Icinga 2 releases | Multiline recovery and custom notification without output | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `multiline_recovery_and_custom_notification_without_output` | green |
+| integration-icinga2 → Supported Icinga 2 releases | Macro text in a setting is literal | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `macro_text_in_a_setting_is_literal` | green |
+| integration-icinga2 → Supported Icinga 2 releases | Same-named custom variables are ignored | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `same_named_custom_variables_are_ignored` | green |
+| integration-icinga2 → Supported Icinga 2 releases | Only one architecture qualifies | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `only_one_architecture_qualifies` | green |
+| integration-icinga2 → Supported Icinga 2 releases | Captured downtime removal | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `captured_downtime_removal` | green |
+| integration-icinga2 → Supported Icinga 2 releases | Captured transition sequence | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `captured_transition_sequence` | green |
+| integration-icinga2 → Supported Icinga 2 releases | Captured host transitions | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `captured_host_transitions` | green |
+| integration-icinga2 → Supported Icinga 2 releases | No release passes | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `no_release_passes` | green |
+| integration-icinga2 → Supported Icinga 2 releases | A capture changes shape | `correlia_server/test/unit/ingest/icinga2_versions_test.dart` | `a_capture_changes_shape` | green |
 | source-ingress → Source configuration format | Version 1 file still starts | `correlia_server/test/e2e/secret_store_e2e_test.dart` | `version_1_file_still_starts` (existing; re-run) | green |
 | source-ingress → Source configuration format | Unsupported kind or field | `correlia_server/test/unit/ingest/source_config_test.dart` | `unsupported_kind_or_field` (existing; re-run) | green |
 | source-ingress → Source configuration format | Supported kinds | `correlia_server/test/db/icinga2_ingress_test.dart` | `supported_kinds` | green |
@@ -363,7 +363,7 @@ list. Group 9's capture answers it, and the answer does not change what gets bui
 
 ## 9. Captures, version matrix and supported releases
 
-- [ ] 9.1 Write `tool/icinga2_capture.sh`, modelled on `tool/alertmanager_capture.sh`. It works in its own
+- [x] 9.1 Write `tool/icinga2_capture.sh`, modelled on `tool/alertmanager_capture.sh`. It works in its own
   temp directory with cleanup on exit, never touches another service, and does the following:
   - Runs each official Icinga 2 image from 2.13 onwards for linux-x64. linux-arm64 is not captured in this
     change (owner, 2026-11-20: no QEMU registration on the capture host), so it has no qualified pair and its
@@ -380,7 +380,7 @@ list. Group 9's capture answers it, and the answer does not change what gets bui
     `correlia_server/test/unit/ingest/fixtures/icinga2/<release>/<arch>/`.
 
   Verify by running it against one release.
-- [ ] 9.2 Write failing `icinga2_versions_test.dart`. It holds one named test per mapped scenario, plus:
+- [x] 9.2 Write failing `icinga2_versions_test.dart`. It holds one named test per mapped scenario, plus:
   - The six-gate evaluation per listed pair: same-second service and host times, the known timestamp
     decode, the clock sample, downtime removal, the first problem of a new object (both host origins'
     first-HARD times, one firing alert each, deduplicated reminders, the unchecked service's CUSTOM 202 and
@@ -392,13 +392,13 @@ list. Group 9's capture answers it, and the answer does not change what gets bui
     against synthetic broken evidence in a temp directory.
 
   Verify that it fails with no captures committed.
-- [ ] 9.3 Run the capture for every candidate release and architecture. Commit the captures. Write the
+- [x] 9.3 Run the capture for every candidate release and architecture. Commit the captures. Write the
   supported-release statement, listing only pairs that pass all six gates with a recorded 202 and decoded
   event, into `docs/ingest-pipeline.md`. Verify that `icinga2_versions_test.dart` passes, and flip its rows
   green. If no pair qualifies, stop and return the change to the owner (design, Risks).
-- [ ] 9.4 [evidence] Record the capture run (script version, image tags and digests, architectures, the gate
+- [x] 9.4 [evidence] Record the capture run (script version, image tags and digests, architectures, the gate
   results per pair, and the resulting statement) → evidence/icinga2-capture.md
-- [ ] 9.5 Make the release build publish an architecture's artifact only when it has a qualified pair. Verify
+- [x] 9.5 Make the release build publish an architecture's artifact only when it has a qualified pair. Verify
   `only_one_architecture_qualifies` and `no_release_passes` (synthetic evidence) in `icinga2_versions_test.dart`.
 
 ## 10. Integration

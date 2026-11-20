@@ -97,6 +97,12 @@ run = [
   "dart compile exe --target-os linux --target-arch arm64 -o build/icinga2-notify/linux-arm64/correlia-icinga2-notify correlia_icinga2_notify/bin/main.dart",
 ]
 
+[tasks."release:icinga2-notify"]
+description = "Publish the Icinga 2 sender into build/icinga2-notify/release/ for each architecture with a qualified release pair"
+depends = ["build:icinga2-notify"]
+dir = "correlia_server"
+run = "dart run tool/icinga2_publish.dart"
+
 [tasks."build:web"]
 description = "Build the Flutter console into correlia_server/web/app (served by the api role)"
 run = "flutter build web --base-href / --output ../correlia_server/web/app"

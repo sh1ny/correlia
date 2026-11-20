@@ -1,0 +1,1032 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:crypto/crypto.dart';
+import 'package:test/test.dart';
+
+import '../../support/icinga2_delivery.dart';
+import '../../support/icinga2_matrix.dart';
+
+/// The version matrix of the Icinga2 webhook (task 9.2).
+///
+/// The supported-release statement in `docs/ingest-pipeline.md` lists release
+/// and architecture pairs. Each listed pair's committed captures (real Icinga 2
+/// runs made by `tool/icinga2_capture.sh`) are evaluated here: the six gates,
+/// the recorded 202 with its decoded event, and one named test per scenario
+/// that only a real Icinga 2 can produce. The failure-naming tests break a
+/// copy of a committed pair in a temporary directory.
+void main() {
+  final pairs = committedStatement();
+  final temporary = <Directory>[];
+  tearDownAll(() {
+    for (final d in temporary) {
+      if (d.existsSync()) d.deleteSync(recursive: true);
+    }
+  });
+
+  /// Runs [check] on every listed pair's capture and fails naming each pair
+  /// with a problem.
+  void eachPair(Check check) {
+    expect(
+      pairs,
+      isNotEmpty,
+      reason:
+          'the supported-release statement in docs/ingest-pipeline.md lists '
+          'no release and architecture pair',
+    );
+    final failures = [
+      for (final p in pairs)
+        for (final d in guarded(check, Capture(p))) '${p.name}: $d',
+    ];
+    expect(failures, isEmpty);
+  }
+
+  Pair baseline() {
+    expect(
+      pairs,
+      isNotEmpty,
+      reason: 'no listed pair to build synthetic evidence from',
+    );
+    return pairs.first;
+  }
+
+  /// A fresh temporary directory, removed after the test file.
+  Directory temp() {
+    final root = Directory.systemTemp.createTempSync('icinga2-publish-');
+    temporary.add(root);
+    return root;
+  }
+
+  /// A copy of the first listed pair in a temporary directory.
+  Pair copy() {
+    final source = baseline();
+    final root = Directory.systemTemp.createTempSync('icinga2-matrix-');
+    temporary.add(root);
+    final target = Directory(
+      '${root.path}/${source.release}/${source.architecture}',
+    )..createSync(recursive: true);
+    for (final f in source.directory.listSync().whereType<File>()) {
+      f.copySync('${target.path}/${f.uri.pathSegments.last}');
+    }
+    return Pair(source.release, source.architecture, target);
+  }
+
+  void edit(
+    Pair pair,
+    String file,
+    void Function(List<Map<String, Object?>> records) change,
+  ) {
+    final f = File('${pair.directory.path}/$file.json');
+    final json = jsonDecode(f.readAsStringSync()) as Map<String, Object?>;
+    change((json['records']! as List<Object?>).cast<Map<String, Object?>>());
+    f.writeAsStringSync(jsonEncode(json));
+  }
+
+  void setBody(Map<String, Object?> record, String key, Object? value) {
+    final request = record['request']! as Map<String, Object?>;
+    final body = jsonDecode(request['body']! as String) as Map<String, Object?>;
+    if (value == null) {
+      body.remove(key);
+    } else {
+      body[key] = value;
+    }
+    request['body'] = jsonEncode(body);
+  }
+
+  /// Fails unless [failures] names [pair] and [gate] (and only those gates in
+  /// [only], when given).
+  void expectNamed(
+    List<Failure> failures,
+    Pair pair,
+    String gate, {
+    String? mentions,
+    bool only = false,
+  }) {
+    final named = failures.where((f) => f.pair == pair.name && f.gate == gate);
+    expect(
+      named,
+      isNotEmpty,
+      reason: 'no failure names ${pair.name} and "$gate": $failures',
+    );
+    if (mentions != null) {
+      expect(named.join('\n'), contains(mentions));
+    }
+    if (only) {
+      expect(
+        failures.map((f) => f.gate).toSet(),
+        {gate},
+        reason: 'unexpected extra failures: $failures',
+      );
+    }
+  }
+
+  // --- Statement and gates --------------------------------------------------
+
+  test('every_capture_decodes', () {
+    expect(
+      pairs,
+      isNotEmpty,
+      reason: 'the supported-release statement lists no pair',
+    );
+    final failures = [for (final p in pairs) ...evaluatePair(p)];
+    expect(failures, isEmpty);
+  });
+
+  test('each_shipped_architecture_is_run', () {
+    eachPair((c) => [...gateManifest(c), ...gateDelivery(c)]);
+    expect({for (final p in pairs) p.architecture}, {'linux-x64'});
+  });
+
+  test('only_one_architecture_qualifies', () {
+    final statement = parseStatement(
+      '$_begin\n| Release | Architecture |\n|---|---|\n'
+      '| 2.16.6 | linux-x64 |\n| 2.15.7 | linux-x64 |\n$_end\n',
+    );
+    expect({for (final p in statement) p.architecture}, {'linux-x64'});
+    expect({for (final p in pairs) p.architecture}, {'linux-x64'});
+    expect(evaluateStatement(pairs), isEmpty);
+    // Both architectures are built; only the qualified one is published,
+    // and only as the exact artifact a passing capture ran.
+    String shaOf(String text) => sha256.convert(utf8.encode(text)).toString();
+    final qualified = {
+      'linux-x64': {shaOf('linux-x64')},
+    };
+    expect(qualifiedSenders(pairs).keys, ['linux-x64']);
+    final work = temp();
+    final build = Directory('${work.path}/build');
+    for (final architecture in builtArchitectures) {
+      File('${build.path}/$architecture/$senderFileName')
+        ..createSync(recursive: true)
+        ..writeAsStringSync(architecture);
+    }
+    final release = Directory('${work.path}/release');
+    Directory('${release.path}/linux-arm64').createSync(recursive: true);
+    expect(
+      publishSenders(build: build, release: release, qualified: qualified),
+      ['linux-x64'],
+    );
+    expect(
+      File('${release.path}/linux-x64/$senderFileName').readAsStringSync(),
+      'linux-x64',
+    );
+    expect(Directory('${release.path}/linux-arm64').existsSync(), isFalse);
+    // A rebuilt sender that differs from the captured one is not published.
+    File(
+      '${build.path}/linux-x64/$senderFileName',
+    ).writeAsStringSync('changed');
+    expect(
+      () =>
+          publishSenders(build: build, release: release, qualified: qualified),
+      throwsStateError,
+    );
+    expect(release.existsSync(), isFalse);
+  });
+
+  test('no_release_passes', () {
+    final empty = evaluateStatement(const []);
+    expect(empty.single.gate, 'no release passes');
+    final broken = copy();
+    File(
+      '${broken.directory.path}/two_problems_within_one_second.json',
+    ).deleteSync();
+    final failures = evaluateStatement([broken]);
+    expect(failures, isNotEmpty);
+    expectNamed(failures, broken, Gate.service);
+    // No qualified pair: no artifact is published.
+    expect(qualifiedSenders([broken]), isEmpty);
+    final work = temp();
+    final build = Directory('${work.path}/build');
+    for (final architecture in builtArchitectures) {
+      File(
+        '${build.path}/$architecture/$senderFileName',
+      ).createSync(recursive: true);
+    }
+    final release = Directory('${work.path}/release');
+    Directory('${release.path}/linux-x64').createSync(recursive: true);
+    expect(
+      () => publishSenders(build: build, release: release, qualified: {}),
+      throwsStateError,
+    );
+    expect(release.existsSync(), isFalse);
+  });
+
+  test('listed_release_missing_a_capture', () {
+    final missingGate = copy();
+    File(
+      '${missingGate.directory.path}/two_comments_from_one_author.json',
+    ).deleteSync();
+    expectNamed(
+      evaluatePair(missingGate),
+      missingGate,
+      Gate.notificationTime,
+      mentions: 'missing capture two_comments_from_one_author.json',
+    );
+    final missing202 = copy();
+    File(
+      '${missing202.directory.path}/'
+      'notification_from_a_real_icinga_2_in_both_auth_modes.json',
+    ).deleteSync();
+    expectNamed(
+      evaluatePair(missing202),
+      missing202,
+      Gate.delivery,
+      mentions: 'missing capture',
+    );
+  });
+
+  test('202_recorded_but_event_missing', () {
+    final broken = copy();
+    edit(broken, 'notification_from_a_real_icinga_2_in_both_auth_modes', (r) {
+      r.firstWhere((x) => x['kind'] == 'admitted')['events'] = <Object?>[];
+    });
+    expectNamed(
+      evaluatePair(broken),
+      broken,
+      Gate.delivery,
+      mentions: 'no decoded event',
+    );
+  });
+
+  test('known_timestamp_mismatch', () {
+    final broken = copy();
+    edit(broken, 'production_notification_clock_keeps_microseconds', (r) {
+      final known = r.firstWhere(
+        (x) => x['kind'] == 'known' && x['field'] == 'last_state_change',
+      );
+      final value = known['value']! as String;
+      final parts = value.split('.');
+      final micros = int.parse(parts[1]) + 1;
+      known['value'] = '${parts[0]}.${micros.toString().padLeft(6, '0')}';
+    });
+    expectNamed(
+      evaluatePair(broken),
+      broken,
+      Gate.clock,
+      mentions: 'committed input',
+      only: true,
+    );
+  });
+
+  test('gate_evidence_present_but_failing', () {
+    final broken = copy();
+    edit(broken, 'two_problems_within_one_second', (r) {
+      final admitted = r.where((x) => x['kind'] == 'admitted').toList();
+      final first = Rec(admitted.first);
+      setBody(
+        admitted.last,
+        'last_state_change',
+        first.body['last_state_change'],
+      );
+      final events = admitted.last['events']! as List<Object?>;
+      final cloud =
+          (events.single! as Map<String, Object?>)['cloud_event']!
+              as Map<String, Object?>;
+      (cloud['data']! as Map<String, Object?>)['event_id'] = first.eventId;
+    });
+    expectNamed(evaluatePair(broken), broken, Gate.service, only: true);
+  });
+
+  test('a_capture_changes_shape', () {
+    final broken = copy();
+    edit(broken, 'two_problems_within_one_second', (r) {
+      setBody(
+        r.firstWhere((x) => x['kind'] == 'admitted'),
+        'surprise_field',
+        'new',
+      );
+    });
+    final failures = evaluatePair(broken);
+    expectNamed(
+      failures,
+      broken,
+      Gate.decode,
+      mentions: 'two_problems_within_one_second.json',
+    );
+    expect(
+      failures.where((f) => f.gate == Gate.decode).join('\n'),
+      contains('surprise_field'),
+    );
+  });
+
+  // --- First-problem failure naming --------------------------------------------
+
+  List<Map<String, Object?>> hostRecords(
+    List<Map<String, Object?>> records,
+    String host,
+  ) => [
+    for (final r in records)
+      if (r['kind'] == 'admitted' && Rec(r).body['host'] == host) r,
+  ];
+
+  test('five_gates_pass_but_the_first_problem_is_lost', () {
+    final broken = copy();
+    edit(broken, 'first_check_result_of_a_new_host_is_down', (r) {
+      // The runtime host's first delivery carries the daemon start time.
+      final start =
+          r.firstWhere(
+                (x) =>
+                    x['kind'] == 'info' && x['name'] == 'daemon_program_start',
+              )['value']!
+              as num;
+      final first = hostRecords(r, 'fp-runtime').first;
+      setBody(first, 'last_state_change', start.toStringAsFixed(6));
+      (first['raw']! as Map<String, Object?>)['outcome'] = {
+        ...Rec(first).outcome,
+        'late': 1,
+        'applied': 0,
+      };
+      first['events'] = <Object?>[];
+    });
+    expectNamed(
+      evaluatePair(broken),
+      broken,
+      Gate.firstProblem,
+      mentions: 'daemon start time',
+      only: true,
+    );
+  });
+
+  test('reminder_of_a_first_problem_is_a_new_observation', () {
+    final broken = copy();
+    edit(broken, 'first_check_result_of_a_new_host_is_down', (r) {
+      final reminder = hostRecords(r, 'fp-startup').last;
+      setBody(reminder, 'last_state_change', '1700000001.000001');
+    });
+    expectNamed(
+      evaluatePair(broken),
+      broken,
+      Gate.firstProblem,
+      mentions: 'different event id',
+      only: true,
+    );
+  });
+
+  test('reminder_accepted_without_a_committed_duplicate_outcome', () {
+    final broken = copy();
+    edit(broken, 'first_check_result_of_a_new_host_is_down', (r) {
+      final reminder = hostRecords(r, 'fp-startup').last;
+      final raw = reminder['raw']! as Map<String, Object?>;
+      raw['outcome'] = {
+        ...Rec(reminder).outcome,
+        'duplicate_observation': 0,
+      };
+    });
+    expectNamed(
+      evaluatePair(broken),
+      broken,
+      Gate.firstProblem,
+      mentions: 'duplicate_observation',
+      only: true,
+    );
+  });
+
+  test('second_hard_check_emits_a_second_event', () {
+    final broken = copy();
+    edit(broken, 'first_check_result_of_a_new_host_is_down', (r) {
+      final startup = hostRecords(r, 'fp-startup');
+      final reminder = startup.last;
+      final second =
+          jsonDecode(jsonEncode(startup.first)) as Map<String, Object?>;
+      final secondEnd = r.firstWhere(
+        (x) =>
+            x['kind'] == 'result' &&
+            x['label'] == 'second_hard' &&
+            x['cap_id'] == 'fp-startup',
+      )['execution_end'];
+      setBody(second, 'last_state_change', secondEnd);
+      final cloud =
+          ((second['events']! as List<Object?>).single!
+                  as Map<String, Object?>)['cloud_event']!
+              as Map<String, Object?>;
+      (cloud['data']! as Map<String, Object?>)['event_id'] =
+          '00000000-0000-5000-8000-000000000002';
+      r.insert(r.indexOf(reminder), second);
+      setBody(reminder, 'last_state_change', secondEnd);
+      final states = r.where(
+        (x) =>
+            x['kind'] == 'state' &&
+            (x['object']! as Map<String, Object?>)['host'] == 'fp-startup',
+      );
+      final counts = states.last['events']! as Map<String, Object?>;
+      counts['total'] = 2;
+      counts['by_status'] = {'firing': 2};
+    });
+    expectNamed(evaluatePair(broken), broken, Gate.firstProblem, only: true);
+  });
+
+  test('transport_duplicate_counted_as_a_reminder_outcome', () {
+    final broken = copy();
+    edit(broken, 'first_check_result_of_a_new_host_is_down', (r) {
+      final reminder = hostRecords(r, 'fp-startup').last;
+      reminder['kind'] = 'transport_duplicate';
+      reminder.remove('raw');
+      reminder.remove('events');
+    });
+    expectNamed(
+      evaluatePair(broken),
+      broken,
+      Gate.firstProblem,
+      mentions: 'transport_duplicate',
+      only: true,
+    );
+  });
+
+  // --- Gate scenarios ------------------------------------------------------------
+
+  test('two_problems_within_one_second', () => eachPair(gateService));
+  test('host_command_keeps_sub_second_precision', () => eachPair(gateHost));
+  test('two_comments_from_one_author', () {
+    eachPair((c) {
+      final out = gateNotificationTime(c);
+      final authors = {
+        for (final d in c.admitted('two_comments_from_one_author'))
+          d.body['notification_author'],
+      };
+      if (authors.length != 1) out.add('the two comments differ in author');
+      return out;
+    });
+  });
+  test('production_notification_clock_keeps_microseconds', () {
+    eachPair(gateClock);
+  });
+  test('microsecond_values_survive_the_command', () {
+    eachPair((c) {
+      final out = <String>[];
+      for (final k in c.of(
+        'production_notification_clock_keeps_microseconds',
+        'known',
+      )) {
+        if (k.json['field'] == 'last_state_change') {
+          final micros = int.parse((k.json['value']! as String).split('.')[1]);
+          if (micros % 10 == 0) out.add('known value has no fine digit');
+        }
+      }
+      return [...out, ...gateClock(c)];
+    });
+  });
+  test('captured_downtime_removal', () => eachPair(gateDowntime));
+  test('same_named_custom_variables_are_ignored', () {
+    eachPair((c) {
+      final out = <String>[];
+      final ds = c.admitted('same_named_custom_variables_are_ignored');
+      final results = c.of('same_named_custom_variables_are_ignored', 'result');
+      if (ds.length != 3 || results.length != 3) {
+        return ['expected three results and three deliveries'];
+      }
+      for (var i = 0; i < 3; i++) {
+        if (ds[i].body['last_state_change'] !=
+            results[i].json['execution_end']) {
+          out.add('delivery ${i + 1} does not carry the real state change');
+        }
+        if (ds[i].body['last_state_change'] == '1234567890.000001') {
+          out.add('the custom variable reached the delivery');
+        }
+      }
+      if ({for (final d in ds) d.eventId}.length != 3) {
+        out.add('the three observations share event ids');
+      }
+      return out;
+    });
+  });
+  test('captured_host_transitions', () {
+    eachPair((c) {
+      final out = <String>[];
+      final ds = c.admitted('captured_host_transitions');
+      if (ds.length < 2) return ['expected a DOWN and an UP delivery'];
+      if ({for (final d in ds) d.data()['fingerprint']}.length != 1) {
+        out.add('the host observations have different fingerprints');
+      }
+      final fingerprint = ds.first.data()['fingerprint']! as String;
+      if (fingerprint != fingerprintOfHost('host-tr')) {
+        out.add('the fingerprint is not the host-only fingerprint');
+      }
+      if (ds[0].data()['status'] != 'EVENT_STATUS_FIRING' ||
+          ds[0].data()['severity'] != 'EVENT_SEVERITY_CRITICAL') {
+        out.add('the DOWN is not firing critical');
+      }
+      if (ds[1].data()['status'] != 'EVENT_STATUS_RESOLVED') {
+        out.add('the UP is not resolved');
+      }
+      for (final d in ds) {
+        if (d.events.single['source_time'] !=
+            isoOf(d.body['last_state_change']! as String)) {
+          out.add('${d.notificationType} source time is not its state change');
+        }
+      }
+      final states = c.of('captured_host_transitions', 'state');
+      if (states.length < 2 ||
+          ((states[1].json['alert']! as Map<String, Object?>)['status']) !=
+              'resolved') {
+        out.add('the alert is not resolved after the UP');
+      }
+      return out;
+    });
+  });
+  test('captured_transition_sequence', () {
+    eachPair((c) {
+      final out = <String>[];
+      final ds = c.admitted('captured_transition_sequence');
+      final types = [for (final d in ds) d.notificationType];
+      for (final t in [
+        'PROBLEM',
+        'ACKNOWLEDGEMENT',
+        'FLAPPINGSTART',
+        'FLAPPINGEND',
+        'DOWNTIMESTART',
+        'DOWNTIMEEND',
+        'RECOVERY',
+      ]) {
+        if (!types.contains(t)) out.add('no $t observation');
+      }
+      for (final d in ds.where((d) => d.events.isNotEmpty)) {
+        final type = d.notificationType;
+        if (type == 'PROBLEM' || type == 'RECOVERY') {
+          if (d.events.single['source_time'] !=
+              isoOf(d.body['last_state_change']! as String)) {
+            out.add('$type source time is not its state change');
+          }
+        } else if (d.data()['status'] != 'EVENT_STATUS_INFO') {
+          out.add('$type is not an informational event');
+        }
+      }
+      final states = c.of('captured_transition_sequence', 'state');
+      final alert = states.isEmpty ? null : _alert(states.last);
+      if (alert == null || alert['status'] != 'resolved') {
+        out.add('the alert does not end resolved');
+      }
+      return out;
+    });
+  });
+
+  // --- First problem -------------------------------------------------------------
+
+  test('first_check_result_of_a_new_host_is_down', () {
+    eachPair(firstProblemHosts);
+  });
+  test('volatile_host_with_no_state_change_yet', () {
+    eachPair(firstProblemVolatile);
+  });
+  test('retained_state_across_a_restart', () {
+    eachPair((c) {
+      final first = c
+          .admitted('first_check_result_of_a_new_host_is_down')
+          .firstWhere((d) => d.body['host'] == 'fp-startup');
+      final reminders = c.admitted('retained_state_across_a_restart');
+      if (reminders.isEmpty) return ['no reminder after the restart'];
+      final out = <String>[];
+      for (final r in reminders) {
+        if (r.body['last_state_change'] != first.body['last_state_change']) {
+          out.add('the reminder carries a different state change time');
+        }
+        if (r.outcome['duplicate_observation'] != 1) {
+          out.add('the reminder committed no duplicate_observation outcome');
+        }
+      }
+      return out;
+    });
+  });
+  test('earlier_result_with_a_negative_execution_end', () {
+    eachPair((c) {
+      const file = 'earlier_result_with_a_negative_execution_end';
+      final soft = c
+          .of(file, 'result')
+          .firstWhere((r) => r.json['label'] == 'soft_down');
+      final d = c.admitted(file).single;
+      return d.body['last_state_change'] == soft.json['execution_end']
+          ? <String>[]
+          : [
+              'delivered ${d.body['last_state_change']}, the SOFT DOWN '
+                  'ended ${soft.json['execution_end']}',
+            ];
+    });
+  });
+  test('initialized_state_change_time_of_a_runtime_created_host', () {
+    eachPair((c) {
+      const file = 'initialized_state_change_time_of_a_runtime_created_host';
+      final console = c.of(file, 'console').single;
+      final now =
+          (console.json['input']! as Map<String, Object?>)['now']! as int;
+      final result = console.json['result'];
+      if (result is! num || result.toInt() != now - 1) {
+        return ['the helper yielded $result, not one second before now'];
+      }
+      final event = decodeOne(
+        delivery(
+          set: {'last_state_change': '${result.toInt()}.000000'},
+        ),
+      );
+      return event.status.name == 'firing'
+          ? <String>[]
+          : ['a delivery built from the helper does not fire'];
+    });
+  });
+  test('time_outside_the_formatter_s_domain', () {
+    eachPair((c) {
+      final results = [
+        for (final r in c.of('time_outside_the_formatter_s_domain', 'console'))
+          r.json['result'],
+      ];
+      return results.length == 3 &&
+              results[0] == '' &&
+              results[1] == '' &&
+              results[2] == '4294967295.999999'
+          ? <String>[]
+          : ['formatter results were $results'];
+    });
+  });
+
+  // --- Shipped command ----------------------------------------------------------
+
+  test('notification_from_a_real_icinga_2_in_both_auth_modes', () {
+    eachPair(gateDelivery);
+  });
+  test('long_check_output', () {
+    eachPair((c) {
+      final d = c.admitted('long_check_output').first;
+      final out = <String>[];
+      if (!(d.body['output']! as String).endsWith(truncationMarker)) {
+        out.add('delivered output lacks the marker');
+      }
+      // The stored description is cut again to the event's own bound, which
+      // is shorter than the delivered text, and ends with Correlia's display
+      // marker (an ellipsis).
+      final stored = d.data()['description']! as String;
+      if (!stored.endsWith('\u2026') || stored.runes.length > 8192) {
+        out.add('stored description does not end with the display marker');
+      }
+      return out;
+    });
+  });
+  test('recovery_output_with_dollar_signs', () {
+    eachPair((c) {
+      final d = c
+          .admitted('recovery_output_with_dollar_signs')
+          .firstWhere((x) => x.notificationType == 'RECOVERY');
+      final text = d.body['output']! as String;
+      return [
+        if (!text.startsWith('OK: cost below \$5, see \$host.name\$'))
+          'cut text',
+        if (!text.endsWith(truncationMarker)) 'no marker',
+        if (d.data()['status'] != 'EVENT_STATUS_RESOLVED') 'not resolved',
+      ];
+    });
+  });
+  test('multibyte_character_across_the_cut', () {
+    eachPair((c) {
+      final d = c
+          .admitted('multibyte_character_across_the_cut')
+          .firstWhere((x) => x.notificationType == 'RECOVERY');
+      final text = d.body['output']! as String;
+      final body = text.substring(0, text.length - truncationMarker.length);
+      return [
+        if (!text.startsWith('\$\$\$')) 'dollar signs lost',
+        if (!text.endsWith(truncationMarker)) 'no marker',
+        if ('�'.allMatches(text).length > 1) 'more than one U+FFFD',
+        if (body.contains('�') && !body.endsWith('�')) 'U+FFFD inside',
+        if (d.data()['status'] != 'EVENT_STATUS_RESOLVED') 'not resolved',
+      ];
+    });
+  });
+  test('invalid_utf_8_in_check_output', () {
+    eachPair((c) {
+      final d = c.admitted('invalid_utf_8_in_check_output').single;
+      final text = d.body['output']! as String;
+      return [
+        if (!text.contains('�')) 'no U+FFFD',
+        if (!text.contains('still text') || !text.startsWith('bad '))
+          'surrounding text changed',
+        if (d.status != 202) 'not accepted',
+      ];
+    });
+  });
+  test('oversized_custom_notification', () {
+    eachPair((c) {
+      final ds = c.admitted('oversized_custom_notification');
+      final custom = ds.singleWhere((d) => d.notificationType == 'CUSTOM');
+      final states = c.of('oversized_custom_notification', 'state');
+      return [
+        if (custom.data()['kind'] != 'EVENT_KIND_COMMENT')
+          'not a comment event',
+        if (!(custom.body['notification_comment']! as String).endsWith(
+          truncationMarker,
+        ))
+          'comment not cut and marked',
+        if (!(custom.body['notification_author']! as String).endsWith(
+          truncationMarker,
+        ))
+          'author not cut and marked',
+        if (jsonEncode(states.first.json['alert']) !=
+            jsonEncode(states.last.json['alert']))
+          'the alert changed',
+      ];
+    });
+  });
+  test('burst_of_verbose_notifications', () {
+    eachPair((c) {
+      const file = 'burst_of_verbose_notifications';
+      final bodies = [for (final r in c.of(file, 'recorder_only')) r.body];
+      final out = <String>[];
+      if (bodies.length != 50) out.add('${bodies.length} bodies, not 50');
+      if ({for (final b in bodies) b['service']}.length != 50) {
+        out.add('not 50 services');
+      }
+      var dollars = 0;
+      for (final b in bodies) {
+        final text = b['output']! as String;
+        if (!text.endsWith(truncationMarker)) out.add('an output is not cut');
+        if (utf8.encode(text).length > 8192 + 64) out.add('an output is long');
+        if (text.startsWith('\$')) {
+          dollars++;
+          if (text.replaceAll('\$', '') != truncationMarker) {
+            out.add('a dollar output changed');
+          }
+        }
+      }
+      if (dollars != 25) out.add('$dollars dollar outputs, not 25');
+      final seconds =
+          c
+                  .of(file, 'info')
+                  .firstWhere(
+                    (i) =>
+                        i.json['name'] ==
+                        'seconds_from_last_result_to_last_body',
+                  )
+                  .json['value']!
+              as num;
+      if (seconds > 60) out.add('the last body took $seconds s');
+      return out;
+    });
+  });
+  test('runtime_options_in_icinga_s_environment', () {
+    eachPair((c) {
+      const file = 'runtime_options_in_icinga_s_environment';
+      final log = c
+          .of(file, 'log')
+          .expand((r) => r.json['lines']! as List<Object?>);
+      final text = log.join('\n');
+      return [
+        if (c.admitted(file).isEmpty) 'no 202 delivery',
+        if (!text.contains('terminated with exit code 0')) 'no exit 0',
+        if (RegExp(r'exit code [1-9]').hasMatch(text)) 'a non-zero exit',
+      ];
+    });
+  });
+  test('inherited_correlia_settings_are_ignored', () {
+    eachPair((c) {
+      final ds = c.admitted('inherited_correlia_settings_are_ignored');
+      return [
+        if (ds.length != 1) 'no delivery to the configured endpoint',
+        if (ds.isNotEmpty && ds.single.auth != 'bearer') 'wrong credential',
+      ];
+    });
+  });
+  test('name_with_an_embedded_nul_is_not_delivered', () {
+    eachPair((c) {
+      const file = 'name_with_an_embedded_nul_is_not_delivered';
+      final failures = c.of(file, 'command_failure');
+      final states = c.of(file, 'state');
+      return [
+        if (failures.length != 2) 'expected two failed commands',
+        for (final f in failures)
+          if (f.json['exit_code'] != 2 ||
+              !(f.json['detail']! as String).contains('invalid_name'))
+            'a command did not exit 2 with invalid_name',
+        if (c.admitted(file).length != 1) 'a request was made for the NUL name',
+        if (states.isEmpty || _alert(states.last)?['status'] != 'firing')
+          'the db1 alert is not firing',
+      ];
+    });
+  });
+  test('oversized_or_invalid_name_is_not_delivered', () {
+    eachPair((c) {
+      const file = 'oversized_or_invalid_name_is_not_delivered';
+      final failures = c.of(file, 'command_failure');
+      return [
+        if (failures.length != 2) 'expected two failed commands',
+        for (final f in failures)
+          if (f.json['exit_code'] != 2 ||
+              !(f.json['detail']! as String).contains('invalid_name'))
+            'a command did not exit 2 with invalid_name',
+        if (c.requests(file).isNotEmpty) 'a request reached Correlia',
+      ];
+    });
+  });
+
+  List<String> refusals(
+    Capture c,
+    String file,
+    List<String> arguments, {
+    bool scan = false,
+  }) {
+    final failures = c.of(file, 'command_failure');
+    final out = <String>[];
+    if (failures.length != arguments.length) {
+      out.add(
+        'expected ${arguments.length} refusals, found ${failures.length}',
+      );
+    }
+    for (var i = 0; i < failures.length && i < arguments.length; i++) {
+      final detail = failures[i].json['detail']! as String;
+      if (failures[i].json['exit_code'] != 2 ||
+          !detail.contains(arguments[i])) {
+        out.add(
+          'refusal ${i + 1} was ${failures[i].json['exit_code']} $detail',
+        );
+      }
+    }
+    if (c.requests(file).isNotEmpty) out.add('a request was made');
+    if (scan) {
+      for (final s in c.of(file, 'secret_scan')) {
+        if ((s.json['found']! as List<Object?>).isNotEmpty) {
+          out.add('a secret reached the log: ${s.json['found']}');
+        }
+      }
+    }
+    return out;
+  }
+
+  test('setting_not_deliverable_exactly', () {
+    eachPair(
+      (c) => refusals(c, 'setting_not_deliverable_exactly', [
+        '--base-url',
+        '--token-file',
+      ]),
+    );
+  });
+  test('nul_in_a_file_path', () {
+    eachPair((c) => refusals(c, 'nul_in_a_file_path', ['--ca-file']));
+  });
+  test('base_url_carrying_a_credential', () {
+    eachPair(
+      (c) => refusals(c, 'base_url_carrying_a_credential', [
+        '--base-url',
+        '--base-url',
+        '--base-url',
+      ], scan: true),
+    );
+  });
+  test('multiline_settings', () {
+    eachPair(
+      (c) => refusals(c, 'multiline_settings', [
+        '--base-url',
+        '--source',
+      ], scan: true),
+    );
+  });
+  test('source_that_is_not_a_uuid', () {
+    eachPair(
+      (c) => refusals(c, 'source_that_is_not_a_uuid', ['--source'], scan: true),
+    );
+  });
+  test('macro_text_in_a_setting_is_literal', () {
+    eachPair((c) {
+      const file = 'macro_text_in_a_setting_is_literal';
+      final failures = c.of(file, 'command_failure');
+      final ds = c.admitted(file);
+      return [
+        if (failures.length != 1 ||
+            failures.single.json['exit_code'] != 2 ||
+            !(failures.single.json['detail']! as String).contains('--base-url'))
+          'the macro base URL was not refused naming --base-url',
+        if (ds.length != 1 || ds.single.status != 202)
+          'the token path with a dollar sign was not accepted',
+      ];
+    });
+  });
+  test('nul_in_display_text', () {
+    eachPair((c) {
+      final d = c.admitted('nul_in_display_text').single;
+      return [
+        if (d.body['notification_comment'] != 'before�after')
+          'comment ${d.body['notification_comment']}',
+        if (d.body['notification_author'] != 'ali�ce')
+          'author ${d.body['notification_author']}',
+        if (d.status != 202) 'not accepted',
+      ];
+    });
+  });
+  test('rejected_delivery_leaves_no_secret_in_icinga_2_logs', () {
+    eachPair((c) {
+      const file = 'rejected_delivery_leaves_no_secret_in_icinga_2_logs';
+      final rejected = c.of(file, 'rejected');
+      final scans = c.of(file, 'secret_scan');
+      return [
+        if (rejected.length != 2 || rejected.any((r) => r.status != 401))
+          'expected two 401 rejections',
+        if (c.of(file, 'command_failure').length != 2) 'expected two failures',
+        // Icinga 2's line holds the status, the texts and the file paths.
+        for (final f in c.of(file, 'command_failure'))
+          if (f.json['log'] case final String log
+              when !log.contains('status 401') ||
+                  !log.contains('"probe"') ||
+                  !log.contains('/etc/icinga2/correlia/wrong-'))
+            'the failure log lacks the status, a text or the file path',
+        if (scans.length != 1) 'no secret scan',
+        for (final s in scans)
+          if ((s.json['found']! as List<Object?>).isNotEmpty)
+            'secrets in the log: ${s.json['found']}',
+      ];
+    });
+  });
+  test('hostile_inherited_environment', () {
+    eachPair((c) {
+      const file = 'hostile_inherited_environment';
+      Object? info(String name) => c
+          .of(file, 'info')
+          .firstWhere((i) => i.json['name'] == name)
+          .json['value'];
+      final failures = c.of(file, 'command_failure');
+      return [
+        if (c.admitted(file).length != 1)
+          'the loopback delivery did not arrive',
+        if (info('recording_listener_connections') != 0)
+          'the recording listener received a connection',
+        if (info('https_endpoint_requests') != 0)
+          'the https endpoint received request bytes',
+        if (failures.length != 1 || failures.single.json['exit_code'] == 0)
+          'the https endpoint was not refused',
+        if (info('key_log_file_exists') != false) 'a key log file exists',
+      ];
+    });
+  });
+  test(
+    'non_state_notification_for_an_object_with_an_unusable_state_change_time',
+    () {
+      eachPair((c) {
+        const file =
+            'non_state_notification_for_an_object_with_an_unusable_state_change_time';
+        final d = c.admitted(file).single;
+        final states = c.of(file, 'state');
+        return [
+          if (d.notificationType != 'ACKNOWLEDGEMENT') 'not an acknowledgement',
+          if (d.body.containsKey('last_state_change'))
+            'the delivery carries last_state_change',
+          if (d.status != 202) 'not accepted',
+          if (d.events.length != 1 || d.data()['kind'] != 'EVENT_KIND_ACK')
+            'no single ack event',
+          if (states.isEmpty || _alert(states.last) != null) 'an alert exists',
+        ];
+      });
+    },
+  );
+  test('multiline_recovery_and_custom_notification_without_output', () {
+    eachPair((c) {
+      const file = 'multiline_recovery_and_custom_notification_without_output';
+      final recovery = c
+          .admitted(file)
+          .singleWhere((d) => d.notificationType == 'RECOVERY');
+      final description = recovery.data()['description']! as String;
+      final states = c.of(file, 'state');
+      return [
+        if (recovery.status != 202) 'recovery not accepted',
+        for (final line in ['first', 'second line', 'third line'])
+          if (!description.contains(line)) 'description lacks "$line"',
+        if (_alert(states[1])?['status'] != 'resolved') 'not resolved',
+        ...firstProblemCustom(c),
+      ];
+    });
+  });
+  test('delayed_recovery_publishes_the_live_check_output', () {
+    eachPair((c) {
+      const file = 'delayed_recovery_publishes_the_live_check_output';
+      final ds = c.admitted(file);
+      final recovery = ds.singleWhere((d) => d.notificationType == 'RECOVERY');
+      final refire = ds.lastWhere((d) => d.notificationType == 'PROBLEM');
+      final published = [
+        for (final d in [recovery, refire])
+          if (d.events.isNotEmpty) d,
+      ];
+      final deduplicated = [
+        for (final d in [recovery, refire])
+          if (d.events.isEmpty && d.outcome['duplicate_observation'] == 1) d,
+      ];
+      return [
+        if (recovery.body['output'] != 'CRITICAL: disk full')
+          'the recovery delivered ${recovery.body['output']}',
+        if (published.length != 1 || deduplicated.length != 1)
+          'the refire and the recovery are not one event and one duplicate',
+        for (final d in published)
+          if (d.data()['status'] != 'EVENT_STATUS_FIRING' ||
+              d.data()['description'] != 'CRITICAL: disk full')
+            'the published event is ${d.data()['status']} '
+                '${d.data()['description']}',
+        if (jsonEncode([for (final d in ds) ...d.events]).contains(
+          'disk recovered',
+        ))
+          'an event carries the OK text',
+      ];
+    });
+  });
+}
+
+const _begin = '<!-- icinga2-supported-releases:begin -->';
+const _end = '<!-- icinga2-supported-releases:end -->';
+
+Map<String, Object?>? _alert(Rec state) =>
+    state.json['alert'] as Map<String, Object?>?;
+
+/// The fingerprint of a host-only object of the capture's source.
+String fingerprintOfHost(String host) => decodeOne(
+  hostDelivery(set: {'host': host}),
+  sourceInstance: matrixSource,
+).fingerprint;

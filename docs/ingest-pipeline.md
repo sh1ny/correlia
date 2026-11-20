@@ -462,6 +462,31 @@ any process of this release starts, and none is restarted afterwards: an older w
 Alertmanager, and an older process overwrites a source's kind when it publishes configuration at startup. Rows
 admitted meanwhile wait `pending` and are processed by the upgraded workers.
 
+### Supported Icinga 2 releases
+
+The sender and the shipped definitions are supported on the Icinga 2 minor releases and architectures below, and on
+no other. A pair is listed only when the committed captures of a real Icinga 2 pass the six gates (same-second
+service and host state, same-second notification time, the production notification clock, downtime removal and the
+first problem of a new object) and that architecture's exact artifact delivers one real notification with `202` and
+an event the pipeline decodes. `tool/icinga2_capture.sh <release>` makes the captures under
+`correlia_server/test/unit/ingest/fixtures/icinga2/<release>/<architecture>/`, and `icinga2_versions_test.dart`
+re-evaluates every listed pair on them. Adding a pair means capturing it, committing the capture and listing it
+here; a pair that fails a gate is not listed. Each row names a minor release by the patch release that was captured.
+
+`mise run release:icinga2-notify` builds the sender for linux-x64 and linux-arm64 and publishes into
+`build/icinga2-notify/release/` only the architectures with at least one listed pair that passes every check. With
+no qualified pair it publishes nothing and fails. linux-arm64 has no captured pair yet, so its build is not
+published.
+
+<!-- icinga2-supported-releases:begin -->
+| Release | Architecture |
+|---|---|
+| 2.13.14 | linux-x64 |
+| 2.14.10 | linux-x64 |
+| 2.15.7 | linux-x64 |
+| 2.16.6 | linux-x64 |
+<!-- icinga2-supported-releases:end -->
+
 ## Durable processing and failure inspection
 
 A worker first commits the active immutable configuration pin, then decodes and processes under a separate raw-row lock. A killed worker retains the pin; replacements never substitute the current configuration. If that first-pinned snapshot omits/disables the source, the raw row fails as `source_not_configured`, retaining its bytes.

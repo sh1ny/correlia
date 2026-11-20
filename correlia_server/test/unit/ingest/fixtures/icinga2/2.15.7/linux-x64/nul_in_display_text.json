@@ -1,0 +1,99 @@
+{
+  "scenario": "nul_in_display_text",
+  "release": "2.15.7",
+  "records": [
+    {
+      "kind": "admitted",
+      "id": "d1",
+      "auth": "bearer",
+      "request": {
+        "path": "/hooks/icinga2/33333333-3333-4333-8333-333333333333",
+        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"nultext\",\"state\":\"UNKNOWN\",\"state_type\":\"SOFT\",\"notification_type\":\"CUSTOM\",\"notification_author\":\"ali�ce\",\"notification_comment\":\"before�after\",\"notification_time\":\"1795178455.671756\"}"
+      },
+      "response_status": 202,
+      "raw": {
+        "status": "done",
+        "outcome": {
+          "upstream_omitted": 0,
+          "unknown_top_level_fields": [],
+          "unknown_top_level_overflow": 0,
+          "committed": 1,
+          "unrouted": 1,
+          "duplicate_observation": 0,
+          "future_dated": 0,
+          "duplicate_quarantine": 0,
+          "late": 0,
+          "applied": 0,
+          "stale": 0,
+          "clamped": 0
+        },
+        "failure": null
+      },
+      "events": [
+        {
+          "disposition": "ready",
+          "state_outcome": null,
+          "source_time": "2026-11-20T12:40:55.671756Z",
+          "cloud_event": {
+            "specversion": "1.0",
+            "id": "d9fb0cb1-b7f8-5d0e-99f2-43d5820d6965",
+            "source": "urn:correlia:source:33333333-3333-4333-8333-333333333333",
+            "type": "io.correlia.comment.v1",
+            "datacontenttype": "application/json",
+            "dataschema": "urn:correlia:schema:event:1.0",
+            "subject": "4b70a72c66711afd8d73daa499b50cedd2ac19d99cc03fc4952fef6efdf9cc29",
+            "partitionkey": "4b70a72c66711afd8d73daa499b50cedd2ac19d99cc03fc4952fef6efdf9cc29",
+            "correliatenant": "default",
+            "time": "2026-11-20T12:40:55.671756Z",
+            "data": {
+              "event_id": "d9fb0cb1-b7f8-5d0e-99f2-43d5820d6965",
+              "fingerprint": "4b70a72c66711afd8d73daa499b50cedd2ac19d99cc03fc4952fef6efdf9cc29",
+              "tenant": "default",
+              "namespace": "33333333-3333-4333-8333-333333333333",
+              "kind": "EVENT_KIND_COMMENT",
+              "status": "EVENT_STATUS_INFO",
+              "severity": "EVENT_SEVERITY_INFO",
+              "severity_original": "UNKNOWN",
+              "summary": "lab!nultext UNKNOWN",
+              "description": "before�after",
+              "resource": {},
+              "observer": {
+                "source_instance": "33333333-3333-4333-8333-333333333333",
+                "source_kind": "icinga2"
+              },
+              "labels": {},
+              "labels_origin": {},
+              "annotations": {
+                "icinga2.notification_type": "CUSTOM",
+                "icinga2.notification_author": "ali�ce"
+              },
+              "source_time": "2026-11-20T12:40:55.671756Z",
+              "reported_source_time": "2026-11-20T12:40:55.671756Z",
+              "observed_at": "2026-11-20T12:40:55.678242Z",
+              "processed_at": "2026-11-20T12:40:55.827511Z",
+              "raw": {
+                "ref": "raw:2026-11-20T12:40:55.678242Z/5b756070-af5d-43cd-802b-d25d5b3e474e",
+                "sha256": "bdaa56bd562d892ce44d3fabc43abffb85e78358adfa2baf87e632f6f2252f3c",
+                "size": 269
+              },
+              "pipeline": {
+                "version": "44a339cf1d4a7aacc1f7a41ef0004c07ece5425b6445bf180e1cc3e38f9ff480",
+                "generation": 0
+              },
+              "extensions": {},
+              "identity_fields": {
+                "host": {
+                  "raw": "lab"
+                },
+                "service": {
+                  "raw": "nultext"
+                }
+              },
+              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAAEQAWyJpY2luZ2EyLm5vdGlmeS5DVVNUT00udjEiLCJDVVNUT00iLCIxNzk1MTc4NDU1NjcxNzU2IiwiYWxp77+9Y2UiXQ=="
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

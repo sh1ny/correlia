@@ -1,0 +1,98 @@
+{
+  "scenario": "invalid_utf_8_in_check_output",
+  "release": "2.16.6",
+  "records": [
+    {
+      "kind": "admitted",
+      "id": "d1",
+      "auth": "bearer",
+      "request": {
+        "path": "/hooks/icinga2/33333333-3333-4333-8333-333333333333",
+        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"invalid-output\",\"state\":\"CRITICAL\",\"state_type\":\"HARD\",\"last_state_change\":\"1795176648.882185\",\"output\":\"bad �� bytes, still text\",\"notification_type\":\"PROBLEM\",\"notification_time\":\"1795176648.883034\"}"
+      },
+      "response_status": 202,
+      "raw": {
+        "status": "done",
+        "outcome": {
+          "upstream_omitted": 0,
+          "unknown_top_level_fields": [],
+          "unknown_top_level_overflow": 0,
+          "committed": 1,
+          "unrouted": 1,
+          "duplicate_observation": 0,
+          "future_dated": 0,
+          "duplicate_quarantine": 0,
+          "late": 0,
+          "applied": 1,
+          "stale": 0,
+          "clamped": 0
+        },
+        "failure": null
+      },
+      "events": [
+        {
+          "disposition": "ready",
+          "state_outcome": "applied",
+          "source_time": "2026-11-20T12:10:48.882185Z",
+          "cloud_event": {
+            "specversion": "1.0",
+            "id": "19442862-1b0d-5207-ba7e-33893cf275a2",
+            "source": "urn:correlia:source:33333333-3333-4333-8333-333333333333",
+            "type": "io.correlia.alert.v1",
+            "datacontenttype": "application/json",
+            "dataschema": "urn:correlia:schema:event:1.0",
+            "subject": "b25454205ebf28329d34a38333a20384123032c25c949550344eab054892b1cc",
+            "partitionkey": "b25454205ebf28329d34a38333a20384123032c25c949550344eab054892b1cc",
+            "correliatenant": "default",
+            "time": "2026-11-20T12:10:48.882185Z",
+            "data": {
+              "event_id": "19442862-1b0d-5207-ba7e-33893cf275a2",
+              "fingerprint": "b25454205ebf28329d34a38333a20384123032c25c949550344eab054892b1cc",
+              "tenant": "default",
+              "namespace": "33333333-3333-4333-8333-333333333333",
+              "kind": "EVENT_KIND_ALERT",
+              "status": "EVENT_STATUS_FIRING",
+              "severity": "EVENT_SEVERITY_CRITICAL",
+              "severity_original": "CRITICAL",
+              "summary": "lab!invalid-output CRITICAL",
+              "description": "bad �� bytes, still text",
+              "resource": {},
+              "observer": {
+                "source_instance": "33333333-3333-4333-8333-333333333333",
+                "source_kind": "icinga2"
+              },
+              "labels": {},
+              "labels_origin": {},
+              "annotations": {
+                "icinga2.notification_type": "PROBLEM"
+              },
+              "source_time": "2026-11-20T12:10:48.882185Z",
+              "reported_source_time": "2026-11-20T12:10:48.882185Z",
+              "observed_at": "2026-11-20T12:10:48.891820Z",
+              "processed_at": "2026-11-20T12:10:48.964595Z",
+              "raw": {
+                "ref": "raw:2026-11-20T12:10:48.891820Z/c58ff4f1-3418-45a3-b506-71f45854fdb1",
+                "sha256": "2968ff948bc559a55caf1010ccb3bd8e8f5736d8c7c8c70db273c46975265e33",
+                "size": 285
+              },
+              "pipeline": {
+                "version": "2c901861866d6c090ed8550834dbc056efbed091806d5cc84d6279c9eb674095",
+                "generation": 0
+              },
+              "extensions": {},
+              "identity_fields": {
+                "host": {
+                  "raw": "lab"
+                },
+                "service": {
+                  "raw": "invalid-output"
+                }
+              },
+              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAADsAWyJpY2luZ2EyLm5vdGlmeS52MSIsIkNSSVRJQ0FMIiwiSEFSRCIsIjE3OTUxNzY2NDg4ODIxODUiXQ=="
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

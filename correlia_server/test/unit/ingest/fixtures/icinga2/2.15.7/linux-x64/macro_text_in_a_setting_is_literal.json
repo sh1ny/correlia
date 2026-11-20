@@ -1,0 +1,150 @@
+{
+  "scenario": "macro_text_in_a_setting_is_literal",
+  "release": "2.15.7",
+  "records": [
+    {
+      "kind": "case",
+      "label": "macro_base_url"
+    },
+    {
+      "kind": "command_failure",
+      "id": "f1",
+      "exit_code": 2,
+      "detail": "invalid_argument --base-url\\n",
+      "log": "[2026-11-20 12:48:07 +0000] warning/PluginNotificationTask: Notification command for object 'lab!rej2' (PID: 9579, arguments: '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"\"' '--host' '\"lab\"' '--notification-author' '\"operator\"' '--notification-comment' '\"probe\"' '--notification-time' '\"1795178887.840537\"' '--notification-type' '\"CUSTOM\"' '--object-type' '\"service\"' '--service' '\"rej2\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"UNKNOWN\"' '--state-type' '\"SOFT\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 2, output: 'invalid_argument --base-url\\n'"
+    },
+    {
+      "kind": "case",
+      "label": "dollar_token_path"
+    },
+    {
+      "kind": "result",
+      "id": "r2",
+      "object_type": "service",
+      "cap_id": "env1",
+      "exit_status": 0,
+      "output_bytes": 15,
+      "output": "OK: dollar path",
+      "execution_end": "1795178896.083921"
+    },
+    {
+      "kind": "admitted",
+      "id": "d3",
+      "auth": "bearer",
+      "request": {
+        "path": "/hooks/icinga2/33333333-3333-4333-8333-333333333333",
+        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"env1\",\"state\":\"OK\",\"state_type\":\"HARD\",\"last_state_change\":\"1795178896.083921\",\"output\":\"OK: dollar path\",\"notification_type\":\"RECOVERY\",\"notification_time\":\"1795178896.091234\"}"
+      },
+      "response_status": 202,
+      "raw": {
+        "status": "done",
+        "outcome": {
+          "upstream_omitted": 0,
+          "unknown_top_level_fields": [],
+          "unknown_top_level_overflow": 0,
+          "committed": 1,
+          "unrouted": 1,
+          "duplicate_observation": 0,
+          "future_dated": 0,
+          "duplicate_quarantine": 0,
+          "late": 0,
+          "applied": 1,
+          "stale": 0,
+          "clamped": 0
+        },
+        "failure": null
+      },
+      "events": [
+        {
+          "disposition": "ready",
+          "state_outcome": "applied",
+          "source_time": "2026-11-20T12:48:16.083921Z",
+          "cloud_event": {
+            "specversion": "1.0",
+            "id": "71848d37-3767-5b33-ac26-2aaeda6f543e",
+            "source": "urn:correlia:source:33333333-3333-4333-8333-333333333333",
+            "type": "io.correlia.alert.v1",
+            "datacontenttype": "application/json",
+            "dataschema": "urn:correlia:schema:event:1.0",
+            "subject": "1886ba3cfe9154b1792c18c3d109f06f4ea38f413e5ba1d4d085307f60908ecb",
+            "partitionkey": "1886ba3cfe9154b1792c18c3d109f06f4ea38f413e5ba1d4d085307f60908ecb",
+            "correliatenant": "default",
+            "time": "2026-11-20T12:48:16.083921Z",
+            "data": {
+              "event_id": "71848d37-3767-5b33-ac26-2aaeda6f543e",
+              "fingerprint": "1886ba3cfe9154b1792c18c3d109f06f4ea38f413e5ba1d4d085307f60908ecb",
+              "tenant": "default",
+              "namespace": "33333333-3333-4333-8333-333333333333",
+              "kind": "EVENT_KIND_ALERT",
+              "status": "EVENT_STATUS_RESOLVED",
+              "severity": "EVENT_SEVERITY_INFO",
+              "severity_original": "OK",
+              "summary": "lab!env1 OK",
+              "description": "OK: dollar path",
+              "resource": {},
+              "observer": {
+                "source_instance": "33333333-3333-4333-8333-333333333333",
+                "source_kind": "icinga2"
+              },
+              "labels": {},
+              "labels_origin": {},
+              "annotations": {
+                "icinga2.notification_type": "RECOVERY"
+              },
+              "source_time": "2026-11-20T12:48:16.083921Z",
+              "reported_source_time": "2026-11-20T12:48:16.083921Z",
+              "observed_at": "2026-11-20T12:48:16.097933Z",
+              "processed_at": "2026-11-20T12:48:16.286987Z",
+              "raw": {
+                "ref": "raw:2026-11-20T12:48:16.097933Z/41c6efcf-3051-478f-bd8b-d6b5ff4f9f49",
+                "sha256": "939d6a107beda7532acd29c8fefede3af1619d2e92c766cf4fabf5e1294ebe23",
+                "size": 257
+              },
+              "pipeline": {
+                "version": "44a339cf1d4a7aacc1f7a41ef0004c07ece5425b6445bf180e1cc3e38f9ff480",
+                "generation": 0
+              },
+              "extensions": {},
+              "identity_fields": {
+                "host": {
+                  "raw": "lab"
+                },
+                "service": {
+                  "raw": "env1"
+                }
+              },
+              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAADUAWyJpY2luZ2EyLm5vdGlmeS52MSIsIk9LIiwiSEFSRCIsIjE3OTUxNzg4OTYwODM5MjEiXQ=="
+            }
+          }
+        }
+      ]
+    },
+    {
+      "kind": "state",
+      "after": "d3",
+      "object": {
+        "host": "lab",
+        "service": "env1"
+      },
+      "alert": {
+        "status": "resolved",
+        "severity": "info",
+        "version": 2,
+        "fence_event_id": "71848d37-3767-5b33-ac26-2aaeda6f543e",
+        "fence_effective_seconds": 1795178896,
+        "fence_effective_nanos": 83921000,
+        "summary": "lab!env1 OK"
+      },
+      "events": {
+        "total": 2,
+        "by_disposition": {
+          "ready": 2
+        },
+        "by_status": {
+          "firing": 1,
+          "resolved": 1
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "scenario": "time_outside_the_formatter_s_domain",
+  "release": "2.13.14",
+  "records": [
+    {
+      "kind": "console",
+      "id": "c1",
+      "expression": "correlia_time_text(0.5)",
+      "input": "0.5",
+      "result": ""
+    },
+    {
+      "kind": "console",
+      "id": "c2",
+      "expression": "correlia_time_text(4294967296)",
+      "input": "4294967296",
+      "result": ""
+    },
+    {
+      "kind": "console",
+      "id": "c3",
+      "expression": "correlia_time_text(4294967295.999999)",
+      "input": "4294967295.999999",
+      "result": "4294967295.999999"
+    }
+  ]
+}

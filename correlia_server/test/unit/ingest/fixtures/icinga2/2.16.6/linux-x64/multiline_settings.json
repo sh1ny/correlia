@@ -1,0 +1,35 @@
+{
+  "scenario": "multiline_settings",
+  "release": "2.16.6",
+  "records": [
+    {
+      "kind": "case",
+      "label": "multiline_base_url"
+    },
+    {
+      "kind": "command_failure",
+      "id": "f1",
+      "exit_code": 2,
+      "detail": "invalid_argument --base-url\\n",
+      "log": "[2026-11-20 12:17:21 +0000] warning/PluginNotificationTask: Notification command for object 'lab!rej2' (PID: 8788, arguments: '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"\"' '--host' '\"lab\"' '--notification-author' '\"operator\"' '--notification-comment' '\"probe\"' '--notification-time' '\"1795177040.997363\"' '--notification-type' '\"CUSTOM\"' '--object-type' '\"service\"' '--service' '\"rej2\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"UNKNOWN\"' '--state-type' '\"SOFT\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 2, output: 'invalid_argument --base-url\\n'"
+    },
+    {
+      "kind": "case",
+      "label": "multiline_source"
+    },
+    {
+      "kind": "command_failure",
+      "id": "f2",
+      "exit_code": 2,
+      "detail": "invalid_argument --source\\n",
+      "log": "[2026-11-20 12:17:27 +0000] warning/PluginNotificationTask: Notification command for object 'lab!rej2' (PID: 8991, arguments: '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:43417\"' '--host' '\"lab\"' '--notification-author' '\"operator\"' '--notification-comment' '\"probe\"' '--notification-time' '\"1795177047.962164\"' '--notification-type' '\"CUSTOM\"' '--object-type' '\"service\"' '--service' '\"rej2\"' '--source' '\"\"' '--state' '\"UNKNOWN\"' '--state-type' '\"SOFT\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 2, output: 'invalid_argument --source\\n'"
+    },
+    {
+      "kind": "secret_scan",
+      "checked": [
+        "SECRET-MARKER"
+      ],
+      "found": []
+    }
+  ]
+}
