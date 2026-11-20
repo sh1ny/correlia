@@ -358,8 +358,8 @@ list. Group 9's capture answers it, and the answer does not change what gets bui
     (D13).
 
   Verify that the 8.1 test passes, and flip its rows green.
-- [x] 8.3 [evidence] Run the configuration check of the shipped definitions in an official image, and record
-  the image tag and the `icinga2 daemon -C` output → evidence/icinga2-config-check.txt
+- [x] 8.3 [evidence] → evidence/icinga2-config-check.txt: Run the configuration check of the shipped
+  definitions in an official image, and record the image tag and the `icinga2 daemon -C` output.
 
 ## 9. Captures, version matrix and supported releases
 
@@ -396,8 +396,8 @@ list. Group 9's capture answers it, and the answer does not change what gets bui
   supported-release statement, listing only pairs that pass all six gates with a recorded 202 and decoded
   event, into `docs/ingest-pipeline.md`. Verify that `icinga2_versions_test.dart` passes, and flip its rows
   green. If no pair qualifies, stop and return the change to the owner (design, Risks).
-- [x] 9.4 [evidence] Record the capture run (script version, image tags and digests, architectures, the gate
-  results per pair, and the resulting statement) → evidence/icinga2-capture.md
+- [x] 9.4 [evidence] → evidence/icinga2-capture.md: Record the capture run (script version, image tags and
+  digests, architectures, the gate results per pair, and the resulting statement).
 - [x] 9.5 Make the release build publish an architecture's artifact only when it has a qualified pair. Verify
   `only_one_architecture_qualifies` and `no_release_passes` (synthetic evidence) in `icinga2_versions_test.dart`.
 
