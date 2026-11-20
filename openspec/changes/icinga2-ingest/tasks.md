@@ -24,14 +24,14 @@ that produces the evidence, and the test is what judges it.
 | alert-state → State converges in any processing order | ORD-7c duplicate of a late observation | `correlia_server/test/db/alert_state_test.dart` | `ord_7c_duplicate_of_a_late_observation` | red |
 | alert-state → Resolved alert fences late evidence after its events expire | ORD-6 late firing after resolution and expiry | `correlia_server/test/db/alert_state_test.dart` | `ord_6_late_firing_after_resolution_and_expiry` | red |
 | alert-state → Resolved alert fences late evidence after its events expire | Late firing for a fingerprint with no alert | `correlia_server/test/db/alert_state_test.dart` | `late_firing_for_a_fingerprint_with_no_alert` | red |
-| durable-pipeline → Rows decode by their source's kind | Two kinds in one batch | `correlia_server/test/db/decoder_dispatch_test.dart` | `two_kinds_in_one_batch` | red |
-| durable-pipeline → Rows decode by their source's kind | Existing rows after the upgrade | `correlia_server/test/db/decoder_dispatch_test.dart` | `existing_rows_after_the_upgrade` | red |
-| durable-pipeline → Rows decode by their source's kind | Row pinned to a format version 1 snapshot | `correlia_server/test/db/decoder_dispatch_test.dart` | `row_pinned_to_a_format_version_1_snapshot` | red |
+| durable-pipeline → Rows decode by their source's kind | Two kinds in one batch | `correlia_server/test/db/decoder_dispatch_test.dart` | `two_kinds_in_one_batch` | green |
+| durable-pipeline → Rows decode by their source's kind | Existing rows after the upgrade | `correlia_server/test/db/decoder_dispatch_test.dart` | `existing_rows_after_the_upgrade` | green |
+| durable-pipeline → Rows decode by their source's kind | Row pinned to a format version 1 snapshot | `correlia_server/test/db/decoder_dispatch_test.dart` | `row_pinned_to_a_format_version_1_snapshot` | green |
 | durable-pipeline → Rows decode by their source's kind | Schema step 4 under lock contention | `correlia_server/test/e2e/icinga2_upgrade_e2e_test.dart` | `schema_step_4_under_lock_contention` | green |
 | durable-pipeline → Rows decode by their source's kind | Schema runner waits behind another starter | `correlia_server/test/e2e/icinga2_upgrade_e2e_test.dart` | `schema_runner_waits_behind_another_starter` | green |
-| durable-pipeline → Rows decode by their source's kind | Missing kind in a version 2 snapshot | `correlia_server/test/db/decoder_dispatch_test.dart` | `missing_kind_in_a_version_2_snapshot` | red |
+| durable-pipeline → Rows decode by their source's kind | Missing kind in a version 2 snapshot | `correlia_server/test/db/decoder_dispatch_test.dart` | `missing_kind_in_a_version_2_snapshot` | green |
 | durable-pipeline → Rows decode by their source's kind | Offline upgrade with pending work | `correlia_server/test/e2e/icinga2_upgrade_e2e_test.dart` | `offline_upgrade_with_pending_work` | green |
-| durable-pipeline → Rows decode by their source's kind | Body of another kind | `correlia_server/test/db/decoder_dispatch_test.dart` | `body_of_another_kind` | red |
+| durable-pipeline → Rows decode by their source's kind | Body of another kind | `correlia_server/test/db/decoder_dispatch_test.dart` | `body_of_another_kind` | green |
 | durable-pipeline → Clamped source time is recorded | ORD-4 future source time beyond the skew limit | `correlia_server/test/db/pipeline_test.dart` | `ord_4_future_source_time_beyond_the_skew_limit` | green |
 | durable-pipeline → Clamped source time is recorded | Events stored before the upgrade | `correlia_server/test/db/schema_step_test.dart` | `events_stored_before_the_upgrade` | green |
 | durable-pipeline → Clamped source time is recorded | Sub-microsecond evidence | `correlia_server/test/db/schema_step_test.dart` | `sub_microsecond_evidence` | green |
@@ -146,8 +146,8 @@ that produces the evidence, and the test is what judges it.
 | source-ingress → Credential rotation with overlap | Activation without a usable credential | `correlia_server/test/unit/ingest/source_config_test.dart` | `activation_without_a_usable_credential` (existing; re-run) | green |
 | source-ingress → A source's kind never changes | Kind change refused | `correlia_server/test/db/ingest_config_test.dart` | `kind_change_refused` | green |
 | source-ingress → A source's kind never changes | Disabled source keeps its kind | `correlia_server/test/db/ingest_config_test.dart` | `disabled_source_keeps_its_kind` | green |
-| source-ingress → A source's kind never changes | Admitted row decodes with its kind | `correlia_server/test/db/decoder_dispatch_test.dart` | `admitted_row_decodes_with_its_kind` | red |
-| source-ingress → A source's kind never changes | Source disabled before the first claim | `correlia_server/test/db/decoder_dispatch_test.dart` | `source_disabled_before_the_first_claim` | red |
+| source-ingress → A source's kind never changes | Admitted row decodes with its kind | `correlia_server/test/db/decoder_dispatch_test.dart` | `admitted_row_decodes_with_its_kind` | green |
+| source-ingress → A source's kind never changes | Source disabled before the first claim | `correlia_server/test/db/decoder_dispatch_test.dart` | `source_disabled_before_the_first_claim` | green |
 | source-ingress → Path tokens stay Alertmanager-only | Icinga2 source declares a path token | `correlia_server/test/unit/ingest/source_config_test.dart` | `icinga2_source_declares_a_path_token` | green |
 | source-ingress → Path tokens stay Alertmanager-only | Path-token request on the Icinga2 route | `correlia_server/test/db/icinga2_ingress_test.dart` | `path_token_request_on_the_icinga2_route` | green |
 | source-ingress → Identity label exclusion stays Alertmanager-only | Icinga2 source declares excluded identity labels | `correlia_server/test/unit/ingest/source_config_test.dart` | `icinga2_source_declares_excluded_identity_labels` | green |
@@ -202,7 +202,7 @@ list. Group 9's capture answers it, and the answer does not change what gets bui
 
 ## 3. Decoder dispatch by the pinned source's kind
 
-- [ ] 3.1 Write failing tests in `decoder_dispatch_test.dart`:
+- [x] 3.1 Write failing tests in `decoder_dispatch_test.dart`:
   - `two_kinds_in_one_batch`
   - `existing_rows_after_the_upgrade`
   - `row_pinned_to_a_format_version_1_snapshot`
@@ -212,7 +212,7 @@ list. Group 9's capture answers it, and the answer does not change what gets bui
   - `source_disabled_before_the_first_claim`
 
   Use a stub Icinga2 decoder that only reports that it ran, until group 4 lands.
-- [ ] 3.2 Replace the pipeline's fixed Alertmanager decode with an exhaustive switch on the pinned source's
+- [x] 3.2 Replace the pipeline's fixed Alertmanager decode with an exhaustive switch on the pinned source's
   `SourceKind`:
   - A version 1 snapshot reads as Alertmanager.
   - A version 2 snapshot with no kind fails with `unsupported_kind`.

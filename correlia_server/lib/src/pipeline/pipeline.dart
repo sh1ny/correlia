@@ -10,8 +10,9 @@ import '../event/canonical_event.dart';
 import '../event/cloud_event.dart';
 import '../event/event_timestamp.dart';
 import '../event/validation.dart';
-import '../ingest/alertmanager_decoder.dart';
-import '../ingest/bootstrap.dart' show sha256Digest;
+import '../ingest/bootstrap.dart'
+    show AlertmanagerSourceKind, Icinga2SourceKind, SourceKind, sha256Digest;
+import '../ingest/source_decoder.dart';
 import '../runtime/process_options.dart';
 import '../runtime/subsystem.dart';
 import '../state/alert_state_service.dart';
@@ -179,6 +180,7 @@ final class PipelineRepository {
     PipelineCounters? counters,
     this.stateSkewAllowance = skewAllowance,
     this.log,
+    this.icinga2Decoder,
   }) : clock = clock ?? DateTime.now,
        _retryCounts = retryCounts ?? {},
        counters = counters ?? PipelineCounters();
@@ -193,6 +195,9 @@ final class PipelineRepository {
 
   /// The optional best-effort post-commit warning sink.
   final void Function(String)? log;
+
+  /// The decoder of `icinga2` sources; `null` means that kind has no decoder.
+  final KindDecoder? icinga2Decoder;
 
   Future<void> _limits(Transaction tx, _Deadline deadline) async {
     await session.db.unsafeQuery(
@@ -248,7 +253,7 @@ WHERE observed_at=@observed AND raw_id=CAST(@id AS uuid)''',
   /// Processes one pinned eligible row, or returns false when none is eligible.
   Future<bool> processOne() async {
     _Raw? claimed;
-    AlertmanagerBatch? completedBatch;
+    DecodedBatch? completedBatch;
     final deadline = _Deadline();
     try {
       final processed = await session.db.transaction((tx) async {
@@ -326,21 +331,28 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
         if (outputs.length != outputIds.length) {
           throw StateError('Invalid pinned routing');
         }
-        late final AlertmanagerBatch batch;
+        final decoder = _decoderFor(snapshot, source);
+        if (decoder == null) {
+          await _fail(tx, deadline, raw, 'unsupported_kind', null);
+          return true;
+        }
+        late final DecodedBatch batch;
         final prepared = <_Prepared>[];
         try {
-          batch = decodeAlertmanager(
-            bytes: raw.bytes,
-            sourceInstance: raw.source,
-            namespace: source['namespace'] as String,
-            excludedLabels:
-                (source['excluded_identity_labels'] as List<Object?>)
-                    .cast<String>(),
-            rawRef: 'raw:${raw.observed.toUtc().toIso8601String()}/${raw.id}',
-            rawSha256: raw.digest,
-            observedAt: _timestamp(raw.observed),
-            processedAt: _timestamp(clock()),
-            configVersion: raw.pin,
+          batch = decoder(
+            DecodeRequest(
+              bytes: raw.bytes,
+              sourceInstance: raw.source,
+              namespace: source['namespace'] as String,
+              excludedLabels:
+                  (source['excluded_identity_labels'] as List<Object?>)
+                      .cast<String>(),
+              rawRef: 'raw:${raw.observed.toUtc().toIso8601String()}/${raw.id}',
+              rawSha256: raw.digest,
+              observedAt: _timestamp(raw.observed),
+              processedAt: _timestamp(clock()),
+              configVersion: raw.pin,
+            ),
           );
           deadline.check();
           for (final event in batch.events) {
@@ -602,6 +614,25 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
       await _recordError(claimed!, error);
       return true;
     }
+  }
+
+  /// The decoder of the pinned source's kind, or `null` when it has none.
+  ///
+  /// A format version 1 snapshot carries no kind and defines Alertmanager. In
+  /// a version 2 snapshot a missing or unknown kind has no decoder.
+  KindDecoder? _decoderFor(
+    Map<String, Object?> snapshot,
+    Map<String, Object?> source,
+  ) {
+    final SourceKind? kind = switch (snapshot['format_version']) {
+      1 => SourceKind.alertmanager,
+      _ => SourceKind.named(source['kind']),
+    };
+    return switch (kind) {
+      null => null,
+      AlertmanagerSourceKind() => decodeAlertmanagerRequest,
+      Icinga2SourceKind() => icinga2Decoder,
+    };
   }
 
   Future<void> _fail(
