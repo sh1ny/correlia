@@ -82,6 +82,7 @@ final class Scenarios {
     Credential credential = Credential.token,
     String? caFile,
     String? tokenLiteral,
+    String? hmacLiteral,
     String? senderPath,
   }) async {
     final (token, key) = switch (credential) {
@@ -97,8 +98,8 @@ final class Scenarios {
         c.shipped,
         baseUrl: baseUrl ?? dslString(proxyUrl),
         source: source ?? dslString(captureSource),
-        tokenFile: tokenLiteral ?? token,
-        hmacKeyFile: key,
+        tokenFile: hmacLiteral != null ? '""' : tokenLiteral ?? token,
+        hmacKeyFile: hmacLiteral ?? key,
         caFile: caFile,
         senderPath: senderPath,
       ),
@@ -425,12 +426,28 @@ final class Scenarios {
           for (var i = 0; i < _emittedClockSamples; i++) {
             await custom(type, id, comment: 'clock sample $i');
           }
-          for (final sample in await ev.deliveries(_emittedClockSamples)) {
-            ev.add({
-              'kind': 'emitted',
-              'command': command,
-              'delivery': sample['id'],
-            });
+          // Only the sampled CUSTOM notifications count: Icinga 2 may send
+          // another notification of the object meanwhile (2.14.10 once sent
+          // a second PROBLEM), which stays recorded but is not a sample.
+          var samples = 0;
+          for (var taken = 0; samples < _emittedClockSamples; taken++) {
+            if (taken == _emittedClockSamples + 10) {
+              throw StateError('$command: only $samples clock samples arrived');
+            }
+            final d = (await ev.deliveries(1)).single;
+            final request = d['request']! as Map<String, Object?>;
+            final body = jsonDecode(request['body']! as String);
+            if (body case {
+              'notification_type': 'CUSTOM',
+              'notification_comment': final String comment,
+            } when comment.startsWith('clock sample ')) {
+              samples++;
+              ev.add({
+                'kind': 'emitted',
+                'command': command,
+                'delivery': d['id'],
+              });
+            }
           }
         }
       });
@@ -959,6 +976,7 @@ extension Batch2 on Scenarios {
     Credential credential = Credential.token,
     String? caFile,
     String? tokenLiteral,
+    String? hmacLiteral,
     String? senderPath,
     Map<String, String> env = const {},
   }) async {
@@ -968,6 +986,7 @@ extension Batch2 on Scenarios {
       credential: credential,
       caFile: caFile,
       tokenLiteral: tokenLiteral,
+      hmacLiteral: hmacLiteral,
       senderPath: senderPath,
     );
     await lab.restart(env: env);
@@ -1083,6 +1102,7 @@ extension Batch2 on Scenarios {
     String? source,
     String? caFile,
     String? tokenLiteral,
+    String? hmacLiteral,
     String? senderPath,
     Map<String, String> env = const {},
     String trigger = 'rej2',
@@ -1092,6 +1112,7 @@ extension Batch2 on Scenarios {
       source: source,
       caFile: caFile,
       tokenLiteral: tokenLiteral,
+      hmacLiteral: hmacLiteral,
       senderPath: senderPath,
       env: env,
     );
@@ -1134,6 +1155,18 @@ extension Batch2 on Scenarios {
         'relative_token_path',
         tokenLiteral: r'"correlia/token"',
       );
+      // A credential pasted where its file path belongs: refused before it
+      // reaches the command line, so no log holds it.
+      await _failureCase(
+        ev,
+        'token_as_token_path',
+        tokenLiteral: dslString(rig.token),
+      );
+      await _failureCase(
+        ev,
+        'key_as_key_path',
+        hmacLiteral: dslString(rig.hmacKey),
+      );
       // A working sender on env's default search path: a bare name would
       // run it, and it would deliver.
       await lab.exec(['cp', containerSender, '/usr/bin/$_relativeSender']);
@@ -1143,6 +1176,7 @@ extension Batch2 on Scenarios {
         'relative_sender_path',
         senderPath: dslString(_relativeSender),
       );
+      await _scan(ev, {'token': rig.token, 'hmac_key': rig.hmacKey});
     });
     await scenario('nul_in_a_file_path', (ev) async {
       await lab.writeFile(

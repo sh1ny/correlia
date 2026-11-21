@@ -22,7 +22,7 @@ import 'rig.dart';
 import 'scenarios.dart';
 
 /// Bumped when the evidence format or the scenario set changes.
-const scriptVersion = '6';
+const scriptVersion = '7';
 
 /// Scenarios that rely on objects another scenario prepared, with that
 /// scenario: a partial run must select both.
@@ -36,6 +36,12 @@ Future<void> main(List<String> arguments) async {
   final parser = ArgParser()
     ..addOption('release', mandatory: true)
     ..addOption('image', mandatory: true)
+    ..addOption(
+      'image-id',
+      mandatory: true,
+      help: 'the inspected image ID, which the container runs',
+    )
+    ..addOption('image-platform', mandatory: true)
     ..addOption('digest', defaultsTo: '')
     ..addOption('container', mandatory: true)
     ..addOption('api-port', mandatory: true)
@@ -58,6 +64,8 @@ Future<void> main(List<String> arguments) async {
   final inputs = <String, Object?>{
     'script_version': scriptVersion,
     'image_digest': args.option('digest'),
+    'image_id': args.option('image-id'),
+    'image_platform': args.option('image-platform'),
     'sender_sha256': sha256.convert(sender.readAsBytesSync()).toString(),
     'contrib_sha256': {
       for (final file
@@ -110,12 +118,14 @@ Future<void> main(List<String> arguments) async {
     ];
   }
   final lab = IcingaLab(
-    image: args.option('image')!,
+    image: args.option('image-id')!,
     name: args.option('container')!,
     apiPort: int.parse(args.option('api-port')!),
   );
   CorreliaRig? rig;
   var failed = <String>[];
+  // What the kernel reports inside the container: x86_64 unless emulated.
+  String? machine;
   try {
     rig = await CorreliaRig.start();
     await rig.startListeners();
@@ -142,6 +152,7 @@ Future<void> main(List<String> arguments) async {
     await run.useSettings();
     await lab.start();
     stdout.writeln('icinga2 ${await lab.version()} running as ${lab.name}');
+    machine = (await lab.exec(['uname', '-m'])).out.trim();
     await run.all();
     failed = [...previouslyFailed, ...capture.failed];
 
@@ -151,6 +162,9 @@ Future<void> main(List<String> arguments) async {
       'architecture': 'linux-x64',
       'image': args.option('image'),
       'image_digest': inputs['image_digest'],
+      'image_id': inputs['image_id'],
+      'image_platform': inputs['image_platform'],
+      'container_machine': machine,
       'icinga_version': await lab.version(),
       'sender_sha256': inputs['sender_sha256'],
       'contrib_sha256': inputs['contrib_sha256'],

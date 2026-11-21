@@ -243,6 +243,26 @@ void main() {
     expect(w.release.existsSync(), isFalse);
   });
 
+  test('capture_of_another_platform_fails_the_manifest_gate', () {
+    for (final (field, value) in <(String, Object?)>[
+      ('image_platform', 'linux/arm64'),
+      ('container_machine', 'aarch64'),
+      ('image_id', null),
+    ]) {
+      final pair = copy();
+      final manifest = File('${pair.directory.path}/manifest.json');
+      final json =
+          jsonDecode(manifest.readAsStringSync()) as Map<String, Object?>;
+      if (value == null) {
+        json.remove(field);
+      } else {
+        json[field] = value;
+      }
+      manifest.writeAsStringSync(jsonEncode(json));
+      expect(gateManifest(Capture(pair)), isNotEmpty, reason: field);
+    }
+  });
+
   test('listed_pairs_of_one_architecture_ran_one_bundle', () {
     // Recapturing one listed release with another sender, or with other
     // definitions, refuses the architecture until every row is recaptured.
@@ -421,6 +441,41 @@ void main() {
       broken,
       Gate.host,
       mentions: 'object_type service, not host',
+      only: true,
+    );
+  });
+
+  test('first_problem_without_the_second_result_fails_its_gate', () {
+    final broken = copy();
+    edit(broken, 'first_check_result_of_a_new_host_is_down', (r) {
+      r.removeWhere(
+        (x) => x['kind'] == 'result' && x['label'] == 'second_hard',
+      );
+    });
+    expectNamed(
+      evaluatePair(broken),
+      broken,
+      Gate.firstProblem,
+      mentions: 'needs both HARD DOWN results',
+      only: true,
+    );
+  });
+
+  test('reminder_before_the_second_result_fails_the_first_problem_gate', () {
+    final broken = copy();
+    edit(broken, 'first_check_result_of_a_new_host_is_down', (r) {
+      // The second check accepted after every reminder was sent.
+      for (final x in r) {
+        if (x['kind'] == 'result' && x['label'] == 'second_hard') {
+          x['accepted_us'] = 4102444800000000;
+        }
+      }
+    });
+    expectNamed(
+      evaluatePair(broken),
+      broken,
+      Gate.firstProblem,
+      mentions: 'no reminder was sent after the second HARD DOWN result',
       only: true,
     );
   });
@@ -1240,24 +1295,36 @@ void main() {
       const file = 'setting_not_deliverable_exactly';
       final failures = c.of(file, 'command_failure');
       final out = <String>[];
-      // The long base URL, the invalid token path and the relative token
-      // path are refused by the sender; a relative sender path runs nothing
-      // (env exits 127), not the sender on env's search path.
-      const refused = ['--base-url', '--token-file', '--token-file'];
+      // The sender refuses the long base URL, the invalid and the relative
+      // token paths, and a token or key pasted as its file path (which the
+      // definitions turn into ""). A relative sender path runs nothing (env
+      // exits 127), not the sender on env's search path.
+      const refused = [
+        '--base-url',
+        '--token-file',
+        '--token-file',
+        '--token-file',
+        '--hmac-key-file',
+      ];
       final cases = [for (final r in c.of(file, 'case')) r.json['label']];
       if (jsonEncode(cases) !=
           jsonEncode([
             'long_base_url',
             'invalid_utf8_token_path',
             'relative_token_path',
+            'token_as_token_path',
+            'key_as_key_path',
             'relative_sender_path',
           ])) {
         out.add('cases were $cases');
       }
-      if (failures.length != 4) {
-        out.add('expected 4 failed commands, found ${failures.length}');
+      if (failures.length != refused.length + 1) {
+        out.add(
+          'expected ${refused.length + 1} failed commands, '
+          'found ${failures.length}',
+        );
       } else {
-        for (var i = 0; i < 3; i++) {
+        for (var i = 0; i < refused.length; i++) {
           final detail = failures[i].json['detail']! as String;
           if (failures[i].json['exit_code'] != 2 ||
               !detail.contains(refused[i])) {
@@ -1267,11 +1334,18 @@ void main() {
             );
           }
         }
-        if (failures[3].json['exit_code'] != 127) {
+        if (failures.last.json['exit_code'] != 127) {
           out.add(
             'the relative sender path ran something: exit '
-            '${failures[3].json['exit_code']}',
+            '${failures.last.json['exit_code']}',
           );
+        }
+      }
+      final scans = c.of(file, 'secret_scan');
+      if (scans.isEmpty) out.add('no secret scan recorded');
+      for (final scan in scans) {
+        if ((scan.json['found']! as List<Object?>).isNotEmpty) {
+          out.add('a credential reached the log: ${scan.json['found']}');
         }
       }
       if (c.requests(file).isNotEmpty) out.add('a request was made');

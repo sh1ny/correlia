@@ -418,18 +418,6 @@ VALUES
     (sessionBuilder, _) {
       test('sub_microsecond_evidence', () async {
         final session = sessionBuilder.build();
-        // Before the upgrade: a stored row's column keeps microseconds, and
-        // the step's expression reads it truncated.
-        await applySchemaSteps(session, schemaSteps.take(3).toList());
-        const stored = '00000000-0000-0000-0000-0000000000b1';
-        await insertEvent(session, stored, '2026-01-01 12:00:00.000000 UTC');
-        await applySchemaSteps(session, schemaSteps);
-        expect(await effectiveTimes(session), {
-          stored: DateTime.utc(2026, 1, 1, 12),
-        });
-
-        // After the upgrade: the real pipeline stores both observations and
-        // decides the second against the fence it reloads from the database.
         await initializeIngestSchema(session);
         for (final table in [
           'activity',
@@ -475,24 +463,47 @@ VALUES
           return jsonDecode(outcome! as String) as Map<String, Object?>;
         }
 
-        // t + 900 ns first: t + 800 ns is older than the fence, so stale.
+        Future<List<Object?>> fence() async => (await session.db.unsafeQuery(
+          'SELECT "fenceEffectiveSeconds", "fenceEffectiveNanos", '
+          '"fenceEventId" FROM alerts',
+        )).single.toList();
+
+        // Before the upgrade: the fence of an alert at t + 900 ns, and its
+        // event row as the previous release stored it, without the column
+        // step 4 adds. The release before step 4 is rebuilt around them.
         expect((await observe('Reversed', 900))['applied'], 1);
+        await session.db.unsafeSimpleExecute('''
+DROP FUNCTION events_effective_source_time(events);
+ALTER TABLE events DROP COLUMN effective_source_time;
+DELETE FROM correlia_schema_versions WHERE version = 4;
+''');
+        final before = await fence();
+        expect(before[1], 900);
+        await applySchemaSteps(session, schemaSteps);
+        expect(await fence(), before, reason: 'step 4 changed the fence');
+
+        // After the upgrade: t + 800 ns, received later, is decided against
+        // that same fence and is stale.
         final reversed = await observe('Reversed', 800);
         expect((reversed['applied'], reversed['stale']), (0, 1));
+        expect(await fence(), before);
         // t + 800 ns first: t + 900 ns is newer, so applied.
         expect((await observe('InOrder', 800))['applied'], 1);
         final inOrder = await observe('InOrder', 900);
         expect((inOrder['applied'], inOrder['stale']), (1, 0));
 
-        // All four stored effective times are t truncated to the microsecond.
-        final times = await session.db.unsafeQuery(
-          'SELECT effective_source_time, events_effective_source_time(e) '
-          'FROM events e',
-        );
+        // Every effective time reads as t truncated to the microsecond: the
+        // pre-upgrade row through the step's expression, the others from the
+        // column.
         final t = DateTime.utc(2026, 11, 10, 11, 59);
+        final times = await session.db.unsafeQuery(
+          'SELECT event_id::text, effective_source_time, '
+          'events_effective_source_time(e) FROM events e',
+        );
         expect(times, hasLength(4));
         for (final row in times) {
-          expect(row.toList(), [t, t]);
+          final upgraded = row[0] == before[2];
+          expect([row[1], row[2]], [upgraded ? null : t, t]);
         }
       });
     },

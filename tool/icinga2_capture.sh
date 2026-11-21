@@ -35,8 +35,17 @@ trap 'exit 143' TERM
 status=0
 for release in "$@"; do
   image="icinga/icinga2:$release"
-  docker pull --quiet "$image" >/dev/null
-  digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$image" 2>/dev/null || true)
+  # The sender under test is linux-x64, so Icinga 2 must be too: pull the amd64 image, then run exactly the image
+  # inspected here (by its ID), so neither emulation nor a tag moved since the inspection can change what runs.
+  docker pull --platform linux/amd64 --quiet "$image" >/dev/null
+  image_id=$(docker image inspect --format '{{.Id}}' "$image")
+  platform=$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image_id")
+  if [[ $platform != linux/amd64 ]]; then
+    echo "$image resolved to $platform, not linux/amd64" >&2
+    status=1
+    continue
+  fi
+  digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$image_id" 2>/dev/null || true)
   name="i2cap-${release//./-}-$suffix"
   names+=("$name")
   api_port=$(python3 - <<'PY'
@@ -46,7 +55,8 @@ sock.bind(('127.0.0.1', 0))
 print(sock.getsockname()[1])
 PY
 )
-  args=(--release "$release" --image "$image" --digest "$digest" --container "$name"
+  args=(--release "$release" --image "$image" --image-id "$image_id" --image-platform "$platform"
+        --digest "$digest" --container "$name"
         --api-port "$api_port" --out "$out" --sender "$sender" --contrib "$contrib")
   if [[ -n ${CAPTURE_ONLY:-} ]]; then args+=(--only "$CAPTURE_ONLY"); fi
   (cd "$server" && mise exec -- dart run tool/icinga2_capture/main.dart "${args[@]}") || status=1

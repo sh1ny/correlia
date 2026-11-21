@@ -655,10 +655,37 @@ List<String> firstProblemHosts(Capture c) {
         if (r.json['cap_id'] == host) r.json['label']: r,
     };
     final first = results['first_hard'];
+    final second = results['second_hard'];
     final requests = _hostRequests(c, _firstFile, host);
-    if (first == null || requests.length < 2) {
-      out.add('$host: needs its first delivery and a reminder');
+    if (first == null || second == null || requests.length < 2) {
+      out.add(
+        '$host: needs both HARD DOWN results, its first delivery and a '
+        'reminder',
+      );
       continue;
+    }
+    // The reminder that proves the key survives the second check is one
+    // Icinga 2 sent after accepting it, and the final state follows it.
+    final records = c.records(_firstFile);
+    final secondAt = records.indexOf(second);
+    final accepted = second.json['accepted_us'];
+    final after = [
+      for (final r in requests.skip(1))
+        if (records.indexOf(r) > secondAt &&
+            accepted is int &&
+            microsOf(r.body['notification_time']! as String) >= accepted)
+          r,
+    ];
+    final states = _statesOf(c, _firstFile, host);
+    if (records.indexOf(first) > records.indexOf(requests.first) ||
+        records.indexOf(requests.first) > secondAt) {
+      out.add('$host: the first delivery does not lie between the results');
+    }
+    if (after.isEmpty) {
+      out.add('$host: no reminder was sent after the second HARD DOWN result');
+    } else if (states.isEmpty ||
+        records.indexOf(states.last) < records.indexOf(after.last)) {
+      out.add('$host: the final state was not taken after the reminder');
     }
     final d1 = requests.first;
     if (d1.kind != 'admitted') {
@@ -705,7 +732,6 @@ List<String> firstProblemHosts(Capture c) {
         out.add('$host: a reminder decodes to a different event id');
       }
     }
-    final states = _statesOf(c, _firstFile, host);
     final last = states.isEmpty ? null : states.last;
     final alert = last == null ? null : _alertOf(last);
     if (alert == null || alert['status'] != 'firing') {
@@ -996,6 +1022,22 @@ List<String> gateManifest(Capture c) {
     out.add('scenarios did not complete: $failed');
   }
   if ('${m['image_digest']}'.isEmpty) out.add('no image digest recorded');
+  if (!RegExp(r'^sha256:[0-9a-f]{64}$').hasMatch('${m['image_id']}')) {
+    out.add('no image ID recorded: ${m['image_id']}');
+  }
+  // The pair's sender architecture is what Icinga 2 itself ran as: the
+  // image's platform and the machine the kernel reported in the container.
+  final (platform, machine) = switch (c.pair.architecture) {
+    'linux-x64' => ('linux/amd64', 'x86_64'),
+    'linux-arm64' => ('linux/arm64', 'aarch64'),
+    final other => ('unknown architecture $other', ''),
+  };
+  if (m['image_platform'] != platform || m['container_machine'] != machine) {
+    out.add(
+      'Icinga 2 ran as ${m['image_platform']} (${m['container_machine']}), '
+      'not $platform ($machine)',
+    );
+  }
   return out;
 }
 

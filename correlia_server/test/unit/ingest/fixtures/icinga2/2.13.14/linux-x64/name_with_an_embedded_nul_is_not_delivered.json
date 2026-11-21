@@ -10,7 +10,8 @@
       "exit_status": 1,
       "output_bytes": 9,
       "output": "DOWN: db1",
-      "execution_end": "1795253835.100001"
+      "execution_end": "1795261913.100001",
+      "accepted_us": 1795261913814566
     },
     {
       "kind": "admitted",
@@ -18,14 +19,14 @@
       "auth": "bearer",
       "request": {
         "path": "/hooks/icinga2/33333333-3333-4333-8333-333333333333",
-        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"host\",\"host\":\"db1\",\"state\":\"DOWN\",\"state_type\":\"HARD\",\"last_state_change\":\"1795253835.100001\",\"output\":\"DOWN: db1\",\"notification_type\":\"PROBLEM\",\"notification_time\":\"1795253835.097050\"}",
-        "body_sha256": "01be34ab42a9c6d7e97945c82e9e50bf4749639f9afc16a10c6700896058e8e4",
+        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"host\",\"host\":\"db1\",\"state\":\"DOWN\",\"state_type\":\"HARD\",\"last_state_change\":\"1795261913.100001\",\"output\":\"DOWN: db1\",\"notification_type\":\"PROBLEM\",\"notification_time\":\"1795261913.767840\"}",
+        "body_sha256": "1ab08b85ddfc6d9e341431bf23a127510d1cc2dadf25de0b961717a89bf6a901",
         "body_size": 232
       },
       "response_status": 202,
       "raw": {
-        "id": "7f335d8d-8cf9-452a-8d3b-e45c7bf093a1",
-        "body_sha256": "01be34ab42a9c6d7e97945c82e9e50bf4749639f9afc16a10c6700896058e8e4",
+        "id": "935c3516-3623-45e4-b80b-3678375e0ef4",
+        "body_sha256": "1ab08b85ddfc6d9e341431bf23a127510d1cc2dadf25de0b961717a89bf6a901",
         "status": "done",
         "outcome": {
           "upstream_omitted": 0,
@@ -47,10 +48,10 @@
         {
           "disposition": "ready",
           "state_outcome": "applied",
-          "source_time": "2026-11-21T09:37:15.100001Z",
+          "source_time": "2026-11-21T11:51:53.100001Z",
           "cloud_event": {
             "specversion": "1.0",
-            "id": "f182c30e-c321-55a2-ada5-0096339e01e8",
+            "id": "46721d88-042c-5345-b9c8-37cc0ff5b9a0",
             "source": "urn:correlia:source:33333333-3333-4333-8333-333333333333",
             "type": "io.correlia.alert.v1",
             "datacontenttype": "application/json",
@@ -58,9 +59,9 @@
             "subject": "3d96ec48a4e59a2c847feb3c14bf04463070d7f2fe47d5d8608cf4f22ff90c53",
             "partitionkey": "3d96ec48a4e59a2c847feb3c14bf04463070d7f2fe47d5d8608cf4f22ff90c53",
             "correliatenant": "default",
-            "time": "2026-11-21T09:37:15.100001Z",
+            "time": "2026-11-21T11:51:53.100001Z",
             "data": {
-              "event_id": "f182c30e-c321-55a2-ada5-0096339e01e8",
+              "event_id": "46721d88-042c-5345-b9c8-37cc0ff5b9a0",
               "fingerprint": "3d96ec48a4e59a2c847feb3c14bf04463070d7f2fe47d5d8608cf4f22ff90c53",
               "tenant": "default",
               "namespace": "33333333-3333-4333-8333-333333333333",
@@ -80,17 +81,17 @@
               "annotations": {
                 "icinga2.notification_type": "PROBLEM"
               },
-              "source_time": "2026-11-21T09:37:15.100001Z",
-              "reported_source_time": "2026-11-21T09:37:15.100001Z",
-              "observed_at": "2026-11-21T09:37:15.103250Z",
-              "processed_at": "2026-11-21T09:37:15.193123Z",
+              "source_time": "2026-11-21T11:51:53.100001Z",
+              "reported_source_time": "2026-11-21T11:51:53.100001Z",
+              "observed_at": "2026-11-21T11:51:53.773359Z",
+              "processed_at": "2026-11-21T11:51:53.870410Z",
               "raw": {
-                "ref": "raw:2026-11-21T09:37:15.103250Z/7f335d8d-8cf9-452a-8d3b-e45c7bf093a1",
-                "sha256": "01be34ab42a9c6d7e97945c82e9e50bf4749639f9afc16a10c6700896058e8e4",
+                "ref": "raw:2026-11-21T11:51:53.773359Z/935c3516-3623-45e4-b80b-3678375e0ef4",
+                "sha256": "1ab08b85ddfc6d9e341431bf23a127510d1cc2dadf25de0b961717a89bf6a901",
                 "size": 232
               },
               "pipeline": {
-                "version": "4b1f3bb691beab4342e2dc1caad95bf7da2a2b03723f6feceddc36692c802303",
+                "version": "9534fc33e7f7b040649db54dfa710ab0bb9277585704d7c4a24dff283fcf8e0a",
                 "generation": 0
               },
               "extensions": {},
@@ -99,7 +100,7 @@
                   "raw": "db1"
                 }
               },
-              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAADcAWyJpY2luZ2EyLm5vdGlmeS52MSIsIkRPV04iLCJIQVJEIiwiMTc5NTI1MzgzNTEwMDAwMSJd"
+              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAADcAWyJpY2luZ2EyLm5vdGlmeS52MSIsIkRPV04iLCJIQVJEIiwiMTc5NTI2MTkxMzEwMDAwMSJd"
             }
           },
           "outbox": [
@@ -121,8 +122,8 @@
         "status": "firing",
         "severity": "critical",
         "version": 1,
-        "fence_event_id": "f182c30e-c321-55a2-ada5-0096339e01e8",
-        "fence_effective_seconds": 1795253835,
+        "fence_event_id": "46721d88-042c-5345-b9c8-37cc0ff5b9a0",
+        "fence_effective_seconds": 1795261913,
         "fence_effective_nanos": 100001000,
         "summary": "db1 DOWN"
       },
@@ -144,7 +145,8 @@
       "exit_status": 1,
       "output_bytes": 9,
       "output": "DOWN: nul",
-      "execution_end": "1795253835.300002"
+      "execution_end": "1795261913.300002",
+      "accepted_us": 1795261913982873
     },
     {
       "kind": "result",
@@ -154,21 +156,22 @@
       "exit_status": 0,
       "output_bytes": 7,
       "output": "UP: nul",
-      "execution_end": "1795253835.600003"
+      "execution_end": "1795261913.600003",
+      "accepted_us": 1795261914030563
     },
     {
       "kind": "command_failure",
       "id": "f5",
       "exit_code": 2,
       "detail": "invalid_name",
-      "log": "[2026-11-21 09:37:15 +0000] warning/PluginNotificationTask: Notification command for object 'db1\u0000x' (PID: 4837, arguments: '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:35915\"' '--host' '\"db1\\u0000x\"' '--last-state-change' '\"1795253835.300002\"' '--notification-time' '\"1795253835.266093\"' '--notification-type' '\"PROBLEM\"' '--object-type' '\"host\"' '--output' '\"DOWN: nul\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"DOWN\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 2, output: invalid_name"
+      "log": "[2026-11-21 11:51:53 +0000] warning/PluginNotificationTask: Notification command for object 'db1\u0000x' (PID: 5078, arguments: '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:44459\"' '--host' '\"db1\\u0000x\"' '--last-state-change' '\"1795261913.300002\"' '--notification-time' '\"1795261913.941104\"' '--notification-type' '\"PROBLEM\"' '--object-type' '\"host\"' '--output' '\"DOWN: nul\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"DOWN\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 2, output: invalid_name"
     },
     {
       "kind": "command_failure",
       "id": "f6",
       "exit_code": 2,
       "detail": "invalid_name",
-      "log": "[2026-11-21 09:37:15 +0000] warning/PluginNotificationTask: Notification command for object 'db1\u0000x' (PID: 4840, arguments: '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:35915\"' '--host' '\"db1\\u0000x\"' '--last-state-change' '\"1795253835.600003\"' '--notification-time' '\"1795253835.319229\"' '--notification-type' '\"RECOVERY\"' '--object-type' '\"host\"' '--output' '\"UP: nul\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"UP\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 2, output: invalid_name"
+      "log": "[2026-11-21 11:51:53 +0000] warning/PluginNotificationTask: Notification command for object 'db1\u0000x' (PID: 5081, arguments: '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:44459\"' '--host' '\"db1\\u0000x\"' '--last-state-change' '\"1795261913.600003\"' '--notification-time' '\"1795261913.988470\"' '--notification-type' '\"RECOVERY\"' '--object-type' '\"host\"' '--output' '\"UP: nul\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"UP\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 2, output: invalid_name"
     },
     {
       "kind": "state",
@@ -180,8 +183,8 @@
         "status": "firing",
         "severity": "critical",
         "version": 1,
-        "fence_event_id": "f182c30e-c321-55a2-ada5-0096339e01e8",
-        "fence_effective_seconds": 1795253835,
+        "fence_event_id": "46721d88-042c-5345-b9c8-37cc0ff5b9a0",
+        "fence_effective_seconds": 1795261913,
         "fence_effective_nanos": 100001000,
         "summary": "db1 DOWN"
       },

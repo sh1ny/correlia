@@ -132,6 +132,9 @@ final class Evidence {
       output: output,
       end: end,
     );
+    // When Icinga 2 had accepted the result (the API call has returned): a
+    // notification it sends for a later check carries a time at or after it.
+    final accepted = DateTime.now().microsecondsSinceEpoch;
     final recordId = nextId('r');
     add({
       'kind': 'result',
@@ -142,6 +145,7 @@ final class Evidence {
       'output_bytes': utf8.encode(output).length,
       if (output.length <= 200) 'output': output,
       'execution_end': end,
+      'accepted_us': accepted,
       'label': ?label,
     });
     return recordId;
