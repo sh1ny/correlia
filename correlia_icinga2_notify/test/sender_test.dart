@@ -293,6 +293,36 @@ void main() {
     expect(await tripwire.contacted(), 0);
   });
 
+  test('base_url_with_a_port_outside_the_tcp_range', () async {
+    for (final url in [
+      'http://127.0.0.1:0',
+      'http://127.0.0.1:00',
+      'https://correlia.example:0',
+      'http://[::1]:0',
+      'http://127.0.0.1:65536',
+      'http://127.0.0.1:099',
+      'http://127.0.0.1:',
+      'http://127.0.0.1:80:80',
+    ]) {
+      final files = creds();
+      final result = await run(argv(baseUrl: url), files: files);
+      expect(result.code, 2, reason: url);
+      expect(result.text, contains('invalid_argument --base-url'), reason: url);
+      expect(files.statted, isEmpty, reason: 'no credential read for $url');
+    }
+    // The extremes of the range stay accepted.
+    final receiver = await Receiver.start();
+    addTearDown(receiver.close);
+    final result = await run(argv(baseUrl: receiver.url));
+    expect(result.code, 0, reason: result.text);
+    final high = creds();
+    final refused = await run(
+      argv(baseUrl: 'http://127.0.0.1:65535'),
+      files: high,
+    );
+    expect(refused.text, isNot(contains('--base-url')), reason: refused.text);
+  });
+
   test('plain_http_to_a_remote_host', () async {
     for (final url in [
       'http://correlia.example:8080',

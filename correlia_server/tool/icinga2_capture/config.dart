@@ -303,6 +303,7 @@ String settingsText(
   String? tokenFile,
   String? hmacKeyFile,
   String? caFile,
+  String? senderPath,
 }) {
   var text = shipped;
   String set(String text, String name, String? literal) {
@@ -317,5 +318,6 @@ String settingsText(
   text = set(text, 'CorreliaTokenFile', tokenFile);
   text = set(text, 'CorreliaHmacKeyFile', hmacKeyFile);
   text = set(text, 'CorreliaCaFile', caFile);
+  text = set(text, 'CorreliaSenderPath', senderPath);
   return text;
 }

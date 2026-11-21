@@ -17,6 +17,10 @@ const _wrongToken = '$containerCorrelia/wrong-token';
 const _wrongKey = '$containerCorrelia/wrong-hmac-key';
 const _dollarToken = '$containerCorrelia/tok\$en';
 
+/// A copy of the sender whose path holds macro text; the commands must run
+/// it as written, not as `/usr/local/bin/correlia-lab-notify`.
+const _dollarSender = '/usr/local/bin/correlia-\$host.name\$-notify';
+
 /// Which credential the sender settings name.
 enum Credential { token, hmac, wrongToken, wrongKey, dollarToken, none }
 
@@ -67,6 +71,7 @@ final class Scenarios {
     Credential credential = Credential.token,
     String? caFile,
     String? tokenLiteral,
+    String? senderPath,
   }) async {
     final (token, key) = switch (credential) {
       Credential.token => (dslString(_token), '""'),
@@ -84,6 +89,7 @@ final class Scenarios {
         tokenFile: tokenLiteral ?? token,
         hmacKeyFile: key,
         caFile: caFile,
+        senderPath: senderPath,
       ),
     );
   }
@@ -925,6 +931,7 @@ extension Batch2 on Scenarios {
     Credential credential = Credential.token,
     String? caFile,
     String? tokenLiteral,
+    String? senderPath,
     Map<String, String> env = const {},
   }) async {
     await useSettings(
@@ -933,6 +940,7 @@ extension Batch2 on Scenarios {
       credential: credential,
       caFile: caFile,
       tokenLiteral: tokenLiteral,
+      senderPath: senderPath,
     );
     await lab.restart(env: env);
   }
@@ -1156,6 +1164,18 @@ extension Batch2 on Scenarios {
         id: 'env1',
         exit: 0,
         output: 'OK: dollar path',
+        end: _nowText(),
+      );
+      await lab.exec(['cp', containerSender, _dollarSender]);
+      await lab.exec(['chmod', '755', _dollarSender]);
+      await _reconfigure(senderPath: dslString(_dollarSender));
+      ev.add({'kind': 'case', 'label': 'dollar_sender_path'});
+      await _step(
+        ev,
+        objectType: 'service',
+        id: 'env1',
+        exit: 2,
+        output: 'CRITICAL: dollar sender',
         end: _nowText(),
       );
     });

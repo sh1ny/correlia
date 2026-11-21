@@ -382,9 +382,10 @@ arguments and POSTs it to `<base url>/hooks/icinga2/<source>`.
 2. Copy the three files of `build/icinga2-notify/release/icinga2/` together into `/etc/icinga2/correlia/` and add one line to
    `/etc/icinga2/icinga2.conf`: `include "correlia/correlia.conf"`. Do not copy them into `conf.d`: Icinga 2 loads
    that directory in file-name order, and the commands need the constants and helper functions loaded first.
-3. Edit the constants in `correlia.conf`: the sender path, the base URL (scheme and authority only), the source
-   UUID, exactly one of the token file or the HMAC key file, and optionally a CA file. Only file paths are
-   arguments, never a credential.
+3. Edit the constants in `correlia.conf`: the sender path, the base URL (scheme and authority only, with an
+   explicit port, if any, in 1-65535), the source UUID, exactly one of the token file or the HMAC key file, and
+   optionally a CA file. Only file paths are arguments, never a credential. Every value is used as written: a
+   dollar sign in the sender path or a file path is an ordinary character, not a macro.
 4. Apply the `correlia-host` and `correlia-service` commands to one dedicated user (the commented example in
    `correlia.conf`). Icinga 2 runs a command once per recipient, so each extra user is an extra delivery.
    Deliveries of one state notification (same state, state type and change time) are the same observation:

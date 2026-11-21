@@ -47,6 +47,21 @@ final _time = RegExp(r'^[1-9][0-9]{0,11}\.[0-9]{6}$');
 /// refuses a time at or after it as out of range.
 const _secondsLimit = 253402300800;
 
+/// Whether [baseUrl]'s authority has no port, or one port in 1-65535 written
+/// without leading zeros. An explicit port 0 would otherwise reach the
+/// scheme's default port.
+bool _portInRange(String baseUrl) {
+  final authority = baseUrl.substring(baseUrl.indexOf('//') + 2);
+  final hostEnd = authority.startsWith('[')
+      ? authority.indexOf(']') + 1
+      : (authority.contains(':') ? authority.indexOf(':') : authority.length);
+  if (hostEnd <= 0) return false;
+  final rest = authority.substring(hostEnd);
+  if (rest.isEmpty) return true;
+  if (!RegExp(r'^:[1-9][0-9]{0,4}$').hasMatch(rest)) return false;
+  return int.parse(rest.substring(1)) <= 65535;
+}
+
 const _hostStates = {'UP', 'DOWN', 'UNREACHABLE'};
 const _serviceStates = {'OK', 'WARNING', 'CRITICAL', 'UNKNOWN'};
 const _notificationTypes = {
@@ -143,7 +158,7 @@ final class SenderArguments {
     }
 
     final baseUrl = values['--base-url']!;
-    if (!_baseUrl.hasMatch(baseUrl)) {
+    if (!_baseUrl.hasMatch(baseUrl) || !_portInRange(baseUrl)) {
       throw const SenderExit.config('invalid_argument --base-url');
     }
     final source = values['--source']!;

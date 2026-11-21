@@ -367,9 +367,37 @@ List<String> gateNotificationTime(Capture c) {
     for (final d in deliveries) d.body['notification_time']! as String,
   ];
   final out = <String>[];
+  // Two CUSTOM comments by one author on the one service the scenario
+  // targets, in the order it sent them.
+  const comments = ['first', 'second'];
+  for (var i = 0; i < 2; i++) {
+    final b = deliveries[i].body;
+    final object = '${b['host']}/${b['service']}';
+    if (b['object_type'] != 'service' || object != 'lab/two') {
+      out.add(
+        'delivery ${i + 1} is $object (${b['object_type']}), not lab/two',
+      );
+    }
+    if (b['notification_type'] != 'CUSTOM' ||
+        b['notification_author'] != 'alice' ||
+        b['notification_comment'] != comments[i]) {
+      out.add(
+        'delivery ${i + 1} is ${b['notification_type']} by '
+        '${b['notification_author']} "${b['notification_comment']}", not '
+        'CUSTOM by alice "${comments[i]}"',
+      );
+    }
+    if (deliveries[i].events.length != 1) {
+      out.add('delivery ${i + 1} has ${deliveries[i].events.length} events');
+    }
+  }
   if (times.toSet().length != 2) out.add('notification times are not distinct');
   if (times.map(_second).toSet().length != 1) {
     out.add('the two notification times are not in one second');
+  }
+  if (times.toSet().length == 2 &&
+      isoOf(times[0]).compareTo(isoOf(times[1])) >= 0) {
+    out.add('the notification times do not increase: $times');
   }
   if ({for (final d in deliveries) d.eventId}.length != 2) {
     out.add('the two notifications share an event id');

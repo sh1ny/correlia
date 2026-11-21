@@ -101,7 +101,9 @@ void main() {
         (record['events']! as List<Object?>).single! as Map<String, Object?>;
     event['source_time'] = decoded.sourceTime?.toRfc3339();
     final cloud = event['cloud_event']! as Map<String, Object?>;
-    (cloud['data']! as Map<String, Object?>)['event_id'] = decoded.eventId;
+    (cloud['data']! as Map<String, Object?>)
+      ..['event_id'] = decoded.eventId
+      ..['fingerprint'] = decoded.fingerprint;
   }
 
   /// Fails unless [failures] names [pair] and [gate] (and only those gates in
@@ -414,6 +416,41 @@ void main() {
       broken,
       Gate.service,
       mentions: 'result r1 is lab/other, delivery',
+      only: true,
+    );
+  });
+
+  test('comments_on_two_services_fail_the_notification_time_gate', () {
+    final broken = copy();
+    edit(broken, 'two_comments_from_one_author', (r) {
+      final second = r.where((x) => x['kind'] == 'admitted').last;
+      setBody(second, 'service', 'other');
+      syncEvent(second);
+    });
+    expectNamed(
+      evaluatePair(broken),
+      broken,
+      Gate.notificationTime,
+      mentions: 'delivery 2 is lab/other',
+      only: true,
+    );
+  });
+
+  test('notification_times_out_of_order_fail_their_gate', () {
+    final broken = copy();
+    edit(broken, 'two_comments_from_one_author', (r) {
+      final admitted = r.where((x) => x['kind'] == 'admitted').toList();
+      final first = Rec(admitted.first).body['notification_time'];
+      final second = Rec(admitted.last).body['notification_time'];
+      setBody(admitted.first, 'notification_time', second);
+      setBody(admitted.last, 'notification_time', first);
+      admitted.forEach(syncEvent);
+    });
+    expectNamed(
+      evaluatePair(broken),
+      broken,
+      Gate.notificationTime,
+      mentions: 'do not increase',
       only: true,
     );
   });
@@ -1136,8 +1173,14 @@ void main() {
             failures.single.json['exit_code'] != 2 ||
             !(failures.single.json['detail']! as String).contains('--base-url'))
           'the macro base URL was not refused naming --base-url',
-        if (ds.length != 1 || ds.single.status != 202)
-          'the token path with a dollar sign was not accepted',
+        // The token path, then the sender path, with a dollar sign: both
+        // reach Correlia exactly as configured.
+        if (ds.length != 2 || ds.any((d) => d.status != 202))
+          'the dollar sign paths were not both accepted: '
+              '${[for (final d in ds) d.status]}',
+        if (ds.length == 2 &&
+            ds.last.body['output'] != 'CRITICAL: dollar sender')
+          'the dollar sender path delivered ${ds.last.body['output']}',
       ];
     });
   });
