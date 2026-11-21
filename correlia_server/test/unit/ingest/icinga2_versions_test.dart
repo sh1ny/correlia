@@ -190,6 +190,37 @@ void main() {
     );
   }
 
+  test('every_row_of_the_statement_is_read_or_refused', () {
+    const header = '| Release | Architecture |\n|---|---|\n';
+    // Markdown renders a row without its outer pipes as a row.
+    expect(
+      [
+        for (final p in parseStatement(
+          '$_begin\n$header| 2.16.6 | linux-x64 |\n'
+          '| 2.16.6 | linux-arm64\n2.15.7 | linux-x64\n$_end\n',
+        ))
+          '${p.release}/${p.architecture}',
+      ],
+      ['2.16.6/linux-x64', '2.16.6/linux-arm64', '2.15.7/linux-x64'],
+    );
+    for (final bad in [
+      '| 2.16 | linux-x64 |',
+      '| 2.16.6 | linux-x64 | extra |',
+      '| 2.16.6 |',
+      'see below',
+    ]) {
+      expect(
+        () => parseStatement('$_begin\n$header$bad\n$_end\n'),
+        throwsFormatException,
+        reason: bad,
+      );
+    }
+    expect(
+      () => parseStatement('$_begin\n| 2.16.6 | linux-x64 |\n$_end\n'),
+      throwsFormatException,
+    );
+  });
+
   test('only_one_architecture_qualifies', () {
     final statement = parseStatement(
       '$_begin\n| Release | Architecture |\n|---|---|\n'
@@ -483,6 +514,50 @@ void main() {
       broken,
       Gate.firstProblem,
       mentions: 'no reminder was sent after the second HARD DOWN result',
+      only: true,
+    );
+  });
+
+  test('volatile_deliveries_must_carry_the_recorded_check_times', () {
+    final broken = copy();
+    edit(broken, 'volatile_host_with_no_state_change_yet', (r) {
+      // The second result as recorded is a microsecond after what both
+      // deliveries carried, as if the commands had shifted the time.
+      for (final x in r) {
+        if (x['kind'] == 'result' &&
+            x['cap_id'] == 'fp-volatile' &&
+            x['label'] == 'second_hard') {
+          final end = x['execution_end']! as String;
+          final micros = microsOf(end) + 1;
+          x['execution_end'] =
+              '${micros ~/ 1000000}.${(micros % 1000000).toString().padLeft(6, '0')}';
+        }
+      }
+    });
+    expectNamed(
+      evaluatePair(broken),
+      broken,
+      Gate.firstProblem,
+      mentions: 'not the second_hard execution end',
+      only: true,
+    );
+  });
+
+  test('volatile_fence_must_belong_to_the_second_delivery', () {
+    final broken = copy();
+    edit(broken, 'volatile_host_with_no_state_change_yet', (r) {
+      final states = [
+        for (final x in r)
+          if (x['kind'] == 'state' && jsonEncode(x).contains('fp-volatile')) x,
+      ];
+      (states[1]['alert']! as Map<String, Object?>)['fence_event_id'] =
+          '00000000-0000-5000-8000-000000000000';
+    });
+    expectNamed(
+      evaluatePair(broken),
+      broken,
+      Gate.firstProblem,
+      mentions: 'the fence after the second delivery is',
       only: true,
     );
   });
@@ -1477,9 +1552,24 @@ void main() {
                   !log.contains('/etc/icinga2/correlia/wrong-'))
             'the failure log lacks the status, a text or the file path',
         if (scans.length != 1) 'no secret scan',
-        for (final s in scans)
+        for (final s in scans) ...[
           if ((s.json['found']! as List<Object?>).isNotEmpty)
             'secrets in the log: ${s.json['found']}',
+          // The rejected senders' own credentials, and each rejected
+          // header both whole and as its bare token or digest.
+          for (final name in [
+            'token',
+            'hmac_key',
+            'wrong_token',
+            'wrong_hmac_key',
+            'credential_header_0',
+            'credential_value_0',
+            'credential_header_1',
+            'credential_value_1',
+          ])
+            if (!(s.json['checked']! as List<Object?>).contains(name))
+              'the scan did not check $name',
+        ],
       ];
     });
   });

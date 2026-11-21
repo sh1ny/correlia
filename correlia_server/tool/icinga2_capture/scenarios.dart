@@ -54,6 +54,11 @@ final class Scenarios {
   String get proxyUrl => 'http://127.0.0.1:${rig.proxyPort}';
   String get receiverUrl => 'http://127.0.0.1:${rig.receiverPort}';
 
+  /// The values of the wrong token and the wrong HMAC key files, kept only
+  /// in memory so the rejection scan can look for them; never recorded.
+  String _wrongTokenValue = '';
+  String _wrongKeyValue = '';
+
   // --- Setup ------------------------------------------------------------
 
   /// Credential files: readable only by the Icinga 2 user, in a directory
@@ -68,14 +73,15 @@ final class Scenarios {
     await file(_token, rig.token);
     await file(_hmacKey, rig.hmacKey);
     // Same shape, different value: Correlia refuses both with 401.
-    await file(_wrongToken, 'W' * 43);
     final random = Random.secure();
-    await file(
-      _wrongKey,
-      base64Url
-          .encode(List<int>.generate(32, (_) => random.nextInt(256)))
-          .replaceAll('=', ''),
-    );
+    String randomKey() => base64Url
+        .encode(List<int>.generate(32, (_) => random.nextInt(256)))
+        .replaceAll('=', '');
+    // Random, so the scan's match can only come from the value itself.
+    _wrongTokenValue = randomKey();
+    _wrongKeyValue = randomKey();
+    await file(_wrongToken, _wrongTokenValue);
+    await file(_wrongKey, _wrongKeyValue);
     await file(_dollarToken, rig.token);
   }
 
@@ -1398,8 +1404,17 @@ extension Batch2 on Scenarios {
         'marker': 'MARKER-REJECTED-BODY-7f3a',
         'token': rig.token,
         'hmac_key': rig.hmacKey,
-        for (var i = 0; i < credentials.length; i++)
+        'wrong_token': _wrongTokenValue,
+        'wrong_hmac_key': _wrongKeyValue,
+        // Each rejected header whole and without its scheme prefix: the
+        // bearer token and the signature digest alone.
+        for (var i = 0; i < credentials.length; i++) ...{
           'credential_header_$i': credentials[i],
+          'credential_value_$i': credentials[i].replaceFirst(
+            RegExp(r'^(Bearer |sha256=)'),
+            '',
+          ),
+        },
       });
       await _reconfigure();
     });

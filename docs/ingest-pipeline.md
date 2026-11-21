@@ -424,8 +424,8 @@ Exit status 0 means Correlia answered 202; 1 is any other HTTP status, 2 a confi
   path with a NUL or invalid UTF-8) or a relative file path exits 2 naming its argument. Neither is retried.
   A token, key or CA setting that does not start with `/` is never passed: the command gets `""` in its place, so
   a credential pasted where its file path belongs does not appear in the command line or in Icinga 2's log. A
-  sender path that is relative, holds a NUL or holds `=` runs nothing: the command fails with exit 127 from
-  `env`, whatever file the bare name, the part before the NUL or the path itself names.
+  sender path that is relative, longer than 4 KiB, holds a NUL or holds `=` runs nothing: the command fails
+  with exit 127 from `env`, whatever file the bare name, the part before the NUL or the path itself names.
 
 ### Text exposure
 

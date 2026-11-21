@@ -11,7 +11,7 @@
       "output_bytes": 14,
       "output": "DOWN: negative",
       "execution_end": "-3.000000",
-      "accepted_us": 1795277843820209,
+      "accepted_us": 1795296758323106,
       "label": "negative_end"
     },
     {
@@ -19,7 +19,7 @@
       "id": "f2",
       "exit_code": 2,
       "detail": "invalid_argument --last-state-change",
-      "log": "[2026-11-21 16:17:23 +0000] warning/PluginNotificationTask: Notification command for object 'host-neg3' (PID: 3855, arguments: '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:34377\"' '--host' '\"host-neg3\"' '--last-state-change' '\"\"' '--notification-time' '\"1795277843.776475\"' '--notification-type' '\"PROBLEM\"' '--object-type' '\"host\"' '--output' '\"DOWN: negative\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"DOWN\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 2, output: invalid_argument --last-state-change"
+      "log": "[2026-11-21 21:32:38 +0000] warning/PluginNotificationTask: Notification command for object 'host-neg3' (PID: 3727, arguments: '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:40305\"' '--host' '\"host-neg3\"' '--last-state-change' '\"\"' '--notification-time' '\"1795296758.280346\"' '--notification-type' '\"PROBLEM\"' '--object-type' '\"host\"' '--output' '\"DOWN: negative\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"DOWN\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 2, output: invalid_argument --last-state-change"
     },
     {
       "kind": "admitted",
@@ -27,14 +27,14 @@
       "auth": "bearer",
       "request": {
         "path": "/hooks/icinga2/33333333-3333-4333-8333-333333333333",
-        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"host\",\"host\":\"host-neg3\",\"state\":\"DOWN\",\"state_type\":\"HARD\",\"output\":\"DOWN: negative\",\"notification_type\":\"ACKNOWLEDGEMENT\",\"notification_author\":\"operator\",\"notification_comment\":\"looking\",\"notification_time\":\"1795277844.509920\"}",
-        "body_sha256": "c5c5299bc86ac5024ddc92d4e3d98087ae1d499d6c6cff904dc3b5547496ace8",
+        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"host\",\"host\":\"host-neg3\",\"state\":\"DOWN\",\"state_type\":\"HARD\",\"output\":\"DOWN: negative\",\"notification_type\":\"ACKNOWLEDGEMENT\",\"notification_author\":\"operator\",\"notification_comment\":\"looking\",\"notification_time\":\"1795296759.360973\"}",
+        "body_sha256": "190a6a2df7cc1b7e5654b9d21bf097bc94471c28ed8a037d65d78f4f080973fb",
         "body_size": 277
       },
       "response_status": 202,
       "raw": {
-        "id": "707ad73b-15e5-4a68-92f8-a17971fddd13",
-        "body_sha256": "c5c5299bc86ac5024ddc92d4e3d98087ae1d499d6c6cff904dc3b5547496ace8",
+        "id": "09c53868-b015-4add-98c5-bb529dfdb807",
+        "body_sha256": "190a6a2df7cc1b7e5654b9d21bf097bc94471c28ed8a037d65d78f4f080973fb",
         "status": "done",
         "outcome": {
           "upstream_omitted": 0,
@@ -56,10 +56,10 @@
         {
           "disposition": "ready",
           "state_outcome": null,
-          "source_time": "2026-11-21T16:17:24.509920Z",
+          "source_time": "2026-11-21T21:32:39.360973Z",
           "cloud_event": {
             "specversion": "1.0",
-            "id": "e6a43b2e-3da9-5e02-984f-1776d04ba684",
+            "id": "b871dbcd-660b-5498-b63c-027271be04dd",
             "source": "urn:correlia:source:33333333-3333-4333-8333-333333333333",
             "type": "io.correlia.ack.v1",
             "datacontenttype": "application/json",
@@ -67,9 +67,9 @@
             "subject": "98fc8565005470bf4e638e6883b17518cecfb327bd4740f3c5da697ca6a4c83e",
             "partitionkey": "98fc8565005470bf4e638e6883b17518cecfb327bd4740f3c5da697ca6a4c83e",
             "correliatenant": "default",
-            "time": "2026-11-21T16:17:24.509920Z",
+            "time": "2026-11-21T21:32:39.360973Z",
             "data": {
-              "event_id": "e6a43b2e-3da9-5e02-984f-1776d04ba684",
+              "event_id": "b871dbcd-660b-5498-b63c-027271be04dd",
               "fingerprint": "98fc8565005470bf4e638e6883b17518cecfb327bd4740f3c5da697ca6a4c83e",
               "tenant": "default",
               "namespace": "33333333-3333-4333-8333-333333333333",
@@ -90,17 +90,17 @@
                 "icinga2.notification_type": "ACKNOWLEDGEMENT",
                 "icinga2.notification_author": "operator"
               },
-              "source_time": "2026-11-21T16:17:24.509920Z",
-              "reported_source_time": "2026-11-21T16:17:24.509920Z",
-              "observed_at": "2026-11-21T16:17:24.515098Z",
-              "processed_at": "2026-11-21T16:17:24.689044Z",
+              "source_time": "2026-11-21T21:32:39.360973Z",
+              "reported_source_time": "2026-11-21T21:32:39.360973Z",
+              "observed_at": "2026-11-21T21:32:39.372379Z",
+              "processed_at": "2026-11-21T21:32:39.577637Z",
               "raw": {
-                "ref": "raw:2026-11-21T16:17:24.515098Z/707ad73b-15e5-4a68-92f8-a17971fddd13",
-                "sha256": "c5c5299bc86ac5024ddc92d4e3d98087ae1d499d6c6cff904dc3b5547496ace8",
+                "ref": "raw:2026-11-21T21:32:39.372379Z/09c53868-b015-4add-98c5-bb529dfdb807",
+                "sha256": "190a6a2df7cc1b7e5654b9d21bf097bc94471c28ed8a037d65d78f4f080973fb",
                 "size": 277
               },
               "pipeline": {
-                "version": "df294d47793033313c78fe22fcce85a83a37fd6322b74783790b38e7b1952f16",
+                "version": "a3d31e2ce9914e31f83b106e20b6ddfa0569a1607b1e9e3303079fae4b1c058a",
                 "generation": 0
               },
               "extensions": {},
@@ -109,7 +109,7 @@
                   "raw": "host-neg3"
                 }
               },
-              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAAFYAWyJpY2luZ2EyLm5vdGlmeS5BQ0tOT1dMRURHRU1FTlQudjEiLCJBQ0tOT1dMRURHRU1FTlQiLCIxNzk1Mjc3ODQ0NTA5OTIwIiwib3BlcmF0b3IiXQ=="
+              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAAFYAWyJpY2luZ2EyLm5vdGlmeS5BQ0tOT1dMRURHRU1FTlQudjEiLCJBQ0tOT1dMRURHRU1FTlQiLCIxNzk1Mjk2NzU5MzYwOTczIiwib3BlcmF0b3IiXQ=="
             }
           },
           "outbox": [

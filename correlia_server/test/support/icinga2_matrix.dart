@@ -78,26 +78,50 @@ final class Pair {
 ///
 /// The statement is the table between two HTML comment markers; each row names
 /// a release and an architecture. A document without the markers lists
-/// nothing.
+/// nothing. Throws a [FormatException] for a table without its header or with
+/// a line that is not a readable row, so a row the rendered table shows (with
+/// or without its outer pipes) is never skipped.
 List<Pair> parseStatement(String markdown, {String? root}) {
   final start = markdown.indexOf(_begin);
   final end = markdown.indexOf(_end);
   if (start < 0 || end < start) return const [];
+  final pairs = <Pair>[];
+  final lines = markdown
+      .substring(start + _begin.length, end)
+      .split('\n')
+      .map((l) => l.trim())
+      .where((l) => l.isNotEmpty)
+      .toList();
+  // The header and its delimiter row come first; every other line is a
+  // pair. A line that is neither is refused, so no row the rendered table
+  // shows can go unread.
+  if (lines.length < 2 ||
+      !RegExp(
+        r'^\|?\s*Release\s*\|\s*Architecture\s*\|?$',
+      ).hasMatch(lines[0]) ||
+      !RegExp(r'^\|?\s*:?-+:?\s*\|\s*:?-+:?\s*\|?$').hasMatch(lines[1])) {
+    throw const FormatException('the supported releases table has no header');
+  }
   final row = RegExp(
-    r'^\|\s*(\d+\.\d+\.\d+)\s*\|\s*(linux-[a-z0-9]+)\s*\|\s*$',
-    multiLine: true,
+    r'^\|?\s*(\d+\.\d+\.\d+)\s*\|\s*(linux-[a-z0-9]+)\s*\|?$',
   );
-  return [
-    for (final m in row.allMatches(markdown.substring(start, end)))
-      if (root == null)
-        Pair.committed(m.group(1)!, m.group(2)!)
-      else
-        Pair(
-          m.group(1)!,
-          m.group(2)!,
-          Directory('$root/${m.group(1)}/${m.group(2)}'),
-        ),
-  ];
+  for (final line in lines.skip(2)) {
+    final m = row.firstMatch(line);
+    if (m == null) {
+      throw FormatException('unreadable supported releases row: $line');
+    }
+    final (release, architecture) = (m.group(1)!, m.group(2)!);
+    pairs.add(
+      root == null
+          ? Pair.committed(release, architecture)
+          : Pair(
+              release,
+              architecture,
+              Directory('$root/$release/$architecture'),
+            ),
+    );
+  }
+  return pairs;
 }
 
 /// The statement of the repository's docs, or an empty list.
@@ -789,6 +813,36 @@ List<String> firstProblemVolatile(Capture c) {
       d2.data()['status'] != 'EVENT_STATUS_FIRING') {
     out.add('fp-volatile: both events are not firing');
   }
+  // Each delivery carries the execution end of the result that produced it,
+  // as the driver submitted it, and its event's source time is that instant.
+  final ends = {
+    for (final r in c.of(_volatileFile, 'result'))
+      if (r.json['cap_id'] == 'fp-volatile')
+        r.json['label']: r.json['execution_end'] as String?,
+  };
+  for (final (d, label) in [
+    (d1, 'first_hard'),
+    (d2, 'second_hard'),
+    (d3, 'second_hard'),
+  ]) {
+    final end = ends[label];
+    if (end == null) {
+      out.add('fp-volatile: no recorded $label result');
+      continue;
+    }
+    if (d.body['last_state_change'] != end) {
+      out.add(
+        'fp-volatile: ${d.id} carries ${d.body['last_state_change']}, not the '
+        '$label execution end $end',
+      );
+    }
+    if (d.events.length == 1 && d.events.single['source_time'] != isoOf(end)) {
+      out.add(
+        'fp-volatile: ${d.id} source time ${d.events.single['source_time']} '
+        'is not $label at ${isoOf(end)}',
+      );
+    }
+  }
   final states = _statesOf(c, _volatileFile, 'fp-volatile');
   if (states.length < 2) {
     out.add('fp-volatile: no committed state after each delivery');
@@ -798,6 +852,19 @@ List<String> firstProblemVolatile(Capture c) {
     if (a == null || b == null) {
       out.add('fp-volatile: no alert');
     } else {
+      final second = ends['second_hard'];
+      if (d2.events.length == 1 &&
+          (b['fence_event_id'] != d2.eventId ||
+              (second != null &&
+                  (b['fence_effective_seconds']! as int) * 1000000000 +
+                          (b['fence_effective_nanos']! as int) !=
+                      microsOf(second) * 1000))) {
+        out.add(
+          'fp-volatile: the fence after the second delivery is '
+          '${b['fence_event_id']} at ${b['fence_effective_seconds']}.'
+          '${b['fence_effective_nanos']}, not ${d2.eventId} at $second',
+        );
+      }
       if (a['version'] != b['version']) {
         out.add('fp-volatile: the second delivery changed the version');
       }

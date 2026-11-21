@@ -51,7 +51,7 @@ void main() {
     });
 
     test('the_same_name_written_with_an_escape', () {
-      final error = rejected(withMembers(r'"state":"OK"'));
+      final error = rejected(withMembers(r'"st\u0061te":"OK"'));
       expect((error.code, error.path), ('duplicate_field', 'state'));
     });
 
