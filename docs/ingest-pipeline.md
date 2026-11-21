@@ -284,6 +284,7 @@ included) never reaches a stored failure or a log.
 | `missing_field` | the field | A required field is absent |
 | `unsupported_version` | `format` | Any other format string |
 | `unknown_field` | `*` | A key outside the table |
+| `duplicate_field` | the field, or `*` | A member name given twice in the object, escapes decoded (`"state"` and `"st\u0061te"`); the path is `*` unless the name is a field above |
 | `invalid_object_type` | `object_type` | Neither `host` nor `service` |
 | `unexpected_field` | `service` | A host object carrying `service` |
 | `invalid_state` | `state` | A name not valid for the object type (`DEGRADED`, or `CRITICAL` on a host) |
@@ -384,7 +385,8 @@ arguments and POSTs it to `<base url>/hooks/icinga2/<source>`.
    that directory in file-name order, and the commands need the constants and helper functions loaded first.
 3. Edit the constants in `correlia.conf`: the sender path, the base URL (scheme and authority only, with an
    explicit port, if any, in 1-65535), the source UUID, exactly one of the token file or the HMAC key file, and
-   optionally a CA file. The sender path and every file path must be absolute. Only file paths are arguments,
+   optionally a CA file. The sender path and every file path must be absolute, and the sender path must not
+   contain `=` (`env` would take it as a variable assignment). Only file paths are arguments,
    never a credential. Every value is used as written: a dollar sign in the sender path or a file path is an
    ordinary character, not a macro.
 4. Apply the `correlia-host` and `correlia-service` commands to one dedicated user (the commented example in
@@ -422,8 +424,8 @@ Exit status 0 means Correlia answered 202; 1 is any other HTTP status, 2 a confi
   path with a NUL or invalid UTF-8) or a relative file path exits 2 naming its argument. Neither is retried.
   A token, key or CA setting that does not start with `/` is never passed: the command gets `""` in its place, so
   a credential pasted where its file path belongs does not appear in the command line or in Icinga 2's log. A
-  sender path that is relative or holds a NUL runs nothing: the command fails with exit 127 from `env`,
-  whatever file the bare name or the part before the NUL names.
+  sender path that is relative, holds a NUL or holds `=` runs nothing: the command fails with exit 127 from
+  `env`, whatever file the bare name, the part before the NUL or the path itself names.
 
 ### Text exposure
 

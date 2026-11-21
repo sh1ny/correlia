@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:serverpod/serverpod.dart';
@@ -106,6 +107,18 @@ void main() {
             base,
           );
           await expectFailure(raw, 'invalid_type', 'state');
+        });
+
+        test('duplicate_member_name', () async {
+          // "state": 2 before a valid "state": jsonDecode alone would keep
+          // the valid one and store a firing event.
+          final text = utf8.decode(body(delivery()));
+          final raw = await deliverIcinga2(
+            s,
+            Uint8List.fromList(utf8.encode('{"state":2,${text.substring(1)}')),
+            base,
+          );
+          await expectFailure(raw, 'duplicate_field', 'state');
         });
 
         test('nul_in_a_host_name', () async {

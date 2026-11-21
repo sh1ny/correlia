@@ -7,7 +7,7 @@ artifact is built but not published.
 ## Script
 
 - `tool/icinga2_capture.sh` (driver `correlia_server/tool/icinga2_capture/`), script version
-  `7` (recorded in every `manifest.json`). Version 2 routes the capture source to a webhook output and records
+  `8` (recorded in every `manifest.json`). Version 2 routes the capture source to a webhook output and records
   each committed event's outbox intents; its downtime scenario tells the expiring and the hand-removed downtime
   apart by comment and records when the manual removal was requested. Version 3 adds
   `concurrent_signed_notifications_beyond_the_cap`: three signed notifications from one Icinga 2 action overlap
@@ -23,19 +23,19 @@ artifact is built but not published.
   `env`'s default search path. Version 7 adds a token and an HMAC key pasted as their file paths to that
   scenario, with a scan of Icinga 2's log for both; pulls each image for linux/amd64, runs it by the inspected
   image ID and records that ID, the image's platform and the machine `uname -m` reports in the container; and
-  records when Icinga 2 accepted each submitted check result.
-- Full run (after the pre-ship review, round 8, which kept a credential pasted as a file path out of the command line and bound each capture to the linux/amd64 image it ran):
+  records when Icinga 2 accepted each submitted check result. The driver counts only the sampled CUSTOM
+  notifications of the clock scenario as samples (other deliveries stay recorded). Version 8 adds a sender path
+  holding `=`, with a working sender at it, to `setting_not_deliverable_exactly`, and records what the
+  definitions make of that path; `captured_host_transitions` now submits only a DOWN and then an UP result.
+- Full run (after the pre-ship review, round 9, which kept a sender path holding `=` from reaching `env` and
+  ended the host transition capture at its UP):
   `tool/icinga2_capture.sh 2.13.14 2.14.10 2.15.7 2.16.6`, every mapped scenario, no failed scenario.
-  In that run 2.14.10 sent a second PROBLEM for the clock scenario's service while the driver was taking its
-  CUSTOM samples, and the driver counted it as one. The driver now counts only the sampled CUSTOM
-  notifications (other deliveries stay recorded), and 2.14.10 was captured again in full with it
-  (`tool/icinga2_capture.sh 2.14.10`), no failed scenario. The other three captures held no extra delivery.
 - Sender artifact (linux-x64): SHA-256 `b42c10419550fccb226de637f83454a20cd452e6c1e933161c8bd9957eef9f0e`, the same in every manifest.
   `mise run release:icinga2-notify` rebuilds it and publishes it only because the rebuild has this hash.
 - Definitions: `contrib/icinga2/` SHA-256 per file in each manifest
   (`correlia-commands.conf` `783f1cb92391d4cd…`,
-  `correlia-functions.conf` `68d5d569017ae68e…`,
-  `correlia.conf` `847ffbb96fad73a6…`).
+  `correlia-functions.conf` `500c9fc863e73696…`,
+  `correlia.conf` `ba23a7c8031d5783…`).
 
 ## Gate results per pair
 

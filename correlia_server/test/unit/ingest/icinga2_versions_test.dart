@@ -243,11 +243,18 @@ void main() {
     expect(w.release.existsSync(), isFalse);
   });
 
-  test('capture_of_another_platform_fails_the_manifest_gate', () {
+  test('capture_of_another_platform_or_release_fails_the_manifest_gate', () {
     for (final (field, value) in <(String, Object?)>[
       ('image_platform', 'linux/arm64'),
       ('container_machine', 'aarch64'),
       ('image_id', null),
+      ('image_digest', null),
+      ('image_digest', 'icinga/icinga2:2.14.10'),
+      (
+        'icinga_version',
+        'icinga2 - The Icinga 2 network monitoring daemon (version: v2.99.0)',
+      ),
+      ('icinga_version', null),
     ]) {
       final pair = copy();
       final manifest = File('${pair.directory.path}/manifest.json');
@@ -259,7 +266,7 @@ void main() {
         json[field] = value;
       }
       manifest.writeAsStringSync(jsonEncode(json));
-      expect(gateManifest(Capture(pair)), isNotEmpty, reason: field);
+      expect(gateManifest(Capture(pair)), isNotEmpty, reason: '$field $value');
     }
   });
 
@@ -929,7 +936,9 @@ void main() {
     eachPair((c) {
       final out = <String>[];
       final ds = c.admitted('captured_host_transitions');
-      if (ds.length < 2) return ['expected a DOWN and an UP delivery'];
+      if (ds.length != 2) {
+        return ['expected exactly a DOWN and an UP delivery, got ${ds.length}'];
+      }
       if ({for (final d in ds) d.data()['fingerprint']}.length != 1) {
         out.add('the host observations have different fingerprints');
       }
@@ -951,10 +960,16 @@ void main() {
         }
       }
       final states = c.of('captured_host_transitions', 'state');
-      if (states.length < 2 ||
-          ((states[1].json['alert']! as Map<String, Object?>)['status']) !=
-              'resolved') {
-        out.add('the alert is not resolved after the UP');
+      final last = states.isEmpty
+          ? null
+          : states.last.json['alert'] as Map<String, Object?>?;
+      if (last?['status'] != 'resolved' ||
+          last?['fence_event_id'] != ds[1].eventId) {
+        out.add(
+          'the final state is ${last?['status']} at '
+          '${last?['fence_event_id']}, not resolved at the UP '
+          '${ds[1].eventId}',
+        );
       }
       return out;
     });
@@ -1298,7 +1313,8 @@ void main() {
       // The sender refuses the long base URL, the invalid and the relative
       // token paths, and a token or key pasted as its file path (which the
       // definitions turn into ""). A relative sender path runs nothing (env
-      // exits 127), not the sender on env's search path.
+      // exits 127), not the sender on env's search path; nor does one holding
+      // "=", which the definitions turn into "".
       const refused = [
         '--base-url',
         '--token-file',
@@ -1315,12 +1331,20 @@ void main() {
             'token_as_token_path',
             'key_as_key_path',
             'relative_sender_path',
+            'equals_in_sender_path',
           ])) {
         out.add('cases were $cases');
       }
-      if (failures.length != refused.length + 1) {
+      final consoles = c.of(file, 'console');
+      if (consoles.length != 1 || consoles.single.json['result'] != '') {
         out.add(
-          'expected ${refused.length + 1} failed commands, '
+          'a sender path holding "=" was passed: '
+          '${[for (final r in consoles) r.json['result']]}',
+        );
+      }
+      if (failures.length != refused.length + 2) {
+        out.add(
+          'expected ${refused.length + 2} failed commands, '
           'found ${failures.length}',
         );
       } else {
@@ -1334,11 +1358,15 @@ void main() {
             );
           }
         }
-        if (failures.last.json['exit_code'] != 127) {
-          out.add(
-            'the relative sender path ran something: exit '
-            '${failures.last.json['exit_code']}',
-          );
+        for (final (i, what) in [
+          (refused.length, 'the relative sender path'),
+          (refused.length + 1, 'the sender path holding "="'),
+        ]) {
+          if (failures[i].json['exit_code'] != 127) {
+            out.add(
+              '$what ran something: exit ${failures[i].json['exit_code']}',
+            );
+          }
         }
       }
       final scans = c.of(file, 'secret_scan');

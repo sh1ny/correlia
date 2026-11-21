@@ -36,13 +36,23 @@ final _timeForm = RegExp(r'^[1-9][0-9]{0,11}\.[0-9]{6}$');
 Icinga2Fact parseIcinga2Webhook(Uint8List bytes) {
   checkBodyDepth(bytes);
   final Object? decoded;
+  final String text;
   try {
-    decoded = jsonDecode(utf8.decode(bytes));
+    text = utf8.decode(bytes);
+    decoded = jsonDecode(text);
   } on FormatException {
     throw const EventFieldError('body', 'invalid_json');
   }
   if (decoded is! Map<String, Object?>) {
     throw const EventFieldError('body', 'invalid_type');
+  }
+  // jsonDecode keeps the last of two equal member names, so a field could be
+  // read from one member while another, never validated, sat beside it.
+  if (_repeatedMember(text) case final name?) {
+    throw EventFieldError(
+      _knownFields.contains(name) ? name : '*',
+      'duplicate_field',
+    );
   }
   final document = decoded;
   // The format comes first: a document of another version may carry fields
@@ -208,3 +218,46 @@ Icinga2Time _time(Map<String, Object?> document, String key) {
   if (seconds >= _secondsLimit) throw EventFieldError(key, 'out_of_range');
   return Icinga2Time(seconds * 1000000 + int.parse(text.substring(dot + 1)));
 }
+
+/// The first member name the top-level object of [text] holds twice, or null.
+///
+/// [text] is valid JSON whose value is an object. Names are compared after
+/// their escapes are decoded, so `"state"` repeats `"state"`.
+String? _repeatedMember(String text) {
+  final seen = <String>{};
+  var depth = 0;
+  var start = -1;
+  var escaped = false;
+  for (var i = 0; i < text.length; i++) {
+    final unit = text.codeUnitAt(i);
+    if (start >= 0) {
+      if (escaped) {
+        escaped = false;
+      } else if (unit == 0x5c) {
+        escaped = true;
+      } else if (unit == 0x22) {
+        if (depth == 1) {
+          var next = i + 1;
+          while (next < text.length && _isSpace(text.codeUnitAt(next))) {
+            next++;
+          }
+          if (next < text.length && text.codeUnitAt(next) == 0x3a) {
+            final name = jsonDecode(text.substring(start, i + 1)) as String;
+            if (!seen.add(name)) return name;
+          }
+        }
+        start = -1;
+      }
+    } else if (unit == 0x22) {
+      start = i;
+    } else if (unit == 0x7b || unit == 0x5b) {
+      depth++;
+    } else if (unit == 0x7d || unit == 0x5d) {
+      depth--;
+    }
+  }
+  return null;
+}
+
+bool _isSpace(int unit) =>
+    unit == 0x20 || unit == 0x09 || unit == 0x0a || unit == 0x0d;

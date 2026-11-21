@@ -1021,7 +1021,17 @@ List<String> gateManifest(Capture c) {
   if (failed is! List || failed.isNotEmpty) {
     out.add('scenarios did not complete: $failed');
   }
-  if ('${m['image_digest']}'.isEmpty) out.add('no image digest recorded');
+  final digest = m['image_digest'];
+  if (digest is! String ||
+      !RegExp(r'^[^@\s]+@sha256:[0-9a-f]{64}$').hasMatch(digest)) {
+    out.add('no image digest recorded: $digest');
+  }
+  // The release the daemon itself reported, not the label the driver was given.
+  final version = m['icinga_version'];
+  if (version is! String ||
+      !version.endsWith('(version: v${c.pair.release})')) {
+    out.add('the daemon reported $version');
+  }
   if (!RegExp(r'^sha256:[0-9a-f]{64}$').hasMatch('${m['image_id']}')) {
     out.add('no image ID recorded: ${m['image_id']}');
   }

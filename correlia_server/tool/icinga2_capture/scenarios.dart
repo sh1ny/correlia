@@ -28,6 +28,10 @@ const _nulSenderPrefix = '/usr/local/bin/correlia-nul';
 /// A bare sender name, which `env` would look up on its default search path.
 const _relativeSender = 'correlia-relative-notify';
 
+/// An absolute sender path holding "=", which `env` would take as a variable
+/// assignment rather than the program to run.
+const _equalsSender = '/usr/local/bin/correlia-a=b';
+
 /// CUSTOM notifications per shipped command whose emitted notification time
 /// the clock gate measures.
 const _emittedClockSamples = emittedClockSamples;
@@ -314,14 +318,6 @@ final class Scenarios {
         exit: 0,
         output: 'UP: back',
         end: timeText(s, 600002),
-      );
-      await _step(
-        ev,
-        objectType: 'host',
-        id: 'host-tr',
-        exit: 1,
-        output: 'DOWN: again',
-        end: timeText(s + 1, 100003),
       );
     });
     await scenario('two_comments_from_one_author', (ev) async {
@@ -1175,6 +1171,19 @@ extension Batch2 on Scenarios {
         ev,
         'relative_sender_path',
         senderPath: dslString(_relativeSender),
+      );
+      // A working sender at a path holding "=": the definitions pass "" in
+      // its place, so env runs nothing.
+      await lab.exec(['cp', containerSender, _equalsSender]);
+      await lab.exec(['chmod', '755', _equalsSender]);
+      await ev.console(
+        'correlia_command_path(${dslString(_equalsSender)})',
+        input: _equalsSender,
+      );
+      await _failureCase(
+        ev,
+        'equals_in_sender_path',
+        senderPath: dslString(_equalsSender),
       );
       await _scan(ev, {'token': rig.token, 'hmac_key': rig.hmacKey});
     });

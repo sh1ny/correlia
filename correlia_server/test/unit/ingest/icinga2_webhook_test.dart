@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:correlia_server/event.dart';
@@ -34,6 +35,39 @@ void main() {
     final persisted = safeFailurePath(error.path, SourceKind.icinga2);
     expect(persisted, '*');
     expect(persisted, isNot(contains('state')));
+  });
+
+  group('duplicate_member_name', () {
+    // The body as raw bytes, with [prefix] written as the object's first
+    // members: jsonDecode would keep only the last of two equal names.
+    Uint8List withMembers(String prefix) {
+      final text = utf8.decode(body(delivery()));
+      return Uint8List.fromList(utf8.encode('{$prefix,${text.substring(1)}'));
+    }
+
+    test('a_known_field_named_twice', () {
+      final error = rejected(withMembers('"state":2'));
+      expect((error.code, error.path), ('duplicate_field', 'state'));
+    });
+
+    test('the_same_name_written_with_an_escape', () {
+      final error = rejected(withMembers(r'"state":"OK"'));
+      expect((error.code, error.path), ('duplicate_field', 'state'));
+    });
+
+    test('an_unknown_name_twice_is_not_reflected', () {
+      final error = rejected(withMembers('"secret_x":"a","secret_x":"b"'));
+      expect((error.code, error.path), ('duplicate_field', '*'));
+      expect(error.toString(), isNot(contains('secret_x')));
+    });
+
+    test('equal_names_in_string_values_are_not_members', () {
+      // A value holding text that looks like a member is not one.
+      expect(
+        decodeDelivery(delivery(set: {'output': '"state":"OK",'})).events,
+        hasLength(1),
+      );
+    });
   });
 
   test('unsupported_format_version', () {
