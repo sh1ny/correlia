@@ -7,7 +7,7 @@ artifact is built but not published.
 ## Script
 
 - `tool/icinga2_capture.sh` (driver `correlia_server/tool/icinga2_capture/`), script version
-  `5` (recorded in every `manifest.json`). Version 2 routes the capture source to a webhook output and records
+  `6` (recorded in every `manifest.json`). Version 2 routes the capture source to a webhook output and records
   each committed event's outbox intents; its downtime scenario tells the expiring and the hand-removed downtime
   apart by comment and records when the manual removal was requested. Version 3 adds
   `concurrent_signed_notifications_beyond_the_cap`: three signed notifications from one Icinga 2 action overlap
@@ -18,15 +18,16 @@ artifact is built but not published.
   every admitted request, the proxied body's SHA-256 and size and the raw row's id and stored digest, which the
   decode gate matches against each event's raw reference. It adds twenty CUSTOM notifications through each
   unmodified command, whose emitted notification times the clock gate measures, and a `nul_in_a_file_path`
-  case whose sender path holds a NUL with a working sender at its prefix.
-- Full run (after the pre-ship review, round 6, which refused a sender path holding a NUL and tied each
-  event to its own raw row):
+  case whose sender path holds a NUL with a working sender at its prefix. Version 6 adds two cases to
+  `setting_not_deliverable_exactly`: a relative token path, and a bare sender name with a working sender on
+  `env`'s default search path.
+- Full run (after the pre-ship review, round 7, which refused relative sender and file paths):
   `tool/icinga2_capture.sh 2.13.14 2.14.10 2.15.7 2.16.6`, every mapped scenario, no failed scenario.
-- Sender artifact (linux-x64): SHA-256 `8a4d8ad96711d102a45b8ec7d38d1fa10382d6fb0656d2afe99c4c05160658f5`, the same in every manifest.
+- Sender artifact (linux-x64): SHA-256 `b42c10419550fccb226de637f83454a20cd452e6c1e933161c8bd9957eef9f0e`, the same in every manifest.
   `mise run release:icinga2-notify` rebuilds it and publishes it only because the rebuild has this hash.
 - Definitions: `contrib/icinga2/` SHA-256 per file in each manifest
   (`correlia-commands.conf` `aedd7d6a308176c1…`,
-  `correlia-functions.conf` `5b1a99a31168b474…`,
+  `correlia-functions.conf` `76efcf9f873d835b…`,
   `correlia.conf` `847ffbb96fad73a6…`).
 
 ## Gate results per pair
@@ -34,7 +35,7 @@ artifact is built but not published.
 Gates: S = same-second service state, H = same-second host state, N = same-second notification time,
 C = production notification clock, D = downtime removal, F = first problem of a new object,
 202 = recorded 202 and decoded event. Judged by `correlia_server/test/unit/ingest/icinga2_versions_test.dart`
-on the committed captures (64 tests, all passing).
+on the committed captures (65 tests, all passing).
 
 | Release | Architecture | Image | Digest | Icinga 2 | S | H | N | C | D | F | 202 |
 |---|---|---|---|---|---|---|---|---|---|---|---|

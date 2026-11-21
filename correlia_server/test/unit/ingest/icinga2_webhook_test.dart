@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:correlia_server/event.dart';
+import 'package:correlia_server/src/ingest/bootstrap.dart' show SourceKind;
 import 'package:correlia_server/src/pipeline/pipeline.dart'
     show safeFailurePath;
 import 'package:test/test.dart';
@@ -22,7 +23,7 @@ void main() {
     final error = rejected(delivery(set: {'secret_token_abc': 'x'}));
     expect(error.code, 'unknown_field');
     expect(error.path, '*');
-    expect(safeFailurePath(error.path), '*');
+    expect(safeFailurePath(error.path, SourceKind.icinga2), '*');
     expect(error.toString(), isNot(contains('secret_token_abc')));
   });
 
@@ -30,7 +31,7 @@ void main() {
     final error = rejected(delivery(set: {'state.state_type': 'x'}));
     expect(error.code, 'unknown_field');
     expect(error.path, '*');
-    final persisted = safeFailurePath(error.path);
+    final persisted = safeFailurePath(error.path, SourceKind.icinga2);
     expect(persisted, '*');
     expect(persisted, isNot(contains('state')));
   });
@@ -129,7 +130,7 @@ void main() {
     test('wrong_type_on_a_known_field', () {
       final error = rejected(delivery(set: {'state': 2}));
       expect((error.code, error.path), ('invalid_type', 'state'));
-      expect(safeFailurePath(error.path), 'state');
+      expect(safeFailurePath(error.path, SourceKind.icinga2), 'state');
     });
 
     test('nul_in_a_host_name', () {
@@ -179,7 +180,12 @@ void main() {
         'notification_comment',
         'notification_time',
       ]) {
-        expect(safeFailurePath(name), name);
+        expect(safeFailurePath(name, SourceKind.icinga2), name);
+        // Another kind's sender may choose the same name: it stays redacted.
+        expect(
+          safeFailurePath('alerts[0].$name', SourceKind.alertmanager),
+          'alerts[0].*',
+        );
       }
     });
   });

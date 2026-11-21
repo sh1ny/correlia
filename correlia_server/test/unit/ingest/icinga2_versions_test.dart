@@ -523,6 +523,35 @@ void main() {
     );
   });
 
+  test('notification_times_at_an_exact_millisecond_keep_their_order', () {
+    // ISO text of .123000 is ".123Z" and of .123001 is ".123001Z", which
+    // sorts first; the gate orders the instants themselves.
+    for (final (earlier, later, passes) in [
+      ('123000', '123001', true),
+      ('123001', '123000', false),
+    ]) {
+      final pair = copy();
+      edit(pair, 'two_comments_from_one_author', (r) {
+        final admitted = r.where((x) => x['kind'] == 'admitted').toList();
+        final second =
+            (Rec(admitted.first).body['notification_time']! as String)
+                .split('.')
+                .first;
+        setBody(admitted.first, 'notification_time', '$second.$earlier');
+        setBody(admitted.last, 'notification_time', '$second.$later');
+        admitted.forEach(syncEvent);
+      });
+      final failures = evaluatePair(
+        pair,
+      ).where((f) => f.gate == Gate.notificationTime).toList();
+      expect(
+        failures.isEmpty,
+        passes,
+        reason: '$earlier then $later: $failures',
+      );
+    }
+  });
+
   test('clock_evidence_must_cover_both_commands_and_fields', () {
     final broken = copy();
     edit(broken, 'production_notification_clock_keeps_microseconds', (r) {
@@ -1083,19 +1112,27 @@ void main() {
       if ({for (final b in bodies) b['service']}.length != 50) {
         out.add('not 50 services');
       }
+      // Each of the two inputs keeps exactly its first 8192 bytes, then the
+      // marker; dollar signs come through unchanged.
+      final dollar = '${'\$' * 8192}$truncationMarker';
+      final verbose = 'CRITICAL: ${'v' * (8192 - 10)}$truncationMarker';
       var dollars = 0;
+      var verboses = 0;
       for (final b in bodies) {
         final text = b['output']! as String;
-        if (!text.endsWith(truncationMarker)) out.add('an output is not cut');
-        if (utf8.encode(text).length > 8192 + 64) out.add('an output is long');
-        if (text.startsWith('\$')) {
+        if (text == dollar) {
           dollars++;
-          if (text.replaceAll('\$', '') != truncationMarker) {
-            out.add('a dollar output changed');
-          }
+        } else if (text == verbose) {
+          verboses++;
+        } else {
+          out.add(
+            'an output is not an exact 8192-byte prefix and the marker '
+            '(${utf8.encode(text).length} bytes)',
+          );
         }
       }
       if (dollars != 25) out.add('$dollars dollar outputs, not 25');
+      if (verboses != 25) out.add('$verboses verbose outputs, not 25');
       final seconds =
           c
                   .of(file, 'info')
@@ -1199,12 +1236,47 @@ void main() {
   }
 
   test('setting_not_deliverable_exactly', () {
-    eachPair(
-      (c) => refusals(c, 'setting_not_deliverable_exactly', [
-        '--base-url',
-        '--token-file',
-      ]),
-    );
+    eachPair((c) {
+      const file = 'setting_not_deliverable_exactly';
+      final failures = c.of(file, 'command_failure');
+      final out = <String>[];
+      // The long base URL, the invalid token path and the relative token
+      // path are refused by the sender; a relative sender path runs nothing
+      // (env exits 127), not the sender on env's search path.
+      const refused = ['--base-url', '--token-file', '--token-file'];
+      final cases = [for (final r in c.of(file, 'case')) r.json['label']];
+      if (jsonEncode(cases) !=
+          jsonEncode([
+            'long_base_url',
+            'invalid_utf8_token_path',
+            'relative_token_path',
+            'relative_sender_path',
+          ])) {
+        out.add('cases were $cases');
+      }
+      if (failures.length != 4) {
+        out.add('expected 4 failed commands, found ${failures.length}');
+      } else {
+        for (var i = 0; i < 3; i++) {
+          final detail = failures[i].json['detail']! as String;
+          if (failures[i].json['exit_code'] != 2 ||
+              !detail.contains(refused[i])) {
+            out.add(
+              'refusal ${i + 1} was ${failures[i].json['exit_code']} '
+              '$detail',
+            );
+          }
+        }
+        if (failures[3].json['exit_code'] != 127) {
+          out.add(
+            'the relative sender path ran something: exit '
+            '${failures[3].json['exit_code']}',
+          );
+        }
+      }
+      if (c.requests(file).isNotEmpty) out.add('a request was made');
+      return out;
+    });
   });
   test('nul_in_a_file_path', () {
     eachPair((c) {

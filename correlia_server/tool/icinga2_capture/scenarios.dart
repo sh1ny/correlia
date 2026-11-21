@@ -25,6 +25,9 @@ const _dollarSender = '/usr/local/bin/correlia-\$host.name\$-notify';
 /// NUL.
 const _nulSenderPrefix = '/usr/local/bin/correlia-nul';
 
+/// A bare sender name, which `env` would look up on its default search path.
+const _relativeSender = 'correlia-relative-notify';
+
 /// CUSTOM notifications per shipped command whose emitted notification time
 /// the clock gate measures.
 const _emittedClockSamples = emittedClockSamples;
@@ -1125,6 +1128,20 @@ extension Batch2 on Scenarios {
         ev,
         'invalid_utf8_token_path',
         tokenLiteral: r'"/etc/icinga2/correlia/\377token"',
+      );
+      await _failureCase(
+        ev,
+        'relative_token_path',
+        tokenLiteral: r'"correlia/token"',
+      );
+      // A working sender on env's default search path: a bare name would
+      // run it, and it would deliver.
+      await lab.exec(['cp', containerSender, '/usr/bin/$_relativeSender']);
+      await lab.exec(['chmod', '755', '/usr/bin/$_relativeSender']);
+      await _failureCase(
+        ev,
+        'relative_sender_path',
+        senderPath: dslString(_relativeSender),
       );
     });
     await scenario('nul_in_a_file_path', (ev) async {

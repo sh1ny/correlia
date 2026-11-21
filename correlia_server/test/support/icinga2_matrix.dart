@@ -228,6 +228,13 @@ String isoOf(String time) {
   ).toIso8601String();
 }
 
+/// The Unix time text `seconds.micros` as whole microseconds, the order of
+/// the instants it names (unlike ISO text, whose fraction width varies).
+int microsOf(String time) {
+  final parts = time.split('.');
+  return int.parse(parts[0]) * 1000000 + int.parse(parts[1]);
+}
+
 String _second(String time) => time.split('.').first;
 
 /// Names a pair's failures; the checks return plain details.
@@ -395,8 +402,7 @@ List<String> gateNotificationTime(Capture c) {
   if (times.map(_second).toSet().length != 1) {
     out.add('the two notification times are not in one second');
   }
-  if (times.toSet().length == 2 &&
-      isoOf(times[0]).compareTo(isoOf(times[1])) >= 0) {
+  if (times.toSet().length == 2 && microsOf(times[0]) >= microsOf(times[1])) {
     out.add('the notification times do not increase: $times');
   }
   if ({for (final d in deliveries) d.eventId}.length != 2) {

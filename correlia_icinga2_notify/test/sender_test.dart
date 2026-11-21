@@ -810,6 +810,18 @@ void main() {
       }
     });
 
+    test('relative_file_paths', () async {
+      for (final path in ['token', './token', '../etc/token', '~/token']) {
+        await rejects({'--token-file': path}, 'invalid_argument --token-file');
+        await rejects({'--ca-file': path}, 'invalid_argument --ca-file');
+        await rejects(
+          {'--hmac-key-file': path},
+          'invalid_argument --hmac-key-file',
+          hmac: true,
+        );
+      }
+    });
+
     test('non_empty_environment', () async {
       final files = creds();
       final result = await run(

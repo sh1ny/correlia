@@ -417,6 +417,39 @@ VALUES (@time,CAST(@id AS uuid),CAST(@source AS uuid),@body,@digest,'application
         expect(await count('events'), 0);
       });
 
+      test('icinga2_field_names_stay_redacted_for_alertmanager', () async {
+        await publish(1);
+        for (final name in ['host', 'notification_comment', 'output']) {
+          final raw = await seed(
+            _alertmanagerId,
+            Uint8List.fromList(
+              utf8.encode(
+                jsonEncode(
+                  payload.groupOf([
+                    {
+                      ...payload.alert(startsAt: '2026-11-10T12:00:00Z'),
+                      name: 'x',
+                    },
+                  ]),
+                ),
+              ),
+            ),
+          );
+          final pipeline = PipelineRepository(session, clock: () => _now);
+          await pinAll(pipeline);
+          expect(await pipeline.processOne(), isTrue);
+          expect(await failure(raw), 'unknown_field', reason: name);
+          expect(
+            (await rows(
+              '''SELECT "fieldPath" FROM pipeline_failures
+        WHERE "rawId"=CAST('$raw' AS uuid)''',
+            )).single.single,
+            'alerts[0].*',
+            reason: name,
+          );
+        }
+      });
+
       test('admitted_row_decodes_with_its_kind', () async {
         final first = await publish(1);
         final (code, admitted) = await admit(

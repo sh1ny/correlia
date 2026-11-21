@@ -65,54 +65,78 @@ String formatUnknownFieldWarning(
   return 'pipeline source=$source unknown_top_level_fields=${names.length + overflow} tags=$tags';
 }
 
-/// Renders a validation path for storage: documented field names stay, any
-/// other segment (a sender-chosen name) becomes `*`, and the result is bounded.
-String safeFailurePath(String path) {
-  const fields = {
-    'body',
-    'alerts',
-    'version',
-    'status',
-    'receiver',
-    'groupKey',
-    'groupLabels',
-    'routeLabels',
-    'commonLabels',
-    'commonAnnotations',
-    'externalURL',
-    'notification_reason',
-    'truncatedAlerts',
-    'labels',
-    'annotations',
-    'startsAt',
-    'endsAt',
-    'generatorURL',
-    'fingerprint',
-    'key',
-    'identity_fields',
-    'observation_key',
-    'source_time',
-    'reported_source_time',
-    // Icinga2 webhook document v1.
-    'format',
-    'object_type',
-    'host',
-    'service',
-    'state',
-    'state_type',
-    'last_state_change',
-    'output',
-    'notification_type',
-    'notification_author',
-    'notification_comment',
-    'notification_time',
+/// The documented field names of Alertmanager's payload and of the canonical
+/// event, kept in a stored failure path of an Alertmanager source.
+const _alertmanagerPathFields = {
+  'body',
+  'alerts',
+  'version',
+  'status',
+  'receiver',
+  'groupKey',
+  'groupLabels',
+  'routeLabels',
+  'commonLabels',
+  'commonAnnotations',
+  'externalURL',
+  'notification_reason',
+  'truncatedAlerts',
+  'labels',
+  'annotations',
+  'startsAt',
+  'endsAt',
+  'generatorURL',
+  'fingerprint',
+  'key',
+  'identity_fields',
+  'observation_key',
+  'source_time',
+  'reported_source_time',
+};
+
+/// The fields of the Icinga2 webhook document v1 and of the canonical event,
+/// kept in a stored failure path of an Icinga2 source.
+const _icinga2PathFields = {
+  'body',
+  'format',
+  'object_type',
+  'host',
+  'service',
+  'state',
+  'state_type',
+  'last_state_change',
+  'output',
+  'notification_type',
+  'notification_author',
+  'notification_comment',
+  'notification_time',
+  'labels',
+  'annotations',
+  'fingerprint',
+  'key',
+  'identity_fields',
+  'observation_key',
+  'source_time',
+  'reported_source_time',
+};
+
+/// Renders a validation path for storage: the documented field names of
+/// [kind]'s payload and of the canonical event stay, any other segment (a
+/// sender-chosen name) becomes `*`, and the result is bounded. Each kind
+/// keeps only its own names, so a name another kind documents is still
+/// redacted when a sender chooses it.
+String safeFailurePath(String path, SourceKind kind) {
+  final (fields, indexed) = switch (kind) {
+    AlertmanagerSourceKind() => (
+      _alertmanagerPathFields,
+      RegExp(r'^alerts\[[0-9]{1,4}\]$'),
+    ),
+    Icinga2SourceKind() => (_icinga2PathFields, null),
   };
-  final parts = path.split('.');
-  final safe = parts
+  final safe = path
+      .split('.')
       .map(
-        (part) =>
-            fields.contains(part) ||
-                RegExp(r'^alerts\[[0-9]{1,4}\]$').hasMatch(part)
+        (part) => fields.contains(part) || (indexed?.hasMatch(part) ?? false)
             ? part
             : '*',
       )
@@ -354,8 +378,9 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
         if (outputs.length != outputIds.length) {
           throw StateError('Invalid pinned routing');
         }
-        final decoder = _decoderFor(snapshot, source);
-        if (decoder == null) {
+        final kind = _kindOf(snapshot, source);
+        final decoder = _decoderFor(kind);
+        if (kind == null || decoder == null) {
           await _fail(tx, deadline, raw, 'unsupported_kind', null);
           return true;
         }
@@ -393,7 +418,7 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
             deadline,
             raw,
             error.code,
-            safeFailurePath(error.path),
+            safeFailurePath(error.path, kind),
           );
           return true;
         }
@@ -597,7 +622,7 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
             deadline,
             raw,
             error.code,
-            safeFailurePath(error.path),
+            safeFailurePath(error.path, kind),
           );
           return true;
         }
@@ -655,18 +680,20 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
     }
   }
 
-  /// The decoder of the pinned source's kind, or `null` when it has none.
+  /// The pinned source's kind, or `null` when it has none.
   ///
   /// A format version 1 snapshot carries no kind and defines Alertmanager. In
-  /// a version 2 snapshot a missing or unknown kind has no decoder.
-  KindDecoder? _decoderFor(
+  /// a version 2 snapshot a missing or unknown kind is none.
+  SourceKind? _kindOf(
     Map<String, Object?> snapshot,
     Map<String, Object?> source,
-  ) {
-    final SourceKind? kind = switch (snapshot['format_version']) {
-      1 => SourceKind.alertmanager,
-      _ => SourceKind.named(source['kind']),
-    };
+  ) => switch (snapshot['format_version']) {
+    1 => SourceKind.alertmanager,
+    _ => SourceKind.named(source['kind']),
+  };
+
+  /// The decoder of [kind], or `null` when there is no kind.
+  KindDecoder? _decoderFor(SourceKind? kind) {
     return switch (kind) {
       null => null,
       AlertmanagerSourceKind() => decodeAlertmanagerRequest,

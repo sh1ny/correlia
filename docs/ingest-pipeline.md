@@ -384,8 +384,9 @@ arguments and POSTs it to `<base url>/hooks/icinga2/<source>`.
    that directory in file-name order, and the commands need the constants and helper functions loaded first.
 3. Edit the constants in `correlia.conf`: the sender path, the base URL (scheme and authority only, with an
    explicit port, if any, in 1-65535), the source UUID, exactly one of the token file or the HMAC key file, and
-   optionally a CA file. Only file paths are arguments, never a credential. Every value is used as written: a
-   dollar sign in the sender path or a file path is an ordinary character, not a macro.
+   optionally a CA file. The sender path and every file path must be absolute. Only file paths are arguments,
+   never a credential. Every value is used as written: a dollar sign in the sender path or a file path is an
+   ordinary character, not a macro.
 4. Apply the `correlia-host` and `correlia-service` commands to one dedicated user (the commented example in
    `correlia.conf`). Icinga 2 runs a command once per recipient, so each extra user is an extra delivery.
    Deliveries of one state notification (same state, state type and change time) are the same observation:
@@ -418,8 +419,9 @@ Exit status 0 means Correlia answered 202; 1 is any other HTTP status, 2 a confi
 - **Names and settings.** A host or service name that is empty, holds a control character (U+0000-U+001F,
   U+007F) or a byte that is not valid UTF-8, or is longer than 1024 bytes is not delivered: the command exits 2
   with `invalid_name` in Icinga 2's log. A setting that cannot be passed exactly (a base URL over 4 KiB, a file
-  path with a NUL or invalid UTF-8) exits 2 naming its argument. Neither is retried. A sender path holding a
-  NUL runs nothing: the command fails with exit 127 from `env`, whatever file the part before the NUL names.
+  path with a NUL or invalid UTF-8) or a relative file path exits 2 naming its argument. Neither is retried. A
+  sender path that is relative or holds a NUL runs nothing: the command fails with exit 127 from `env`,
+  whatever file the bare name or the part before the NUL names.
 
 ### Text exposure
 

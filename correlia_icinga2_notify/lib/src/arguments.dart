@@ -156,6 +156,13 @@ final class SenderArguments {
     ]) {
       if (values[name] case final value?) _checkSetting(name, value);
     }
+    // A relative file path would resolve against whatever directory Icinga 2
+    // runs in and could name another file.
+    for (final name in ['--token-file', '--hmac-key-file', '--ca-file']) {
+      if (values[name] case final value? when !value.startsWith('/')) {
+        throw SenderExit.config('invalid_argument $name');
+      }
+    }
 
     final baseUrl = values['--base-url']!;
     if (!_baseUrl.hasMatch(baseUrl) || !_portInRange(baseUrl)) {
