@@ -53,8 +53,18 @@ final class SeenRequest {
 
 /// What the raw row of an admitted request ended as.
 final class RawResult {
-  RawResult(this.id, this.status, this.outcome, this.failure, this.events);
+  RawResult(
+    this.id,
+    this.bodySha256,
+    this.status,
+    this.outcome,
+    this.failure,
+    this.events,
+  );
   final String id;
+
+  /// The body digest the raw row stored at admission.
+  final String bodySha256;
   final String status;
   final Map<String, Object?>? outcome;
   final Map<String, Object?>? failure;
@@ -297,7 +307,7 @@ final class CorreliaRig {
     while (true) {
       final rows = await connection.execute(
         Sql.named(
-          'SELECT status, outcome_json FROM raw_inbox '
+          'SELECT status, outcome_json, body_sha256 FROM raw_inbox '
           'WHERE raw_id = @id::uuid',
         ),
         parameters: {'id': id},
@@ -351,6 +361,7 @@ final class CorreliaRig {
         }
         return RawResult(
           id,
+          rows.single[2]! as String,
           status,
           outcome == null ? null : jsonDecode(outcome) as Map<String, Object?>,
           failure,

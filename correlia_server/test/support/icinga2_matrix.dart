@@ -407,6 +407,50 @@ List<String> gateNotificationTime(Capture c) {
 
 const _clockFile = 'production_notification_clock_keeps_microseconds';
 
+/// Least number of emitted samples per command the clock gate measures.
+const emittedClockSamples = 20;
+
+/// The notification times the unmodified commands put on the wire keep
+/// whole microseconds: for each command, among at least
+/// [emittedClockSamples] CUSTOM deliveries, distinct times, one whose
+/// microsecond part is not a multiple of 10 and one that is odd. A command
+/// that rounded its clock to 10 us (or to any even step) fails.
+List<String> _emittedClock(Capture c) {
+  final out = <String>[];
+  final deliveries = {for (final d in c.admitted(_clockFile)) d.id: d};
+  final emitted = c.of(_clockFile, 'emitted');
+  for (final (command, objectType) in [
+    ('correlia-service', 'service'),
+    ('correlia-host', 'host'),
+  ]) {
+    final times = <String>[];
+    for (final e in emitted.where((e) => e.json['command'] == command)) {
+      final d = deliveries[e.json['delivery']];
+      if (d == null ||
+          d.body['object_type'] != objectType ||
+          d.body['notification_type'] != 'CUSTOM') {
+        out.add(
+          '$command: emitted sample ${e.json['delivery']} is not a '
+          'CUSTOM $objectType delivery',
+        );
+        continue;
+      }
+      times.add(d.body['notification_time']! as String);
+    }
+    final micros = [for (final t in times) int.parse(t.split('.')[1])];
+    if (times.length < emittedClockSamples ||
+        times.toSet().length != times.length ||
+        !micros.any((m) => m % 10 != 0) ||
+        !micros.any((m) => m.isOdd)) {
+      out.add(
+        '$command: ${times.length} emitted notification times do not show '
+        'whole microseconds',
+      );
+    }
+  }
+  return out;
+}
+
 /// Gate: production notification clock.
 List<String> gateClock(Capture c) {
   final out = <String>[];
@@ -447,6 +491,7 @@ List<String> gateClock(Capture c) {
       );
     }
   }
+  out.addAll(_emittedClock(c));
   final known = c.of(_clockFile, 'known');
   // Exactly one known input per shipped command and converted field.
   final covered = [
@@ -808,6 +853,45 @@ List<String> gateDelivery(Capture c) {
   return out;
 }
 
+/// Ties admitted delivery [d] to the raw row its 202 created: the decoded
+/// text is the exact bytes the proxy saw, the row stored those bytes, and
+/// every stored event names that row and digest. An event copied from
+/// another delivery of the same observation names another row.
+List<String> _rawLink(String name, Rec d) {
+  final request = d.json['request']! as Map<String, Object?>;
+  final digest = request['body_sha256'];
+  final size = request['body_size'];
+  final rawId = d.raw['id'];
+  final out = <String>[];
+  if (digest is! String || size is! int || rawId is! String) {
+    return ['$name.json ${d.id}: no recorded raw row id or body digest'];
+  }
+  final bytes = utf8.encode(d.bodyText);
+  if (sha256.convert(bytes).toString() != digest || bytes.length != size) {
+    out.add('$name.json ${d.id}: the recorded body is not the bytes sent');
+  }
+  if (d.raw['body_sha256'] != digest) {
+    out.add('$name.json ${d.id}: raw row $rawId stored another body');
+  }
+  for (final e in d.events) {
+    final data =
+        (e['cloud_event']! as Map<String, Object?>)['data']!
+            as Map<String, Object?>;
+    final raw = data['raw'] as Map<String, Object?>? ?? const {};
+    final ref = raw['ref'];
+    if (ref is! String ||
+        !ref.endsWith('/$rawId') ||
+        raw['sha256'] != digest ||
+        raw['size'] != size) {
+      out.add(
+        '$name.json ${d.id}: event ${data['event_id']} names $ref '
+        '(${raw['sha256']}), not raw row $rawId ($digest)',
+      );
+    }
+  }
+  return out;
+}
+
 /// Every admitted request of every capture file decodes to the recorded event.
 List<String> gateDecode(Capture c) {
   final out = <String>[];
@@ -818,6 +902,7 @@ List<String> gateDecode(Capture c) {
         if (d.status != 202 || d.raw['status'] != 'done') {
           out.add('$name.json ${d.id}: row is ${d.raw['status']}');
         }
+        out.addAll(_rawLink(name, d));
         // One stored event per admitted delivery, or none when the committed
         // outcome accounts for it as a duplicate.
         final outcome = d.raw['outcome'] as Map<String, Object?>?;

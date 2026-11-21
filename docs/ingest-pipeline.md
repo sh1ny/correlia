@@ -418,7 +418,8 @@ Exit status 0 means Correlia answered 202; 1 is any other HTTP status, 2 a confi
 - **Names and settings.** A host or service name that is empty, holds a control character (U+0000-U+001F,
   U+007F) or a byte that is not valid UTF-8, or is longer than 1024 bytes is not delivered: the command exits 2
   with `invalid_name` in Icinga 2's log. A setting that cannot be passed exactly (a base URL over 4 KiB, a file
-  path with a NUL or invalid UTF-8) exits 2 naming its argument. Neither is retried.
+  path with a NUL or invalid UTF-8) exits 2 naming its argument. Neither is retried. A sender path holding a
+  NUL runs nothing: the command fails with exit 127 from `env`, whatever file the part before the NUL names.
 
 ### Text exposure
 

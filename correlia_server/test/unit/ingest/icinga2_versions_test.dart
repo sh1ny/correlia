@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:test/test.dart';
 
 import '../../support/icinga2_delivery.dart';
@@ -91,6 +92,24 @@ void main() {
       body[key] = value;
     }
     request['body'] = jsonEncode(body);
+    // The edited body stands for the bytes sent: its digest and size follow
+    // it to the request, the raw row and the row's events.
+    final bytes = utf8.encode(request['body']! as String);
+    final digest = sha256.convert(bytes).toString();
+    request['body_sha256'] = digest;
+    request['body_size'] = bytes.length;
+    if (record['raw'] case final Map<String, Object?> raw) {
+      raw['body_sha256'] = digest;
+    }
+    for (final e in (record['events'] as List<Object?>?) ?? const []) {
+      final data =
+          ((e! as Map<String, Object?>)['cloud_event']!
+                  as Map<String, Object?>)['data']!
+              as Map<String, Object?>;
+      (data['raw']! as Map<String, Object?>)
+        ..['sha256'] = digest
+        ..['size'] = bytes.length;
+    }
   }
 
   /// Makes [record]'s stored event the observation its (edited) body
@@ -451,6 +470,55 @@ void main() {
       broken,
       Gate.notificationTime,
       mentions: 'do not increase',
+      only: true,
+    );
+  });
+
+  test('event_of_another_raw_row_fails_the_decode_gate', () {
+    final broken = copy();
+    edit(broken, 'two_comments_from_one_author', (r) {
+      final admitted = r.where((x) => x['kind'] == 'admitted').toList();
+      Map<String, Object?> rawOf(Map<String, Object?> d) =>
+          ((((d['events']! as List<Object?>).single!
+                          as Map<String, Object?>)['cloud_event']!
+                      as Map<String, Object?>)['data']!
+                  as Map<String, Object?>)['raw']!
+              as Map<String, Object?>;
+      final first = rawOf(admitted.first);
+      rawOf(admitted.last)['ref'] = first['ref'];
+    });
+    expectNamed(
+      evaluatePair(broken),
+      broken,
+      Gate.decode,
+      mentions: 'not raw row',
+      only: true,
+    );
+  });
+
+  test('emitted_notification_time_rounded_to_10_us_fails_the_clock_gate', () {
+    final broken = copy();
+    edit(broken, 'production_notification_clock_keeps_microseconds', (r) {
+      final emitted = {
+        for (final e in r.where((x) => x['kind'] == 'emitted'))
+          if (e['command'] == 'correlia-host') e['delivery'],
+      };
+      var step = 0;
+      for (final d in r.where((x) => emitted.contains(x['id']))) {
+        // Rounded to 10 us, yet distinct and increasing.
+        final seconds = (Rec(d).body['notification_time']! as String)
+            .split('.')
+            .first;
+        final rounded = (step++ * 10).toString().padLeft(6, '0');
+        setBody(d, 'notification_time', '$seconds.$rounded');
+        syncEvent(d);
+      }
+    });
+    expectNamed(
+      evaluatePair(broken),
+      broken,
+      Gate.clock,
+      mentions: 'correlia-host: 20 emitted notification times do not show',
       only: true,
     );
   });
@@ -1139,7 +1207,29 @@ void main() {
     );
   });
   test('nul_in_a_file_path', () {
-    eachPair((c) => refusals(c, 'nul_in_a_file_path', ['--ca-file']));
+    eachPair((c) {
+      const file = 'nul_in_a_file_path';
+      final failures = c.of(file, 'command_failure');
+      final cases = [for (final r in c.of(file, 'case')) r.json['label']];
+      return [
+        if (jsonEncode(cases) !=
+            jsonEncode(['nul_in_ca_path', 'nul_in_sender_path']))
+          'cases were $cases',
+        if (failures.length != 2)
+          'expected 2 failed commands, found ${failures.length}'
+        else ...[
+          if (failures[0].json['exit_code'] != 2 ||
+              !(failures[0].json['detail']! as String).contains('--ca-file'))
+            'the CA path was not refused naming --ca-file',
+          // No file is called "": env fails before any sender runs, the one
+          // at the path's prefix included.
+          if (failures[1].json['exit_code'] != 127)
+            'the sender path with a NUL ran something: exit '
+                '${failures[1].json['exit_code']}',
+        ],
+        if (c.requests(file).isNotEmpty) 'a request was made',
+      ];
+    });
   });
   test('base_url_carrying_a_credential', () {
     eachPair(

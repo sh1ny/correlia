@@ -18,7 +18,7 @@
       "id": "f2",
       "exit_code": 2,
       "detail": "invalid_argument --last-state-change",
-      "log": "[2026-11-21 00:19:44 +0000] warning/PluginNotificationTask: Notification command for object 'host-neg3' (PID: 3599, arguments: '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:35909\"' '--host' '\"host-neg3\"' '--last-state-change' '\"\"' '--notification-time' '\"1795220384.279113\"' '--notification-type' '\"PROBLEM\"' '--object-type' '\"host\"' '--output' '\"DOWN: negative\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"DOWN\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 2, output: invalid_argument --last-state-change"
+      "log": "[2026-11-21 01:55:53 +0000] warning/PluginNotificationTask: Notification command for object 'host-neg3' (PID: 3871, arguments: '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:41787\"' '--host' '\"host-neg3\"' '--last-state-change' '\"\"' '--notification-time' '\"1795226153.224069\"' '--notification-type' '\"PROBLEM\"' '--object-type' '\"host\"' '--output' '\"DOWN: negative\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"DOWN\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 2, output: invalid_argument --last-state-change"
     },
     {
       "kind": "admitted",
@@ -26,10 +26,14 @@
       "auth": "bearer",
       "request": {
         "path": "/hooks/icinga2/33333333-3333-4333-8333-333333333333",
-        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"host\",\"host\":\"host-neg3\",\"state\":\"DOWN\",\"state_type\":\"HARD\",\"output\":\"DOWN: negative\",\"notification_type\":\"ACKNOWLEDGEMENT\",\"notification_author\":\"operator\",\"notification_comment\":\"looking\",\"notification_time\":\"1795220384.815573\"}"
+        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"host\",\"host\":\"host-neg3\",\"state\":\"DOWN\",\"state_type\":\"HARD\",\"output\":\"DOWN: negative\",\"notification_type\":\"ACKNOWLEDGEMENT\",\"notification_author\":\"operator\",\"notification_comment\":\"looking\",\"notification_time\":\"1795226153.576507\"}",
+        "body_sha256": "ac5b6d19dc003fa78d788ef35e930ea48570ec0be04dd5ef253c384efac80ccc",
+        "body_size": 277
       },
       "response_status": 202,
       "raw": {
+        "id": "40f51e99-56a6-4779-97e0-816bc4865394",
+        "body_sha256": "ac5b6d19dc003fa78d788ef35e930ea48570ec0be04dd5ef253c384efac80ccc",
         "status": "done",
         "outcome": {
           "upstream_omitted": 0,
@@ -51,10 +55,10 @@
         {
           "disposition": "ready",
           "state_outcome": null,
-          "source_time": "2026-11-21T00:19:44.815573Z",
+          "source_time": "2026-11-21T01:55:53.576507Z",
           "cloud_event": {
             "specversion": "1.0",
-            "id": "281df260-f6b6-5e50-821b-7c664e9eb454",
+            "id": "98e5b1f3-f845-5faa-a827-7aedf118e419",
             "source": "urn:correlia:source:33333333-3333-4333-8333-333333333333",
             "type": "io.correlia.ack.v1",
             "datacontenttype": "application/json",
@@ -62,9 +66,9 @@
             "subject": "98fc8565005470bf4e638e6883b17518cecfb327bd4740f3c5da697ca6a4c83e",
             "partitionkey": "98fc8565005470bf4e638e6883b17518cecfb327bd4740f3c5da697ca6a4c83e",
             "correliatenant": "default",
-            "time": "2026-11-21T00:19:44.815573Z",
+            "time": "2026-11-21T01:55:53.576507Z",
             "data": {
-              "event_id": "281df260-f6b6-5e50-821b-7c664e9eb454",
+              "event_id": "98e5b1f3-f845-5faa-a827-7aedf118e419",
               "fingerprint": "98fc8565005470bf4e638e6883b17518cecfb327bd4740f3c5da697ca6a4c83e",
               "tenant": "default",
               "namespace": "33333333-3333-4333-8333-333333333333",
@@ -85,17 +89,17 @@
                 "icinga2.notification_type": "ACKNOWLEDGEMENT",
                 "icinga2.notification_author": "operator"
               },
-              "source_time": "2026-11-21T00:19:44.815573Z",
-              "reported_source_time": "2026-11-21T00:19:44.815573Z",
-              "observed_at": "2026-11-21T00:19:44.823531Z",
-              "processed_at": "2026-11-21T00:19:44.973706Z",
+              "source_time": "2026-11-21T01:55:53.576507Z",
+              "reported_source_time": "2026-11-21T01:55:53.576507Z",
+              "observed_at": "2026-11-21T01:55:53.582707Z",
+              "processed_at": "2026-11-21T01:55:53.605534Z",
               "raw": {
-                "ref": "raw:2026-11-21T00:19:44.823531Z/cc3e2c5d-4104-41a3-8a7b-ad543f4bf0b3",
-                "sha256": "49248f1885e2b6f858869c1bc799a10c539ff1de09f8e6e05e1275212da89de5",
+                "ref": "raw:2026-11-21T01:55:53.582707Z/40f51e99-56a6-4779-97e0-816bc4865394",
+                "sha256": "ac5b6d19dc003fa78d788ef35e930ea48570ec0be04dd5ef253c384efac80ccc",
                 "size": 277
               },
               "pipeline": {
-                "version": "061265cca5050b4a6a35cf4b06bc9aa070925b56815a7fc186492780b1d19e58",
+                "version": "85c0f84c6ae9da8ab97870a23999fa58d4eda5857a2f253907d0645d58857559",
                 "generation": 0
               },
               "extensions": {},
@@ -104,7 +108,7 @@
                   "raw": "host-neg3"
                 }
               },
-              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAAFYAWyJpY2luZ2EyLm5vdGlmeS5BQ0tOT1dMRURHRU1FTlQudjEiLCJBQ0tOT1dMRURHRU1FTlQiLCIxNzk1MjIwMzg0ODE1NTczIiwib3BlcmF0b3IiXQ=="
+              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAAFYAWyJpY2luZ2EyLm5vdGlmeS5BQ0tOT1dMRURHRU1FTlQudjEiLCJBQ0tOT1dMRURHRU1FTlQiLCIxNzk1MjI2MTUzNTc2NTA3Iiwib3BlcmF0b3IiXQ=="
             }
           },
           "outbox": [

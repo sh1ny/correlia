@@ -85,8 +85,11 @@ run = "dart run tool/bin/tool.dart test"
 depends = ["setup"]
 
 [tasks."test:all"]
-description = "Run every tier except load (fast, db, e2e, plugin)"
-run = "dart run tool/bin/tool.dart test --all"
+description = "Run every tier except load (fast, db, e2e, plugin), and every Icinga 2 sender test including its compiled-binary e2e test"
+run = [
+  "dart run tool/bin/tool.dart test --all",
+  "cd correlia_icinga2_notify && dart test",
+]
 depends = ["setup"]
 
 [tasks."build:icinga2-notify"]

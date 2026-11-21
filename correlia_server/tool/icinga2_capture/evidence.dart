@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
+
 import '../../test/support/icinga2_delivery.dart';
 import 'lab.dart';
 import 'rig.dart';
@@ -165,6 +167,9 @@ final class Evidence {
       'request': {
         'path': request.path,
         'body': utf8.decode(request.body, allowMalformed: true),
+        // The exact bytes the proxy saw, which the text above may not be.
+        'body_sha256': sha256.convert(request.body).toString(),
+        'body_size': request.body.length,
       },
       'response_status': request.status,
     };
@@ -179,6 +184,8 @@ final class Evidence {
       'kind': 'admitted',
       ...base,
       'raw': {
+        'id': raw.id,
+        'body_sha256': raw.bodySha256,
         'status': raw.status,
         'outcome': raw.outcome,
         'failure': raw.failure,

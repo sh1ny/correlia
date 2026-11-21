@@ -4,7 +4,7 @@ import 'dart:io';
 import 'dart:math';
 
 import '../../test/support/icinga2_matrix.dart'
-    show downtimeExpires, downtimeRemoved;
+    show downtimeExpires, downtimeRemoved, emittedClockSamples;
 import '../../test/support/holding_proxy.dart';
 import 'config.dart';
 import 'evidence.dart';
@@ -20,6 +20,14 @@ const _dollarToken = '$containerCorrelia/tok\$en';
 /// A copy of the sender whose path holds macro text; the commands must run
 /// it as written, not as `/usr/local/bin/correlia-lab-notify`.
 const _dollarSender = '/usr/local/bin/correlia-\$host.name\$-notify';
+
+/// An executable sender at the part of a NUL-holding sender path before the
+/// NUL.
+const _nulSenderPrefix = '/usr/local/bin/correlia-nul';
+
+/// CUSTOM notifications per shipped command whose emitted notification time
+/// the clock gate measures.
+const _emittedClockSamples = emittedClockSamples;
 
 /// Which credential the sender settings name.
 enum Credential { token, hmac, wrongToken, wrongKey, dollarToken, none }
@@ -405,6 +413,23 @@ final class Scenarios {
           'value': config.hostClock,
           'delivery': d['id'],
         });
+        // The notification time the unmodified commands emit from Icinga 2's
+        // own clock: twenty CUSTOM notifications through each.
+        for (final (type, id, command) in [
+          ('Service', 'ts', 'correlia-service'),
+          ('Host', 'host-ts', 'correlia-host'),
+        ]) {
+          for (var i = 0; i < _emittedClockSamples; i++) {
+            await custom(type, id, comment: 'clock sample $i');
+          }
+          for (final sample in await ev.deliveries(_emittedClockSamples)) {
+            ev.add({
+              'kind': 'emitted',
+              'command': command,
+              'delivery': sample['id'],
+            });
+          }
+        }
       });
 
   Future<void> _downtime() => scenario('captured_downtime_removal', (ev) async {
@@ -1055,6 +1080,7 @@ extension Batch2 on Scenarios {
     String? source,
     String? caFile,
     String? tokenLiteral,
+    String? senderPath,
     Map<String, String> env = const {},
     String trigger = 'rej2',
   }) async {
@@ -1063,6 +1089,7 @@ extension Batch2 on Scenarios {
       source: source,
       caFile: caFile,
       tokenLiteral: tokenLiteral,
+      senderPath: senderPath,
       env: env,
     );
     ev.add({'kind': 'case', 'label': label});
@@ -1111,6 +1138,15 @@ extension Batch2 on Scenarios {
         ev,
         'nul_in_ca_path',
         caFile: r'"/etc/icinga2/correlia/ca.pem\000-next"',
+      );
+      // A working sender at the path's prefix: a command line cut at the
+      // NUL would run it, and it would deliver.
+      await lab.exec(['cp', containerSender, _nulSenderPrefix]);
+      await lab.exec(['chmod', '755', _nulSenderPrefix]);
+      await _failureCase(
+        ev,
+        'nul_in_sender_path',
+        senderPath: '"$_nulSenderPrefix\\000-next"',
       );
     });
     await scenario('base_url_carrying_a_credential', (ev) async {
