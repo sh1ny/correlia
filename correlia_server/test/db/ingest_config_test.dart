@@ -262,6 +262,46 @@ void main() {
           'alertmanager',
         );
       });
+      test('icinga2_source_declares_excluded_identity_labels', () async {
+        // The higher revision is refused at the field, and the snapshot that
+        // was active before stays active with its source unchanged.
+        final session = builder.build();
+        final repository = IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        );
+        final secrets = <String, Object?>{'source-token': token(1)};
+        final first = await repository.publishConfig(
+          kindConfig(1, 'icinga2'),
+          secrets,
+          runMode: 'test',
+        );
+        final excluded = kindConfig(2, 'icinga2');
+        ((excluded['sources']! as List<Object?>).single!
+            as Map<String, Object?>)['excluded_identity_labels'] = [
+          'service',
+        ];
+        await expectLater(
+          repository.publishConfig(excluded, secrets, runMode: 'test'),
+          throwsA(
+            isA<BootstrapError>().having(
+              (e) => e.field,
+              'field',
+              'sources[0].excluded_identity_labels',
+            ),
+          ),
+        );
+        expect(
+          (await repository.activeSnapshot())!['snapshotId'],
+          first.snapshotId,
+        );
+        expect(
+          (await session.db.unsafeQuery(
+            'SELECT count(*) FROM ingest_config_snapshot',
+          )).single[0],
+          1,
+        );
+      });
       test('disabled_source_keeps_its_kind', () async {
         final session = builder.build();
         final repository = IngestConfigRepository(

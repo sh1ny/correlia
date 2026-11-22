@@ -144,6 +144,33 @@ void main() {
           await expectFailure(raw, 'out_of_range', 'last_state_change');
         });
 
+        test('invalid_state_change_time_on_a_non_state_delivery', () async {
+          // The optional time is still checked: the worker stores the failure
+          // at last_state_change, commits nothing and does not retry.
+          final raw = await deliverIcinga2(
+            s,
+            delivery(
+              set: {
+                'notification_type': 'CUSTOM',
+                'last_state_change': '0.000000',
+              },
+            ),
+            base,
+          );
+          await expectFailure(raw, 'invalid_time', 'last_state_change');
+        });
+
+        test('missing_state_change_time', () async {
+          final raw = await deliverIcinga2(
+            s,
+            delivery(
+              set: {'notification_type': 'PROBLEM', 'last_state_change': null},
+            ),
+            base,
+          );
+          await expectFailure(raw, 'missing_field', 'last_state_change');
+        });
+
         test('unsupported_notification_type', () async {
           final raw = await deliverIcinga2(
             s,

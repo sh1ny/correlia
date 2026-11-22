@@ -374,7 +374,10 @@ arguments and POSTs it to `<base url>/hooks/icinga2/<source>`.
 
 ### Installation
 
-1. Run `mise run release:icinga2-notify` and install `build/icinga2-notify/release/linux-x64/correlia-icinga2-notify`
+1. In a checkout with the pinned toolchain (`mise install`), resolve the workspace once with network access:
+   `mise exec -- dart pub get`. The release build then resolves the sender offline from that cache, against the
+   committed `pubspec.lock`, so it builds the locked dependencies and nothing newer. Run
+   `mise run release:icinga2-notify` and install `build/icinga2-notify/release/linux-x64/correlia-icinga2-notify`
    as `/usr/local/bin/correlia-icinga2-notify` (owned by root, mode 0755). The release task publishes only the
    bundle (sender and definitions) that every listed capture of the architecture ran, so only the release directory
    is qualified. The plain build output under `build/icinga2-notify/<architecture>/` and the `contrib/icinga2/`

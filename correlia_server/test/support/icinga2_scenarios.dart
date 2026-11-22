@@ -7,6 +7,9 @@ library;
 
 import 'dart:convert';
 
+import 'package:correlia_server/event.dart';
+import 'package:correlia_server/src/event_generated/correlia/event/v1/event_bounds.dart';
+
 import 'icinga2_delivery.dart';
 import 'icinga2_matrix.dart';
 
@@ -167,12 +170,25 @@ final Map<String, Check> scenarioChecks = {
     if (!(d.body['output']! as String).endsWith(truncationMarker)) {
       out.add('delivered output lacks the marker');
     }
-    // The stored description is cut again to the event's own bound, which
-    // is shorter than the delivered text, and ends with Correlia's display
+    // The stored description is the delivered text cut again at the
+    // event's display bound, which is shorter, ending with Correlia's display
     // marker (an ellipsis).
-    final stored = d.data()['description']! as String;
-    if (!stored.endsWith('\u2026') || stored.runes.length > 8192) {
-      out.add('stored description does not end with the display marker');
+    const bound = 4096;
+    if (CanonicalEventBounds.CanonicalEventDescriptionLength.max != bound) {
+      out.add('the display bound is not $bound scalars');
+    }
+    final stored = d.data()['description'] as String?;
+    final expected = normalizeDisplayText(
+      d.body['output']! as String,
+      maxScalars: bound,
+    );
+    if (stored != expected ||
+        stored!.runes.length != bound ||
+        !stored.endsWith('\u2026')) {
+      out.add(
+        'stored description is ${stored?.runes.length} scalars, not the '
+        'delivered output cut at $bound with the display marker',
+      );
     }
     return out;
   },

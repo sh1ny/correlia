@@ -529,6 +529,29 @@ void main() {
     expect(qualifiedBundles([keyLog]).qualified, isEmpty);
   });
 
+  test('long_description_above_the_display_bound_fails', () {
+    // A stored description longer than the display bound, even one ending in
+    // the display marker, is not the scenario's second cut.
+    final broken = copy();
+    edit(broken, 'long_check_output', (r) {
+      final d = r.firstWhere((x) => x['kind'] == 'admitted');
+      final cloud =
+          ((d['events']! as List<Object?>).first!
+                  as Map<String, Object?>)['cloud_event']!
+              as Map<String, Object?>;
+      (cloud['data']! as Map<String, Object?>)['description'] =
+          '${'x' * 5999}\u2026';
+    });
+    expect(
+      scenarioChecks['long_check_output']!(Capture(broken)),
+      [contains('stored description is 6000 scalars')],
+    );
+    expect(
+      qualifiedBundles([broken]).qualified,
+      isEmpty,
+    );
+  });
+
   test('listed_pairs_of_one_architecture_ran_one_bundle', () {
     // Recapturing one listed release with another sender, or with other
     // definitions, refuses the architecture until every row is recaptured.
