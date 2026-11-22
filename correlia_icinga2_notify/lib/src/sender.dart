@@ -35,6 +35,11 @@ final _tokenForm = RegExp(r'^[\x21-\x7e]+$');
 /// The collaborators are injectable for tests: [files], [deadline],
 /// [environmentIsEmpty] (default: the process environment is empty; its values
 /// are never read), [clock] (the HMAC timestamp) and [bundlePaths].
+/// [onSettled], for tests, is called once the delivery itself has stopped,
+/// which can be after the deadline returned.
+///
+/// Once the run has returned, the delivery it abandoned opens no connection:
+/// it checks after each file read, and again just before the client exists.
 Future<int> runSender(
   List<String> args, {
   SenderFiles files = const DiskFiles(),
@@ -43,6 +48,7 @@ Future<int> runSender(
   DateTime Function()? clock,
   List<String> bundlePaths = distributionCaBundles,
   void Function(String line)? writeError,
+  void Function()? onSettled,
 }) async {
   final void Function(String) write = writeError ?? stderr.writeln;
   final finished = Completer<int>();
@@ -57,23 +63,26 @@ Future<int> runSender(
   final timer = Timer(deadline, () => finish(3, 'deadline'));
   unawaited(
     _deliver(
-      args,
-      files: files,
-      environmentIsEmpty:
-          environmentIsEmpty ?? () => Platform.environment.isEmpty,
-      clock: clock ?? DateTime.now,
-      bundlePaths: bundlePaths,
-      cleanups: cleanups,
-    ).then(
-      (status) => switch (status) {
-        202 => finish(0, null),
-        _ => finish(1, 'status $status'),
-      },
-      onError: (Object error) => switch (error) {
-        SenderExit(:final code, :final line) => finish(code, line),
-        _ => finish(1, 'internal'),
-      },
-    ),
+          args,
+          files: files,
+          environmentIsEmpty:
+              environmentIsEmpty ?? () => Platform.environment.isEmpty,
+          clock: clock ?? DateTime.now,
+          bundlePaths: bundlePaths,
+          cleanups: cleanups,
+          abandoned: () => finished.isCompleted,
+        )
+        .whenComplete(() => onSettled?.call())
+        .then(
+          (status) => switch (status) {
+            202 => finish(0, null),
+            _ => finish(1, 'status $status'),
+          },
+          onError: (Object error) => switch (error) {
+            SenderExit(:final code, :final line) => finish(code, line),
+            _ => finish(1, 'internal'),
+          },
+        ),
   );
   final code = await finished.future;
   timer.cancel();
@@ -91,7 +100,12 @@ Future<int> _deliver(
   required DateTime Function() clock,
   required List<String> bundlePaths,
   required List<void Function()> cleanups,
+  required bool Function() abandoned,
 }) async {
+  void stopIfAbandoned() {
+    if (abandoned()) throw const SenderExit.connection('deadline');
+  }
+
   if (!environmentIsEmpty()) throw const SenderExit.config('environment');
   final arguments = SenderArguments.parse(args);
   final uri = _destination(arguments);
@@ -104,6 +118,7 @@ Future<int> _deliver(
     maxCredentialBytes,
     mode: _ModeRule.credential,
   );
+  stopIfAbandoned();
   final (authorization, key) = switch (arguments.credentialKind) {
     CredentialKind.token => ('Bearer ${_token(credential)}', null),
     CredentialKind.hmacKey => (null, _hmacKey(credential)),
@@ -112,6 +127,7 @@ Future<int> _deliver(
   final context = SecurityContext(withTrustedRoots: false);
   if (uri.scheme == 'https') {
     final (bytes, name) = await _trust(files, arguments.caPath, bundlePaths);
+    stopIfAbandoned();
     try {
       context.setTrustedCertificatesBytes(bytes);
     } on TlsException {
@@ -120,6 +136,9 @@ Future<int> _deliver(
   }
 
   final body = utf8.encode(jsonEncode(arguments.document));
+  // No await between this check and the cleanup registration: a client that
+  // exists is always closed by the run's cleanups.
+  stopIfAbandoned();
   final client = HttpClient(context: context)
     ..findProxy = ((_) => 'DIRECT')
     ..userAgent = 'correlia-icinga2-notify';

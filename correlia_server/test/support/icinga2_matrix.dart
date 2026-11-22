@@ -124,6 +124,14 @@ List<Pair> parseStatement(String markdown, {String? root}) {
   return pairs;
 }
 
+/// Removes the previous publication in [release], then reads the statement in
+/// [markdown]. A statement that cannot be read ([FormatException]) therefore
+/// leaves no earlier bundle at the installation path.
+List<Pair> statementForPublishing(Directory release, String markdown) {
+  if (release.existsSync()) release.deleteSync(recursive: true);
+  return parseStatement(markdown);
+}
+
 /// The statement of the repository's docs, or an empty list.
 List<Pair> committedStatement() {
   final file = File(matrixStatementFile);

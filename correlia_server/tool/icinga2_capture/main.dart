@@ -22,7 +22,7 @@ import 'rig.dart';
 import 'scenarios.dart';
 
 /// Bumped when the evidence format or the scenario set changes.
-const scriptVersion = '9';
+const scriptVersion = '10';
 
 /// Scenarios that rely on objects another scenario prepared, with that
 /// scenario: a partial run must select both.

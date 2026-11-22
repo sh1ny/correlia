@@ -97,6 +97,11 @@ final class Evidence {
   final Capture cap;
   final String name;
   final List<Map<String, Object?>> records = [];
+
+  /// Secrets a scan found (name to value): [save] writes each occurrence in
+  /// any recorded string as `[redacted <name>]`, so no evidence file keeps
+  /// a value the scan flagged.
+  final Map<String, String> redactions = {};
   int _ids = 0;
   late int _logMark;
   int _failuresConsumed = 0;
@@ -319,11 +324,26 @@ final class Evidence {
     return value;
   }
 
-  /// Writes the file, one JSON document.
+  /// Writes the file, one JSON document, with every [redactions] value
+  /// replaced.
   void save(String release) {
     final file = File('${cap.out.path}/$name.json');
     file.writeAsStringSync(
-      '${const JsonEncoder.withIndent('  ').convert({'scenario': name, 'release': release, 'records': records})}\n',
+      '${const JsonEncoder.withIndent('  ').convert({'scenario': name, 'release': release, 'records': _redact(records)})}\n',
     );
   }
+
+  Object? _redact(Object? value) => switch (value) {
+    String text => redactions.entries.fold<String>(
+      text,
+      (out, e) => e.value.isEmpty
+          ? out
+          : out.replaceAll(e.value, '[redacted ${e.key}]'),
+    ),
+    List<Object?> list => [for (final v in list) _redact(v)],
+    Map<String, Object?> map => {
+      for (final e in map.entries) e.key: _redact(e.value),
+    },
+    _ => value,
+  };
 }

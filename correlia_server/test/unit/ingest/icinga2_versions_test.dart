@@ -221,6 +221,22 @@ void main() {
     );
   });
 
+  test('unreadable_statement_leaves_no_earlier_publication', () {
+    final w = workspace();
+    final stale = File('${w.release.path}/linux-x64/$senderFileName')
+      ..createSync(recursive: true)
+      ..writeAsStringSync('an earlier publication');
+    expect(
+      () => statementForPublishing(
+        w.release,
+        '$_begin\n| Release | Architecture |\n|---|---|\nsee below\n$_end\n',
+      ),
+      throwsFormatException,
+    );
+    expect(stale.existsSync(), isFalse);
+    expect(w.release.existsSync(), isFalse);
+  });
+
   test('only_one_architecture_qualifies', () {
     final statement = parseStatement(
       '$_begin\n| Release | Architecture |\n|---|---|\n'
@@ -1308,10 +1324,31 @@ void main() {
   });
   test('inherited_correlia_settings_are_ignored', () {
     eachPair((c) {
-      final ds = c.admitted('inherited_correlia_settings_are_ignored');
+      const file = 'inherited_correlia_settings_are_ignored';
+      final ds = c.admitted(file);
+      final infos = {
+        for (final r in c.of(file, 'info')) r.json['name']: r.json['value'],
+      };
+      final cases = [for (final r in c.of(file, 'case')) r.json['label']];
       return [
-        if (ds.length != 1) 'no delivery to the configured endpoint',
-        if (ds.isNotEmpty && ds.single.auth != 'bearer') 'wrong credential',
+        // The inherited URL, CA and key settings change nothing: one
+        // delivery over loopback HTTP, then one accepted over HTTPS with no
+        // --ca-file, trusting the distribution's bundle although Icinga 2's
+        // environment names another CA file.
+        if (ds.length != 2)
+          'expected two deliveries to the configured endpoint, got ${ds.length}',
+        for (final d in ds)
+          if (d.auth != 'bearer' || d.status != 202)
+            '${d.id} was ${d.auth} ${d.status}',
+        if (ds.length == 2 && ds[1].body['service'] != 'env3')
+          'the HTTPS delivery is ${ds[1].body['service']}, not env3',
+        if (jsonEncode(cases) != jsonEncode(['distribution_trust_over_https']))
+          'cases were $cases',
+        if (infos['tls_forwarder_connections'] case final int n when n >= 1)
+          ...[]
+        else
+          'no TLS connection: ${infos['tls_forwarder_connections']}',
+        if (c.of(file, 'command_failure').isNotEmpty) 'a command failed',
       ];
     });
   });

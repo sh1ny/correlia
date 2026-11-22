@@ -1064,8 +1064,66 @@ extension Batch2 on Scenarios {
         output: 'CRITICAL: inherited',
         end: timeText(c.nowSeconds(), 100001),
       );
+      await _distributionTrust(ev);
     });
     await _reconfigure();
+  }
+
+  /// An accepted HTTPS delivery through the shipped command with no
+  /// `--ca-file`, so the sender trusts the distribution's bundle alone, while
+  /// Icinga 2's environment names another CA file. A fresh certificate for
+  /// 127.0.0.1 is appended to the container's bundle for the case; a
+  /// forwarder ends TLS and passes each connection on to the recording proxy.
+  Future<void> _distributionTrust(Evidence ev) async {
+    const bundle = '/etc/ssl/certs/ca-certificates.crt';
+    const saved = '/tmp/correlia-capture-bundle';
+    final pem = await _ca();
+    final context = SecurityContext()
+      ..useCertificateChain('${rig.files.path}/hostile.pem')
+      ..usePrivateKey('${rig.files.path}/hostile.key');
+    final forwarder = await SecureServerSocket.bind(
+      InternetAddress.loopbackIPv4,
+      0,
+      context,
+    );
+    var connections = 0;
+    forwarder.listen(
+      (client) async {
+        connections++;
+        final upstream = await Socket.connect(
+          InternetAddress.loopbackIPv4,
+          rig.proxyPort,
+        );
+        unawaited(client.cast<List<int>>().pipe(upstream));
+        unawaited(upstream.cast<List<int>>().pipe(client));
+      },
+      onError: (Object _) {},
+    );
+    await lab.exec(['cp', '-p', bundle, saved]);
+    try {
+      await lab.exec(
+        ['sh', '-c', 'cat >> "\$1"', 'sh', bundle],
+        stdin: utf8.encode('\n$pem'),
+      );
+      await _reconfigure(
+        baseUrl: dslString('https://127.0.0.1:${forwarder.port}'),
+        env: {'CORRELIA_CA_FILE': '/nonexistent/ca.pem'},
+      );
+      ev.add({'kind': 'case', 'label': 'distribution_trust_over_https'});
+      await _step(
+        ev,
+        objectType: 'service',
+        id: 'env3',
+        exit: 2,
+        output: 'CRITICAL: distribution trust',
+        end: timeText(c.nowSeconds(), 200002),
+      );
+      ev.info('tls_forwarder_connections', connections);
+    } finally {
+      await lab.exec(['cp', '-p', saved, bundle]);
+      await lab.exec(['rm', '-f', saved]);
+      await forwarder.close();
+    }
   }
 
   Future<void> _burst() =>
@@ -1126,18 +1184,25 @@ extension Batch2 on Scenarios {
     }
   }
 
-  /// Records that none of [secrets] (name to value) appears in the log since
-  /// the evidence mark; the values themselves are never written.
+  /// Records which of [secrets] (name to value) appear in the log since the
+  /// evidence mark; the values themselves are never written. A found secret
+  /// is redacted from everything the scenario saves, and fails the scenario.
   Future<void> _scan(Evidence ev, Map<String, String> secrets) async {
     final log = await lab.logFrom(ev.logMark);
-    ev.add({
-      'kind': 'secret_scan',
-      'checked': secrets.keys.toList(),
-      'found': [
-        for (final e in secrets.entries)
-          if (e.value.isNotEmpty && log.contains(e.value)) e.key,
-      ],
-    });
+    final found = {
+      for (final e in secrets.entries)
+        if (e.value.isNotEmpty && log.contains(e.value)) e.key: e.value,
+    };
+    ev
+      ..add({
+        'kind': 'secret_scan',
+        'checked': secrets.keys.toList(),
+        'found': found.keys.toList(),
+      })
+      ..redactions.addAll(found);
+    if (found.isNotEmpty) {
+      throw StateError('secrets in the Icinga 2 log: ${found.keys}');
+    }
   }
 
   Future<void> _settingsFailures() async {

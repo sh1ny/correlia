@@ -100,6 +100,7 @@ Future<Outcome> run(
   bool environmentEmpty = true,
   DateTime? now,
   List<String> bundles = const [],
+  void Function()? onSettled,
 }) async {
   final lines = <String>[];
   final code = await runSender(
@@ -110,6 +111,7 @@ Future<Outcome> run(
     clock: () => now ?? DateTime.fromMillisecondsSinceEpoch(1700000000000),
     bundlePaths: bundles,
     writeError: lines.add,
+    onSettled: onSettled,
   );
   return Outcome(code, lines);
 }
@@ -406,23 +408,32 @@ void main() {
   test('blocking_file_after_the_check', () async {
     final receiver = await Receiver.start(certPrefix: 'one');
     addTearDown(receiver.close);
+    final ca = StreamController<List<int>>();
     final files = creds()
-      ..infos['/creds/ca'] = const FileInfo(
+      ..infos['/creds/ca'] = FileInfo(
         type: FileSystemEntityType.file,
         mode: 0x1a4,
-        size: 100,
+        size: File('test/fixtures/ca_one.pem').lengthSync(),
       )
-      // The open never completes, as for a FIFO swapped in after the check.
-      ..streams['/creds/ca'] = (max) => StreamController<List<int>>().stream;
+      // The open blocks, as for a FIFO swapped in after the check, until the
+      // test releases it.
+      ..streams['/creds/ca'] = (max) => ca.stream;
     final watch = Stopwatch()..start();
+    final settled = Completer<void>();
     final result = await run(
       argv(baseUrl: receiver.url, over: {'--ca-file': '/creds/ca'}),
       files: files,
       deadline: const Duration(milliseconds: 300),
+      onSettled: settled.complete,
     );
     expect(result.code, 3);
     expect(result.lines, ['deadline']);
     expect(watch.elapsed, lessThan(const Duration(seconds: 10)));
+    // The read completes after the run returned, with the receiver's own CA:
+    // the abandoned delivery still sends nothing.
+    ca.add(File('test/fixtures/ca_one.pem').readAsBytesSync());
+    unawaited(ca.close());
+    await settled.future;
     expect(receiver.requests, isEmpty);
   });
 

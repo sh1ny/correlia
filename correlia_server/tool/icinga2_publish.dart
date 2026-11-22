@@ -10,7 +10,8 @@
 /// `../build/icinga2-notify/release/<architecture>/`, and `../contrib/icinga2/`
 /// to `../build/icinga2-notify/release/icinga2/`, only when the build and the
 /// definitions are exactly that bundle. With no qualified pair, or a build or
-/// definition that differs, it publishes nothing and exits 1.
+/// definition that differs, or a statement it cannot read, it publishes
+/// nothing, leaves no earlier publication in place and exits 1.
 library;
 
 import 'dart:io';
@@ -18,7 +19,19 @@ import 'dart:io';
 import '../test/support/icinga2_matrix.dart';
 
 void main() {
-  final statement = committedStatement();
+  final release = Directory('../build/icinga2-notify/release');
+  final List<Pair> statement;
+  try {
+    final file = File(matrixStatementFile);
+    statement = statementForPublishing(
+      release,
+      file.existsSync() ? file.readAsStringSync() : '',
+    );
+  } on FormatException catch (e) {
+    stderr.writeln('not published: ${e.message}');
+    exitCode = 1;
+    return;
+  }
   final failures = evaluateStatement(statement);
   for (final failure in failures) {
     stderr.writeln('not qualified: $failure');
@@ -31,7 +44,7 @@ void main() {
     final published = publishSenders(
       build: Directory('../build/icinga2-notify'),
       contrib: Directory('../contrib/icinga2'),
-      release: Directory('../build/icinga2-notify/release'),
+      release: release,
       qualified: qualified,
     );
     for (final architecture in builtArchitectures) {

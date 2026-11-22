@@ -7,7 +7,7 @@ artifact is built but not published.
 ## Script
 
 - `tool/icinga2_capture.sh` (driver `correlia_server/tool/icinga2_capture/`), script version
-  `9` (recorded in every `manifest.json`). Version 2 routes the capture source to a webhook output and records
+  `10` (recorded in every `manifest.json`). Version 2 routes the capture source to a webhook output and records
   each committed event's outbox intents; its downtime scenario tells the expiring and the hand-removed downtime
   apart by comment and records when the manual removal was requested. Version 3 adds
   `concurrent_signed_notifications_beyond_the_cap`: three signed notifications from one Icinga 2 action overlap
@@ -29,10 +29,15 @@ artifact is built but not published.
   definitions make of that path; `captured_host_transitions` now submits only a DOWN and then an UP result.
   Version 9 writes random values to the wrong token and wrong HMAC key files and has the rejection scenario
   scan Icinga 2's log for them, and for each rejected header both whole and as its bare token or digest.
-- Full run (after the pre-ship review, round 10, which extended the rejection scenario's log scan to the
-  rejected senders' own credentials):
-  `tool/icinga2_capture.sh 2.13.14 2.14.10 2.15.7 2.16.6`, every mapped scenario, no failed scenario.
-- Sender artifact (linux-x64): SHA-256 `b42c10419550fccb226de637f83454a20cd452e6c1e933161c8bd9957eef9f0e`, the same in every manifest.
+  Version 10 adds an accepted HTTPS delivery to `inherited_correlia_settings_are_ignored`: no `--ca-file`, a
+  fresh certificate for 127.0.0.1 appended to the container's distribution bundle for that case only, a
+  forwarder that ends TLS in front of the recording proxy, and `CORRELIA_CA_FILE` in Icinga 2's environment.
+  A secret scan that finds a value now fails its scenario, and the value is redacted from the evidence file.
+- Full run (after the pre-ship review, round 11, which stopped an abandoned delivery from sending after the
+  deadline and captured a delivery that trusts the distribution's bundle): `tool/icinga2_capture.sh 2.16.6`
+  first, to check the new case, then `tool/icinga2_capture.sh 2.13.14 2.14.10 2.15.7`; every mapped scenario on
+  each release, no failed scenario.
+- Sender artifact (linux-x64): SHA-256 `122240da645ab6cd0f4ed52ccf0dce555dd9a38ad858206b20dae0d1c08e9e0c`, the same in every manifest.
   `mise run release:icinga2-notify` rebuilds it and publishes it only because the rebuild has this hash.
 - Definitions: `contrib/icinga2/` SHA-256 per file in each manifest
   (`correlia-commands.conf` `783f1cb92391d4cd…`,
@@ -44,7 +49,7 @@ artifact is built but not published.
 Gates: S = same-second service state, H = same-second host state, N = same-second notification time,
 C = production notification clock, D = downtime removal, F = first problem of a new object,
 202 = recorded 202 and decoded event. Judged by `correlia_server/test/unit/ingest/icinga2_versions_test.dart`
-on the committed captures (71 tests, all passing).
+on the committed captures (72 tests, all passing).
 
 | Release | Architecture | Image | Digest | Icinga 2 | S | H | N | C | D | F | 202 |
 |---|---|---|---|---|---|---|---|---|---|---|---|

@@ -54,6 +54,7 @@ final class CaptureConfig {
     ('auth2', 'correlia-service'),
     ('env1', 'correlia-service'),
     ('env2', 'correlia-service'),
+    ('env3', 'correlia-service'),
     ('hostile1', 'correlia-service'),
     ('hostile2', 'correlia-service'),
     ('rej1', 'correlia-service'),
