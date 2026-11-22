@@ -1099,6 +1099,16 @@ List<String> gateDecode(Capture c) {
       }
     }
   }
+  // The observations the pair stored: a duplicate_observation outcome repeats
+  // one of them (the restart scenario repeats one stored in another file), or
+  // it stands for nothing.
+  final stored = {
+    for (final name in c.names)
+      for (final d in c.of(name, 'admitted'))
+        for (final e in d.events)
+          ((e['cloud_event']! as Map<String, Object?>)['data']!
+              as Map<String, Object?>)['event_id'],
+  };
   for (final name in c.names) {
     for (final d in c.of(name, 'admitted')) {
       try {
@@ -1117,6 +1127,12 @@ List<String> gateDecode(Capture c) {
           if (duplicates != 1) {
             out.add(
               '$name.json ${d.id}: no stored event and no duplicate outcome',
+            );
+          } else if (outcome?['duplicate_observation'] == 1 &&
+              !stored.contains(event.eventId)) {
+            out.add(
+              '$name.json ${d.id}: a duplicate of no earlier stored '
+              'observation',
             );
           }
           continue;

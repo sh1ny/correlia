@@ -32,39 +32,13 @@ final class _Rig {
     ChildServer? child;
     Connection? connection;
     try {
-      File('${files.path}/config.json').writeAsStringSync(
-        jsonEncode({
-          'format_version': 2,
-          'revision': 1,
-          'outputs': <Object?>[],
-          'sources': [
-            {
-              'id': _source,
-              'kind': 'icinga2',
-              'enabled': true,
-              'credentials': [
-                {'ref': 'token', 'type': 'bearer'},
-                {'ref': 'key', 'type': 'hmac'},
-              ],
-              'output_ids': <Object?>[],
-            },
-          ],
-        }),
-      );
+      _writeConfig(files, revision: 1, bearer: true);
       final secrets = File('${files.path}/secrets.json')
         ..writeAsStringSync(
           jsonEncode({'token': _credential(1), 'key': _credential(2)}),
         );
       await _chmod(secrets.path);
-      child = await ChildServer.startOnSharedCluster(
-        serverDir: Directory.current,
-        database: database,
-        environment: {
-          'CORRELIA_INGEST_CONFIG': '${files.path}/config.json',
-          'CORRELIA_INGEST_SECRETS': secrets.path,
-        },
-      );
-      await child.waitUntilReady();
+      child = await _start(database, files);
       connection = await Connection.open(
         Endpoint(
           host: socketHostFor(
@@ -90,9 +64,18 @@ final class _Rig {
 
   final SharedClusterDatabase database;
   final Directory files;
-  final ChildServer child;
+  ChildServer child;
   final Connection connection;
   final String binary;
+
+  /// Publishes configuration [revision] without the source's bearer
+  /// credential, as an operator revoking the token does, and restarts the
+  /// child so it applies it.
+  Future<void> revokeToken(int revision) async {
+    _writeConfig(files, revision: revision, bearer: false);
+    await tearDownChildren([child]);
+    child = await _start(database, files);
+  }
 
   /// Writes a credential file (mode 600) and returns its path.
   Future<String> credentialFile(String name, String content) async {
@@ -164,6 +147,56 @@ final class _Rig {
   }
 }
 
+/// Writes the ingest configuration: the `icinga2` source with its HMAC key
+/// and, when [bearer], its token.
+void _writeConfig(
+  Directory files, {
+  required int revision,
+  required bool bearer,
+}) {
+  File('${files.path}/config.json').writeAsStringSync(
+    jsonEncode({
+      'format_version': 2,
+      'revision': revision,
+      'outputs': <Object?>[],
+      'sources': [
+        {
+          'id': _source,
+          'kind': 'icinga2',
+          'enabled': true,
+          'credentials': [
+            if (bearer) {'ref': 'token', 'type': 'bearer'},
+            {'ref': 'key', 'type': 'hmac'},
+          ],
+          'output_ids': <Object?>[],
+        },
+      ],
+    }),
+  );
+}
+
+/// Starts a Correlia child on [database] with the configuration in [files].
+Future<ChildServer> _start(
+  SharedClusterDatabase database,
+  Directory files,
+) async {
+  final child = await ChildServer.startOnSharedCluster(
+    serverDir: Directory.current,
+    database: database,
+    environment: {
+      'CORRELIA_INGEST_CONFIG': '${files.path}/config.json',
+      'CORRELIA_INGEST_SECRETS': '${files.path}/secrets.json',
+    },
+  );
+  try {
+    await child.waitUntilReady();
+  } catch (_) {
+    await tearDownChildren([child]);
+    rethrow;
+  }
+  return child;
+}
+
 Future<void> _chmod(String path) async {
   final result = await Process.run('chmod', ['600', path]);
   expect(result.exitCode, 0);
@@ -207,21 +240,39 @@ void main() {
   test(
     'rejected_delivery',
     () async {
-      final wrong = await rig.credentialFile('wrong-token', _credential(9));
+      // The token is admitted first, so the later 401 is its revocation and
+      // not a token Correlia never knew.
+      final token = await rig.credentialFile('token', _credential(1));
       final before = await rig.count('raw_inbox');
+      final events = await rig.count('events');
+      final admitted = await _finish(
+        await rig.send(
+          port: rig.child.webPort,
+          credentialOption: '--token-file',
+          credentialPath: token,
+          lastStateChange: '1763571200.000001',
+        ),
+      );
+      expect(admitted.code, 0, reason: admitted.err);
+      expect(admitted.err, isEmpty);
+      expect(await rig.count('raw_inbox'), before + 1);
+      await rig.waitForRows('events', events + 1);
+
+      await rig.revokeToken(2);
       final result = await _finish(
         await rig.send(
           port: rig.child.webPort,
           credentialOption: '--token-file',
-          credentialPath: wrong,
+          credentialPath: token,
+          lastStateChange: '1763571200.000002',
         ),
       );
       expect(result.code, 1);
       expect(result.err, 'status 401\n');
       expect(result.out, isEmpty);
-      expect(result.err, isNot(contains(_credential(9))));
-      expect(await rig.count('raw_inbox'), before);
-      expect(await rig.count('events'), 0);
+      expect(result.err, isNot(contains(_credential(1))));
+      expect(await rig.count('raw_inbox'), before + 1);
+      expect(await rig.count('events'), events + 1);
     },
     timeout: _timeout,
   );

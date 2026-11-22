@@ -172,6 +172,102 @@ void main() {
     }
   }
 
+  /// The transition sequence scenario: every named notification type stored
+  /// one event of its kind, with the source time the evidence names, and the
+  /// alert ends resolved.
+  List<String> transitionSequence(Capture c) {
+    const kinds = {
+      'PROBLEM': 'EVENT_KIND_ALERT',
+      'ACKNOWLEDGEMENT': 'EVENT_KIND_ACK',
+      'FLAPPINGSTART': 'EVENT_KIND_STATE',
+      'FLAPPINGEND': 'EVENT_KIND_STATE',
+      'DOWNTIMESTART': 'EVENT_KIND_DOWNTIME',
+      'DOWNTIMEEND': 'EVENT_KIND_DOWNTIME',
+      'RECOVERY': 'EVENT_KIND_ALERT',
+    };
+    final out = <String>[];
+    final ds = c.admitted('captured_transition_sequence');
+    for (final MapEntry(key: type, value: kind) in kinds.entries) {
+      final stored = ds.where(
+        (d) =>
+            d.notificationType == type &&
+            d.outcome['committed'] == 1 &&
+            d.events.length == 1 &&
+            d.data()['kind'] == kind,
+      );
+      if (stored.isEmpty) out.add('no stored $type observation');
+    }
+    for (final d in ds.where((d) => d.events.isNotEmpty)) {
+      final type = d.notificationType;
+      if (type == 'PROBLEM' || type == 'RECOVERY') {
+        if (d.events.single['source_time'] !=
+            isoOf(d.body['last_state_change']! as String)) {
+          out.add('$type source time is not its state change');
+        }
+      } else if (d.data()['status'] != 'EVENT_STATUS_INFO') {
+        out.add('$type is not an informational event');
+      }
+    }
+    final states = c.of('captured_transition_sequence', 'state');
+    final alert = states.isEmpty ? null : _alert(states.last);
+    if (alert == null || alert['status'] != 'resolved') {
+      out.add('the alert does not end resolved');
+    }
+    return out;
+  }
+
+  /// The rejected delivery scenario: both wrong credentials are refused with
+  /// 401, Icinga 2 logs each failure with its status, a text and the file
+  /// path, and the log scan finds neither the marker Correlia put in its
+  /// rejection body nor any of the credentials.
+  List<String> rejectedDelivery(Capture c) {
+    const file = 'rejected_delivery_leaves_no_secret_in_icinga_2_logs';
+    final rejected = c.of(file, 'rejected');
+    final failures = c.of(file, 'command_failure');
+    final scans = c.of(file, 'secret_scan');
+    final logs = [
+      for (final f in failures)
+        if (f.json['log'] case final String log) log,
+    ];
+    return [
+      if (rejected.length != 2 || rejected.any((r) => r.status != 401))
+        'expected two 401 rejections',
+      if (failures.length != 2) 'expected two failures',
+      if (logs.length != failures.length)
+        'a failure without its Icinga 2 log line',
+      // Icinga 2's line holds the status, the texts and the file paths.
+      for (final log in logs)
+        if (!log.contains('status 401') || !log.contains('"probe"'))
+          'the failure log lacks the status or a text',
+      for (final path in ['wrong-token', 'wrong-hmac-key'])
+        if (logs
+                .where((l) => l.contains('/etc/icinga2/correlia/$path'))
+                .length !=
+            1)
+          'no single failure log names the $path file',
+      if (scans.length != 1) 'no secret scan',
+      for (final s in scans) ...[
+        if ((s.json['found']! as List<Object?>).isNotEmpty)
+          'secrets in the log: ${s.json['found']}',
+        // The rejection body's marker, the rejected senders' credentials, and
+        // each rejected header both whole and as its bare token or digest.
+        for (final name in [
+          'marker',
+          'token',
+          'hmac_key',
+          'wrong_token',
+          'wrong_hmac_key',
+          'credential_header_0',
+          'credential_value_0',
+          'credential_header_1',
+          'credential_value_1',
+        ])
+          if (!(s.json['checked']! as List<Object?>).contains(name))
+            'the scan did not check $name',
+      ],
+    ];
+  }
+
   // --- Statement and gates --------------------------------------------------
 
   test('every_capture_decodes', () {
@@ -1070,6 +1166,11 @@ void main() {
           (first['events']! as List<Object?>).single! as Map<String, Object?>;
       event['disposition'] = 'late';
       syncEvent(first);
+      // Its reminders repeat that observation, so they still decode as its
+      // duplicates.
+      for (final reminder in hostRecords(r, 'fp-runtime').skip(1)) {
+        setBody(reminder, 'last_state_change', start.toStringAsFixed(6));
+      }
     });
     expectNamed(
       evaluatePair(broken),
@@ -1086,13 +1187,24 @@ void main() {
       final reminder = hostRecords(r, 'fp-startup').last;
       setBody(reminder, 'last_state_change', '1700000001.000001');
     });
+    final failures = evaluatePair(broken);
     expectNamed(
-      evaluatePair(broken),
+      failures,
       broken,
       Gate.firstProblem,
       mentions: 'different event id',
-      only: true,
     );
+    // Counted as a duplicate, it repeats no stored observation either.
+    expectNamed(
+      failures,
+      broken,
+      Gate.decode,
+      mentions: 'a duplicate of no earlier stored observation',
+    );
+    expect(failures.map((f) => f.gate).toSet(), {
+      Gate.firstProblem,
+      Gate.decode,
+    });
   });
 
   test('reminder_accepted_without_a_committed_duplicate_outcome', () {
@@ -1330,40 +1442,34 @@ void main() {
       return out;
     });
   });
-  test('captured_transition_sequence', () {
-    eachPair((c) {
-      final out = <String>[];
-      final ds = c.admitted('captured_transition_sequence');
-      final types = [for (final d in ds) d.notificationType];
-      for (final t in [
-        'PROBLEM',
-        'ACKNOWLEDGEMENT',
-        'FLAPPINGSTART',
-        'FLAPPINGEND',
-        'DOWNTIMESTART',
-        'DOWNTIMEEND',
-        'RECOVERY',
-      ]) {
-        if (!types.contains(t)) out.add('no $t observation');
-      }
-      for (final d in ds.where((d) => d.events.isNotEmpty)) {
-        final type = d.notificationType;
-        if (type == 'PROBLEM' || type == 'RECOVERY') {
-          if (d.events.single['source_time'] !=
-              isoOf(d.body['last_state_change']! as String)) {
-            out.add('$type source time is not its state change');
-          }
-        } else if (d.data()['status'] != 'EVENT_STATUS_INFO') {
-          out.add('$type is not an informational event');
-        }
-      }
-      final states = c.of('captured_transition_sequence', 'state');
-      final alert = states.isEmpty ? null : _alert(states.last);
-      if (alert == null || alert['status'] != 'resolved') {
-        out.add('the alert does not end resolved');
-      }
-      return out;
+  test('captured_transition_sequence', () => eachPair(transitionSequence));
+  test('acknowledgement_counted_as_a_duplicate_fails_the_sequence', () {
+    // Each named type needs an observation that was stored: an
+    // acknowledgement counted as a duplicate of nothing is no acknowledgement.
+    final broken = copy();
+    edit(broken, 'captured_transition_sequence', (r) {
+      final ack = r.firstWhere(
+        (x) =>
+            x['kind'] == 'admitted' &&
+            Rec(x).notificationType == 'ACKNOWLEDGEMENT',
+      );
+      ack['events'] = <Object?>[];
+      ((ack['raw']! as Map<String, Object?>)['outcome']!
+            as Map<String, Object?>)
+        ..['committed'] = 0
+        ..['duplicate_observation'] = 1;
     });
+    expect(
+      transitionSequence(Capture(broken)),
+      contains('no stored ACKNOWLEDGEMENT observation'),
+    );
+    expectNamed(
+      evaluatePair(broken),
+      broken,
+      Gate.decode,
+      mentions: 'a duplicate of no earlier stored observation',
+      only: true,
+    );
   });
 
   // --- First problem -------------------------------------------------------------
@@ -1884,43 +1990,32 @@ void main() {
       ];
     });
   });
-  test('rejected_delivery_leaves_no_secret_in_icinga_2_logs', () {
-    eachPair((c) {
-      const file = 'rejected_delivery_leaves_no_secret_in_icinga_2_logs';
-      final rejected = c.of(file, 'rejected');
-      final scans = c.of(file, 'secret_scan');
-      return [
-        if (rejected.length != 2 || rejected.any((r) => r.status != 401))
-          'expected two 401 rejections',
-        if (c.of(file, 'command_failure').length != 2) 'expected two failures',
-        // Icinga 2's line holds the status, the texts and the file paths.
-        for (final f in c.of(file, 'command_failure'))
-          if (f.json['log'] case final String log
-              when !log.contains('status 401') ||
-                  !log.contains('"probe"') ||
-                  !log.contains('/etc/icinga2/correlia/wrong-'))
-            'the failure log lacks the status, a text or the file path',
-        if (scans.length != 1) 'no secret scan',
-        for (final s in scans) ...[
-          if ((s.json['found']! as List<Object?>).isNotEmpty)
-            'secrets in the log: ${s.json['found']}',
-          // The rejected senders' own credentials, and each rejected
-          // header both whole and as its bare token or digest.
-          for (final name in [
-            'token',
-            'hmac_key',
-            'wrong_token',
-            'wrong_hmac_key',
-            'credential_header_0',
-            'credential_value_0',
-            'credential_header_1',
-            'credential_value_1',
-          ])
-            if (!(s.json['checked']! as List<Object?>).contains(name))
-              'the scan did not check $name',
-        ],
-      ];
+  test(
+    'rejected_delivery_leaves_no_secret_in_icinga_2_logs',
+    () => eachPair(rejectedDelivery),
+  );
+  test('rejected_delivery_without_its_log_or_marker_fails', () {
+    // The scenario holds only when both of Icinga 2's failure lines were read
+    // and the scan looked for the rejection body's marker.
+    const file = 'rejected_delivery_leaves_no_secret_in_icinga_2_logs';
+    final noLog = copy();
+    edit(noLog, file, (r) {
+      r.firstWhere((x) => x['kind'] == 'command_failure').remove('log');
     });
+    expect(
+      rejectedDelivery(Capture(noLog)),
+      contains('a failure without its Icinga 2 log line'),
+    );
+    final noMarker = copy();
+    edit(noMarker, file, (r) {
+      (r.firstWhere((x) => x['kind'] == 'secret_scan')['checked']!
+              as List<Object?>)
+          .remove('marker');
+    });
+    expect(
+      rejectedDelivery(Capture(noMarker)),
+      contains('the scan did not check marker'),
+    );
   });
   test('concurrent_signed_notifications_beyond_the_cap', () {
     // The deterministic overlap is proved by the e2e test of the same name;
