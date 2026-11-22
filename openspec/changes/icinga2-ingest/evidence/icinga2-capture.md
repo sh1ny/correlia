@@ -53,7 +53,7 @@ artifact is built but not published.
 Gates: S = same-second service state, H = same-second host state, N = same-second notification time,
 C = production notification clock, D = downtime removal, F = first problem of a new object,
 202 = recorded 202 and decoded event. Judged by `correlia_server/test/unit/ingest/icinga2_versions_test.dart`
-on the committed captures (79 tests, all passing).
+on the committed captures (81 tests, all passing).
 
 | Release | Architecture | Image | Digest | Icinga 2 | S | H | N | C | D | F | 202 |
 |---|---|---|---|---|---|---|---|---|---|---|---|

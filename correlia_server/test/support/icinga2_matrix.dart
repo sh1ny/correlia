@@ -709,6 +709,28 @@ List<Rec> _hostRequests(Capture c, String file, String host) => [
     if (r.body['host'] == host) r,
 ];
 
+/// Why the alert snapshot taken after recovery [d] of [file] does not show
+/// the recovery applied: the alert resolved, with [d]'s event at its fence.
+List<String> recoveryApplied(Capture c, String file, Rec d) {
+  final after = [
+    for (final s in c.of(file, 'state'))
+      if (s.json['after'] == d.id) s,
+  ];
+  if (after case [final state]) {
+    final alert = _alertOf(state);
+    if (alert == null ||
+        alert['status'] != 'resolved' ||
+        alert['fence_event_id'] != d.eventId) {
+      return [
+        'alert after the recovery is ${alert?['status']} at '
+            '${alert?['fence_event_id']}, not resolved at ${d.eventId}',
+      ];
+    }
+    return const [];
+  }
+  return ['no single alert snapshot after the recovery (${after.length})'];
+}
+
 /// The startup and runtime hosts of the first-problem gate.
 List<String> firstProblemHosts(Capture c) {
   final out = <String>[];
@@ -991,6 +1013,33 @@ List<String> gateDelivery(Capture c) {
     if (d.raw['status'] != 'done') out.add('${d.auth} row is not done');
     if (d.events.length != 1) {
       out.add('${d.auth} delivery has no decoded event');
+    }
+  }
+  // Each mode delivered the service state change its step made: the HARD
+  // CRITICAL PROBLEM of its own service, stored as one firing event.
+  for (final (mode, service) in [('bearer', 'auth1'), ('hmac', 'auth2')]) {
+    final of = [
+      for (final d in admitted)
+        if (d.auth == mode) d,
+    ];
+    if (of case [final d]) {
+      final b = d.body;
+      if (b['object_type'] != 'service' ||
+          b['service'] != service ||
+          b['state'] != 'CRITICAL' ||
+          b['state_type'] != 'HARD' ||
+          b['notification_type'] != 'PROBLEM') {
+        out.add(
+          '$mode delivery is ${b['notification_type']} '
+          '${b['state_type']} ${b['state']} for ${b['service']}, not the '
+          'HARD CRITICAL PROBLEM of $service',
+        );
+      }
+      if (d.events.length == 1 && d.data()['status'] != 'EVENT_STATUS_FIRING') {
+        out.add('$mode delivery stored a ${d.data()['status']} event');
+      }
+    } else {
+      out.add('$mode delivery: expected one, found ${of.length}');
     }
   }
   return out;
@@ -1343,8 +1392,9 @@ Qualification qualifiedBundles(List<Pair> pairs) {
 /// artifact behind. With nothing qualified, or a built sender or a definition
 /// that differs from the captured bundle, a [StateError] says so and nothing
 /// is published: the webhook contract is not shipped without a qualified
-/// pair. The bundle is assembled in `<release>.staging` and renamed into
-/// place only once every file is copied ([copy] is a test seam). Returns the
+/// pair. The bundle is assembled in `<release>.staging`, checked again there,
+/// and renamed into place only when the staged files are the captured bundle
+/// ([copy] is a test seam). Returns the
 /// published architectures in build order.
 List<String> publishSenders({
   required Directory build,
@@ -1388,6 +1438,20 @@ List<String> publishSenders({
       ..createSync(recursive: true);
     for (final file in contrib.listSync().whereType<File>()) {
       copy(file, '${definitions.path}/${file.uri.pathSegments.last}');
+    }
+    // The staged bytes are what ships, so they are what must be the bundle:
+    // a file replaced after the check above is refused here.
+    for (final architecture in sources.keys) {
+      final staged = Bundle.current(
+        File('${staging.path}/$architecture/$senderFileName'),
+        definitions,
+      );
+      if (staged != qualified[architecture]) {
+        throw StateError(
+          'the staged $architecture bundle ($staged) is not the bundle its '
+          'listed captures ran (${qualified[architecture]})',
+        );
+      }
     }
     staging.renameSync(release.path);
   } finally {

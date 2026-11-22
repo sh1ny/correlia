@@ -294,6 +294,48 @@ void main() {
     }
   });
 
+  test('file_changed_during_publication_is_not_published', () {
+    // The publisher checks the bytes it staged, not only the files it read
+    // first: a sender or definition replaced in between is refused.
+    for (final changed in [senderFileName, 'correlia-commands.conf']) {
+      final w = workspace();
+      final qualified = {
+        'linux-x64': Bundle.current(
+          File('${w.build.path}/linux-x64/$senderFileName'),
+          w.contrib,
+        ),
+      };
+      expect(
+        () => publishSenders(
+          build: w.build,
+          contrib: w.contrib,
+          release: w.release,
+          qualified: qualified,
+          copy: (from, to) {
+            from.copySync(to);
+            if (to.endsWith('/$changed')) {
+              File(to).writeAsStringSync('replaced');
+            }
+          },
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('staged'),
+          ),
+        ),
+        reason: changed,
+      );
+      expect(w.release.existsSync(), isFalse, reason: changed);
+      expect(
+        w.release.parent.listSync().map((e) => e.uri.pathSegments.last),
+        isNot(contains(startsWith('release'))),
+        reason: changed,
+      );
+    }
+  });
+
   test('failed_copy_leaves_no_partial_bundle', () {
     // The bundle is assembled beside the release directory and moved into
     // place whole, so a copy that fails part way publishes nothing.
@@ -667,6 +709,33 @@ void main() {
       mentions: 'object_type service, not host',
       only: true,
     );
+  });
+
+  test('auth_mode_delivery_must_be_the_service_problem', () {
+    // A coherent capture of another notification (a CUSTOM, a host, another
+    // service) in either mode's place is not the required state change.
+    for (final (mode, key, value) in [
+      ('hmac', 'notification_type', 'CUSTOM'),
+      ('bearer', 'service', 'auth2'),
+      ('hmac', 'state_type', 'SOFT'),
+    ]) {
+      final broken = copy();
+      edit(broken, 'notification_from_a_real_icinga_2_in_both_auth_modes', (
+        r,
+      ) {
+        final d = r.firstWhere(
+          (x) => x['kind'] == 'admitted' && x['auth'] == mode,
+        );
+        setBody(d, key, value);
+        syncEvent(d);
+      });
+      expectNamed(
+        evaluatePair(broken),
+        broken,
+        Gate.delivery,
+        mentions: '$mode delivery',
+      );
+    }
   });
 
   test('reminder_reusing_an_earlier_raw_row_fails_its_gate', () {
@@ -1407,6 +1476,7 @@ void main() {
           'cut text',
         if (!text.endsWith(truncationMarker)) 'no marker',
         if (d.data()['status'] != 'EVENT_STATUS_RESOLVED') 'not resolved',
+        ...recoveryApplied(c, 'recovery_output_with_dollar_signs', d),
       ];
     });
   });
@@ -1423,6 +1493,7 @@ void main() {
         if ('�'.allMatches(text).length > 1) 'more than one U+FFFD',
         if (body.contains('�') && !body.endsWith('�')) 'U+FFFD inside',
         if (d.data()['status'] != 'EVENT_STATUS_RESOLVED') 'not resolved',
+        ...recoveryApplied(c, 'multibyte_character_across_the_cut', d),
       ];
     });
   });

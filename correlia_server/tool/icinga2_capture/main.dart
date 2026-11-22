@@ -94,6 +94,18 @@ Future<void> main(List<String> arguments) async {
       stderr.writeln('incomplete selection: ${missing.join('; ')}');
       exit(2);
     }
+    // A partial run only refreshes scenarios of the complete run it extends,
+    // each of which left its evidence file; a misspelled name would match no
+    // scenario and leave the run looking successful.
+    final unknown = [
+      for (final name in only)
+        if (name == 'manifest' || !File('${out.path}/$name.json').existsSync())
+          name,
+    ]..sort();
+    if (unknown.isNotEmpty) {
+      stderr.writeln('unknown scenarios: ${unknown.join(', ')}');
+      exit(2);
+    }
     final file = File('${out.path}/manifest.json');
     final previous = file.existsSync()
         ? jsonDecode(file.readAsStringSync()) as Map<String, Object?>
