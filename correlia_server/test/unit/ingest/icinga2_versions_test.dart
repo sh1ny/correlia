@@ -452,6 +452,37 @@ void main() {
     );
   });
 
+  test('decoded_notification_time_must_be_the_known_input', () {
+    final broken = copy();
+    edit(broken, 'production_notification_clock_keeps_microseconds', (r) {
+      // The wire text stays the known input; the committed event of that
+      // CUSTOM notification is a microsecond later.
+      final known = r.firstWhere(
+        (x) =>
+            x['kind'] == 'known' &&
+            x['command'] == 'correlia-service' &&
+            x['field'] == 'notification_time',
+      );
+      final delivery = r.firstWhere(
+        (x) => x['kind'] == 'admitted' && x['id'] == known['delivery'],
+      );
+      final event =
+          (delivery['events']! as List<Object?>).single!
+              as Map<String, Object?>;
+      final time = event['source_time']! as String;
+      event['source_time'] = time.replaceFirstMapped(
+        RegExp(r'\.(\d{6})Z$'),
+        (m) => '.${(int.parse(m[1]!) + 1).toString().padLeft(6, '0')}Z',
+      );
+    });
+    expectNamed(
+      evaluatePair(broken),
+      broken,
+      Gate.clock,
+      mentions: 'correlia-service notification_time: committed input',
+    );
+  });
+
   test('gate_evidence_present_but_failing', () {
     final broken = copy();
     edit(broken, 'two_problems_within_one_second', (r) {
@@ -1388,7 +1419,7 @@ void main() {
     Capture c,
     String file,
     List<String> arguments, {
-    bool scan = false,
+    List<String> scanned = const [],
   }) {
     final failures = c.of(file, 'command_failure');
     final out = <String>[];
@@ -1407,8 +1438,18 @@ void main() {
       }
     }
     if (c.requests(file).isNotEmpty) out.add('a request was made');
-    if (scan) {
-      for (final s in c.of(file, 'secret_scan')) {
+    // A scenario that keeps a credential out of argv and the log proves it
+    // with one scan that names each of [scanned] and found none of them.
+    if (scanned.isNotEmpty) {
+      final scans = c.of(file, 'secret_scan');
+      if (scans.length != 1) {
+        out.add('expected one secret scan, found ${scans.length}');
+      }
+      for (final s in scans) {
+        final checked = s.json['checked']! as List<Object?>;
+        for (final name in scanned) {
+          if (!checked.contains(name)) out.add('the scan did not check $name');
+        }
         if ((s.json['found']! as List<Object?>).isNotEmpty) {
           out.add('a secret reached the log: ${s.json['found']}');
         }
@@ -1416,6 +1457,26 @@ void main() {
     }
     return out;
   }
+
+  test('a_refusal_scenario_without_its_scan_fails', () {
+    final broken = copy();
+    for (final (file, name) in [
+      ('base_url_carrying_a_credential', 'secret'),
+      ('multiline_settings', 'SECRET-MARKER'),
+      ('source_that_is_not_a_uuid', 'token'),
+    ]) {
+      edit(
+        broken,
+        file,
+        (r) => r.removeWhere((x) => x['kind'] == 'secret_scan'),
+      );
+      expect(
+        refusals(Capture(broken), file, const [], scanned: [name]),
+        contains('expected one secret scan, found 0'),
+        reason: file,
+      );
+    }
+  });
 
   test('setting_not_deliverable_exactly', () {
     eachPair((c) {
@@ -1519,24 +1580,39 @@ void main() {
   });
   test('base_url_carrying_a_credential', () {
     eachPair(
-      (c) => refusals(c, 'base_url_carrying_a_credential', [
-        '--base-url',
-        '--base-url',
-        '--base-url',
-      ], scan: true),
+      (c) => refusals(
+        c,
+        'base_url_carrying_a_credential',
+        [
+          '--base-url',
+          '--base-url',
+          '--base-url',
+        ],
+        scanned: ['secret'],
+      ),
     );
   });
   test('multiline_settings', () {
     eachPair(
-      (c) => refusals(c, 'multiline_settings', [
-        '--base-url',
-        '--source',
-      ], scan: true),
+      (c) => refusals(
+        c,
+        'multiline_settings',
+        [
+          '--base-url',
+          '--source',
+        ],
+        scanned: ['SECRET-MARKER'],
+      ),
     );
   });
   test('source_that_is_not_a_uuid', () {
     eachPair(
-      (c) => refusals(c, 'source_that_is_not_a_uuid', ['--source'], scan: true),
+      (c) => refusals(
+        c,
+        'source_that_is_not_a_uuid',
+        ['--source'],
+        scanned: ['token'],
+      ),
     );
   });
   test('macro_text_in_a_setting_is_literal', () {

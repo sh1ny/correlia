@@ -96,8 +96,8 @@ depends = ["setup"]
 description = "Compile the Icinga 2 notification sender for linux-x64 and linux-arm64 into build/icinga2-notify/"
 run = [
   "install -d build/icinga2-notify/linux-x64 build/icinga2-notify/linux-arm64",
-  "dart compile exe --target-os linux --target-arch x64 -o build/icinga2-notify/linux-x64/correlia-icinga2-notify correlia_icinga2_notify/bin/main.dart",
-  "dart compile exe --target-os linux --target-arch arm64 -o build/icinga2-notify/linux-arm64/correlia-icinga2-notify correlia_icinga2_notify/bin/main.dart",
+  "tool/build_icinga2_notify.sh correlia_icinga2_notify x64 build/icinga2-notify/linux-x64/correlia-icinga2-notify",
+  "tool/build_icinga2_notify.sh correlia_icinga2_notify arm64 build/icinga2-notify/linux-arm64/correlia-icinga2-notify",
 ]
 
 [tasks."release:icinga2-notify"]

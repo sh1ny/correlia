@@ -10,8 +10,8 @@
       "exit_status": 2,
       "output_bytes": 38,
       "output": "CRITICAL: first\nsecond line\nthird line",
-      "execution_end": "1795339965.100001",
-      "accepted_us": 1795339965489310
+      "execution_end": "1795346318.100001",
+      "accepted_us": 1795346318195166
     },
     {
       "kind": "admitted",
@@ -19,14 +19,14 @@
       "auth": "bearer",
       "request": {
         "path": "/hooks/icinga2/33333333-3333-4333-8333-333333333333",
-        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"recov1\",\"state\":\"CRITICAL\",\"state_type\":\"HARD\",\"last_state_change\":\"1795339965.100001\",\"output\":\"CRITICAL: first\\nsecond line\\nthird line\",\"notification_type\":\"PROBLEM\",\"notification_time\":\"1795339965.449189\"}",
-        "body_sha256": "d3d5de24d311bb5fb4811b45c9db752dc2759824b94f1fa63ce1f6718f7e3a57",
+        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"recov1\",\"state\":\"CRITICAL\",\"state_type\":\"HARD\",\"last_state_change\":\"1795346318.100001\",\"output\":\"CRITICAL: first\\nsecond line\\nthird line\",\"notification_type\":\"PROBLEM\",\"notification_time\":\"1795346318.152038\"}",
+        "body_sha256": "c06b9e765f7d233c39789a8c2f2f24907fb73bc513762bef557218649e6636e6",
         "body_size": 289
       },
       "response_status": 202,
       "raw": {
-        "id": "16d181e4-fdfc-4335-869b-ea936efb88bc",
-        "body_sha256": "d3d5de24d311bb5fb4811b45c9db752dc2759824b94f1fa63ce1f6718f7e3a57",
+        "id": "911fba34-5298-48cd-9488-b8a9301c968d",
+        "body_sha256": "c06b9e765f7d233c39789a8c2f2f24907fb73bc513762bef557218649e6636e6",
         "status": "done",
         "outcome": {
           "upstream_omitted": 0,
@@ -48,10 +48,10 @@
         {
           "disposition": "ready",
           "state_outcome": "applied",
-          "source_time": "2026-11-22T09:32:45.100001Z",
+          "source_time": "2026-11-22T11:18:38.100001Z",
           "cloud_event": {
             "specversion": "1.0",
-            "id": "c7e9f4c6-fd92-5ab1-b0b1-2c182263f2ed",
+            "id": "a690c777-0488-5128-82ff-8ae552da4c50",
             "source": "urn:correlia:source:33333333-3333-4333-8333-333333333333",
             "type": "io.correlia.alert.v1",
             "datacontenttype": "application/json",
@@ -59,9 +59,9 @@
             "subject": "9b8893ca86d3dda59fb72027de12c9f69ace21f8fca84dfe816d0d5b00dc918f",
             "partitionkey": "9b8893ca86d3dda59fb72027de12c9f69ace21f8fca84dfe816d0d5b00dc918f",
             "correliatenant": "default",
-            "time": "2026-11-22T09:32:45.100001Z",
+            "time": "2026-11-22T11:18:38.100001Z",
             "data": {
-              "event_id": "c7e9f4c6-fd92-5ab1-b0b1-2c182263f2ed",
+              "event_id": "a690c777-0488-5128-82ff-8ae552da4c50",
               "fingerprint": "9b8893ca86d3dda59fb72027de12c9f69ace21f8fca84dfe816d0d5b00dc918f",
               "tenant": "default",
               "namespace": "33333333-3333-4333-8333-333333333333",
@@ -81,17 +81,17 @@
               "annotations": {
                 "icinga2.notification_type": "PROBLEM"
               },
-              "source_time": "2026-11-22T09:32:45.100001Z",
-              "reported_source_time": "2026-11-22T09:32:45.100001Z",
-              "observed_at": "2026-11-22T09:32:45.471934Z",
-              "processed_at": "2026-11-22T09:32:45.548Z",
+              "source_time": "2026-11-22T11:18:38.100001Z",
+              "reported_source_time": "2026-11-22T11:18:38.100001Z",
+              "observed_at": "2026-11-22T11:18:38.157844Z",
+              "processed_at": "2026-11-22T11:18:38.365638Z",
               "raw": {
-                "ref": "raw:2026-11-22T09:32:45.471934Z/16d181e4-fdfc-4335-869b-ea936efb88bc",
-                "sha256": "d3d5de24d311bb5fb4811b45c9db752dc2759824b94f1fa63ce1f6718f7e3a57",
+                "ref": "raw:2026-11-22T11:18:38.157844Z/911fba34-5298-48cd-9488-b8a9301c968d",
+                "sha256": "c06b9e765f7d233c39789a8c2f2f24907fb73bc513762bef557218649e6636e6",
                 "size": 289
               },
               "pipeline": {
-                "version": "92552c7b44f28885aa15aa0d80e2f1c94154309d7da6f05c59d020300347f425",
+                "version": "fc7993efab671b968a1cd1dc83f3709be98a95b37befea4102dd3ddfcc8416a8",
                 "generation": 0
               },
               "extensions": {},
@@ -103,7 +103,7 @@
                   "raw": "recov1"
                 }
               },
-              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAADsAWyJpY2luZ2EyLm5vdGlmeS52MSIsIkNSSVRJQ0FMIiwiSEFSRCIsIjE3OTUzMzk5NjUxMDAwMDEiXQ=="
+              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAADsAWyJpY2luZ2EyLm5vdGlmeS52MSIsIkNSSVRJQ0FMIiwiSEFSRCIsIjE3OTUzNDYzMTgxMDAwMDEiXQ=="
             }
           },
           "outbox": [
@@ -126,8 +126,8 @@
         "status": "firing",
         "severity": "critical",
         "version": 1,
-        "fence_event_id": "c7e9f4c6-fd92-5ab1-b0b1-2c182263f2ed",
-        "fence_effective_seconds": 1795339965,
+        "fence_event_id": "a690c777-0488-5128-82ff-8ae552da4c50",
+        "fence_effective_seconds": 1795346318,
         "fence_effective_nanos": 100001000,
         "summary": "lab!recov1 CRITICAL"
       },
@@ -149,8 +149,8 @@
       "exit_status": 0,
       "output_bytes": 32,
       "output": "OK: first\nsecond line\nthird line",
-      "execution_end": "1795339965.600002",
-      "accepted_us": 1795339965713339
+      "execution_end": "1795346318.600002",
+      "accepted_us": 1795346318463110
     },
     {
       "kind": "admitted",
@@ -158,14 +158,14 @@
       "auth": "bearer",
       "request": {
         "path": "/hooks/icinga2/33333333-3333-4333-8333-333333333333",
-        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"recov1\",\"state\":\"OK\",\"state_type\":\"HARD\",\"last_state_change\":\"1795339965.600002\",\"output\":\"OK: first\\nsecond line\\nthird line\",\"notification_type\":\"RECOVERY\",\"notification_time\":\"1795339965.671348\"}",
-        "body_sha256": "95bd26901b3534dfc697dce4c21c94f21a230364af3c4f6afd043b4baafcb2ee",
+        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"recov1\",\"state\":\"OK\",\"state_type\":\"HARD\",\"last_state_change\":\"1795346318.600002\",\"output\":\"OK: first\\nsecond line\\nthird line\",\"notification_type\":\"RECOVERY\",\"notification_time\":\"1795346318.423201\"}",
+        "body_sha256": "101d60d50b2241f07352bf006d99a508552532bd6d2a3c34e463c5385119ce79",
         "body_size": 278
       },
       "response_status": 202,
       "raw": {
-        "id": "836bc633-ac7e-49a9-8dfd-f0b96d618fa3",
-        "body_sha256": "95bd26901b3534dfc697dce4c21c94f21a230364af3c4f6afd043b4baafcb2ee",
+        "id": "0e526ae6-f93c-4c44-bdaa-87c19111d658",
+        "body_sha256": "101d60d50b2241f07352bf006d99a508552532bd6d2a3c34e463c5385119ce79",
         "status": "done",
         "outcome": {
           "upstream_omitted": 0,
@@ -187,10 +187,10 @@
         {
           "disposition": "ready",
           "state_outcome": "applied",
-          "source_time": "2026-11-22T09:32:45.600002Z",
+          "source_time": "2026-11-22T11:18:38.600002Z",
           "cloud_event": {
             "specversion": "1.0",
-            "id": "be04cbd7-c3ea-59f4-95a9-1dfe1f95fab1",
+            "id": "1c3c2aeb-717b-5997-be2f-0194b4503d06",
             "source": "urn:correlia:source:33333333-3333-4333-8333-333333333333",
             "type": "io.correlia.alert.v1",
             "datacontenttype": "application/json",
@@ -198,9 +198,9 @@
             "subject": "9b8893ca86d3dda59fb72027de12c9f69ace21f8fca84dfe816d0d5b00dc918f",
             "partitionkey": "9b8893ca86d3dda59fb72027de12c9f69ace21f8fca84dfe816d0d5b00dc918f",
             "correliatenant": "default",
-            "time": "2026-11-22T09:32:45.600002Z",
+            "time": "2026-11-22T11:18:38.600002Z",
             "data": {
-              "event_id": "be04cbd7-c3ea-59f4-95a9-1dfe1f95fab1",
+              "event_id": "1c3c2aeb-717b-5997-be2f-0194b4503d06",
               "fingerprint": "9b8893ca86d3dda59fb72027de12c9f69ace21f8fca84dfe816d0d5b00dc918f",
               "tenant": "default",
               "namespace": "33333333-3333-4333-8333-333333333333",
@@ -220,17 +220,17 @@
               "annotations": {
                 "icinga2.notification_type": "RECOVERY"
               },
-              "source_time": "2026-11-22T09:32:45.600002Z",
-              "reported_source_time": "2026-11-22T09:32:45.600002Z",
-              "observed_at": "2026-11-22T09:32:45.680823Z",
-              "processed_at": "2026-11-22T09:32:45.840568Z",
+              "source_time": "2026-11-22T11:18:38.600002Z",
+              "reported_source_time": "2026-11-22T11:18:38.600002Z",
+              "observed_at": "2026-11-22T11:18:38.428426Z",
+              "processed_at": "2026-11-22T11:18:38.631187Z",
               "raw": {
-                "ref": "raw:2026-11-22T09:32:45.680823Z/836bc633-ac7e-49a9-8dfd-f0b96d618fa3",
-                "sha256": "95bd26901b3534dfc697dce4c21c94f21a230364af3c4f6afd043b4baafcb2ee",
+                "ref": "raw:2026-11-22T11:18:38.428426Z/0e526ae6-f93c-4c44-bdaa-87c19111d658",
+                "sha256": "101d60d50b2241f07352bf006d99a508552532bd6d2a3c34e463c5385119ce79",
                 "size": 278
               },
               "pipeline": {
-                "version": "92552c7b44f28885aa15aa0d80e2f1c94154309d7da6f05c59d020300347f425",
+                "version": "fc7993efab671b968a1cd1dc83f3709be98a95b37befea4102dd3ddfcc8416a8",
                 "generation": 0
               },
               "extensions": {},
@@ -242,7 +242,7 @@
                   "raw": "recov1"
                 }
               },
-              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAADUAWyJpY2luZ2EyLm5vdGlmeS52MSIsIk9LIiwiSEFSRCIsIjE3OTUzMzk5NjU2MDAwMDIiXQ=="
+              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAADUAWyJpY2luZ2EyLm5vdGlmeS52MSIsIk9LIiwiSEFSRCIsIjE3OTUzNDYzMTg2MDAwMDIiXQ=="
             }
           },
           "outbox": [
@@ -265,8 +265,8 @@
         "status": "resolved",
         "severity": "info",
         "version": 2,
-        "fence_event_id": "be04cbd7-c3ea-59f4-95a9-1dfe1f95fab1",
-        "fence_effective_seconds": 1795339965,
+        "fence_event_id": "1c3c2aeb-717b-5997-be2f-0194b4503d06",
+        "fence_effective_seconds": 1795346318,
         "fence_effective_nanos": 600002000,
         "summary": "lab!recov1 OK"
       },
@@ -287,14 +287,14 @@
       "auth": "bearer",
       "request": {
         "path": "/hooks/icinga2/33333333-3333-4333-8333-333333333333",
-        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"unchecked\",\"state\":\"UNKNOWN\",\"state_type\":\"SOFT\",\"notification_type\":\"CUSTOM\",\"notification_author\":\"operator\",\"notification_comment\":\"no result yet\",\"notification_time\":\"1795339965.942789\"}",
-        "body_sha256": "463376b15a5ed2f08cd3ef6a3c4dd83f9e9febb1fa293afe16e1b08dc50af0fb",
+        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"unchecked\",\"state\":\"UNKNOWN\",\"state_type\":\"SOFT\",\"notification_type\":\"CUSTOM\",\"notification_author\":\"operator\",\"notification_comment\":\"no result yet\",\"notification_time\":\"1795346318.693322\"}",
+        "body_sha256": "18a3dba4bed6e22881f42e9d308613c4718b5d22c011e17f3c735a3b8051650b",
         "body_size": 270
       },
       "response_status": 202,
       "raw": {
-        "id": "d7caa9b0-4bfb-4a53-bbd3-98bd51407128",
-        "body_sha256": "463376b15a5ed2f08cd3ef6a3c4dd83f9e9febb1fa293afe16e1b08dc50af0fb",
+        "id": "35f92837-16d0-42ee-8887-e358334ce467",
+        "body_sha256": "18a3dba4bed6e22881f42e9d308613c4718b5d22c011e17f3c735a3b8051650b",
         "status": "done",
         "outcome": {
           "upstream_omitted": 0,
@@ -316,10 +316,10 @@
         {
           "disposition": "ready",
           "state_outcome": null,
-          "source_time": "2026-11-22T09:32:45.942789Z",
+          "source_time": "2026-11-22T11:18:38.693322Z",
           "cloud_event": {
             "specversion": "1.0",
-            "id": "bc3f223a-d6a8-54a4-8b87-81cfbd0b53bf",
+            "id": "2c19a5ac-7c52-5dc9-85b0-e4522c92b14b",
             "source": "urn:correlia:source:33333333-3333-4333-8333-333333333333",
             "type": "io.correlia.comment.v1",
             "datacontenttype": "application/json",
@@ -327,9 +327,9 @@
             "subject": "4b8f9af4d6f785c839c77f0487df76dcae4b68d525f01970ceece1ba441a0c7e",
             "partitionkey": "4b8f9af4d6f785c839c77f0487df76dcae4b68d525f01970ceece1ba441a0c7e",
             "correliatenant": "default",
-            "time": "2026-11-22T09:32:45.942789Z",
+            "time": "2026-11-22T11:18:38.693322Z",
             "data": {
-              "event_id": "bc3f223a-d6a8-54a4-8b87-81cfbd0b53bf",
+              "event_id": "2c19a5ac-7c52-5dc9-85b0-e4522c92b14b",
               "fingerprint": "4b8f9af4d6f785c839c77f0487df76dcae4b68d525f01970ceece1ba441a0c7e",
               "tenant": "default",
               "namespace": "33333333-3333-4333-8333-333333333333",
@@ -350,17 +350,17 @@
                 "icinga2.notification_type": "CUSTOM",
                 "icinga2.notification_author": "operator"
               },
-              "source_time": "2026-11-22T09:32:45.942789Z",
-              "reported_source_time": "2026-11-22T09:32:45.942789Z",
-              "observed_at": "2026-11-22T09:32:45.952382Z",
-              "processed_at": "2026-11-22T09:32:46.132476Z",
+              "source_time": "2026-11-22T11:18:38.693322Z",
+              "reported_source_time": "2026-11-22T11:18:38.693322Z",
+              "observed_at": "2026-11-22T11:18:38.698632Z",
+              "processed_at": "2026-11-22T11:18:38.895272Z",
               "raw": {
-                "ref": "raw:2026-11-22T09:32:45.952382Z/d7caa9b0-4bfb-4a53-bbd3-98bd51407128",
-                "sha256": "463376b15a5ed2f08cd3ef6a3c4dd83f9e9febb1fa293afe16e1b08dc50af0fb",
+                "ref": "raw:2026-11-22T11:18:38.698632Z/35f92837-16d0-42ee-8887-e358334ce467",
+                "sha256": "18a3dba4bed6e22881f42e9d308613c4718b5d22c011e17f3c735a3b8051650b",
                 "size": 270
               },
               "pipeline": {
-                "version": "92552c7b44f28885aa15aa0d80e2f1c94154309d7da6f05c59d020300347f425",
+                "version": "fc7993efab671b968a1cd1dc83f3709be98a95b37befea4102dd3ddfcc8416a8",
                 "generation": 0
               },
               "extensions": {},
@@ -372,7 +372,7 @@
                   "raw": "unchecked"
                 }
               },
-              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAAEQAWyJpY2luZ2EyLm5vdGlmeS5DVVNUT00udjEiLCJDVVNUT00iLCIxNzk1MzM5OTY1OTQyNzg5Iiwib3BlcmF0b3IiXQ=="
+              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAAEQAWyJpY2luZ2EyLm5vdGlmeS5DVVNUT00udjEiLCJDVVNUT00iLCIxNzk1MzQ2MzE4NjkzMzIyIiwib3BlcmF0b3IiXQ=="
             }
           },
           "outbox": [

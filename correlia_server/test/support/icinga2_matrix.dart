@@ -565,8 +565,17 @@ List<String> gateClock(Capture c) {
       out.add('$command $field: committed input $value, delivered $seen');
       continue;
     }
-    if (field == 'last_state_change') {
-      final decoded = d.events.single['source_time'];
+    // The committed event's source time is the known input itself, for the
+    // state change of a PROBLEM and the notification time of a CUSTOM alike,
+    // in the stored event and in the published canonical event.
+    if (d.events.length != 1) {
+      out.add('$command $field: delivery ${d.id} committed no single event');
+      continue;
+    }
+    for (final decoded in [
+      d.events.single['source_time'],
+      d.data()['source_time'],
+    ]) {
       if (decoded != isoOf(value)) {
         out.add(
           '$command $field: committed input $value decodes to $decoded',

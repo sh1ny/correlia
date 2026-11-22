@@ -4,6 +4,7 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:test/test.dart';
 
 /// Compiles the sender into [into] and returns the binary's path.
@@ -86,5 +87,33 @@ void main() {
     }
     probe.destroy();
     expect(accepted, hasLength(1), reason: 'only the probe connected');
+  }, timeout: const Timeout(Duration(minutes: 3)));
+
+  test('build_is_independent_of_the_checkout_path', () async {
+    // The release task publishes a rebuild only when its hash is the one the
+    // captures ran, so two checkouts at different paths must build the same
+    // bytes. Each copy holds the sender package next to the workspace lock.
+    final root = Directory.systemTemp.createTempSync('notify-checkouts');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final hashes = <String>[];
+    for (final checkout in ['one', 'another/place/deeper']) {
+      final package = Directory(
+        '${root.path}/$checkout/correlia_icinga2_notify',
+      )..createSync(recursive: true);
+      for (final entry in ['bin', 'lib', 'pubspec.yaml']) {
+        final copied = await Process.run('cp', ['-R', entry, package.path]);
+        expect(copied.exitCode, 0, reason: '${copied.stderr}');
+      }
+      File('../pubspec.lock').copySync('${package.parent.path}/pubspec.lock');
+      final output = '${root.path}/$checkout.bin';
+      final built = await Process.run('../tool/build_icinga2_notify.sh', [
+        package.path,
+        'x64',
+        output,
+      ]);
+      expect(built.exitCode, 0, reason: '${built.stdout}${built.stderr}');
+      hashes.add(sha256.convert(File(output).readAsBytesSync()).toString());
+    }
+    expect(hashes[1], hashes[0]);
   }, timeout: const Timeout(Duration(minutes: 3)));
 }

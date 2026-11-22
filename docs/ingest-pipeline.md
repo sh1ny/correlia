@@ -499,6 +499,12 @@ exactly that bundle; recapturing one listed release with a new sender or changed
 architecture until every listed release of it is recaptured. With no qualified pair it publishes nothing and fails. linux-arm64 has no captured pair yet, so its build is not
 published.
 
+The build (`tool/build_icinga2_notify.sh`) compiles a copy of the sender package at the fixed path
+`/tmp/correlia-icinga2-notify-build`, resolved offline against the workspace lock file, because `dart compile exe`
+embeds the absolute path of its entry point. A checkout at any path therefore builds the same bytes, and the release
+task can match them against the captures. One build runs at a time; an interrupted one leaves that directory, which
+the next build names and refuses until it is removed.
+
 <!-- icinga2-supported-releases:begin -->
 | Release | Architecture |
 |---|---|
