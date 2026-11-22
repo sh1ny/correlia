@@ -112,6 +112,26 @@ void main() {
     }
   }
 
+  var rawRows = 0;
+
+  /// Gives a copied admitted [record] a raw row of its own, which its stored
+  /// events name, as a separately admitted request would have.
+  void newRawRow(Map<String, Object?> record) {
+    final raw = record['raw']! as Map<String, Object?>;
+    final old = raw['id']! as String;
+    final id =
+        '00000000-0000-4000-8000-${(++rawRows).toString().padLeft(12, '0')}';
+    raw['id'] = id;
+    for (final e in (record['events'] as List<Object?>?) ?? const []) {
+      final data =
+          ((e! as Map<String, Object?>)['cloud_event']!
+                  as Map<String, Object?>)['data']!
+              as Map<String, Object?>;
+      final ref = data['raw']! as Map<String, Object?>;
+      ref['ref'] = (ref['ref']! as String).replaceFirst(old, id);
+    }
+  }
+
   /// Makes [record]'s stored event the observation its (edited) body
   /// decodes to, so synthetic evidence stays coherent for the decode gate.
   void syncEvent(Map<String, Object?> record) {
@@ -235,6 +255,38 @@ void main() {
     );
     expect(stale.existsSync(), isFalse);
     expect(w.release.existsSync(), isFalse);
+  });
+
+  test('failed_copy_leaves_no_partial_bundle', () {
+    // The bundle is assembled beside the release directory and moved into
+    // place whole, so a copy that fails part way publishes nothing.
+    final w = workspace();
+    final qualified = {
+      'linux-x64': Bundle.current(
+        File('${w.build.path}/linux-x64/$senderFileName'),
+        w.contrib,
+      ),
+    };
+    var copies = 0;
+    expect(
+      () => publishSenders(
+        build: w.build,
+        contrib: w.contrib,
+        release: w.release,
+        qualified: qualified,
+        copy: (from, to) {
+          if (++copies == 2) throw const FileSystemException('disk full');
+          from.copySync(to);
+        },
+      ),
+      throwsA(isA<FileSystemException>()),
+    );
+    expect(copies, 2);
+    expect(w.release.existsSync(), isFalse);
+    expect(
+      w.release.parent.listSync().map((e) => e.uri.pathSegments.last),
+      isNot(contains(startsWith('release'))),
+    );
   });
 
   test('only_one_architecture_qualifies', () {
@@ -567,6 +619,9 @@ void main() {
       r
         ..clear()
         ..addAll([for (final x in service) x.json]);
+      for (final x in r) {
+        if (x['kind'] == 'admitted') newRawRow(x);
+      }
     });
     expectNamed(
       evaluatePair(broken),
@@ -574,6 +629,31 @@ void main() {
       Gate.host,
       mentions: 'object_type service, not host',
       only: true,
+    );
+  });
+
+  test('reminder_reusing_an_earlier_raw_row_fails_its_gate', () {
+    // Each reminder's 202 admitted a raw row of its own, which committed the
+    // duplicate observation; a reminder that names the first delivery's row
+    // proves no reminder was newly admitted.
+    final broken = copy();
+    edit(broken, 'first_check_result_of_a_new_host_is_down', (r) {
+      final admitted = r.where((x) => x['kind'] == 'admitted').toList();
+      final first = admitted.first['raw']! as Map<String, Object?>;
+      final reminder = admitted[1]['raw']! as Map<String, Object?>;
+      reminder['id'] = first['id'];
+    });
+    expectNamed(
+      evaluatePair(broken),
+      broken,
+      Gate.firstProblem,
+      mentions: 'names an earlier raw row',
+    );
+    expectNamed(
+      evaluatePair(broken),
+      broken,
+      Gate.decode,
+      mentions: 'raw row',
     );
   });
 
@@ -954,6 +1034,7 @@ void main() {
       )['execution_end'];
       setBody(second, 'last_state_change', secondEnd);
       syncEvent(second);
+      newRawRow(second);
       r.insert(r.indexOf(reminder), second);
       setBody(reminder, 'last_state_change', secondEnd);
       final states = r.where(

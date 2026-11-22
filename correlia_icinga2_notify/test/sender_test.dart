@@ -565,18 +565,23 @@ void main() {
   });
 
   test('redirect_is_not_followed', () async {
+    // 303 is the one an HttpClient that follows redirects follows for a POST
+    // (as a GET), so it is the case that proves the sender turns that off.
     final target = await Receiver.start();
     final first = await Receiver.start();
     addTearDown(target.close);
     addTearDown(first.close);
-    first
-      ..status = 307
-      ..location = '${target.url}/hooks/icinga2/$_source';
-    final result = await run(argv(baseUrl: first.url));
-    expect(result.code, 1);
-    expect(result.lines, ['status 307']);
-    expect(first.requests, hasLength(1));
-    expect(target.requests, isEmpty);
+    for (final status in [301, 302, 303, 307, 308]) {
+      first
+        ..requests.clear()
+        ..status = status
+        ..location = '${target.url}/hooks/icinga2/$_source';
+      final result = await run(argv(baseUrl: first.url));
+      expect(result.code, 1, reason: '$status');
+      expect(result.lines, ['status $status']);
+      expect(first.requests, hasLength(1), reason: '$status');
+      expect(target.requests, isEmpty, reason: '$status');
+    }
   });
 
   test('hmac_vectors', () {

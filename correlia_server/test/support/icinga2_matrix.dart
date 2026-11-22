@@ -777,10 +777,15 @@ List<String> firstProblemHosts(Capture c) {
       out.add('$host: the first delivery has no firing event');
     }
     final id = decodeBody(d1.bodyText).eventId;
+    // Each reminder's 202 admitted a raw row of its own.
+    final rows = {d1.raw['id']};
     for (final r in requests.skip(1)) {
       if (r.kind != 'admitted') {
         out.add('$host: reminder evidence is a ${r.kind}, not a committed row');
         continue;
+      }
+      if (!rows.add(r.raw['id'])) {
+        out.add('$host: a reminder names an earlier raw row ${r.raw['id']}');
       }
       if (r.events.isNotEmpty) {
         out.add('$host: a reminder stored a new event');
@@ -1030,9 +1035,21 @@ List<String> _rawLink(String name, Rec d) {
   return out;
 }
 
-/// Every admitted request of every capture file decodes to the recorded event.
+/// Every admitted request of every capture file decodes to the recorded event,
+/// and each names a raw row no other admitted request names.
 List<String> gateDecode(Capture c) {
   final out = <String>[];
+  final rows = <Object?, String>{};
+  for (final name in c.names) {
+    for (final d in c.of(name, 'admitted')) {
+      final row = d.raw['id'];
+      if (rows[row] case final String earlier) {
+        out.add('$name.json ${d.id}: raw row $row is also $earlier\'s');
+      } else {
+        rows[row] = '$name.json ${d.id}';
+      }
+    }
+  }
   for (final name in c.names) {
     for (final d in c.of(name, 'admitted')) {
       try {
@@ -1326,12 +1343,15 @@ Qualification qualifiedBundles(List<Pair> pairs) {
 /// artifact behind. With nothing qualified, or a built sender or a definition
 /// that differs from the captured bundle, a [StateError] says so and nothing
 /// is published: the webhook contract is not shipped without a qualified
-/// pair. Returns the published architectures in build order.
+/// pair. The bundle is assembled in `<release>.staging` and renamed into
+/// place only once every file is copied ([copy] is a test seam). Returns the
+/// published architectures in build order.
 List<String> publishSenders({
   required Directory build,
   required Directory contrib,
   required Directory release,
   required Map<String, Bundle> qualified,
+  void Function(File from, String to) copy = _copyFile,
 }) {
   if (release.existsSync()) release.deleteSync(recursive: true);
   if (qualified.isEmpty) {
@@ -1354,15 +1374,26 @@ List<String> publishSenders({
     }
     sources[architecture] = source;
   }
-  for (final MapEntry(key: architecture, value: source) in sources.entries) {
-    final target = Directory('${release.path}/$architecture')
+  // Assembled beside [release] and moved into place whole, so a copy that
+  // fails part way leaves no partial bundle at the installation path.
+  final staging = Directory('${release.path}.staging');
+  if (staging.existsSync()) staging.deleteSync(recursive: true);
+  try {
+    for (final MapEntry(key: architecture, value: source) in sources.entries) {
+      final target = Directory('${staging.path}/$architecture')
+        ..createSync(recursive: true);
+      copy(source, '${target.path}/$senderFileName');
+    }
+    final definitions = Directory('${staging.path}/icinga2')
       ..createSync(recursive: true);
-    source.copySync('${target.path}/$senderFileName');
-  }
-  final definitions = Directory('${release.path}/icinga2')
-    ..createSync(recursive: true);
-  for (final file in contrib.listSync().whereType<File>()) {
-    file.copySync('${definitions.path}/${file.uri.pathSegments.last}');
+    for (final file in contrib.listSync().whereType<File>()) {
+      copy(file, '${definitions.path}/${file.uri.pathSegments.last}');
+    }
+    staging.renameSync(release.path);
+  } finally {
+    if (staging.existsSync()) staging.deleteSync(recursive: true);
   }
   return sources.keys.toList();
 }
+
+void _copyFile(File from, String to) => from.copySync(to);

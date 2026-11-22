@@ -463,9 +463,11 @@ commands never send a time after 2106; a time outside that range is not delivere
 
 `PROBLEM` and `RECOVERY` carry the object's state change time: `last_state_change` once the object has had a
 real state value change, otherwise, in a HARD state, `last_hard_state_change`. Icinga 2's initial values are
-never sent. So the first problem of a new object, whether loaded at startup or created through the API, carries
-the execution end of its first HARD result; a later HARD check and every reminder carry the same time and are
-duplicates of it. A first problem still in a SOFT state has no state change time and is not sent (Icinga 2 sends
+never sent. So the first problem of a new object still in its initial state value, whether loaded at startup or
+created through the API, carries the execution end of its first HARD result; a later HARD check and every reminder
+carry the same time and are duplicates of it. A new object whose state value already changed (a service going from
+its initial UNKNOWN to SOFT CRITICAL, then HARD CRITICAL) carries that change's `last_state_change`, the SOFT
+result's time. A first problem still in a SOFT state has no state change time and is not sent (Icinga 2 sends
 none for SOFT anyway). Other notification types never carry the field.
 
 A `volatile` object with no state value change yet moves `last_hard_state_change` on every HARD check. Correlia
