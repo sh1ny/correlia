@@ -552,6 +552,73 @@ void main() {
     );
   });
 
+  test('burst_body_that_is_no_hard_critical_problem_fails', () {
+    // The recording endpoint answers 202 without decoding: a burst body of
+    // another type, or one that does not decode, still has a burst service
+    // name and an exactly cut output.
+    final broken = copy();
+    edit(broken, 'burst_of_verbose_notifications', (r) {
+      final bodies = r.where((x) => x['kind'] == 'recorder_only').toList();
+      setBody(bodies[0], 'notification_type', 'RECOVERY');
+      setBody(bodies[1], 'format', 'correlia.icinga2.v0');
+    });
+    final failures = scenarioChecks['burst_of_verbose_notifications']!(
+      Capture(broken),
+    );
+    expect(failures, [
+      contains('not a HARD CRITICAL PROBLEM'),
+      contains('does not decode'),
+    ]);
+    expect(qualifiedBundles([broken]).qualified, isEmpty);
+  });
+
+  test('delayed_recovery_deduplicated_against_the_initial_problem_fails', () {
+    // The recovery carries the initial problem's state change time and is
+    // its duplicate, while the refire publishes an event of its own: still
+    // one event and one duplicate, both CRITICAL text.
+    final broken = copy();
+    edit(broken, 'delayed_recovery_publishes_the_live_check_output', (r) {
+      final admitted = r.where((x) => x['kind'] == 'admitted').toList();
+      final initial = admitted.first;
+      final recovery = admitted.singleWhere(
+        (x) => Rec(x).notificationType == 'RECOVERY',
+      );
+      final refire = admitted.lastWhere(
+        (x) => Rec(x).notificationType == 'PROBLEM',
+      );
+      final published = [recovery, refire].firstWhere(
+        (x) => Rec(x).events.isNotEmpty,
+      );
+      if (!identical(published, refire)) {
+        refire['events'] = published['events'];
+        refire['raw'] = {
+          ...Rec(refire).raw,
+          'outcome': {...Rec(published).outcome},
+        };
+      }
+      setBody(
+        recovery,
+        'last_state_change',
+        Rec(initial).body['last_state_change'],
+      );
+      recovery['events'] = <Object?>[];
+      recovery['raw'] = {
+        ...Rec(recovery).raw,
+        'outcome': {...Rec(recovery).outcome, 'duplicate_observation': 1},
+      };
+      syncEvent(refire);
+    });
+    final failures =
+        scenarioChecks['delayed_recovery_publishes_the_live_check_output']!(
+          Capture(broken),
+        );
+    expect(
+      failures,
+      contains(contains('the recovery and the refire decode to different')),
+    );
+    expect(qualifiedBundles([broken]).qualified, isEmpty);
+  });
+
   test('listed_pairs_of_one_architecture_ran_one_bundle', () {
     // Recapturing one listed release with another sender, or with other
     // definitions, refuses the architecture until every row is recaptured.

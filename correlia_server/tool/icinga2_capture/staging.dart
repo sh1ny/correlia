@@ -22,7 +22,18 @@ RandomAccessFile? lockPair(Directory target) {
 ///
 /// With [keep], it starts as a copy of [target]'s files, which a partial run
 /// keeps; otherwise it starts empty.
+///
+/// A publication interrupted between its two renames leaves the last
+/// complete run in `.old` and no [target]; that run is moved back first.
 Directory openStaging(Directory target, {required bool keep}) {
+  final old = Directory('${target.path}.old');
+  if (old.existsSync()) {
+    if (target.existsSync()) {
+      old.deleteSync(recursive: true);
+    } else {
+      old.renameSync(target.path);
+    }
+  }
   final staging = Directory('${target.path}.staging');
   if (staging.existsSync()) staging.deleteSync(recursive: true);
   staging.createSync(recursive: true);

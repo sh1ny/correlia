@@ -251,12 +251,57 @@ final Map<String, Check> scenarioChecks = {
   },
   'burst_of_verbose_notifications': (c) {
     const file = 'burst_of_verbose_notifications';
-    final bodies = [for (final r in c.of(file, 'recorder_only')) r.body];
+    final records = c.of(file, 'recorder_only');
+    final bodies = [for (final r in records) r.body];
     final out = <String>[];
     if (bodies.length != 50) out.add('${bodies.length} bodies, not 50');
-    if ({for (final b in bodies) b['service']}.length != 50) {
-      out.add('not 50 services');
+    // The recording endpoint answers 202 without decoding, so each body is
+    // decoded here: one HARD CRITICAL PROBLEM per burst service, carrying
+    // its own result's execution end.
+    final ends = {
+      for (final r in c.of(file, 'result')) r.json['cap_id']: r,
+    };
+    final services = {
+      for (var i = 1; i <= 50; i++) 'burst-${i.toString().padLeft(2, '0')}',
+    };
+    final seen = <Object?>{};
+    for (final r in records) {
+      final b = r.body;
+      final service = b['service'];
+      if (!services.contains(service) || !seen.add(service)) {
+        out.add('${r.id}: service $service is not one new burst service');
+        continue;
+      }
+      if (b['object_type'] != 'service' ||
+          b['host'] != 'lab' ||
+          b['notification_type'] != 'PROBLEM' ||
+          b['state'] != 'CRITICAL' ||
+          b['state_type'] != 'HARD') {
+        out.add(
+          '$service: ${b['notification_type']} ${b['state_type']} '
+          '${b['state']}, not a HARD CRITICAL PROBLEM of lab',
+        );
+      }
+      final result = ends[service];
+      if (result == null ||
+          result.json['exit_status'] != 2 ||
+          b['last_state_change'] != result.json['execution_end']) {
+        out.add(
+          '$service: last_state_change ${b['last_state_change']} is not its '
+          'CRITICAL result\'s execution end',
+        );
+      }
+      try {
+        final event = decodeBody(r.bodyText);
+        if (event.status != EventStatus.firing ||
+            event.kind != EventKind.alert) {
+          out.add('$service: decodes to ${event.kind} ${event.status}');
+        }
+      } on Object catch (e) {
+        out.add('$service: the body does not decode: $e');
+      }
     }
+    if (seen.length != 50) out.add('not 50 services');
     // Each of the two inputs keeps exactly its first 8192 bytes, then the
     // marker; dollar signs come through unchanged.
     final dollar = '${'\$' * 8192}$truncationMarker';
@@ -585,6 +630,28 @@ final Map<String, Check> scenarioChecks = {
     final ds = c.admitted(file);
     final recovery = ds.singleWhere((d) => d.notificationType == 'RECOVERY');
     final refire = ds.lastWhere((d) => d.notificationType == 'PROBLEM');
+    final initial = ds.first;
+    // Both deliveries name the refire: its recorded execution end, and one
+    // observation that is not the initial problem's.
+    final refireEnd = c
+        .of(file, 'result')
+        .where((r) => r.json['label'] == 'refire')
+        .map((r) => r.json['execution_end'])
+        .firstOrNull;
+    final refireId = decodeBody(refire.bodyText).eventId;
+    final tied = [
+      if (refireEnd == null) 'no refire result was recorded',
+      for (final d in [recovery, refire])
+        if (d.body['last_state_change'] != refireEnd)
+          'the ${d.notificationType} carries ${d.body['last_state_change']}, '
+              'not the refire\'s execution end $refireEnd',
+      if (decodeBody(recovery.bodyText).eventId != refireId)
+        'the recovery and the refire decode to different event ids',
+      if (initial.notificationType != 'PROBLEM' ||
+          identical(initial, refire) ||
+          decodeBody(initial.bodyText).eventId == refireId)
+        'the refire repeats the initial problem\'s observation',
+    ];
     final published = [
       for (final d in [recovery, refire])
         if (d.events.isNotEmpty) d,
@@ -594,6 +661,7 @@ final Map<String, Check> scenarioChecks = {
         if (d.events.isEmpty && d.outcome['duplicate_observation'] == 1) d,
     ];
     return [
+      ...tied,
       if (recovery.body['output'] != 'CRITICAL: disk full')
         'the recovery delivered ${recovery.body['output']}',
       if (published.length != 1 || deduplicated.length != 1)

@@ -65,6 +65,20 @@ void main() => stdout.write(
     expect(Directory('${target.path}.staging').existsSync(), isFalse);
     expect(Directory('${target.path}.old').existsSync(), isFalse);
   });
+
+  test('interrupted_publication_restores_the_last_run', () {
+    // Interrupted after the pair moved to .old and before staging moved in:
+    // the next run starts from that last complete run.
+    Directory('${target.path}.old').createSync(recursive: true);
+    File('${target.path}.old/manifest.json').writeAsStringSync('{"run":1}');
+    Directory('${target.path}.staging').createSync();
+    File('${target.path}.staging/half.json').writeAsStringSync('run 2');
+
+    final partial = openStaging(target, keep: true);
+    expect(_names(partial), ['manifest.json']);
+    expect(_names(target), ['manifest.json']);
+    expect(Directory('${target.path}.old').existsSync(), isFalse);
+  });
 }
 
 List<String> _names(Directory d) => [
