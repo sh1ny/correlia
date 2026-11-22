@@ -147,8 +147,13 @@ Scope decisions S1-S6 are in `proposal.md`; their rows are in the summary below.
     passed through one of two shipped DSL functions, built only from Icinga 2's native operations, with no
     byte-by-byte loop:
     - `correlia_text(value, limit)` (texts, author, comment): a value that is not a string, or is empty, is
-      absent: the helper returns the empty string and the argument's `set_if` omits it (`$service.output$` is
-      empty before an object's first check result, so a CUSTOM notification can carry no output). Icinga 2 has
+      absent: the helper returns the JSON literal `""`, and the sender drops an optional text whose value is
+      empty (`$service.output$` is empty before an object's first check result, so a CUSTOM notification can
+      carry no output). The text arguments have no `set_if` (amended after pre-ship review round 15): Icinga 2
+      resolves `set_if` and `value` separately (`macroprocessor.cpp`), so a `set_if` over the live output could
+      pass the argument with an empty value read after the output changed, which the sender would refuse and a
+      recovery would be lost. Each text is therefore always passed and read once; every remaining `set_if` tests
+      a setting constant or the command's fixed notification type. Icinga 2 has
       no long-output macro: `output` already holds every line of the check output (`ParseCheckOutput`), so the
       document carries `output` only. Otherwise, if `value.len()` exceeds `limit` bytes, one
       `substr(0, limit)` call plus the marker `…[truncated by correlia]`; then `Json.encode`, which in v2.13.0
@@ -565,7 +570,7 @@ v2.16.6).
   This is the shipped formatter's input domain only. The decoder's range and D2's vectors
   (`"8589934592.000001"`, `"253402300799.999999"`) are unchanged: they pin exact wire decoding, and the command
   never produces a time after 2106. Known-input captures stay inside the formatter's domain.
-- **Two failure values.** Absent optional text (`correlia_text`) is the empty DSL string, which the argument's `set_if` turns into an absent argument.
+- **Two failure values.** Absent optional text (`correlia_text`) is the JSON literal `""`, which the sender treats as an absent field (D3).
   An unusable required value (`correlia_exact`, `correlia_base_url`, `correlia_source`, and a state
   notification's unknown time) is the two-character JSON literal `""`, so the argument stays one JSON string
   literal and the sender refuses it, reporting `invalid_name` or naming the argument.
@@ -616,7 +621,7 @@ v2.16.6).
 | D10 | Source kind | Immutable per UUID (`kind_changed`) | Kind per raw row; strand rows | low | yes | agent |
 | D11 | Non-state events | One per command execution; same-microsecond executions coalesce; one Correlia user | `last_notification`; whole-second time | medium | yes | agent |
 | D12 | Path tokens, identity label exclusion | Alertmanager-only | Allow for Icinga2 | low | no | agent |
-| D13 | First state change time; command time range | Real change by the per-state result times, else HARD's `last_hard_state_change`; never an initializer; time optional for non-state types; volatile scoped; formatter exact below 2^32 s; empty DSL string omits, JSON `""` refuses | `>= 1` or `> 0` test; notification time; silent drop; decimal text; time required for every type | low | yes | agent; optional field: user |
+| D13 | First state change time; command time range | Real change by the per-state result times, else HARD's `last_hard_state_change`; never an initializer; time optional for non-state types; volatile scoped; formatter exact below 2^32 s; optional text `""` is absent, required `""` refuses | `>= 1` or `> 0` test; notification time; silent drop; decimal text; time required for every type | low | yes | agent; optional field: user |
 
 ## Diagrams (FULL)
 
