@@ -7,7 +7,7 @@ artifact is built but not published.
 ## Script
 
 - `tool/icinga2_capture.sh` (driver `correlia_server/tool/icinga2_capture/`), script version
-  `13` (recorded in every `manifest.json`). Version 2 routes the capture source to a webhook output and records
+  `14` (recorded in every `manifest.json`). Version 2 routes the capture source to a webhook output and records
   each committed event's outbox intents; its downtime scenario tells the expiring and the hand-removed downtime
   apart by comment and records when the manual removal was requested. Version 3 adds
   `concurrent_signed_notifications_beyond_the_cap`: three signed notifications from one Icinga 2 action overlap
@@ -39,8 +39,12 @@ artifact is built but not published.
   place's), and the generated credentials are redacted from every evidence file, including one a scenario saves
   after failing before its secret scan. Version 13 changes no scenario: the sender and the definitions are read
   once, and the manifest hashes, the installed files and the rendered settings are those bytes; a full run fails
-  unless it wrote exactly the matrix's scenario files.
-- Full run (after the pre-ship review, round 18, with script version 13; round 15 has the optional texts read once and an empty one
+  unless it wrote exactly the matrix's scenario files. Version 14 takes an exclusive lock per release and architecture, so a second
+  capture of a pair is refused, writes each run into a staging directory and replaces the pair's directory with
+  it only once the manifest is written, so the pair holds the records of one run; it adds
+  `first_unknown_result_of_a_new_service`, the first HARD UNKNOWN result of a new service through the shipped
+  service command, followed by a reminder.
+- Full run (after the pre-ship review, round 20, with script version 14; round 15 has the optional texts read once and an empty one
   delivered as absent):
   `tool/icinga2_capture.sh 2.13.14 2.14.10 2.15.7 2.16.6`, every mapped scenario, no failed scenario.
 - Sender artifact (linux-x64): SHA-256 `b73c59c0d38600cfe5980094a5d140818e37b2d01e715427cc367039a4c87aa3`, the same in every manifest.
@@ -55,7 +59,7 @@ artifact is built but not published.
 Gates: S = same-second service state, H = same-second host state, N = same-second notification time,
 C = production notification clock, D = downtime removal, F = first problem of a new object,
 202 = recorded 202 and decoded event. Judged by `correlia_server/test/unit/ingest/icinga2_versions_test.dart`
-on the committed captures (85 tests, all passing).
+on the committed captures (88 tests, all passing).
 
 | Release | Architecture | Image | Digest | Icinga 2 | S | H | N | C | D | F | 202 |
 |---|---|---|---|---|---|---|---|---|---|---|---|

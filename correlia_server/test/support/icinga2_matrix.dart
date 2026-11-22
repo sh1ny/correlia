@@ -35,6 +35,7 @@ const captureScenarios = [
   'delayed_recovery_publishes_the_live_check_output',
   'earlier_result_with_a_negative_execution_end',
   'first_check_result_of_a_new_host_is_down',
+  'first_unknown_result_of_a_new_service',
   'host_command_keeps_sub_second_precision',
   'hostile_inherited_environment',
   'inherited_correlia_settings_are_ignored',
@@ -687,6 +688,24 @@ List<String> gateDowntime(Capture c) {
     for (final d in c.admitted(_downtimeFile))
       if (removalTypes.contains(d.notificationType)) d,
   ];
+  // The service whose alert is compared, and the fingerprint of the problem
+  // that fired it: each removal must be of that service.
+  final states = c.of(_downtimeFile, 'state');
+  if (states.length < 2) return [...out, 'no committed state before and after'];
+  final object = states.first.json['object'];
+  if (jsonEncode(object) != jsonEncode(states.last.json['object'])) {
+    out.add('the snapshots are of $object and ${states.last.json['object']}');
+  }
+  final fence =
+      (states.first.json['alert'] as Map<String, Object?>?)?['fence_event_id'];
+  final firing = [
+    for (final d in c.admitted(_downtimeFile))
+      if (d.events.isNotEmpty && d.eventId == fence) d,
+  ];
+  if (firing.length != 1) {
+    return [...out, 'no single stored problem fired the compared alert'];
+  }
+  final fingerprint = firing.single.data()['fingerprint'];
   for (final (comment, beforeRemoval) in [
     (downtimeExpires, true),
     (downtimeRemoved, false),
@@ -712,6 +731,14 @@ List<String> gateDowntime(Capture c) {
       );
     }
     final data = d.data();
+    final named = {'host': d.body['host'], 'service': d.body['service']};
+    if (jsonEncode(named) != jsonEncode(object) ||
+        data['fingerprint'] != fingerprint) {
+      out.add(
+        'the "$comment" removal is of $named (${data['fingerprint']}), '
+        'not the compared $object',
+      );
+    }
     if (data['kind'] != 'EVENT_KIND_DOWNTIME' ||
         data['status'] != 'EVENT_STATUS_INFO') {
       out.add('the "$comment" removal is not an informational downtime event');
@@ -725,8 +752,6 @@ List<String> gateDowntime(Capture c) {
       out.add('the "$comment" removal has no output intent');
     }
   }
-  final states = c.of(_downtimeFile, 'state');
-  if (states.length < 2) return [...out, 'no committed state before and after'];
   final before = states.first.json['alert'];
   final after = states.last.json['alert'];
   if (before == null || jsonEncode(before) != jsonEncode(after)) {
@@ -739,6 +764,12 @@ List<String> gateDowntime(Capture c) {
 }
 
 const _firstFile = 'first_check_result_of_a_new_host_is_down';
+
+/// The capture of a new service whose first HARD result is UNKNOWN.
+const firstServiceFile = 'first_unknown_result_of_a_new_service';
+
+/// The capture id (and service name) of that service.
+const firstServiceId = 'fp-service';
 const _volatileFile = 'volatile_host_with_no_state_change_yet';
 const _multilineFile =
     'multiline_recovery_and_custom_notification_without_output';
@@ -779,26 +810,63 @@ List<String> recoveryApplied(Capture c, String file, Rec d) {
 }
 
 /// The startup and runtime hosts of the first-problem gate.
-List<String> firstProblemHosts(Capture c) {
+List<String> firstProblemHosts(Capture c) => [
+  for (final host in ['fp-startup', 'fp-runtime'])
+    ..._firstProblemOf(c, _firstFile, host),
+];
+
+/// The new service of the first-problem gate: its first HARD result is
+/// UNKNOWN, the state value a new service starts in, so the shipped service
+/// command must fall back to the check's execution end.
+List<String> firstProblemService(Capture c) {
+  final out = _firstProblemOf(
+    c,
+    firstServiceFile,
+    firstServiceId,
+    service: true,
+  );
+  final results = c.of(firstServiceFile, 'result');
+  final deliveries = c.requests(firstServiceFile);
+  if (results.isEmpty ||
+      results.any((r) => r.json['exit_status'] != 3) ||
+      deliveries.isEmpty ||
+      deliveries.first.body['state'] != 'UNKNOWN') {
+    out.add('$firstServiceId: the first HARD result is not an UNKNOWN');
+  }
+  return out;
+}
+
+/// The first-problem checks of one new object of [file]: the host [id], or
+/// with [service] the service [id] on the host `lab`.
+List<String> _firstProblemOf(
+  Capture c,
+  String file,
+  String id, {
+  bool service = false,
+}) {
   final out = <String>[];
-  for (final host in ['fp-startup', 'fp-runtime']) {
+  final host = id;
+  {
     final results = {
-      for (final r in c.of(_firstFile, 'result'))
-        if (r.json['cap_id'] == host) r.json['label']: r,
+      for (final r in c.of(file, 'result'))
+        if (r.json['cap_id'] == id) r.json['label']: r,
     };
     final first = results['first_hard'];
     final second = results['second_hard'];
-    final requests = _hostRequests(c, _firstFile, host);
+    final requests = [
+      for (final r in c.requests(file))
+        if ((service ? r.body['service'] : r.body['host']) == id) r,
+    ];
     if (first == null || second == null || requests.length < 2) {
       out.add(
         '$host: needs both HARD DOWN results, its first delivery and a '
         'reminder',
       );
-      continue;
+      return out;
     }
     // The reminder that proves the key survives the second check is one
     // Icinga 2 sent after accepting it, and the final state follows it.
-    final records = c.records(_firstFile);
+    final records = c.records(file);
     final secondAt = records.indexOf(second);
     final accepted = second.json['accepted_us'];
     final after = [
@@ -808,7 +876,14 @@ List<String> firstProblemHosts(Capture c) {
             microsOf(r.body['notification_time']! as String) >= accepted)
           r,
     ];
-    final states = _statesOf(c, _firstFile, host);
+    final states = [
+      for (final s in c.of(file, 'state'))
+        if ((s.json['object']! as Map<String, Object?>)[service
+                ? 'service'
+                : 'host'] ==
+            id)
+          s,
+    ];
     if (records.indexOf(first) > records.indexOf(requests.first) ||
         records.indexOf(requests.first) > secondAt) {
       out.add('$host: the first delivery does not lie between the results');
@@ -822,7 +897,7 @@ List<String> firstProblemHosts(Capture c) {
     final d1 = requests.first;
     if (d1.kind != 'admitted') {
       out.add('$host: the first delivery is ${d1.kind}');
-      continue;
+      return out;
     }
     if (d1.body['last_state_change'] != first.json['execution_end']) {
       out.add(
@@ -831,7 +906,7 @@ List<String> firstProblemHosts(Capture c) {
         '${first.json['execution_end']}',
       );
     }
-    if (host == 'fp-runtime') {
+    if (!service && host == 'fp-runtime') {
       out.addAll(_runtimeHostTime(c, d1.body['last_state_change']));
     }
     if (d1.raw['status'] != 'done' ||
@@ -845,7 +920,7 @@ List<String> firstProblemHosts(Capture c) {
     if (d1.events.length != 1 || d1.data()['status'] != 'EVENT_STATUS_FIRING') {
       out.add('$host: the first delivery has no firing event');
     }
-    final id = decodeBody(d1.bodyText).eventId;
+    final firstId = decodeBody(d1.bodyText).eventId;
     // Each reminder's 202 admitted a raw row of its own.
     final rows = {d1.raw['id']};
     for (final r in requests.skip(1)) {
@@ -865,7 +940,7 @@ List<String> firstProblemHosts(Capture c) {
           '(${r.outcome['duplicate_observation']})',
         );
       }
-      if (decodeBody(r.bodyText).eventId != id) {
+      if (decodeBody(r.bodyText).eventId != firstId) {
         out.add('$host: a reminder decodes to a different event id');
       }
     }
@@ -1041,6 +1116,7 @@ List<String> firstProblemCustom(Capture c) {
 /// Gate: first problem of a new object.
 List<String> gateFirstProblem(Capture c) => [
   ...firstProblemHosts(c),
+  ...firstProblemService(c),
   ...firstProblemVolatile(c),
   ...firstProblemCustom(c),
 ];

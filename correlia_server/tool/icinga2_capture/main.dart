@@ -20,9 +20,10 @@ import 'evidence.dart';
 import 'lab.dart';
 import 'rig.dart';
 import 'scenarios.dart';
+import 'staging.dart';
 
 /// Bumped when the evidence format or the scenario set changes.
-const scriptVersion = '13';
+const scriptVersion = '14';
 
 /// Scenarios that rely on objects another scenario prepared, with that
 /// scenario: a partial run must select both.
@@ -51,13 +52,14 @@ Future<void> main(List<String> arguments) async {
     ..addOption('only', help: 'comma separated scenario names');
   final args = parser.parse(arguments);
   final release = args.option('release')!;
-  final out = Directory('${args.option('out')}/$release/linux-x64')
-    ..createSync(recursive: true);
-  if (args.option('only') == null) {
-    for (final stale in out.listSync().whereType<File>()) {
-      stale.deleteSync();
-    }
+  final target = Directory('${args.option('out')}/$release/linux-x64');
+  // One capture of a pair at a time, written apart and put in place whole:
+  // the pair directory then holds one run's records with that run's manifest.
+  if (lockPair(target) == null) {
+    stderr.writeln('another capture of $release/linux-x64 is running');
+    exit(2);
   }
+  final out = openStaging(target, keep: args.option('only') != null);
   // Read once: the hashes, the installed files and the settings are these
   // bytes.
   final bundle = CaptureBundle.read(
@@ -196,6 +198,7 @@ Future<void> main(List<String> arguments) async {
     File('${out.path}/manifest.json').writeAsStringSync(
       '${const JsonEncoder.withIndent('  ').convert(manifest)}\n',
     );
+    publishStaging(out, target);
   } finally {
     try {
       await lab.stop();

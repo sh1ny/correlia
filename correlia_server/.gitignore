@@ -22,3 +22,8 @@ config/firebase_service_account_key.json
 
 # SQLite databases created by the ephemeral test database
 **/sp_*.db*
+
+# Icinga 2 capture runs: the per-pair lock and the run being written.
+/test/unit/ingest/fixtures/icinga2/*/*.lock
+/test/unit/ingest/fixtures/icinga2/*/*.staging/
+/test/unit/ingest/fixtures/icinga2/*/*.old/

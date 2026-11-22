@@ -102,6 +102,7 @@ final Map<String, Check> scenarioChecks = {
     return out;
   },
   'captured_transition_sequence': transitionSequence,
+  'first_unknown_result_of_a_new_service': firstProblemService,
   'first_check_result_of_a_new_host_is_down': firstProblemHosts,
   'volatile_host_with_no_state_change_yet': firstProblemVolatile,
   'retained_state_across_a_restart': (c) {

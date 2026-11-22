@@ -63,6 +63,7 @@ final class CaptureConfig {
     ('cap1', 'correlia-service'),
     ('cap2', 'correlia-service'),
     ('cap3', 'correlia-service'),
+    ('fp-service', 'correlia-service-remind'),
   ];
 
   String render() {
@@ -159,6 +160,13 @@ apply Notification "correlia-service" to Service {
   users = [ "correlia" ]
   interval = 0
   assign where service.vars.cap_cmd == "correlia-service"
+}
+
+apply Notification "correlia-service-remind" to Service {
+  command = "correlia-service"
+  users = [ "correlia" ]
+  interval = 2s
+  assign where service.vars.cap_cmd == "correlia-service-remind"
 }
 
 apply Notification "correlia-service-clock" to Service {

@@ -1,0 +1,218 @@
+{
+  "scenario": "first_unknown_result_of_a_new_service",
+  "release": "2.13.14",
+  "architecture": "linux-x64",
+  "records": [
+    {
+      "kind": "result",
+      "id": "r1",
+      "object_type": "service",
+      "cap_id": "fp-service",
+      "exit_status": 3,
+      "output_bytes": 14,
+      "output": "UNKNOWN: first",
+      "execution_end": "1795386753.300001",
+      "accepted_us": 1795386753197003,
+      "label": "first_hard"
+    },
+    {
+      "kind": "admitted",
+      "id": "d2",
+      "auth": "bearer",
+      "request": {
+        "path": "/hooks/icinga2/33333333-3333-4333-8333-333333333333",
+        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"fp-service\",\"state\":\"UNKNOWN\",\"state_type\":\"HARD\",\"last_state_change\":\"1795386753.300001\",\"output\":\"UNKNOWN: first\",\"notification_type\":\"PROBLEM\",\"notification_time\":\"1795386753.152087\"}",
+        "body_sha256": "88de68d2d1c11803fbad3803bd7e805d2e089c777a20e54d03a0f5ac9b478ecc",
+        "body_size": 266
+      },
+      "response_status": 202,
+      "raw": {
+        "id": "8ece1ae3-7a53-430d-99bc-971de526f2a6",
+        "body_sha256": "88de68d2d1c11803fbad3803bd7e805d2e089c777a20e54d03a0f5ac9b478ecc",
+        "status": "done",
+        "outcome": {
+          "upstream_omitted": 0,
+          "unknown_top_level_fields": [],
+          "unknown_top_level_overflow": 0,
+          "committed": 1,
+          "unrouted": 0,
+          "duplicate_observation": 0,
+          "future_dated": 0,
+          "duplicate_quarantine": 0,
+          "late": 0,
+          "applied": 1,
+          "stale": 0,
+          "clamped": 0
+        },
+        "failure": null
+      },
+      "events": [
+        {
+          "disposition": "ready",
+          "state_outcome": "applied",
+          "source_time": "2026-11-22T22:32:33.300001Z",
+          "cloud_event": {
+            "specversion": "1.0",
+            "id": "7a26358a-6cf5-559c-9e12-2aaf9500e9f2",
+            "source": "urn:correlia:source:33333333-3333-4333-8333-333333333333",
+            "type": "io.correlia.alert.v1",
+            "datacontenttype": "application/json",
+            "dataschema": "urn:correlia:schema:event:1.0",
+            "subject": "cf71d6779728d10c4e0a39ebb464bfff24c0358ebb2be633ab0d6cb34bc3c96b",
+            "partitionkey": "cf71d6779728d10c4e0a39ebb464bfff24c0358ebb2be633ab0d6cb34bc3c96b",
+            "correliatenant": "default",
+            "time": "2026-11-22T22:32:33.300001Z",
+            "data": {
+              "event_id": "7a26358a-6cf5-559c-9e12-2aaf9500e9f2",
+              "fingerprint": "cf71d6779728d10c4e0a39ebb464bfff24c0358ebb2be633ab0d6cb34bc3c96b",
+              "tenant": "default",
+              "namespace": "33333333-3333-4333-8333-333333333333",
+              "kind": "EVENT_KIND_ALERT",
+              "status": "EVENT_STATUS_FIRING",
+              "severity": "EVENT_SEVERITY_UNKNOWN",
+              "severity_original": "UNKNOWN",
+              "summary": "lab!fp-service UNKNOWN",
+              "description": "UNKNOWN: first",
+              "resource": {},
+              "observer": {
+                "source_instance": "33333333-3333-4333-8333-333333333333",
+                "source_kind": "icinga2"
+              },
+              "labels": {},
+              "labels_origin": {},
+              "annotations": {
+                "icinga2.notification_type": "PROBLEM"
+              },
+              "source_time": "2026-11-22T22:32:33.300001Z",
+              "reported_source_time": "2026-11-22T22:32:33.300001Z",
+              "observed_at": "2026-11-22T22:32:33.157315Z",
+              "processed_at": "2026-11-22T22:32:33.248062Z",
+              "raw": {
+                "ref": "raw:2026-11-22T22:32:33.157315Z/8ece1ae3-7a53-430d-99bc-971de526f2a6",
+                "sha256": "88de68d2d1c11803fbad3803bd7e805d2e089c777a20e54d03a0f5ac9b478ecc",
+                "size": 266
+              },
+              "pipeline": {
+                "version": "98c7bdc4fbea2c7514b59787fcae15e0b160e21937457387618b217dc07c5305",
+                "generation": 0
+              },
+              "extensions": {},
+              "identity_fields": {
+                "host": {
+                  "raw": "lab"
+                },
+                "service": {
+                  "raw": "fp-service"
+                }
+              },
+              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAADoAWyJpY2luZ2EyLm5vdGlmeS52MSIsIlVOS05PV04iLCJIQVJEIiwiMTc5NTM4Njc1MzMwMDAwMSJd"
+            }
+          },
+          "outbox": [
+            {
+              "output_id": "44444444-4444-4444-8444-444444444444",
+              "kind": "webhook"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "state",
+      "after": "d2",
+      "object": {
+        "host": "lab",
+        "service": "fp-service"
+      },
+      "alert": {
+        "status": "firing",
+        "severity": "unknown",
+        "version": 1,
+        "fence_event_id": "7a26358a-6cf5-559c-9e12-2aaf9500e9f2",
+        "fence_effective_seconds": 1795386753,
+        "fence_effective_nanos": 300001000,
+        "summary": "lab!fp-service UNKNOWN"
+      },
+      "events": {
+        "total": 1,
+        "by_disposition": {
+          "ready": 1
+        },
+        "by_status": {
+          "firing": 1
+        }
+      }
+    },
+    {
+      "kind": "result",
+      "id": "r3",
+      "object_type": "service",
+      "cap_id": "fp-service",
+      "exit_status": 3,
+      "output_bytes": 15,
+      "output": "UNKNOWN: second",
+      "execution_end": "1795386754.400002",
+      "accepted_us": 1795386753361004,
+      "label": "second_hard"
+    },
+    {
+      "kind": "admitted",
+      "id": "d4",
+      "auth": "bearer",
+      "request": {
+        "path": "/hooks/icinga2/33333333-3333-4333-8333-333333333333",
+        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"fp-service\",\"state\":\"UNKNOWN\",\"state_type\":\"HARD\",\"last_state_change\":\"1795386753.300001\",\"output\":\"UNKNOWN: second\",\"notification_type\":\"PROBLEM\",\"notification_time\":\"1795386757.067171\"}",
+        "body_sha256": "c9105b3fdf769947bc2af64155c3400bd995ed694352d73cece1e1d00b9dd361",
+        "body_size": 267
+      },
+      "response_status": 202,
+      "raw": {
+        "id": "a65e11c7-fb8d-406a-8ff4-131015fd7762",
+        "body_sha256": "c9105b3fdf769947bc2af64155c3400bd995ed694352d73cece1e1d00b9dd361",
+        "status": "done",
+        "outcome": {
+          "upstream_omitted": 0,
+          "unknown_top_level_fields": [],
+          "unknown_top_level_overflow": 0,
+          "committed": 0,
+          "unrouted": 0,
+          "duplicate_observation": 1,
+          "future_dated": 0,
+          "duplicate_quarantine": 0,
+          "late": 0,
+          "applied": 0,
+          "stale": 0,
+          "clamped": 0
+        },
+        "failure": null
+      },
+      "events": []
+    },
+    {
+      "kind": "state",
+      "after": "reminder",
+      "object": {
+        "host": "lab",
+        "service": "fp-service"
+      },
+      "alert": {
+        "status": "firing",
+        "severity": "unknown",
+        "version": 1,
+        "fence_event_id": "7a26358a-6cf5-559c-9e12-2aaf9500e9f2",
+        "fence_effective_seconds": 1795386753,
+        "fence_effective_nanos": 300001000,
+        "summary": "lab!fp-service UNKNOWN"
+      },
+      "events": {
+        "total": 1,
+        "by_disposition": {
+          "ready": 1
+        },
+        "by_status": {
+          "firing": 1
+        }
+      }
+    }
+  ]
+}

@@ -4,7 +4,12 @@ import 'dart:io';
 import 'dart:math';
 
 import '../../test/support/icinga2_matrix.dart'
-    show downtimeExpires, downtimeRemoved, emittedClockSamples;
+    show
+        downtimeExpires,
+        downtimeRemoved,
+        emittedClockSamples,
+        firstServiceFile,
+        firstServiceId;
 import '../../test/support/holding_proxy.dart';
 import 'config.dart';
 import 'evidence.dart';
@@ -593,6 +598,45 @@ extension Batch on Scenarios {
         );
         await _remindOnce(ev, host);
       }
+    });
+    await scenario(firstServiceFile, (ev) async {
+      // A new service starts in the UNKNOWN state value, so its first HARD
+      // UNKNOWN result changes no state: the shipped service command must
+      // deliver the result's execution end, not the initial state change
+      // time, and the reminder after a second result must be its duplicate.
+      final s = c.nowSeconds();
+      await ev.result(
+        objectType: 'service',
+        id: firstServiceId,
+        exit: 3,
+        output: 'UNKNOWN: first',
+        end: timeText(s, 300001),
+        label: 'first_hard',
+      );
+      final first = (await ev.deliveries(1)).single;
+      await ev.snapshot(
+        first['id']! as String,
+        host: 'lab',
+        service: firstServiceId,
+      );
+      await ev.result(
+        objectType: 'service',
+        id: firstServiceId,
+        exit: 3,
+        output: 'UNKNOWN: second',
+        end: timeText(s + 1, 400002),
+        label: 'second_hard',
+      );
+      await ev.deliveries(1);
+      await lab.ok(
+        'POST',
+        '/v1/objects/services/${Uri.encodeComponent('lab!$firstServiceId')}',
+        body: {
+          'attrs': {'enable_notifications': false},
+        },
+      );
+      await settle(ev);
+      await ev.snapshot('reminder', host: 'lab', service: firstServiceId);
     });
     await scenario('volatile_host_with_no_state_change_yet', (ev) async {
       final s = c.nowSeconds();

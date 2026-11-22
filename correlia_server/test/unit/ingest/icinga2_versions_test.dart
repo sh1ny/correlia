@@ -1144,6 +1144,33 @@ void main() {
     );
   });
 
+  test('new_service_sending_its_initial_state_change_time_fails', () {
+    // A service helper that always took last_state_change would send the
+    // service's initializer instead of its first UNKNOWN result's execution
+    // end; its reminders repeat that value, so they still decode as its
+    // duplicates.
+    final broken = copy();
+    edit(broken, firstServiceFile, (r) {
+      const initial = '1700000000.000000';
+      final deliveries = [
+        for (final x in r)
+          if (x['kind'] == 'admitted' && Rec(x).body['service'] == 'fp-service')
+            x,
+      ];
+      for (final d in deliveries) {
+        setBody(d, 'last_state_change', initial);
+      }
+      syncEvent(deliveries.first);
+    });
+    expectNamed(
+      evaluatePair(broken),
+      broken,
+      Gate.firstProblem,
+      mentions: 'the driver recorded',
+      only: true,
+    );
+  });
+
   test('reminder_of_a_first_problem_is_a_new_observation', () {
     final broken = copy();
     edit(broken, 'first_check_result_of_a_new_host_is_down', (r) {
@@ -1255,6 +1282,31 @@ void main() {
   for (final MapEntry(key: name, value: check) in scenarioChecks.entries) {
     test(name, () => eachPair(check));
   }
+
+  test('downtime_removal_of_another_object_fails_its_gate', () {
+    // Each removal must be of the service whose alert snapshots are compared:
+    // a routed downtime event for another service proves nothing of it.
+    for (final field in ['service', 'host']) {
+      final broken = copy();
+      edit(broken, 'captured_downtime_removal', (r) {
+        final removal = r.firstWhere(
+          (x) =>
+              x['kind'] == 'admitted' &&
+              removalTypes.contains(Rec(x).notificationType) &&
+              Rec(x).body['notification_comment'] == downtimeRemoved,
+        );
+        setBody(removal, field, 'elsewhere');
+        syncEvent(removal);
+      });
+      expectNamed(
+        evaluatePair(broken),
+        broken,
+        Gate.downtime,
+        mentions: 'not the compared',
+        only: true,
+      );
+    }
+  });
 
   test('downtime_removal_without_a_route_or_an_expiry', () {
     const file = 'captured_downtime_removal';
