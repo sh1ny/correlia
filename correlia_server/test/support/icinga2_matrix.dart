@@ -184,11 +184,17 @@ final class Capture {
   bool has(String name) => file(name).existsSync();
 
   /// The records of the capture file [name]; throws [MissingCapture] if it is
-  /// not committed.
+  /// not committed, and [ForeignCapture] unless the file declares this pair's
+  /// release and architecture and the scenario [name].
   List<Rec> records(String name) => _cache.putIfAbsent(name, () {
     final f = file(name);
     if (!f.existsSync()) throw MissingCapture(pair.name, '$name.json');
     final json = jsonDecode(f.readAsStringSync()) as Map<String, Object?>;
+    final declared = (json['release'], json['architecture'], json['scenario']);
+    if (declared != (pair.release, pair.architecture, name)) {
+      final (release, architecture, scenario) = declared;
+      throw ForeignCapture('$name.json', '$release/$architecture $scenario');
+    }
     return [
       for (final r in (json['records']! as List<Object?>))
         Rec(r! as Map<String, Object?>),
@@ -244,6 +250,20 @@ final class MissingCapture implements Exception {
   String toString() => '$pair: missing capture $file';
 }
 
+/// Raised when a capture file declares another release, architecture or
+/// scenario than the place it is read from.
+final class ForeignCapture implements Exception {
+  const ForeignCapture(this.file, this.declared);
+
+  final String file;
+
+  /// What the file declares: `<release>/<architecture> <scenario>`.
+  final String declared;
+
+  @override
+  String toString() => '$file declares $declared';
+}
+
 /// Decodes a delivery body through the pipeline's Icinga2 decoder.
 CanonicalEvent decodeBody(String bodyText) => decodeOne(
   Uint8List.fromList(utf8.encode(bodyText)),
@@ -278,6 +298,8 @@ List<String> guarded(Check check, Capture capture) {
     return check(capture);
   } on MissingCapture catch (error) {
     return ['missing capture ${error.file}'];
+  } on ForeignCapture catch (error) {
+    return ['not this pair\'s capture: $error'];
   } on Object catch (error) {
     return ['evidence unreadable: $error'];
   }
@@ -1100,6 +1122,14 @@ List<String> gateManifest(Capture c) {
   if (m['release'] != c.pair.release ||
       m['architecture'] != c.pair.architecture) {
     out.add('manifest names ${m['release']}/${m['architecture']}');
+  }
+  // Every capture file is this pair's, including those no gate reads.
+  for (final name in c.names) {
+    try {
+      c.records(name);
+    } on ForeignCapture catch (error) {
+      out.add('not this pair\'s capture: $error');
+    }
   }
   final failed = m['failed_scenarios'];
   if (failed is! List || failed.isNotEmpty) {

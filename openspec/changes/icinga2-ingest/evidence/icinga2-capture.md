@@ -7,7 +7,7 @@ artifact is built but not published.
 ## Script
 
 - `tool/icinga2_capture.sh` (driver `correlia_server/tool/icinga2_capture/`), script version
-  `11` (recorded in every `manifest.json`). Version 2 routes the capture source to a webhook output and records
+  `12` (recorded in every `manifest.json`). Version 2 routes the capture source to a webhook output and records
   each committed event's outbox intents; its downtime scenario tells the expiring and the hand-removed downtime
   apart by comment and records when the manual removal was requested. Version 3 adds
   `concurrent_signed_notifications_beyond_the_cap`: three signed notifications from one Icinga 2 action overlap
@@ -34,8 +34,11 @@ artifact is built but not published.
   forwarder that ends TLS in front of the recording proxy, and `CORRELIA_CA_FILE` in Icinga 2's environment.
   A secret scan that finds a value now fails its scenario, and the value is redacted from the evidence file.
   Version 11 changes no scenario: it runs the sender built by `tool/build_icinga2_notify.sh`, which compiles at a
-  fixed path so a checkout at any path builds the same bytes.
-- Full run (after the pre-ship review, round 12, which made the sender build independent of the checkout path):
+  fixed path so a checkout at any path builds the same bytes. Version 12 changes no scenario: every evidence file
+  also declares its architecture (the matrix refuses a file whose release, architecture or scenario is not its
+  place's), and the generated credentials are redacted from every evidence file, including one a scenario saves
+  after failing before its secret scan.
+- Full run (after the pre-ship review, round 13, which checks each capture file's provenance):
   `tool/icinga2_capture.sh 2.13.14 2.14.10 2.15.7 2.16.6`, every mapped scenario, no failed scenario.
 - Sender artifact (linux-x64): SHA-256 `f9ce6421bf876b43b6c60b18b13eea92d5dd9f88314e81fa67706d3d6e911530`, the same in every manifest.
   `mise run release:icinga2-notify` rebuilds it and publishes it only because the rebuild has this hash.
@@ -49,7 +52,7 @@ artifact is built but not published.
 Gates: S = same-second service state, H = same-second host state, N = same-second notification time,
 C = production notification clock, D = downtime removal, F = first problem of a new object,
 202 = recorded 202 and decoded event. Judged by `correlia_server/test/unit/ingest/icinga2_versions_test.dart`
-on the committed captures (74 tests, all passing).
+on the committed captures (75 tests, all passing).
 
 | Release | Architecture | Image | Digest | Icinga 2 | S | H | N | C | D | F | 202 |
 |---|---|---|---|---|---|---|---|---|---|---|---|

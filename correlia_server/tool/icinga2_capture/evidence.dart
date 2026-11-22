@@ -12,6 +12,10 @@ import 'rig.dart';
 String timeText(int seconds, int micros) =>
     '$seconds.${micros.toString().padLeft(6, '0')}';
 
+/// The architecture every capture runs on; the manifest and each evidence
+/// file declare it.
+const captureArchitecture = 'linux-x64';
+
 /// The capture's shared handles and the output directory.
 final class Capture {
   Capture({
@@ -31,6 +35,11 @@ final class Capture {
   int _proxyCursor = 0;
   int _receiverCursor = 0;
   final List<String> failed = [];
+
+  /// The credentials the capture generated (name to value). Every evidence
+  /// file is saved with them redacted, whether or not a scan ran: a scenario
+  /// that fails before its scan still saves its log excerpt.
+  final Map<String, String> secrets = {};
 
   /// The current wall clock in whole Unix seconds.
   int nowSeconds() => DateTime.now().millisecondsSinceEpoch ~/ 1000;
@@ -324,17 +333,17 @@ final class Evidence {
     return value;
   }
 
-  /// Writes the file, one JSON document, with every [redactions] value
-  /// replaced.
+  /// Writes the file, one JSON document, with every [Capture.secrets] and
+  /// [redactions] value replaced.
   void save(String release) {
     final file = File('${cap.out.path}/$name.json');
     file.writeAsStringSync(
-      '${const JsonEncoder.withIndent('  ').convert({'scenario': name, 'release': release, 'records': _redact(records)})}\n',
+      '${const JsonEncoder.withIndent('  ').convert({'scenario': name, 'release': release, 'architecture': captureArchitecture, 'records': _redact(records)})}\n',
     );
   }
 
   Object? _redact(Object? value) => switch (value) {
-    String text => redactions.entries.fold<String>(
+    String text => {...cap.secrets, ...redactions}.entries.fold<String>(
       text,
       (out, e) => e.value.isEmpty
           ? out

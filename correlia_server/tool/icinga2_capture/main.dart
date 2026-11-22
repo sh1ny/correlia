@@ -22,7 +22,7 @@ import 'rig.dart';
 import 'scenarios.dart';
 
 /// Bumped when the evidence format or the scenario set changes.
-const scriptVersion = '11';
+const scriptVersion = '12';
 
 /// Scenarios that rely on objects another scenario prepared, with that
 /// scenario: a partial run must select both.
@@ -159,7 +159,7 @@ Future<void> main(List<String> arguments) async {
     final manifest = {
       'script_version': inputs['script_version'],
       'release': release,
-      'architecture': 'linux-x64',
+      'architecture': captureArchitecture,
       'image': args.option('image'),
       'image_digest': inputs['image_digest'],
       'image_id': inputs['image_id'],

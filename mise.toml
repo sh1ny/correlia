@@ -101,10 +101,8 @@ run = [
 ]
 
 [tasks."release:icinga2-notify"]
-description = "Publish the Icinga 2 sender into build/icinga2-notify/release/ for each architecture with a qualified release pair"
-depends = ["build:icinga2-notify"]
-dir = "correlia_server"
-run = "dart run tool/icinga2_publish.dart"
+description = "Remove the earlier publication, build the Icinga 2 sender, and publish it into build/icinga2-notify/release/ for each architecture with a qualified release pair"
+run = "tool/release_icinga2_notify.sh"
 
 [tasks."build:web"]
 description = "Build the Flutter console into correlia_server/web/app (served by the api role)"

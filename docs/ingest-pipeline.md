@@ -491,7 +491,9 @@ an event the pipeline decodes. `tool/icinga2_capture.sh <release>` makes the cap
 re-evaluates every listed pair on them. Adding a pair means capturing it, committing the capture and listing it
 here; a pair that fails a gate is not listed. Each row names a minor release by the patch release that was captured.
 
-`mise run release:icinga2-notify` builds the sender for linux-x64 and linux-arm64 and publishes into
+`mise run release:icinga2-notify` (`tool/release_icinga2_notify.sh`) first removes the earlier publication, so a
+failed build or publisher run leaves none at the installation path. It then builds the sender for linux-x64 and
+linux-arm64 and publishes into
 `build/icinga2-notify/release/` only the architectures whose listed pairs all pass every check and all ran one
 bundle: the same sender SHA-256 and the same `contrib/icinga2/` file hashes, as their manifests record. It publishes
 an architecture's sender, and the definitions into `release/icinga2/`, only when the build and the definitions are

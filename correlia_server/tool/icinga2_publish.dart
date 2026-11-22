@@ -1,8 +1,9 @@
 /// Publishes the Icinga 2 sender only for architectures with a qualified pair
 /// (task 9.5).
 ///
-/// Run from `correlia_server` (the `release:icinga2-notify` mise task does
-/// this) after `mise run build:icinga2-notify`. It evaluates every pair the
+/// Run from `correlia_server` after the sender build;
+/// `tool/release_icinga2_notify.sh` (the `release:icinga2-notify` mise task)
+/// removes the earlier publication, builds, then runs this. It evaluates every pair the
 /// supported-release statement in `docs/ingest-pipeline.md` lists on the
 /// committed captures. An architecture qualifies when every listed pair of it
 /// passes and all of them ran one bundle (sender and definitions). For each,

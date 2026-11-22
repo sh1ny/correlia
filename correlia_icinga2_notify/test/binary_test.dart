@@ -116,4 +116,23 @@ void main() {
     }
     expect(hashes[1], hashes[0]);
   }, timeout: const Timeout(Duration(minutes: 3)));
+
+  test('failed_rebuild_leaves_no_earlier_publication', () async {
+    // The installation guide calls the release directory qualified, so an
+    // earlier publication must not outlive a rebuild that fails.
+    final root = Directory.systemTemp.createTempSync('notify-release');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final release = Directory('${root.path}/build/icinga2-notify/release');
+    File('${release.path}/linux-x64/correlia-icinga2-notify')
+      ..createSync(recursive: true)
+      ..writeAsStringSync('an earlier build');
+    // A sender package without its sources: the build refuses it.
+    Directory('${root.path}/correlia_icinga2_notify').createSync();
+    final run = await Process.run('../tool/release_icinga2_notify.sh', [
+      root.path,
+    ]);
+    expect(run.exitCode, isNot(0), reason: '${run.stdout}${run.stderr}');
+    expect(run.stderr, contains('not the sender package'));
+    expect(release.existsSync(), isFalse);
+  });
 }

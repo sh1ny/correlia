@@ -317,6 +317,51 @@ void main() {
     }
   });
 
+  test('capture_from_another_pair_or_scenario_fails', () {
+    // Every capture file names the release, architecture and scenario it
+    // was recorded for; a file put in another pair's place, or under another
+    // scenario's name, is not that pair's evidence.
+    final source = baseline();
+    final other = pairs.firstWhere(
+      (p) => p.release != source.release,
+      orElse: () => fail('the statement lists one release only'),
+    );
+    final names = Capture(source).names;
+    expect(evaluatePair(copy()), isEmpty);
+    for (final name in names) {
+      final broken = copy();
+      File(
+        '${other.directory.path}/$name.json',
+      ).copySync('${broken.directory.path}/$name.json');
+      expect(
+        evaluatePair(broken).join('\n'),
+        contains('$name.json declares ${other.release}/'),
+        reason: '$name from ${other.release}',
+      );
+    }
+    for (final (field, value) in [
+      ('architecture', 'linux-arm64'),
+      ('architecture', null),
+      ('scenario', names.last),
+      ('release', null),
+    ]) {
+      final broken = copy();
+      final file = File('${broken.directory.path}/${names.first}.json');
+      final json = jsonDecode(file.readAsStringSync()) as Map<String, Object?>;
+      if (value == null) {
+        json.remove(field);
+      } else {
+        json[field] = value;
+      }
+      file.writeAsStringSync(jsonEncode(json));
+      expect(
+        gateManifest(Capture(broken)).join('\n'),
+        contains('${names.first}.json declares'),
+        reason: '$field $value',
+      );
+    }
+  });
+
   test('listed_pairs_of_one_architecture_ran_one_bundle', () {
     // Recapturing one listed release with another sender, or with other
     // definitions, refuses the architecture until every row is recaptured.
@@ -515,12 +560,14 @@ void main() {
   });
 
   test('service_capture_in_the_host_gate_fails_it', () {
+    // The service records under the host scenario's own declaration.
     final broken = copy();
-    File(
-      '${broken.directory.path}/two_problems_within_one_second.json',
-    ).copySync(
-      '${broken.directory.path}/host_command_keeps_sub_second_precision.json',
-    );
+    final service = Capture(broken).records('two_problems_within_one_second');
+    edit(broken, 'host_command_keeps_sub_second_precision', (r) {
+      r
+        ..clear()
+        ..addAll([for (final x in service) x.json]);
+    });
     expectNamed(
       evaluatePair(broken),
       broken,

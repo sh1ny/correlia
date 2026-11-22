@@ -82,6 +82,12 @@ final class Scenarios {
     _wrongKeyValue = randomKey();
     await file(_wrongToken, _wrongTokenValue);
     await file(_wrongKey, _wrongKeyValue);
+    c.secrets.addAll({
+      'token': rig.token,
+      'hmac_key': rig.hmacKey,
+      'wrong_token': _wrongTokenValue,
+      'wrong_hmac_key': _wrongKeyValue,
+    });
     await file(_dollarToken, rig.token);
   }
 
