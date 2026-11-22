@@ -6,6 +6,7 @@ import 'package:correlia_server/event.dart';
 import 'package:crypto/crypto.dart';
 
 import 'icinga2_delivery.dart';
+import 'icinga2_scenarios.dart';
 
 /// The Icinga2 source the capture's Correlia child served.
 const matrixSource = '33333333-3333-4333-8333-333333333333';
@@ -22,6 +23,49 @@ const truncationMarker = '…[truncated by correlia]';
 const _begin = '<!-- icinga2-supported-releases:begin -->';
 const _end = '<!-- icinga2-supported-releases:end -->';
 
+/// The scenarios a complete capture run records, one file each besides the
+/// manifest.
+const captureScenarios = [
+  'base_url_carrying_a_credential',
+  'burst_of_verbose_notifications',
+  'captured_downtime_removal',
+  'captured_host_transitions',
+  'captured_transition_sequence',
+  'concurrent_signed_notifications_beyond_the_cap',
+  'delayed_recovery_publishes_the_live_check_output',
+  'earlier_result_with_a_negative_execution_end',
+  'first_check_result_of_a_new_host_is_down',
+  'host_command_keeps_sub_second_precision',
+  'hostile_inherited_environment',
+  'inherited_correlia_settings_are_ignored',
+  'initialized_state_change_time_of_a_runtime_created_host',
+  'invalid_utf_8_in_check_output',
+  'long_check_output',
+  'macro_text_in_a_setting_is_literal',
+  'multibyte_character_across_the_cut',
+  'multiline_recovery_and_custom_notification_without_output',
+  'multiline_settings',
+  'name_with_an_embedded_nul_is_not_delivered',
+  'non_state_notification_for_an_object_with_an_unusable_state_change_time',
+  'notification_from_a_real_icinga_2_in_both_auth_modes',
+  'nul_in_a_file_path',
+  'nul_in_display_text',
+  'oversized_custom_notification',
+  'oversized_or_invalid_name_is_not_delivered',
+  'production_notification_clock_keeps_microseconds',
+  'recovery_output_with_dollar_signs',
+  'rejected_delivery_leaves_no_secret_in_icinga_2_logs',
+  'retained_state_across_a_restart',
+  'runtime_options_in_icinga_s_environment',
+  'same_named_custom_variables_are_ignored',
+  'setting_not_deliverable_exactly',
+  'source_that_is_not_a_uuid',
+  'time_outside_the_formatter_s_domain',
+  'two_comments_from_one_author',
+  'two_problems_within_one_second',
+  'volatile_host_with_no_state_change_yet',
+];
+
 /// The gates a release and architecture pair has to pass, by name.
 abstract final class Gate {
   static const service = 'same-second service state';
@@ -33,6 +77,9 @@ abstract final class Gate {
   static const delivery = 'recorded 202 and decoded event';
   static const decode = 'capture decodes';
   static const manifest = 'capture manifest';
+
+  /// The check of one captured scenario ([scenarioChecks]).
+  static const scenario = 'scenario check';
 
   static const six = [
     service,
@@ -1205,6 +1252,14 @@ List<String> gateManifest(Capture c) {
       m['architecture'] != c.pair.architecture) {
     out.add('manifest names ${m['release']}/${m['architecture']}');
   }
+  // Every scenario left its file, and no file is of another scenario set.
+  final names = c.names.toSet();
+  for (final name in captureScenarios) {
+    if (!names.contains(name)) out.add('no $name.json capture');
+  }
+  for (final name in names.difference(captureScenarios.toSet())) {
+    out.add('$name.json is no capture scenario');
+  }
   // Every capture file is this pair's, including those no gate reads.
   for (final name in c.names) {
     try {
@@ -1247,7 +1302,8 @@ List<String> gateManifest(Capture c) {
   return out;
 }
 
-/// Evaluates every gate of [pair]; an empty list means it qualifies.
+/// Evaluates every gate and every scenario check of [pair]; an empty list
+/// means it qualifies.
 List<Failure> evaluatePair(Pair pair) {
   final c = Capture(pair);
   final failures = <Failure>[];
@@ -1269,6 +1325,11 @@ List<Failure> evaluatePair(Pair pair) {
   run(Gate.firstProblem, gateFirstProblem);
   run(Gate.delivery, gateDelivery);
   run(Gate.decode, gateDecode);
+  for (final MapEntry(key: name, value: check) in scenarioChecks.entries) {
+    for (final detail in guarded(check, c)) {
+      failures.add(Failure(pair.name, Gate.scenario, '$name: $detail'));
+    }
+  }
   return failures;
 }
 

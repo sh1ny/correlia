@@ -13,8 +13,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/args.dart';
-import 'package:crypto/crypto.dart';
-
+import '../../test/support/icinga2_matrix.dart' show captureScenarios;
+import 'bundle.dart';
 import 'config.dart';
 import 'evidence.dart';
 import 'lab.dart';
@@ -22,7 +22,7 @@ import 'rig.dart';
 import 'scenarios.dart';
 
 /// Bumped when the evidence format or the scenario set changes.
-const scriptVersion = '12';
+const scriptVersion = '13';
 
 /// Scenarios that rely on objects another scenario prepared, with that
 /// scenario: a partial run must select both.
@@ -58,23 +58,20 @@ Future<void> main(List<String> arguments) async {
       stale.deleteSync();
     }
   }
-  final sender = File(args.option('sender')!);
-  final contrib = Directory(args.option('contrib')!);
+  // Read once: the hashes, the installed files and the settings are these
+  // bytes.
+  final bundle = CaptureBundle.read(
+    File(args.option('sender')!),
+    Directory(args.option('contrib')!),
+  );
   // The inputs every capture file of a manifest was made with.
   final inputs = <String, Object?>{
     'script_version': scriptVersion,
     'image_digest': args.option('digest'),
     'image_id': args.option('image-id'),
     'image_platform': args.option('image-platform'),
-    'sender_sha256': sha256.convert(sender.readAsBytesSync()).toString(),
-    'contrib_sha256': {
-      for (final file
-          in contrib.listSync().whereType<File>().toList()
-            ..sort((a, b) => a.path.compareTo(b.path)))
-        file.uri.pathSegments.last: sha256
-            .convert(file.readAsBytesSync())
-            .toString(),
-    },
+    'sender_sha256': bundle.senderSha256,
+    'contrib_sha256': bundle.contribSha256,
   };
   final only = args.option('only')?.split(',').toSet();
   // A partial recapture keeps the other captures, so it must run with exactly
@@ -142,7 +139,7 @@ Future<void> main(List<String> arguments) async {
     rig = await CorreliaRig.start();
     await rig.startListeners();
     await lab.create();
-    await lab.install(sender: sender, contrib: contrib);
+    await lab.install(bundle);
 
     final s = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     final config = CaptureConfig(
@@ -151,7 +148,7 @@ Future<void> main(List<String> arguments) async {
       longName: 'n' * 1025,
     );
     await lab.writeCaptureConfig(config.render());
-    final shipped = File('${contrib.path}/correlia.conf').readAsStringSync();
+    final shipped = bundle.shippedSettings;
     final capture = Capture(rig: rig, lab: lab, out: out, shipped: shipped);
 
     final run = Scenarios(
@@ -167,6 +164,18 @@ Future<void> main(List<String> arguments) async {
     machine = (await lab.exec(['uname', '-m'])).out.trim();
     await run.all();
     failed = [...previouslyFailed, ...capture.failed];
+    // The run's files are the scenario set the matrix requires: a scenario
+    // that wrote no file, or a file of no listed scenario, fails the run.
+    final written = {
+      for (final f in out.listSync().whereType<File>())
+        if (f.path.endsWith('.json') && !f.path.endsWith('/manifest.json'))
+          f.uri.pathSegments.last.replaceAll('.json', ''),
+    };
+    final required = captureScenarios.toSet();
+    failed.addAll([
+      for (final name in required.difference(written)) 'no file: $name',
+      for (final name in written.difference(required)) 'not listed: $name',
+    ]);
 
     final manifest = {
       'script_version': inputs['script_version'],

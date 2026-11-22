@@ -487,8 +487,10 @@ admitted meanwhile wait `pending` and are processed by the upgraded workers.
 The sender and the shipped definitions are supported on the Icinga 2 minor releases and architectures below, and on
 no other. A pair is listed only when the committed captures of a real Icinga 2 pass the six gates (same-second
 service and host state, same-second notification time, the production notification clock, downtime removal and the
-first problem of a new object) and that architecture's exact artifact delivers one real notification with `202` and
-an event the pipeline decodes. `tool/icinga2_capture.sh <release>` makes the captures under
+first problem of a new object), every captured scenario left its file and passes its own check, and that
+architecture's exact artifact delivers one real notification with `202` and an event the pipeline decodes. The
+scenario checks are one list that `icinga2_versions_test.dart` and the release publisher both run.
+`tool/icinga2_capture.sh <release>` makes the captures under
 `correlia_server/test/unit/ingest/fixtures/icinga2/<release>/<architecture>/`, and `icinga2_versions_test.dart`
 re-evaluates every listed pair on them. Adding a pair means capturing it, committing the capture and listing it
 here; a pair that fails a gate is not listed. Each row names a minor release by the patch release that was captured.

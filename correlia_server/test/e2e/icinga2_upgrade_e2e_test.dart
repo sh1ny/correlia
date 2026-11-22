@@ -9,6 +9,8 @@ import 'package:crypto/crypto.dart';
 import 'package:postgres/postgres.dart';
 import 'package:test/test.dart';
 
+import 'package:correlia_server/src/schema/schema_steps.dart';
+
 import '../support/child_server.dart';
 import '../support/shared_cluster.dart';
 
@@ -164,8 +166,46 @@ Future<List<int>> _versions(Connection connection) async => [
     row[0]! as int,
 ];
 
-/// Asserts that [child] exits non-zero and names [step] and `lock_timeout`.
-Future<void> _expectLockTimeout(ChildServer child, int step) async {
+/// How long a lock request of another backend of [observer]'s database waits
+/// before it is no longer waiting: from when it is first seen ungranted in
+/// `pg_locks` until it is gone.
+Future<Duration> _lockWait(Connection observer) async {
+  Future<bool> waiting() async =>
+      (await observer.execute(
+            '''SELECT count(*) FROM pg_locks
+               WHERE NOT granted AND pid <> pg_backend_pid()
+                 AND database = (SELECT oid FROM pg_database
+                                 WHERE datname = current_database())''',
+          )).single[0]!
+          as int >
+      0;
+  final deadline = DateTime.now().add(_exitWithin);
+  while (!await waiting()) {
+    if (DateTime.now().isAfter(deadline)) fail('no lock request waited');
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+  final waited = Stopwatch()..start();
+  while (await waiting()) {
+    if (DateTime.now().isAfter(deadline)) fail('the lock request never ended');
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+  return waited.elapsed;
+}
+
+/// Asserts that [child]'s schema attempt gave up on its lock after the
+/// injected timeout, well before the production default, then that it exits
+/// non-zero and names [step] and `lock_timeout`.
+Future<void> _expectLockTimeout(
+  ChildServer child,
+  int step,
+  Connection observer,
+) async {
+  final waited = await _lockWait(observer);
+  expect(
+    waited,
+    lessThan(defaultSchemaLockTimeout ~/ 3),
+    reason: 'the injected ${_shortLockTimeoutMs}ms timeout was not applied',
+  );
   final code = await child.exitCode.timeout(_exitWithin);
   expect(code, isNot(0), reason: child.output);
   expect(
@@ -187,7 +227,7 @@ void main() {
         final blocked = await upgrade.start({
           'CORRELIA_TEST_SCHEMA_LOCK_TIMEOUT_MS': _shortLockTimeoutMs,
         });
-        await _expectLockTimeout(blocked, 4);
+        await _expectLockTimeout(blocked, 4, connection);
         expect(await _versions(connection), [1, 2, 3]);
         await blocker.execute('ROLLBACK');
         final restarted = await upgrade.start();
@@ -215,7 +255,7 @@ void main() {
           'CORRELIA_TEST_SCHEMA_LOCK_TIMEOUT_MS': _shortLockTimeoutMs,
         });
         // The first transaction of the runner waits for the advisory lock.
-        await _expectLockTimeout(blocked, 0);
+        await _expectLockTimeout(blocked, 0, connection);
         expect(await _versions(connection), [1, 2, 3]);
         await other.execute('ROLLBACK');
         final restarted = await upgrade.start();

@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'bundle.dart';
+
 /// The command-line paths inside the Icinga 2 container.
 const containerEtc = '/etc/icinga2';
 const containerSender = '/usr/local/bin/correlia-icinga2-notify';
@@ -155,17 +157,12 @@ final class IcingaLab {
   /// Installs the sender and the shipped definitions the way an operator
   /// does: the binary owned by root, mode 0755, and the three definition
   /// files together in `/etc/icinga2/correlia/`, included by one line.
-  Future<void> install({
-    required File sender,
-    required Directory contrib,
-  }) async {
-    await writeFile(containerSender, sender.readAsBytesSync(), mode: '755');
+  Future<void> install(CaptureBundle bundle) async {
+    await writeFile(containerSender, bundle.sender, mode: '755');
     await exec(['mkdir', '-p', containerCorrelia]);
-    for (final file in contrib.listSync().whereType<File>().where(
-      (f) => f.path.endsWith('.conf'),
-    )) {
-      final base = file.uri.pathSegments.last;
-      await writeFile('$containerCorrelia/$base', file.readAsBytesSync());
+    for (final MapEntry(key: base, value: bytes)
+        in bundle.definitions.entries) {
+      await writeFile('$containerCorrelia/$base', bytes);
     }
     await exec(['icinga2', 'api', 'setup'], user: 'icinga');
     // The API user: a password made for this run.
