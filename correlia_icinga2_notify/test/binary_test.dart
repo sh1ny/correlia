@@ -115,6 +115,20 @@ void main() {
       hashes.add(sha256.convert(File(output).readAsBytesSync()).toString());
     }
     expect(hashes[1], hashes[0]);
+    // And it is the sender the committed captures ran, which the release task
+    // requires before it publishes.
+    final manifests = [
+      for (final release in Directory(
+        '../correlia_server/test/unit/ingest/fixtures/icinga2',
+      ).listSync().whereType<Directory>())
+        File('${release.path}/linux-x64/manifest.json'),
+    ].where((f) => f.existsSync()).toList();
+    expect(manifests, isNotEmpty);
+    for (final manifest in manifests) {
+      final json =
+          jsonDecode(manifest.readAsStringSync()) as Map<String, Object?>;
+      expect(json['sender_sha256'], hashes[0], reason: manifest.path);
+    }
   }, timeout: const Timeout(Duration(minutes: 3)));
 
   test('failed_rebuild_leaves_no_earlier_publication', () async {

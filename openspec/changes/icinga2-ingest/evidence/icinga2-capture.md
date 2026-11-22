@@ -38,13 +38,14 @@ artifact is built but not published.
   also declares its architecture (the matrix refuses a file whose release, architecture or scenario is not its
   place's), and the generated credentials are redacted from every evidence file, including one a scenario saves
   after failing before its secret scan.
-- Full run (after the pre-ship review, round 13, which checks each capture file's provenance):
+- Full run (after the pre-ship review, round 15, which has the optional texts read once and an empty one
+  delivered as absent):
   `tool/icinga2_capture.sh 2.13.14 2.14.10 2.15.7 2.16.6`, every mapped scenario, no failed scenario.
-- Sender artifact (linux-x64): SHA-256 `f9ce6421bf876b43b6c60b18b13eea92d5dd9f88314e81fa67706d3d6e911530`, the same in every manifest.
+- Sender artifact (linux-x64): SHA-256 `b73c59c0d38600cfe5980094a5d140818e37b2d01e715427cc367039a4c87aa3`, the same in every manifest.
   `mise run release:icinga2-notify` rebuilds it and publishes it only because the rebuild has this hash.
 - Definitions: `contrib/icinga2/` SHA-256 per file in each manifest
-  (`correlia-commands.conf` `783f1cb92391d4cd…`,
-  `correlia-functions.conf` `f57295b61cb1a82b…`,
+  (`correlia-commands.conf` `3b439bd4b7975cb7…`,
+  `correlia-functions.conf` `a30f9c9a5de04417…`,
   `correlia.conf` `ba23a7c8031d5783…`).
 
 ## Gate results per pair
@@ -52,7 +53,7 @@ artifact is built but not published.
 Gates: S = same-second service state, H = same-second host state, N = same-second notification time,
 C = production notification clock, D = downtime removal, F = first problem of a new object,
 202 = recorded 202 and decoded event. Judged by `correlia_server/test/unit/ingest/icinga2_versions_test.dart`
-on the committed captures (77 tests, all passing).
+on the committed captures (79 tests, all passing).
 
 | Release | Architecture | Image | Digest | Icinga 2 | S | H | N | C | D | F | 202 |
 |---|---|---|---|---|---|---|---|---|---|---|---|

@@ -206,8 +206,12 @@ final class SenderArguments {
       }
     }
 
-    String? text(String name) =>
-        values[name] == null ? null : _replaceInvalid(values[name]!);
+    // An empty optional text is absent: the shipped commands always pass the
+    // texts, each read once, and give the empty literal when there is none.
+    String? text(String name) => switch (values[name]) {
+      null || '' => null,
+      final value => _replaceInvalid(value),
+    };
 
     final output = text('--output');
     final author = text('--notification-author');

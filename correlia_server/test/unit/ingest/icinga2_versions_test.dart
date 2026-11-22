@@ -257,6 +257,43 @@ void main() {
     expect(w.release.existsSync(), isFalse);
   });
 
+  test('current_definitions_are_the_qualified_bundle', () {
+    // The release task publishes only the bundle the listed captures ran, so
+    // a changed definition must fail here, in the gate, not only there.
+    final qualified = qualifiedBundles(pairs).qualified;
+    expect(qualified, isNotEmpty);
+    final current = definitionHashes(Directory('../contrib/icinga2'));
+    for (final MapEntry(key: architecture, value: bundle)
+        in qualified.entries) {
+      expect(current, bundle.definitions, reason: architecture);
+    }
+  });
+
+  test('optional_arguments_are_decided_without_live_data', () {
+    // Icinga 2 resolves an argument's set_if and value separately, so a
+    // set_if that read live data (the check output, say) could pass the
+    // argument with a value read after that data changed. Each set_if tests
+    // a setting constant or the command's fixed notification type only.
+    final commands = File(
+      '../contrib/icinga2/correlia-commands.conf',
+    ).readAsStringSync();
+    final tests = [
+      for (final m in RegExp(
+        r'set_if = \{\{(.*?)\}\}',
+        dotAll: true,
+      ).allMatches(commands))
+        m[1]!.trim(),
+    ];
+    expect(tests, isNotEmpty);
+    final allowed = RegExp(
+      r'^(Correlia[A-Za-z]+ != ""|'
+      r'correlia_is_state_notification\(macro\("\$notification\.type\$"\)\))$',
+    );
+    for (final test in tests) {
+      expect(test, matches(allowed));
+    }
+  });
+
   test('failed_copy_leaves_no_partial_bundle', () {
     // The bundle is assembled beside the release directory and moved into
     // place whole, so a copy that fails part way publishes nothing.

@@ -753,6 +753,38 @@ void main() {
       }
     });
 
+    test('empty_optional_text_is_absent', () async {
+      // The shipped commands always pass the optional texts, read once; an
+      // object whose output is empty at that read gives the empty literal,
+      // which must still deliver (a recovery is not lost).
+      final receiver = await Receiver.start();
+      addTearDown(receiver.close);
+      final result = await run(
+        argv(
+          baseUrl: receiver.url,
+          over: {
+            '--state': 'OK',
+            '--notification-type': 'RECOVERY',
+            '--output': '',
+            '--notification-author': '',
+            '--notification-comment': '',
+          },
+        ),
+      );
+      expect(result.code, 0, reason: result.text);
+      final document =
+          jsonDecode(utf8.decode(receiver.requests.single.body))
+              as Map<String, Object?>;
+      for (final key in [
+        'output',
+        'notification_author',
+        'notification_comment',
+      ]) {
+        expect(document.containsKey(key), isFalse, reason: key);
+      }
+      expect(document['notification_type'], 'RECOVERY');
+    });
+
     test('host_notification_omits_the_service', () async {
       final receiver = await Receiver.start();
       addTearDown(receiver.close);
