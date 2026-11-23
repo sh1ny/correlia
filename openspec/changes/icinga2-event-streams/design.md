@@ -286,10 +286,10 @@ Scope decisions S1-S5 are in `proposal.md`.
 
   The raw body is `{"format":"correlia.icinga2.stream.v1","origin":"stream"|"sync","connection":<uuid>,
   "sync":<uuid>?,"items":[{"received":<µs>,"line":<text>}|{"received":<µs>,"line_b64":<base64>}]}`. Each item
-  holds the line as read and its own receipt time, so malformed JSON, duplicate members and invalid UTF-8 stay
-  visible and are parsed again by the same guarded parser, and each observation's observed time is its own
-  receipt time (review round 1, Critical 5 and Moderate 6). The pipeline decodes a row by this `format`, not by
-  kind alone.
+  holds the line after redaction, its original receipt, and an optional consumer-written `invalid_json`
+  flag. The flag preserves the original lexical verdict for malformed JSON or invalid UTF-8 even when the
+  sanitized bytes happen to parse (D31). The pipeline rejects a flagged item before parsing the line;
+  unflagged items still use the shared guarded parser. The pipeline decodes the row by `format`, not kind.
 - **Rejected:** Reusing `IngestAdmission.admit` with a synthetic credential (it rechecks webhook credentials,
   and a fake credential would weaken that check); storing parsed JSON values (loses the inputs it must show);
   a per-row lease column (the lease is per source, not per row).
@@ -812,29 +812,82 @@ Scope decisions S1-S5 are in `proposal.md`.
 
 ### D31: An echoed password is redacted before admission
 
-- **Choice:** The consumer holds the password bytes for basic authentication (D8). Before parsing, batching,
-  sampling or logging a stream line or sync object, it replaces every occurrence of those bytes and of their
-  base64 and base64url forms with the fixed marker `[redacted:password]` and flags the item `redacted`, so a
-  line stored "as read" (D5) is stored as read after redaction. A successful subscription that echoes the
-  password in a malformed line or an acknowledgement comment therefore stores it nowhere (review round 8,
-  Critical 1). The e2e test runs an authenticated subscription that returns both kinds of line and searches raw
-  rows, failure rows, events, outbox, status and both log sinks.
+- **Choice:** A bounded lexical pass classifies each line or object before the semantic parser or any
+  observable representation. With valid JSON, redact occurrences of the password and its padded and unpadded
+  base64/base64url forms in decoded string keys and values, mapping matches back to wire spans. Do not match
+  JSON syntax, numbers, or parts of escapes that decode to unrelated text. Preserve unrelated wire bytes.
+  With malformed JSON or invalid UTF-8, match literal byte echoes and base64 forms, and scan recoverable
+  strings for decoded echoes. Audit a malformed item's `line_b64` by decoding its wrapper before checking
+  the sanitized bytes. Do not treat incidental matches in fixed metadata as echoes.
+  Use a JSON-safe printable ASCII letter that is neither the first nor last byte of any forbidden form,
+  repeated to the maximum forbidden form's byte length. This excludes every match inside the marker or
+  crossing its edges without excluding any password: there are at most five forbidden forms. Replace
+  overlapping matches together, flag changed items `redacted`, and enforce the existing size bounds on
+  sanitized items and their encoded form. Diagnostics contain no input from the lexical pass. The semantic
+  parser, failure recorder, batcher and mapper see only sanitized bytes. For a stream item classified as
+  malformed JSON or invalid UTF-8 before redaction, admission
+  records the original verdict as `invalid_json`; it is isolated and fails in the pipeline even when
+  sanitization repairs the syntax. Sync retains its existing bad-object and broken-framing rules.
+  A retained sync repair and an eventless confirm are checked at different boundaries.
 - **Rejected:** Dropping a line that contains the password (loses the rest of the line's evidence).
 - **Reversal cost:** low.
 - **Important:** yes (the secret contract).
-- **Chosen by:** user (owner, 2026-11-23: "Redact before admission", after review round 8)
+- **Chosen by:** user: redact literal and escaped echoes before any durable or diagnostic representation.
+  After round 10 the owner kept the current password range, scoped valid JSON checks to decoded content,
+  preserved unrelated decoded text, and required a replacement that cannot reproduce an echo.
 
-### D32: Tombstones are reclaimed after the lateness horizon
+### D32: Tombstone reclamation respects receipt time
 
-- **Choice:** The supervisor deletes a tombstone, a resolved alert row with no events, activity or observation
-  keys, once its fence's effective time is older than the lateness horizon, in batches of 500. A problem older
-  than such a fence is already late, so it changes no alert and creates none; deleting the tombstone changes no
-  outcome. Tombstones are then bounded by the distinct identities synced within the horizon, not by every
-  identity ever seen (review round 8, Moderate 4).
-- **Rejected:** Documented growth until change 7 (`alerts` grows with every deleted upstream object).
-- **Reversal cost:** low.
-- **Important:** yes (what stays stored).
-- **Chosen by:** user (owner, 2026-11-23: "Reclaim after horizon", after review round 8)
+- **Choice:** Lateness stays relative to the item's original receipt, not to processing time. A silent
+  tombstone remains until its fence is strictly older than both the durable admission cutoff and the oldest
+  pending raw receipt, each minus the seven-day lateness horizon. This covers delayed claims, automatic
+  retries, and any source that can share the fingerprint's namespace. The sweep uses the global oldest pending
+  receipt rather than reconstructing namespaces from historical snapshots and pins.
+  The alert row has a `silent_tombstone` marker set only on insertion by a silent reconcile; a later applied
+  state change clears it. An ordinary resolved alert never becomes sweep-eligible merely by losing its
+  history. A marked row with retained event, key or activity evidence is not deleted.
+  - The schema step creates a singleton `raw_admission_cutoff`, initially unbounded, and a partial index on
+    `raw_inbox (observed_at) WHERE status = 'pending'`. Webhook rows already use their receipt time for
+    `observed_at`; a consumer row uses the minimum receipt across its items, not the flush time.
+  - An `AFTER INSERT` statement trigger takes a shared lock on the cutoff row and rejects any new raw row
+    older than the cutoff. It covers both ingress paths and older webhook publishers. Rejection rolls back
+    the entire admission, including any new reservation or batch receipt. An authorized webhook returns 503;
+    a consumer closes the connection, counts the gap, and syncs on reconnect. An already committed delivery
+    or batch still reports its existing receipt without inserting. No lock is held during body reads or
+    consumer buffering.
+  - Each bounded sweep takes the cutoff row exclusively and advances it to the greater of its current
+    value and database time minus one hour, leaving headroom for normal reads and retries. Under READ COMMITTED it reads the
+    oldest pending receipt in a separate statement after acquiring the lock, so admissions that won the
+    lock first are visible. Fetch at most 500 candidates by a wrapping keyset cursor over a partial index on
+    marked alerts' effective fence and ID. Advance the cursor only on commit; later passes reach candidates
+    beyond busy or evidence-bearing rows. Acquire candidate alert locks in ascending `(tenant, fingerprint)`
+    order, skipping locked rows, then recheck marker, horizon and retained evidence. Indexed existence probes
+    use `activity(entity_kind, entity_id)`, `observation_keys(fingerprint)` and the canonical CloudEvent
+    subject projection of `events`. The schema step indexes the immutable UTF-8 subject projection, including
+    historical events. Fingerprint evidence writers lock the existing alert in the same order before writing
+    evidence, including late or future-dated observations that cannot apply. The sweep never takes a source,
+    lease or raw-row lock.
+  - The sweep uses a short-lived supervisor-owned connection. Each pass has a one-second local budget from
+    transaction begin through commit, with statement and lock timeouts bounded by its remaining time. On
+    timeout or stop, close the connection and do not report success without commit acknowledgement. Stop
+    cancels the pass, opens no replacement and does not wait for the backend to unwind (D13).
+  - If a conflicting insert is followed by a missing locking read, the pipeline retries alert acquisition
+    in ascending fingerprint order within its existing row deadline. Exhaustion rolls back effects and uses
+    normal row retry accounting, never committing a firing event without its state effect. An eligible
+    problem after reclamation creates a new alert at version 1 with `created` activity; if applied before
+    deletion it refires the existing row. Status, severity and source-time ordering are unchanged.
+  - A webhook gets the duplicate exception only for the same body under a live transport reservation.
+    A live explicit key with a different body still returns 409; an expired reservation is a new admission.
+    In-flight processing leaves the raw row visible as pending
+    until its outcome commits. Terminal failed rows are not requeued by this release; any future replay path
+    must honor the same cutoff before making them claimable.
+- **Rejected:** Wall-clock-only deletion (already accepted rows can still be eligible); scanning committed
+  work without an admission cutoff (a paused sender can commit an old receipt after the scan); never
+  reclaiming (growth with historical identities even when queues are healthy).
+- **Reversal cost:** medium (admission can refuse a previously valid but extremely delayed request).
+- **Important:** yes (it changes reclamation and admission).
+- **Chosen by:** user: preserve receipt-time eligibility with pending and admission guards; a reclaimed
+  silent tombstone starts a new lifecycle when later fired. An old pending row can delay cleanup globally.
 
 ### D30: The displayed source converges only for one source
 
@@ -898,7 +951,7 @@ Scope decisions S1-S5 are in `proposal.md`.
 | D29 | Row origin | `icinga2_raw_origin` by raw id | Columns on `raw_inbox` | low | yes | user |
 | D30 | Displayed source | Converges for one source only | Other-source confirm is visible | low | yes | user |
 | D31 | Password echo | Redacted before admission | Drop the line | low | yes | user |
-| D32 | Tombstone growth | Reclaimed after the lateness horizon | Documented growth | low | yes | user |
+| D32 | Tombstone growth | Lateness horizon plus pending receipts and a durable admission cutoff | Wall-clock-only expiry; never reclaim | medium | yes | user |
 
 ## Assumptions
 
@@ -1023,10 +1076,12 @@ Scope decisions S1-S5 are in `proposal.md`.
   deliberate gap. Destination: spec: specs/alert-state/spec.md → Requirement: Silent confirms keep no key
 - **C34:** The displayed source converges only when one source writes the alert. Kind: deliberate gap.
   Destination: spec: specs/alert-state/spec.md → Requirement: Displayed source in a shared namespace
-- **C35:** An echoed API password is redacted before any parse, batch, sample or log. Kind: invariant.
+- **C35:** Remove decoded JSON password echoes and malformed-byte echoes before semantic parsing, batching,
+  sampling or logging, with a marker that cannot recreate an echo. Kind: invariant.
   Destination: spec: specs/icinga2-event-streams/spec.md → Requirement: An echoed password is redacted before
   admission
-- **C36:** A tombstone is deleted only once its fence is older than the lateness horizon. Kind: invariant.
+- **C36:** A silent tombstone is deleted only once its fence predates the lateness horizon relative to both the
+  durable admission cutoff and every pending receipt. Kind: invariant.
   Destination: spec: specs/alert-state/spec.md → Requirement: Tombstones are reclaimed after the lateness horizon
 
 ## Diagrams (FULL)
@@ -1123,6 +1178,7 @@ Data boundaries (T4): configuration (`mode`, `api`, `state_type_policy`, `max_pe
 | `secret_reuse_backfill` (boundaries, one mark per pass of three, `complete`) | Schema step writes the boundaries; startup backfill advances the marks | Forever | Marks only advance; `complete` set once | Postgres |
 | `icinga2_admitted_batch` | Consumer admission, fenced | One hour | Deleted by the supervisor, held or retired source | Postgres |
 | `icinga2_raw_origin` | Consumer admission, fenced | As its raw row | Deleted with the raw row | Postgres |
+| `raw_admission_cutoff` | Alert-state reclamation advances it; both admission paths enforce it through the raw insert trigger | Lifetime of the database | Monotonic; advances atomically with sweep | Postgres |
 | Consumer's dedicated database connection | Consumer | One consumer run | Closed at stop or lease loss | — |
 | In-memory batch, pending gap | Consumer | One connection | Lost on crash; uncommitted lines are a gap, repaired by sync | Icinga 2 state |
 
@@ -1174,7 +1230,7 @@ Data boundaries (T4): configuration (`mode`, `api`, `state_type_policy`, `max_pe
 | Sync rows per sync | At least objects / 100 (full batches), at most one per object (timed or byte flushes); rows that stored nothing deleted when processed (D19) | — | — | Transient only; retained rows follow stored events (D21) |
 | Kept raw rows | No own limit until change 7 (D21) | — | — | Grow with stored events, like webhook rows |
 | Sync progress rows | One per sync; syncs at least 60 s apart; kept 30 days and while rows are outstanding; retired sources pruned by the supervisor | Pruned | — | At most 1,440 per source per day, 43,200 per source at 30 days |
-| Tombstones | One per OK object synced within the lateness horizon; older ones reclaimed (D32) | Reclaimed in batches of 500 | — | Bounded by identities seen within the horizon |
+| Tombstones | One per synced OK identity until the fence is outside the lateness horizon relative to the admission cutoff and oldest pending receipt (D32) | Reclaimed in batches of at most 500 | Skip on lock timeout | A stuck queue can hold old tombstones globally; no fixed age bound with pending work |
 | Gap state | Two columns per source (`gapCount`, `lastGapSeq`) | — | — | Unchanged |
 | Reuse digests | One per secret ever published | — | — | Grows with publications, tiny rows |
 | Status, resync and revision polling | Every 30 s per consumer (supervisor for revision) | — | — | Unchanged |
@@ -1236,6 +1292,7 @@ Data boundaries (T4): configuration (`mode`, `api`, `state_type_policy`, `max_pe
 | Retained-work cap, stall timer, lag disconnect | yes | Icinga 2 memory or `raw_inbox` grows until something breaks | — |
 | Periodic sync | yes | Missed events on a healthy connection never repaired | — |
 | Silent tombstone | yes | A delayed older problem fires a false alert | — |
+| Durable receipt cutoff and oldest pending receipt check | yes | A queued or not-yet-admitted older problem can resurrect a reclaimed alert | Receipt-time eligibility no longer governs the fence |
 | Resync on failed row | yes | A failed recovery row leaves the alert firing | — |
 | Gap sequence (`lastGapSeq`) | yes | Gaps double-counted or lost across takeovers | — |
 | Sync progress counted by the pipeline | yes | A sync reported complete before it is applied, or lost on takeover | — |
@@ -1272,6 +1329,8 @@ per scenario. Only the owner's day-long real feed is a `[user]` check.
 |---|---|---|
 | Ordering permutations, equal starts, sync copy among equal starts, keyed sync copy counted `diverged`, host state, soft/hard policy, late and future items, key times, ack/downtime/flapping, reconcile confirm/repair/tombstone | fast | Pure Dart over in-memory alert state and the decoder; committed key vectors |
 | Keyed sync copy of the losing result (duplicate, version, outbox, committed `diverged`), stream copy after a silent confirm against committed fences, fence after reload, committed key omission across policy revisions, no outbox intent after a tombstone or for a stale stream observation, stale webhook still routed | db | Committed alert, observation-key and outbox rows read back |
+| Reclaim with old pending work, including another source; old uncommitted receipt against the cutoff; committed batch retry after the cutoff | db | Independent admissions and sweeps exercise both lock orders and read the committed raw, alert and outbox rows |
+| Buffered stream item rejected by the cutoff | e2e | A real consumer reconnects and syncs; no partial batch writes commit |
 | Line validation, oversize lines, batch bounds, fanout × 9 (encoded limit raised in the test so the fanout cut is reached), bad sync objects and their identifiers, broken framing, scanner memory | fast | Parser, scanner and batcher with byte fixtures and an injected clock |
 | Lines stored as read, persisted failure paths, bad-object sample in the stored status and the captured log output | db | Committed raw and failure rows read back, through the pipeline's storage path transform; log records captured from the logger |
 | Retained-work cap, reader-blocked stall, quiet connection, lag, initial backlog with constant and with growing excess | fast + db | Injected clock and fake Icinga 2 server; cap count against embedded Postgres |
@@ -1471,7 +1530,7 @@ pre-ship review checks the code against them):
 | M1 retry vs. cap and revision | D5 lookup before the gates; two scenarios |
 | M2 status after a dead holder | D12 derived `stale` from lease expiry by database time; scenario |
 | M3 sizing scope; disabled pruning | Bounds table scoped to client sessions with lingering-backend headroom; D12 disabled sources pruned |
-| M4 tombstone growth | D32 reclamation after the horizon (owner); alert-state requirement |
+| M4 tombstone growth | D32's owner-approved reclamation applies only after the horizon and the receipt guards; alert-state requirement |
 | M5 `hard_only` repair | Scenario and limits documentation |
 | M6 carried destinations | C33, C34; alert-state "Applied observations update state in place" MODIFIED for silent confirms |
 
@@ -1492,10 +1551,10 @@ pre-ship review checks the code against them):
     tombstone) change alert state without an observation key or event; distinct results with equal starts are
     outside convergence for stream sources (D22), copies of one result may leave different fence receipt times
     (D28), and a disagreeing sync copy counts `diverged`;
-  - to 0024: a silent tombstone holds a fence with no stored observation, and is reclaimed after the lateness
-    horizon (D32);
+  - to 0024: a silent tombstone holds a fence with no stored observation, and is reclaimed only after the
+    lateness horizon relative to both the durable admission cutoff and the oldest pending receipt (D32);
   - to 0029: a stream source has no webhook credential and no request budget; its admission is fenced by the
-    lease instead.
+    lease instead. Both admission paths refuse new raw rows older than the durable reclamation cutoff (D32).
 
 ## Open Questions
 

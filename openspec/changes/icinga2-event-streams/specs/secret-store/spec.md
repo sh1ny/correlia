@@ -4,7 +4,10 @@
 
 ### Requirement: Secret bytes never leave their consumer
 
-Secret bytes SHALL be passed only to the component that uses them: credential verification, webhook signing, a plugin's Configure call, an Event Streams consumer's TLS trust and basic authentication, or publication's password reuse check. They SHALL never appear in endpoint responses, public snapshots, events, raw rows, pipeline failures, delivery attempts, plugin status, activity entries, session logs or process output.
+Secret bytes SHALL pass only to their consumer: verification, signing, TLS or basic authentication, plugin
+Configure, or the reuse check. Responses, snapshots, events, raw rows, diagnostics, attempt and status rows,
+activity, logs and process output SHALL NOT expose secret values or copy credential echoes. A coincidental
+match in fixed metadata or serialization syntax is not an echo.
 
 #### Scenario: SEC-3 plugin config secret
 - **WHEN** a plugin output with a secret reference is published, configured, fails a Configure call with an error echoing the secret, and is read back through every existing endpoint and the public snapshot, with console and persistent logging enabled

@@ -56,8 +56,8 @@ Only the state mutation service SHALL write alert state. It SHALL run inside the
 
 ### Requirement: Resolved alert fences late evidence after its events expire
 
-A resolved alert's row SHALL keep its fence after the alert's events and observation keys are gone. A firing
-observation older than the lateness horizon SHALL change no alert, whether or not its event or key still exists.
+A resolved alert's row SHALL keep its fence after its events and keys are gone, except for eligible silent
+tombstones under reclamation. An observation older than the lateness horizon SHALL change no alert.
 When its observation key does not exist (never written, or removed with the alert's events), it SHALL be stored
 as `late`; when its key still exists, it SHALL take the duplicate path instead: it is a `duplicate_observation`
 and no new event is stored. An item of an Icinga2 stream or sync row is the exception: it is counted `late` and
@@ -164,9 +164,10 @@ displayed source. The documentation SHALL state this.
 
 ### Requirement: Tombstones are reclaimed after the lateness horizon
 
-A tombstone (a resolved alert row with no events, activity or observation keys) whose fence's effective time is
-older than the lateness horizon SHALL be deleted. A later problem for that fingerprint SHALL then be classified
-as it would have been with the tombstone present.
+Only a marked silent tombstone without retained events, activity or keys SHALL be reclaimable. Under the alert
+lock, its fence SHALL be strictly older than the lateness horizon measured from both the durable admission
+cutoff and the oldest pending receipt across all sources, if any. Queued items SHALL still use their original
+receipt for lateness.
 
 #### Scenario: Objects deleted upstream
 - **WHEN** 100,000 objects are synced OK, deleted in Icinga 2, and 100,000 other objects are synced OK
@@ -175,3 +176,31 @@ as it would have been with the tombstone present.
 #### Scenario: Older problem after reclamation
 - **WHEN** a tombstone was reclaimed, and a problem whose start is older than its fence arrives
 - **THEN** it is counted `late` and creates no alert, as it would have with the tombstone present
+
+#### Scenario: A promptly received older problem is still pending at reclamation
+- **WHEN** a stream CRITICAL is received promptly, a newer sync OK creates a silent tombstone, and a sweep runs after the tombstone's fence becomes old enough while the CRITICAL row is still pending
+- **THEN** the sweep retains the tombstone and the CRITICAL is processed as stale with no output intent
+
+#### Scenario: A pending webhook shares the tombstone's namespace
+- **WHEN** the old pending problem belongs to a webhook source sharing the sync source's namespace
+- **THEN** the sweep also retains the tombstone; processing the webhook row does not make the alert fire
+
+#### Scenario: Older admission is in flight during reclamation
+- **WHEN** a transaction inserting an old receipt is concurrent with a sweep that advances the cutoff beyond that receipt
+- **THEN** if admission wins the fence, the committed row is visible to the sweep and keeps the tombstone; if the sweep wins the fence, the new raw row and its reservation cannot commit
+
+#### Scenario: Ordinary resolution outlives its history
+- **WHEN** a normally resolved alert has no remaining events, activity or observation keys and its fence is older than both reclamation bounds
+- **THEN** reclamation retains the resolved alert and its fence
+
+#### Scenario: Fresh problem races deletion after an insert conflict
+- **WHEN** an eligible firing observation races a sweep that deletes the silent tombstone after the worker's insert conflicts but before it locks the alert
+- **THEN** the worker reacquires the alert row and commits a new alert at version 1, its `created` activity, the event and its output intents together
+
+#### Scenario: Fresh problem precedes a sweep
+- **WHEN** the same problem locks and refires the silent tombstone first
+- **THEN** it retains the original alert ID, increments its version and records the refire; the sweep does not delete the firing row
+
+#### Scenario: Reclamation is bounded under contention
+- **WHEN** a pass encounters locked alert rows or the supervisor is stopped while reclaiming
+- **THEN** the pass skips locked candidates, stops by its local deadline or cancellation, and reports deletion only for an acknowledged commit

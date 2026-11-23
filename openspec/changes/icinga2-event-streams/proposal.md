@@ -38,6 +38,8 @@ It advances these M2 exit criteria:
   reconnect and periodically. A reconcile observation that agrees with the alert only confirms it (no event is
   published); one that disagrees repairs it and is published. A recovery for an object with no alert leaves a
   silent resolved tombstone that fences older problems.
+  Tombstone cleanup honors the receipt times of pending work. A durable cutoff prevents new inserts of
+  older receipts once it is safe to reclaim a fence, including from webhook sources.
 - **One ordering rule for stream and sync.** Every Icinga2 stream or sync state observation takes its state,
   state type and source time from one check result (`vars_after` and `execution_start`). That is the order in
   which Icinga 2 itself accepts results, so all evidence of a source falls into one total order.

@@ -105,3 +105,31 @@ as for an unknown source, without reading the body or inserting any row.
 #### Scenario: Webhook source unaffected
 - **WHEN** a valid delivery is sent to a webhook-mode `icinga2` source in the same configuration
 - **THEN** it is accepted with 202
+
+### Requirement: New raw admissions honor the reclamation cutoff
+
+The durable admission cutoff SHALL advance monotonically with reclamation and fence all new raw inserts.
+Receipts below it SHALL roll back admission. Consumer rows SHALL use their earliest item receipt. Exact
+webhook retries within their transport window and retained batch receipts SHALL return the committed
+result without inserting. A live explicit key with a different body SHALL still return 409. Terminal
+rows below the cutoff SHALL NOT be requeued.
+
+#### Scenario: Webhook reaches admission after its receipt falls behind the cutoff
+- **WHEN** a valid webhook read began before the cutoff and attempts a new admission after the cutoff advances past its receipt
+- **THEN** it gets 503 and no raw row or transport reservation is committed; a fresh delivery can be admitted
+
+#### Scenario: A buffered stream item falls behind the cutoff
+- **WHEN** a new consumer batch contains an item received before the cutoff
+- **THEN** no raw row, origin record or batch receipt commits, and the consumer closes, records a gap and resyncs on reconnect
+
+#### Scenario: Committed batch receipt survives advancement of the cutoff
+- **WHEN** a consumer retries a batch whose commit acknowledgement was lost and whose earliest receipt is older than the cutoff
+- **THEN** while its batch receipt is retained, it gets the committed result without inserting another raw row
+
+#### Scenario: Webhook reservation inside and outside the transport window
+- **WHEN** retries of an already committed webhook reach admission with receipts behind the cutoff, one inside the original deduplication window and one after it
+- **THEN** the first returns the committed duplicate result and the second returns 503; neither creates a raw row or changes the original reservation
+
+#### Scenario: Conflicting live webhook key behind the cutoff
+- **WHEN** a delivery behind the cutoff reuses a still-live explicit key with a different body
+- **THEN** admission returns 409 without changing the reservation or inserting a raw row

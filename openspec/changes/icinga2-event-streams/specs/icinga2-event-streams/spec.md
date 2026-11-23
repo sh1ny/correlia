@@ -246,17 +246,37 @@ admission" states.
 
 ### Requirement: An echoed password is redacted before admission
 
-Before a stream line or sync object is parsed, batched, sampled or logged, the consumer SHALL replace every
-occurrence of the source's API password bytes, and of their base64 and base64url forms, with a fixed marker and
-flag the item `redacted`. Nothing derived from the line SHALL hold the password.
+Before semantic parsing or emitting any evidence, the consumer SHALL redact API password and base64/base64url
+echoes in decoded JSON strings or malformed input bytes. The replacement SHALL NOT reproduce an echo.
+Unrelated content SHALL stay intact and changed items SHALL be marked `redacted`.
 
 #### Scenario: Password echoed after a successful subscription
 - **WHEN** an authenticated subscription returns a malformed line containing the password and a well-formed acknowledgement whose comment contains it
-- **THEN** the raw rows, failure rows, events, outbox, status and both log sinks hold the marker and never the password bytes or their base64 forms, and both items are flagged `redacted`
+- **THEN** the admitted items are flagged `redacted`, the malformed bytes and decoded comment omit the echo, and no derived output, status or diagnostic copies it
 
 #### Scenario: Password echoed in a sync object
-- **WHEN** a sync object's check output contains the password
-- **THEN** the object is processed with the marker in place of the password, and no stored row or log holds the password
+- **WHEN** a sync object whose check output contains the password produces a retained repair
+- **THEN** the admitted item is sanitized, and the retained raw row and the repair's decoded fields do not carry the echo
+
+#### Scenario: Password echoed through JSON string escaping
+- **WHEN** an authenticated subscription and a sync repair echo a password through quote, backslash or Unicode escapes
+- **THEN** both retained raw items and decoded event fields are sanitized and no derived diagnostic copies the echo
+
+#### Scenario: Escaped sync echo on confirmation or rejected object
+- **WHEN** one sync object with an escaped echo confirms an existing alert and another with an escaped echo fails validation
+- **THEN** the admitted confirmation is sanitized and deleted after processing, the rejected object is never admitted, and diagnostics copy neither echo
+
+#### Scenario: Replacement cannot contain a short password
+- **WHEN** a valid password matches part of a conventional redaction marker and is echoed in a comment
+- **THEN** the replacement cannot contain or recreate the echo inside or across its boundaries
+
+#### Scenario: Literal match inside unrelated escape
+- **WHEN** a valid JSON string contains the wire spelling `\u0041` and the password is `u0041`
+- **THEN** the valid event keeps the decoded `A` and does not gain a redaction marker or fail validation
+
+#### Scenario: Redaction does not make an originally malformed line eligible
+- **WHEN** a raw tab matching the password makes a stream comment invalid JSON, and sanitizing the tab makes the retained line parseable
+- **THEN** the sanitized item is admitted alone with its original `invalid_json` verdict, the raw row fails with that code, and no event is emitted
 
 ### Requirement: Failure paths name only known members
 
