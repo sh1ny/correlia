@@ -11,8 +11,15 @@ import '../event/cloud_event.dart';
 import '../event/event_timestamp.dart';
 import '../event/validation.dart';
 import '../ingest/bootstrap.dart'
-    show AlertmanagerSourceKind, Icinga2SourceKind, SourceKind, sha256Digest;
+    show
+        AlertmanagerSourceKind,
+        Icinga2SourceKind,
+        SourceKind,
+        SourceMode,
+        StreamStateTypePolicy,
+        sha256Digest;
 import '../ingest/icinga2/decoder.dart';
+import '../ingest/icinga2/stream/decoder.dart';
 import '../ingest/source_decoder.dart';
 import '../runtime/process_options.dart';
 import '../runtime/subsystem.dart';
@@ -384,30 +391,40 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
           await _fail(tx, deadline, raw, 'unsupported_kind', null);
           return true;
         }
+        final stream =
+            kind is Icinga2SourceKind &&
+            source['mode'] == SourceMode.eventStreams.wire;
         late final DecodedBatch batch;
         final prepared = <_Prepared>[];
         try {
-          batch = decoder(
-            DecodeRequest(
-              bytes: raw.bytes,
-              sourceInstance: raw.source,
-              namespace: source['namespace'] as String,
-              excludedLabels:
-                  (source['excluded_identity_labels'] as List<Object?>)
-                      .cast<String>(),
-              rawRef: 'raw:${raw.observed.toUtc().toIso8601String()}/${raw.id}',
-              rawSha256: raw.digest,
-              observedAt: _timestamp(raw.observed),
-              processedAt: _timestamp(clock()),
-              configVersion: raw.pin,
-            ),
+          final request = DecodeRequest(
+            bytes: raw.bytes,
+            sourceInstance: raw.source,
+            namespace: source['namespace'] as String,
+            excludedLabels:
+                (source['excluded_identity_labels'] as List<Object?>)
+                    .cast<String>(),
+            rawRef: 'raw:${raw.observed.toUtc().toIso8601String()}/${raw.id}',
+            rawSha256: raw.digest,
+            observedAt: _timestamp(raw.observed),
+            processedAt: _timestamp(clock()),
+            configVersion: raw.pin,
           );
+          batch = stream
+              ? await _decodeStream(request, raw, tx)
+              : decoder(request);
           deadline.check();
           for (final event in batch.events) {
             deadline.check();
             final disposition = classifyEvidence(
               event.sourceTime!,
-              raw.observed,
+              stream
+                  ? DateTime.fromMicrosecondsSinceEpoch(
+                      event.observedAt.seconds * 1000000 +
+                          event.observedAt.nanos ~/ 1000,
+                      isUtc: true,
+                    )
+                  : raw.observed,
             );
             final data = CloudEvent(event: event).toJsonBytes();
             prepared.add(_Prepared(event, disposition, data));
@@ -418,7 +435,7 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
             deadline,
             raw,
             error.code,
-            safeFailurePath(error.path, kind),
+            stream ? error.path : safeFailurePath(error.path, kind),
           );
           return true;
         }
@@ -622,7 +639,7 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
             deadline,
             raw,
             error.code,
-            safeFailurePath(error.path, kind),
+            stream ? error.path : safeFailurePath(error.path, kind),
           );
           return true;
         }
@@ -646,6 +663,7 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
               'applied': applied,
               'stale': stale,
               'clamped': clamped,
+              if (stream) 'soft_info': batch.softInfo,
             }),
           }),
           transaction: tx,
@@ -699,6 +717,40 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
       AlertmanagerSourceKind() => decodeAlertmanagerRequest,
       Icinga2SourceKind() => icinga2Decoder,
     };
+  }
+
+  Future<DecodedBatch> _decodeStream(
+    DecodeRequest request,
+    _Raw raw,
+    Transaction tx,
+  ) async {
+    final envelope = IcingaStreamRow.parse(request.bytes);
+    final admitted = await session.db.unsafeQuery(
+      '''SELECT o.origin, source->>'state_type_policy'
+        FROM icinga2_raw_origin o
+        JOIN ingest_config_snapshot c ON c."snapshotId"=o.admission_snapshot_id
+        CROSS JOIN LATERAL jsonb_array_elements(c."publicJson"::jsonb->'sources') source
+        WHERE o.raw_id=CAST(@raw AS uuid) AND source->>'id'=@source''',
+      parameters: QueryParameters.named({'raw': raw.id, 'source': raw.source}),
+      transaction: tx,
+      timeoutInSeconds: 5,
+    );
+    if (admitted.isEmpty) {
+      throw const EventFieldError('origin', 'missing_origin');
+    }
+    final metadata = admitted.single;
+    final policy = switch (metadata[1]) {
+      'hard_only' => StreamStateTypePolicy.hardOnly,
+      'soft_and_hard' => StreamStateTypePolicy.softAndHard,
+      _ => throw const EventFieldError(
+        'state_type_policy',
+        'invalid_state_type_policy',
+      ),
+    };
+    final origin = metadata[0] == 'sync'
+        ? IcingaStreamOrigin.sync
+        : IcingaStreamOrigin.stream;
+    return envelope.decode(request, origin, policy);
   }
 
   Future<void> _fail(

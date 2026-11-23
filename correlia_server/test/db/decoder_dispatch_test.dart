@@ -15,6 +15,8 @@ import 'package:test/test.dart';
 
 import '../integration/test_tools/serverpod_test_tools.dart';
 import '../support/icinga2_delivery.dart' as icinga2;
+import '../support/icinga2_stream_decode_fixture.dart';
+import '../support/icinga2_stream_fixture.dart';
 import '../support/ingest_schema.dart';
 import '../support/secret_fixture.dart';
 import '../unit/ingest/alertmanager_decoder_test.dart' as payload;
@@ -245,6 +247,81 @@ VALUES (@time,CAST(@id AS uuid),CAST(@source AS uuid),@body,@digest,'application
         clock: () => _now,
         icinga2Decoder: stub.call,
       );
+
+      Future<String> seedStream(String format) async {
+        final input =
+            await IngestConfigRepository(
+              session,
+              secretStore: testSecretStore,
+            ).publishConfig(
+              streamBootstrap(1, [streamSource(_icinga2Id)]),
+              streamMaterial(),
+              runMode: 'test',
+              clock: () => _now,
+            );
+        final line = capturedStreamEvents('2.16.6').firstWhere(
+          (item) =>
+              (item['check_result'] as Map<String, Object?>?)?['output'] ==
+              'service HARD problem',
+        );
+        final check = line['check_result']! as Map<String, Object?>;
+        final received = _now.microsecondsSinceEpoch;
+        check['execution_start'] = received ~/ 1000000 - 60;
+        check['execution_end'] = received ~/ 1000000 - 58;
+        final raw = await seed(
+          _icinga2Id,
+          Uint8List.fromList(
+            utf8.encode(
+              jsonEncode({
+                'format': format,
+                'origin': 'stream',
+                'connection': '22222222-2222-4222-8222-222222222222',
+                'items': [
+                  {'received': received, 'line': jsonEncode(line)},
+                ],
+              }),
+            ),
+          ),
+        );
+        await session.db.unsafeExecute(
+          '''INSERT INTO icinga2_raw_origin (raw_id,origin,admission_snapshot_id)
+            VALUES (CAST(@raw AS uuid),'stream',@snapshot)''',
+          parameters: QueryParameters.named({
+            'raw': raw,
+            'snapshot': input.snapshotId,
+          }),
+        );
+        return raw;
+      }
+
+      test('stream_row_of_a_stream_source', () async {
+        final raw = await seedStream('correlia.icinga2.stream.v1');
+        final webhook = _StubDecoder();
+        final pipeline = repo(webhook);
+        await pinAll(pipeline);
+        expect(await pipeline.processOne(), isTrue);
+        expect(await status(raw), 'done');
+        expect(webhook.calls, 0);
+        final payload =
+            (await rows('SELECT payload FROM events')).single.single!
+                as Uint8List;
+        final event = CloudEvent.decode(payload).event;
+        expect(event.source.sourceInstance, _icinga2Id);
+        expect(event.status, EventStatus.firing);
+        expect(event.summary, 'stream-host!stream-service CRITICAL');
+        expect(event.observedAt.seconds, _now.millisecondsSinceEpoch ~/ 1000);
+      });
+
+      test('unknown_stream_format', () async {
+        final raw = await seedStream('correlia.icinga2.stream.v2');
+        final webhook = _StubDecoder();
+        final pipeline = repo(webhook);
+        await pinAll(pipeline);
+        expect(await pipeline.processOne(), isTrue);
+        expect(await failure(raw), 'unsupported_format');
+        expect(webhook.calls, 0);
+        expect(await count('events'), 0);
+      });
 
       test('two_kinds_in_one_batch', () async {
         await publish(1);

@@ -9,7 +9,12 @@ const maxBodyDepth = 32;
 ///
 /// Run it before `jsonDecode`, so deeply nested input cannot overflow the
 /// parser's stack. It scans bytes and tracks strings, so it needs no parse.
-void checkBodyDepth(Uint8List bytes) {
+void checkBodyDepth(Uint8List bytes) => _checkDepth(bytes);
+
+/// Applies the same lexical depth bound without re-encoding decoded JSON.
+void checkTextBodyDepth(String text) => _checkDepth(text.codeUnits);
+
+void _checkDepth(List<int> bytes) {
   var depth = 0;
   var inString = false;
   var escaped = false;

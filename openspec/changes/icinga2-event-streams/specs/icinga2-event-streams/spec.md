@@ -641,10 +641,10 @@ is still open; if it closes first, the next subscription's sync replaces it.
 
 ### Requirement: Stream and sync observation evidence
 
-A state observation from a `StateChange` event or a sync object SHALL take its state and state type from its
-check result's `vars_after` and its source time from `execution_start`. Its observation key SHALL be the
-canonical JSON array of `icinga2.check.v1`, state, state type, `execution_start` and `execution_end`, so a
-stream event and a sync of the same check result share one event id.
+A stream or sync state observation SHALL take state and state type from one check result's `vars_after`
+and source time from that result's `execution_start`, never from `last_state_change` or live `state`.
+Its key SHALL be the canonical JSON array of `icinga2.check.v1`, state, state type, `execution_start`
+and `execution_end`. The same result therefore has the same stream and sync event id.
 
 #### Scenario: Sync of an already streamed change
 - **WHEN** a `StateChange` for a result is processed and a later sync reports the same result as the object's last check result
@@ -741,10 +741,10 @@ mapping to status and severity SHALL be the webhook's.
 
 ### Requirement: Soft and hard state policy
 
-Under `soft_and_hard`, a SOFT non-OK observation SHALL fire like a HARD one. Under `hard_only` (default), a
-SOFT non-OK observation SHALL store no event and no observation key and change no alert; it SHALL be counted
-`soft_info` on its row. An OK or UP observation SHALL resolve under both. Use the state policy of the snapshot
-recorded at admission, not the snapshot selected for routing at first claim.
+Use the state policy from admission, not the first-claim routing snapshot. An OK or UP SHALL resolve under
+either policy. Under `soft_and_hard`, a SOFT problem SHALL fire like a HARD one. Under `hard_only` (default),
+it SHALL count `soft_info` without an event, observation key or alert change. A skipped SOFT result leaves no
+key that could prevent a later copy admitted under `soft_and_hard` from firing.
 
 #### Scenario: Missed recovery superseded by a SOFT result
 - **WHEN** under `hard_only` a HARD CRITICAL alert is firing, its OK result is missed during a gap, and on reconnect the object's last result is a newer SOFT CRITICAL

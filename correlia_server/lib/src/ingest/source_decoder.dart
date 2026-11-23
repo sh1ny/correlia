@@ -53,6 +53,7 @@ final class DecodedBatch {
   DecodedBatch({
     required List<CanonicalEvent> events,
     this.upstreamOmissions = 0,
+    this.softInfo = 0,
     List<String> unknownTopLevelFields = const [],
     this.unknownTopLevelOverflow = 0,
   }) : events = List.unmodifiable(events),
@@ -69,6 +70,9 @@ final class DecodedBatch {
 
   /// The count of unknown names omitted from [unknownTopLevelFields].
   final int unknownTopLevelOverflow;
+
+  /// SOFT non-OK stream observations skipped by the admission policy.
+  final int softInfo;
 }
 
 /// Decodes one raw body into canonical events or throws an event validation error.

@@ -33,6 +33,10 @@ new references when rotating credentials: removing a password or a webhook key d
 its reuse protection. Preserve `secret_reuse_digest`, `secret_reuse_retired_credential` and
 `secret_reuse_backfill`, plus the two publication fences, when preparing a Serverpod repair.
 
+Step 6 adds `icinga2_raw_origin`, the admission record for stream and sync rows. Its admission
+snapshot determines state policy; the snapshot pinned at first claim still determines source
+lookup, identity namespace, and routing. Preserve the table and its snapshot reference in repairs.
+
 ## Repair migrations
 
 Serverpod's repair diff sees SQL-owned tables as extraneous and may propose destructive changes. Before applying any generated repair, inspect its entire SQL against the current schema and **remove all operations that drop or alter** `raw_inbox`, `events`, `outbox`, `activity`, `correlia_schema_versions`, their indexes, constraints and time-qualified references. Review related cascades as well. Preserve data and the version table; never force a destructive repair merely to silence drift. Inspect any other unmanaged exceptions individually. If the desired SQL-owned schema itself needs correction, write a new forward schema step, not an edit to an applied step or a generated definition. Review the resulting repair and schema step together on a populated copy before production use.
