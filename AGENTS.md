@@ -48,9 +48,10 @@ These instructions are shared by every harness (Claude Code, Codex, OMP). Keep t
   owner's local Mastermind workspace, or in files excluded locally through `.git/info/exclude`. Never commit, push or
   publish them. Never copy third-party code, schemas, templates or provider configs; specs and ADRs state
   Correlia's own decisions in their own words.
-- **Decision mode.** `decision_making: autonomous` is set (owner, 2026-11-04; it was `all`): agents take
-  scope and design decisions without asking and record them `Chosen by: agent`. A `Chosen by: user`
-  decision still goes to the owner before it changes. Never record an agent choice as the owner's.
+- **Decision mode.** `decision_making: important` is set (owner, 2026-11-23; it was `autonomous` from
+  2026-11-04): important scope and design decisions go to the owner with options and a recommendation,
+  and the agent records only minor ones as `Chosen by: agent`. A `Chosen by: user` decision still goes to
+  the owner before it changes. Never record an agent choice as the owner's.
 - Commits: author and committer `Nikolay Bochev <309868+sh1ny@users.noreply.github.com>`, message ends with
   one `Co-authored-by: KintsugiBot <296966193+KintsugiBot@users.noreply.github.com>` trailer.
 - Always use the toolchain through mise (`mise run <task>`, `mise exec -- <cmd>`), never a bare
