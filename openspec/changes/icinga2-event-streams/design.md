@@ -407,6 +407,14 @@ Scope decisions S1-S5 are in `proposal.md`.
     (review round 5, Moderate 2). Every publication after the step comes from this release or newer (D23), which inserts its own
     digests, so no catch-up at publication is needed (review round 2, Critical 8; round 3, Moderate 5; round 4,
     Moderate 2);
+  - the cutover installs a `BEFORE UPDATE OR DELETE` row trigger on `ingest_source_credential`.
+    For rows at or below the cutover's credential-id boundary it inserts the old digest transactionally
+    into the append-only `secret_reuse_retired_credential` set. Credential replacement thus cannot erase
+    an unread digest. The backfill never writes that set; password lookup probes both sets by digest.
+    Publication and backfill each insert their entire batch into `secret_reuse_digest` in the same
+    `(kind, digest)` index order. Thus overlapping batches cannot form a unique-index lock cycle,
+    and trigger order does not matter. The three bounded passes remain outside the publication lock.
+    Important: yes. Chosen by: user (apply, credential deletion race and concurrent digest inserts).
   - a reuse digest of every password ever published: HMAC-SHA256 under the commitment key over the domain
     `correlia-password-reuse-v1` and the bytes, with no reference, so it is never a bare digest.
 

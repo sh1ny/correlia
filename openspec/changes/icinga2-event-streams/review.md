@@ -1,23 +1,9 @@
-## Metadata
-
-Independent review of the `icinga2-event-streams` D11 amendment, its delta requirement and scenario, and its task mapping. I inspected the four supplied captures and the canonical identity and event representations. Tests were not run.
-
-## Findings
-
-- All four captures show `AcknowledgementCleared` omitting both `author` and `comment`. Each corresponding `AcknowledgementSet` includes both. The evidence supports emitting clears without an actor or description. [2.13.14](correlia_server/test/unit/ingest/fixtures/icinga2/2.13.14/stream/events.ndjson#L8) · [2.14.10](correlia_server/test/unit/ingest/fixtures/icinga2/2.14.10/stream/events.ndjson#L8) · [2.15.7](correlia_server/test/unit/ingest/fixtures/icinga2/2.15.7/stream/events.ndjson#L8) · [2.16.6](correlia_server/test/unit/ingest/fixtures/icinga2/2.16.6/stream/events.ndjson#L8)
-- JSON `null` preserves the four-element key and gives identical replays a stable author slot. The stream type and D17 timestamp text still participate in identity, and acknowledgement sets retain author-based distinction. The null is inside the serialized native key, which the canonical identity layer accepts as text. The canonical event can omit the description and the author attribute. [D11](openspec/changes/icinga2-event-streams/design.md#L450) · [D17](openspec/changes/icinga2-event-streams/design.md#L654) · [Native key](correlia_server/lib/src/event/identity.dart#L318) · [Icinga mapper](correlia_server/lib/src/ingest/icinga2/mapper.dart#L104)
-- The delta scenario matches D11 and maps to `acknowledgement_clear_uses_null_author` in the decoder suite. Tasks 5.1 and 5.2 cover the fixture-backed test and implementation. The scenario specifies the emitted `ack`, `info` status, absent actor and description, no alert effect, and the null author slot. The existing set scenarios cover the author-bearing path. [Delta spec](openspec/changes/icinga2-event-streams/specs/icinga2-event-streams/spec.md#L783) · [Test map](openspec/changes/icinga2-event-streams/tasks.md#L223) · [Task group 5](openspec/changes/icinga2-event-streams/tasks.md#L344)
-
-## Verdict
-
-VERDICT: APPROVE
-
+VERDICT: APPROVE  
 CHANGES_APPLIED: n/a
 
-## Required Changes
+Both findings in the previous review are resolved at design level. [Previous review](/home/bgshi/Development/dart/correlia/openspec/changes/icinga2-event-streams/review.md:5)
 
-None.
+- **Overlapping digest inserts.** The owner-approved design sends trigger writes to a separate append-only set that backfill never writes. This removes the trigger’s row order from the shared-index lock sequence while preserving old digests transactionally when credentials are replaced. Password lookup checks both sets. Publication and backfill acquire shared digest keys in the same `(kind, digest)` index order across each transaction’s full batch, eliminating the reversed A/B lock cycle. The 500-row backfill batches stay outside the publication advisory lock. The delta requires both overlapping transactions to complete and the batch mark to advance, with a database test mapped in the task list. [D8](/home/bgshi/Development/dart/correlia/openspec/changes/icinga2-event-streams/design.md:402) · [Secret-store delta](/home/bgshi/Development/dart/correlia/openspec/changes/icinga2-event-streams/specs/secret-store/spec.md:105) · [Test mapping](/home/bgshi/Development/dart/correlia/openspec/changes/icinga2-event-streams/tasks.md:285)
+- **In-flight cutover coverage.** D26 takes the schema lock before the same publication lock `_publish` takes first. Task 4.2 can therefore prove that cutover waits for the old publisher to commit, includes its revision in the boundary, and rejects a later old publication. Task 4.3 proves the snapshot digest reaches the inventory through real backfill and retains the rollback check after a successful password publication. Together the tasks cover the full in-flight scenario in dependency order. [D26](/home/bgshi/Development/dart/correlia/openspec/changes/icinga2-event-streams/design.md:793) · [Publication lock](/home/bgshi/Development/dart/correlia/correlia_server/lib/src/ingest/config_repository.dart:121) · [Cutover scenario](/home/bgshi/Development/dart/correlia/openspec/changes/icinga2-event-streams/specs/secret-store/spec.md:136) · [Tasks 4.1–4.3](/home/bgshi/Development/dart/correlia/openspec/changes/icinga2-event-streams/tasks.md:341)
 
-## Rebuttals
-
-The four captures supersede the prior assumption that clear events carry an author. An explicit null in the existing slot implements the owner’s decision without deriving identity or display fields from a prior event.
+This verdict covers the design and planned verification. No tests ran and no files were edited.

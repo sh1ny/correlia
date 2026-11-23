@@ -85,11 +85,10 @@ password reuse digest.
 
 ### Requirement: The reuse inventory is complete before the first password
 
-Up to boundaries recorded by this release's schema step, the reuse inventory SHALL be filled from every digest
-field of every historical snapshot format (credential, `token_digest`, signing-key and bare plugin `secret_refs`
-commitments) and every commitment and credential row, in bounded passes outside the publication lock, each
-resuming from its own mark. A password publication SHALL fail `reuse_inventory_pending` until every
-pass has completed.
+The reuse inventory SHALL read all historical snapshot digest fields and all commitment and credential
+rows up to cutover boundaries, in bounded passes outside the publication lock with separate resume
+marks. At cutover a trigger SHALL retain old pre-cutover credential digests transactionally in a separate
+append-only set included in reuse checks. Passwords SHALL fail `reuse_inventory_pending` until all passes finish.
 
 #### Scenario: Password published during the backfill
 - **WHEN** a stream password is published while the backfill has not finished
@@ -103,9 +102,17 @@ pass has completed.
 - **WHEN** the process stops after the snapshot pass completed and before the credential-row pass started, and starts again
 - **THEN** the snapshot pass is not repeated, the credential-row pass runs, and passwords stay refused with `reuse_inventory_pending` until it completes
 
+#### Scenario: A credential row disappears before its backfill batch
+- **WHEN** a digest exists only in a pre-cutover credential row and a webhook publication replaces that row before the credential pass reads it
+- **THEN** the digest is in the inventory after backfill and a stream password with those bytes fails with `password_reuse`
+
 #### Scenario: Outbox pins are covered by snapshots
 - **WHEN** the backfill has completed on a database with webhook and plugin outbox rows
 - **THEN** every distinct outbox signing commitment equals one in its pinned snapshot and is in the inventory
+
+#### Scenario: Publication overlaps a backfill write
+- **WHEN** a webhook publication replaces pre-cutover credentials while a backfill batch writes overlapping digests
+- **THEN** both transactions complete without a lock cycle and the batch mark advances
 
 #### Scenario: Large history
 - **WHEN** the database holds 10,000 historical snapshots and 100,000 commitment and credential rows
