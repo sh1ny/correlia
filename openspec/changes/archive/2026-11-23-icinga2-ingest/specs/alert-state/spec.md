@@ -4,15 +4,11 @@
 
 ### Requirement: State converges in any processing order
 
-The final status, severity, display fields and fence of an alert SHALL NOT depend on the order in which its observations are processed. Deliveries that produce the same event ID (same namespace, source, fingerprint, generation and observation key) are one observation, whose evidence comes from whichever delivery is processed first; the guarantee is over distinct observations, and only an eligible, state-bearing observation sets the fence. A duplicate delivery refreshes `last_observed_at` only when the delivery itself is eligible. Ordering-key times SHALL compare at the canonical timestamp's full nanosecond precision, also after the fence is stored and reloaded. The version counts the visible changes actually committed, so it can differ between orders.
+The final status, severity, display fields and fence of an alert SHALL NOT depend on the order in which its distinct observations are processed. Deliveries with the same event ID (same namespace, source, fingerprint, generation and observation key) are one observation, whose evidence comes from the delivery processed first; only an eligible, state-bearing observation sets the fence, and a duplicate delivery refreshes `last_observed_at` only when it is itself eligible.
 
 #### Scenario: ORD-3 equal source times are ordered deterministically
 - **WHEN** a firing and a resolved observation of one fingerprint have equal source times and are processed in each of the two orders, on fresh state each time
 - **THEN** both orders end in the same status, severity and fence, chosen by observed time and then by event id, and in each order the version equals the number of visible changes that order committed
-
-#### Scenario: Source times less than a microsecond apart
-- **WHEN** a firing observation with source time t + 900 ns commits, and a resolved observation of the same fingerprint with source time t + 800 ns and a later observed time is processed in a later transaction
-- **THEN** the recovery is classified stale and the alert stays firing with its fence's source time at t + 900 ns
 
 #### Scenario: ORD-7a two observations in both orders
 - **WHEN** observations A (source 10:00, observed 10:10) and B (source 10:05, observed 10:06) of one alert are processed in each order, on fresh state each time
@@ -39,6 +35,14 @@ The final status, severity, display fields and fence of an alert SHALL NOT depen
 - **THEN** it is a `duplicate_observation` and the alert's status, version and `last_observed_at` do not change
 
 ## ADDED Requirements
+
+### Requirement: Ordering keys compare at full precision
+
+Ordering-key times SHALL compare at the canonical timestamp's full nanosecond precision, also after the fence is stored and reloaded.
+
+#### Scenario: Source times less than a microsecond apart
+- **WHEN** a firing observation with source time t + 900 ns commits, and a resolved observation of the same fingerprint with source time t + 800 ns and a later observed time is processed in a later transaction
+- **THEN** the recovery is classified stale and the alert stays firing with its fence's source time at t + 900 ns
 
 ### Requirement: Resolved alert fences late evidence after its events expire
 
