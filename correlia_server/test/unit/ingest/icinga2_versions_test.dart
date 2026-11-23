@@ -552,6 +552,52 @@ void main() {
     );
   });
 
+  test('oversized_custom_event_without_its_texts_fails', () {
+    // The delivered texts are cut and marked, but the stored comment event
+    // publishes neither the comment nor the author.
+    final broken = copy();
+    edit(broken, 'oversized_custom_notification', (r) {
+      final custom = r.singleWhere(
+        (x) => x['kind'] == 'admitted' && Rec(x).notificationType == 'CUSTOM',
+      );
+      final data = Rec(custom).data();
+      data.remove('description');
+      (data['annotations']! as Map<String, Object?>).remove(
+        'icinga2.notification_author',
+      );
+    });
+    expect(scenarioChecks['oversized_custom_notification']!(Capture(broken)), [
+      contains('stored description'),
+      contains('stored author annotation'),
+    ]);
+    expect(qualifiedBundles([broken]).qualified, isEmpty);
+  });
+
+  test('capture_file_of_another_bundle_fails', () {
+    // An earlier capture of the same pair and scenario, made with another
+    // sender or other definitions, restored beside the new manifest.
+    for (final field in ['sender_sha256', 'contrib_sha256']) {
+      final broken = copy();
+      final f = File('${broken.directory.path}/long_check_output.json');
+      final json = jsonDecode(f.readAsStringSync()) as Map<String, Object?>;
+      json[field] = field == 'sender_sha256'
+          ? '0' * 64
+          : {
+              ...(json[field]! as Map<String, Object?>),
+              'correlia-commands.conf': '0' * 64,
+            };
+      f.writeAsStringSync(jsonEncode(json));
+      expectNamed(
+        evaluatePair(broken),
+        broken,
+        Gate.manifest,
+        mentions: 'long_check_output.json was made with sender',
+        only: true,
+      );
+      expect(qualifiedBundles([broken]).qualified, isEmpty);
+    }
+  });
+
   test('burst_body_that_is_no_hard_critical_problem_fails', () {
     // The recording endpoint answers 202 without decoding: a burst body of
     // another type, or one that does not decode, still has a burst service
@@ -636,6 +682,15 @@ void main() {
               'correlia-commands.conf': '0' * 64,
             };
       manifest.writeAsStringSync(jsonEncode(json));
+      // The whole pair was recaptured with that bundle: its evidence files
+      // name it too.
+      for (final f in second.directory.listSync().whereType<File>()) {
+        if (f.path.endsWith('manifest.json')) continue;
+        final evidence =
+            jsonDecode(f.readAsStringSync()) as Map<String, Object?>;
+        evidence[field] = json[field];
+        f.writeAsStringSync(jsonEncode(evidence));
+      }
       final found = qualifiedBundles([first, second]);
       expect(found.qualified, isEmpty, reason: field);
       expect(

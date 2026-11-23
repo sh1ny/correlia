@@ -2,6 +2,12 @@
   "scenario": "invalid_utf_8_in_check_output",
   "release": "2.13.14",
   "architecture": "linux-x64",
+  "sender_sha256": "b73c59c0d38600cfe5980094a5d140818e37b2d01e715427cc367039a4c87aa3",
+  "contrib_sha256": {
+    "correlia-commands.conf": "3b439bd4b7975cb733aee755bf50fe8e76e225388f0a0b2acb275b2e51ee458d",
+    "correlia-functions.conf": "a30f9c9a5de0441765ebbc9e4d12b9324d3d743aaa335ec568078471faf78034",
+    "correlia.conf": "ba23a7c8031d5783137222c1188fe47674cce50bd19f467742a6e25961efd78e"
+  },
   "records": [
     {
       "kind": "admitted",
@@ -9,14 +15,14 @@
       "auth": "bearer",
       "request": {
         "path": "/hooks/icinga2/33333333-3333-4333-8333-333333333333",
-        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"invalid-output\",\"state\":\"CRITICAL\",\"state_type\":\"HARD\",\"last_state_change\":\"1795386844.008525\",\"output\":\"bad �� bytes, still text\",\"notification_type\":\"PROBLEM\",\"notification_time\":\"1795386844.008919\"}",
-        "body_sha256": "f383cef059338974b2a4329a8c9032a60de7690cb556b60f3b4b7bd534c7cef8",
+        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"invalid-output\",\"state\":\"CRITICAL\",\"state_type\":\"HARD\",\"last_state_change\":\"1795392053.196257\",\"output\":\"bad �� bytes, still text\",\"notification_type\":\"PROBLEM\",\"notification_time\":\"1795392053.196636\"}",
+        "body_sha256": "d4051b7826548f0607590d1f5dbb308bab6dbbf45500b4bada40f6d8a68539a9",
         "body_size": 285
       },
       "response_status": 202,
       "raw": {
-        "id": "c93ad822-91b9-4301-a433-7a0d05f9e491",
-        "body_sha256": "f383cef059338974b2a4329a8c9032a60de7690cb556b60f3b4b7bd534c7cef8",
+        "id": "2cc29b9d-9ca9-449c-a6ac-6e1646d5abe5",
+        "body_sha256": "d4051b7826548f0607590d1f5dbb308bab6dbbf45500b4bada40f6d8a68539a9",
         "status": "done",
         "outcome": {
           "upstream_omitted": 0,
@@ -38,10 +44,10 @@
         {
           "disposition": "ready",
           "state_outcome": "applied",
-          "source_time": "2026-11-22T22:34:04.008525Z",
+          "source_time": "2026-11-23T00:00:53.196257Z",
           "cloud_event": {
             "specversion": "1.0",
-            "id": "5affc777-ccf0-58f2-91fd-8569ecc83faf",
+            "id": "b75f5c45-46da-58be-bbd2-24f5d4ef52e1",
             "source": "urn:correlia:source:33333333-3333-4333-8333-333333333333",
             "type": "io.correlia.alert.v1",
             "datacontenttype": "application/json",
@@ -49,9 +55,9 @@
             "subject": "b25454205ebf28329d34a38333a20384123032c25c949550344eab054892b1cc",
             "partitionkey": "b25454205ebf28329d34a38333a20384123032c25c949550344eab054892b1cc",
             "correliatenant": "default",
-            "time": "2026-11-22T22:34:04.008525Z",
+            "time": "2026-11-23T00:00:53.196257Z",
             "data": {
-              "event_id": "5affc777-ccf0-58f2-91fd-8569ecc83faf",
+              "event_id": "b75f5c45-46da-58be-bbd2-24f5d4ef52e1",
               "fingerprint": "b25454205ebf28329d34a38333a20384123032c25c949550344eab054892b1cc",
               "tenant": "default",
               "namespace": "33333333-3333-4333-8333-333333333333",
@@ -71,17 +77,17 @@
               "annotations": {
                 "icinga2.notification_type": "PROBLEM"
               },
-              "source_time": "2026-11-22T22:34:04.008525Z",
-              "reported_source_time": "2026-11-22T22:34:04.008525Z",
-              "observed_at": "2026-11-22T22:34:04.013854Z",
-              "processed_at": "2026-11-22T22:34:04.023115Z",
+              "source_time": "2026-11-23T00:00:53.196257Z",
+              "reported_source_time": "2026-11-23T00:00:53.196257Z",
+              "observed_at": "2026-11-23T00:00:53.201064Z",
+              "processed_at": "2026-11-23T00:00:53.377850Z",
               "raw": {
-                "ref": "raw:2026-11-22T22:34:04.013854Z/c93ad822-91b9-4301-a433-7a0d05f9e491",
-                "sha256": "f383cef059338974b2a4329a8c9032a60de7690cb556b60f3b4b7bd534c7cef8",
+                "ref": "raw:2026-11-23T00:00:53.201064Z/2cc29b9d-9ca9-449c-a6ac-6e1646d5abe5",
+                "sha256": "d4051b7826548f0607590d1f5dbb308bab6dbbf45500b4bada40f6d8a68539a9",
                 "size": 285
               },
               "pipeline": {
-                "version": "98c7bdc4fbea2c7514b59787fcae15e0b160e21937457387618b217dc07c5305",
+                "version": "b3a111b0530adb748c62a540927c99834c23e9a44adceee41efbe37696d7c700",
                 "generation": 0
               },
               "extensions": {},
@@ -93,7 +99,7 @@
                   "raw": "invalid-output"
                 }
               },
-              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAADsAWyJpY2luZ2EyLm5vdGlmeS52MSIsIkNSSVRJQ0FMIiwiSEFSRCIsIjE3OTUzODY4NDQwMDg1MjUiXQ=="
+              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAADsAWyJpY2luZ2EyLm5vdGlmeS52MSIsIkNSSVRJQ0FMIiwiSEFSRCIsIjE3OTUzOTIwNTMxOTYyNTciXQ=="
             }
           },
           "outbox": [

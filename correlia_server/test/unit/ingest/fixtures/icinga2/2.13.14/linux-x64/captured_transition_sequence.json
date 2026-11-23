@@ -2,6 +2,12 @@
   "scenario": "captured_transition_sequence",
   "release": "2.13.14",
   "architecture": "linux-x64",
+  "sender_sha256": "b73c59c0d38600cfe5980094a5d140818e37b2d01e715427cc367039a4c87aa3",
+  "contrib_sha256": {
+    "correlia-commands.conf": "3b439bd4b7975cb733aee755bf50fe8e76e225388f0a0b2acb275b2e51ee458d",
+    "correlia-functions.conf": "a30f9c9a5de0441765ebbc9e4d12b9324d3d743aaa335ec568078471faf78034",
+    "correlia.conf": "ba23a7c8031d5783137222c1188fe47674cce50bd19f467742a6e25961efd78e"
+  },
   "records": [
     {
       "kind": "result",
@@ -11,8 +17,8 @@
       "exit_status": 2,
       "output_bytes": 12,
       "output": "CRITICAL: tx",
-      "execution_end": "1795386886.100001",
-      "accepted_us": 1795386887007561
+      "execution_end": "1795392094.100001",
+      "accepted_us": 1795392094115282
     },
     {
       "kind": "admitted",
@@ -20,14 +26,14 @@
       "auth": "bearer",
       "request": {
         "path": "/hooks/icinga2/33333333-3333-4333-8333-333333333333",
-        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"tx\",\"state\":\"CRITICAL\",\"state_type\":\"HARD\",\"last_state_change\":\"1795386886.100001\",\"output\":\"CRITICAL: tx\",\"notification_type\":\"PROBLEM\",\"notification_time\":\"1795386886.965805\"}",
-        "body_sha256": "18666f5ec725e2f03ed83031765c271df684b322477116baa50eb9d79c660426",
+        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"tx\",\"state\":\"CRITICAL\",\"state_type\":\"HARD\",\"last_state_change\":\"1795392094.100001\",\"output\":\"CRITICAL: tx\",\"notification_type\":\"PROBLEM\",\"notification_time\":\"1795392094.071514\"}",
+        "body_sha256": "463d57094c4e027d73fdacf84bb1018e0d138c0216429cd7f3996f8661c1c656",
         "body_size": 257
       },
       "response_status": 202,
       "raw": {
-        "id": "eb37e912-027d-4654-b72d-18de0fe92d61",
-        "body_sha256": "18666f5ec725e2f03ed83031765c271df684b322477116baa50eb9d79c660426",
+        "id": "0308c454-40d9-4ec6-84a6-e15899a1cc99",
+        "body_sha256": "463d57094c4e027d73fdacf84bb1018e0d138c0216429cd7f3996f8661c1c656",
         "status": "done",
         "outcome": {
           "upstream_omitted": 0,
@@ -49,10 +55,10 @@
         {
           "disposition": "ready",
           "state_outcome": "applied",
-          "source_time": "2026-11-22T22:34:46.100001Z",
+          "source_time": "2026-11-23T00:01:34.100001Z",
           "cloud_event": {
             "specversion": "1.0",
-            "id": "2ba04e28-9701-5372-93d1-12f248ac3553",
+            "id": "c7b9093e-2de9-5ecf-b65b-06b1017c678c",
             "source": "urn:correlia:source:33333333-3333-4333-8333-333333333333",
             "type": "io.correlia.alert.v1",
             "datacontenttype": "application/json",
@@ -60,9 +66,9 @@
             "subject": "d97a077cb313cecf31e8ed6a705df61c4c39e1f22fbc2be015c8a24e965e4226",
             "partitionkey": "d97a077cb313cecf31e8ed6a705df61c4c39e1f22fbc2be015c8a24e965e4226",
             "correliatenant": "default",
-            "time": "2026-11-22T22:34:46.100001Z",
+            "time": "2026-11-23T00:01:34.100001Z",
             "data": {
-              "event_id": "2ba04e28-9701-5372-93d1-12f248ac3553",
+              "event_id": "c7b9093e-2de9-5ecf-b65b-06b1017c678c",
               "fingerprint": "d97a077cb313cecf31e8ed6a705df61c4c39e1f22fbc2be015c8a24e965e4226",
               "tenant": "default",
               "namespace": "33333333-3333-4333-8333-333333333333",
@@ -82,17 +88,17 @@
               "annotations": {
                 "icinga2.notification_type": "PROBLEM"
               },
-              "source_time": "2026-11-22T22:34:46.100001Z",
-              "reported_source_time": "2026-11-22T22:34:46.100001Z",
-              "observed_at": "2026-11-22T22:34:46.971249Z",
-              "processed_at": "2026-11-22T22:34:47.070455Z",
+              "source_time": "2026-11-23T00:01:34.100001Z",
+              "reported_source_time": "2026-11-23T00:01:34.100001Z",
+              "observed_at": "2026-11-23T00:01:34.076950Z",
+              "processed_at": "2026-11-23T00:01:34.305519Z",
               "raw": {
-                "ref": "raw:2026-11-22T22:34:46.971249Z/eb37e912-027d-4654-b72d-18de0fe92d61",
-                "sha256": "18666f5ec725e2f03ed83031765c271df684b322477116baa50eb9d79c660426",
+                "ref": "raw:2026-11-23T00:01:34.076950Z/0308c454-40d9-4ec6-84a6-e15899a1cc99",
+                "sha256": "463d57094c4e027d73fdacf84bb1018e0d138c0216429cd7f3996f8661c1c656",
                 "size": 257
               },
               "pipeline": {
-                "version": "98c7bdc4fbea2c7514b59787fcae15e0b160e21937457387618b217dc07c5305",
+                "version": "b3a111b0530adb748c62a540927c99834c23e9a44adceee41efbe37696d7c700",
                 "generation": 0
               },
               "extensions": {},
@@ -104,7 +110,7 @@
                   "raw": "tx"
                 }
               },
-              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAADsAWyJpY2luZ2EyLm5vdGlmeS52MSIsIkNSSVRJQ0FMIiwiSEFSRCIsIjE3OTUzODY4ODYxMDAwMDEiXQ=="
+              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAADsAWyJpY2luZ2EyLm5vdGlmeS52MSIsIkNSSVRJQ0FMIiwiSEFSRCIsIjE3OTUzOTIwOTQxMDAwMDEiXQ=="
             }
           },
           "outbox": [
@@ -127,8 +133,8 @@
         "status": "firing",
         "severity": "critical",
         "version": 1,
-        "fence_event_id": "2ba04e28-9701-5372-93d1-12f248ac3553",
-        "fence_effective_seconds": 1795386886,
+        "fence_event_id": "c7b9093e-2de9-5ecf-b65b-06b1017c678c",
+        "fence_effective_seconds": 1795392094,
         "fence_effective_nanos": 100001000,
         "summary": "lab!tx CRITICAL"
       },
@@ -148,14 +154,14 @@
       "auth": "bearer",
       "request": {
         "path": "/hooks/icinga2/33333333-3333-4333-8333-333333333333",
-        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"tx\",\"state\":\"CRITICAL\",\"state_type\":\"HARD\",\"output\":\"CRITICAL: tx\",\"notification_type\":\"ACKNOWLEDGEMENT\",\"notification_author\":\"operator\",\"notification_comment\":\"ack\",\"notification_time\":\"1795386887.135589\"}",
-        "body_sha256": "44c276de5615dd1e31d2e8a4347515a38d6928d8df7b371ecf39a039734ff769",
+        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"tx\",\"state\":\"CRITICAL\",\"state_type\":\"HARD\",\"output\":\"CRITICAL: tx\",\"notification_type\":\"ACKNOWLEDGEMENT\",\"notification_author\":\"operator\",\"notification_comment\":\"ack\",\"notification_time\":\"1795392094.344922\"}",
+        "body_sha256": "56e1ffa82bd21abcf12fbcdbd7e48c71479fc9f70cf6494147f6d695b83878c0",
         "body_size": 287
       },
       "response_status": 202,
       "raw": {
-        "id": "985b1132-6e72-4234-930c-4fcfef37be13",
-        "body_sha256": "44c276de5615dd1e31d2e8a4347515a38d6928d8df7b371ecf39a039734ff769",
+        "id": "2a990686-ee6d-4945-acd7-1861ebced450",
+        "body_sha256": "56e1ffa82bd21abcf12fbcdbd7e48c71479fc9f70cf6494147f6d695b83878c0",
         "status": "done",
         "outcome": {
           "upstream_omitted": 0,
@@ -177,10 +183,10 @@
         {
           "disposition": "ready",
           "state_outcome": null,
-          "source_time": "2026-11-22T22:34:47.135589Z",
+          "source_time": "2026-11-23T00:01:34.344922Z",
           "cloud_event": {
             "specversion": "1.0",
-            "id": "f2b8f8d0-a344-5a08-95a0-dea3043a32b8",
+            "id": "2e340e3a-33c5-5f52-b452-e7400008b6f1",
             "source": "urn:correlia:source:33333333-3333-4333-8333-333333333333",
             "type": "io.correlia.ack.v1",
             "datacontenttype": "application/json",
@@ -188,9 +194,9 @@
             "subject": "d97a077cb313cecf31e8ed6a705df61c4c39e1f22fbc2be015c8a24e965e4226",
             "partitionkey": "d97a077cb313cecf31e8ed6a705df61c4c39e1f22fbc2be015c8a24e965e4226",
             "correliatenant": "default",
-            "time": "2026-11-22T22:34:47.135589Z",
+            "time": "2026-11-23T00:01:34.344922Z",
             "data": {
-              "event_id": "f2b8f8d0-a344-5a08-95a0-dea3043a32b8",
+              "event_id": "2e340e3a-33c5-5f52-b452-e7400008b6f1",
               "fingerprint": "d97a077cb313cecf31e8ed6a705df61c4c39e1f22fbc2be015c8a24e965e4226",
               "tenant": "default",
               "namespace": "33333333-3333-4333-8333-333333333333",
@@ -211,17 +217,17 @@
                 "icinga2.notification_type": "ACKNOWLEDGEMENT",
                 "icinga2.notification_author": "operator"
               },
-              "source_time": "2026-11-22T22:34:47.135589Z",
-              "reported_source_time": "2026-11-22T22:34:47.135589Z",
-              "observed_at": "2026-11-22T22:34:47.140352Z",
-              "processed_at": "2026-11-22T22:34:47.332124Z",
+              "source_time": "2026-11-23T00:01:34.344922Z",
+              "reported_source_time": "2026-11-23T00:01:34.344922Z",
+              "observed_at": "2026-11-23T00:01:34.349594Z",
+              "processed_at": "2026-11-23T00:01:34.567412Z",
               "raw": {
-                "ref": "raw:2026-11-22T22:34:47.140352Z/985b1132-6e72-4234-930c-4fcfef37be13",
-                "sha256": "44c276de5615dd1e31d2e8a4347515a38d6928d8df7b371ecf39a039734ff769",
+                "ref": "raw:2026-11-23T00:01:34.349594Z/2a990686-ee6d-4945-acd7-1861ebced450",
+                "sha256": "56e1ffa82bd21abcf12fbcdbd7e48c71479fc9f70cf6494147f6d695b83878c0",
                 "size": 287
               },
               "pipeline": {
-                "version": "98c7bdc4fbea2c7514b59787fcae15e0b160e21937457387618b217dc07c5305",
+                "version": "b3a111b0530adb748c62a540927c99834c23e9a44adceee41efbe37696d7c700",
                 "generation": 0
               },
               "extensions": {},
@@ -233,7 +239,7 @@
                   "raw": "tx"
                 }
               },
-              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAAFYAWyJpY2luZ2EyLm5vdGlmeS5BQ0tOT1dMRURHRU1FTlQudjEiLCJBQ0tOT1dMRURHRU1FTlQiLCIxNzk1Mzg2ODg3MTM1NTg5Iiwib3BlcmF0b3IiXQ=="
+              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAAFYAWyJpY2luZ2EyLm5vdGlmeS5BQ0tOT1dMRURHRU1FTlQudjEiLCJBQ0tOT1dMRURHRU1FTlQiLCIxNzk1MzkyMDk0MzQ0OTIyIiwib3BlcmF0b3IiXQ=="
             }
           },
           "outbox": [
@@ -253,8 +259,8 @@
       "exit_status": 0,
       "output_bytes": 6,
       "output": "flap 1",
-      "execution_end": "1795386887.660238",
-      "accepted_us": 1795386887710912
+      "execution_end": "1795392094.852828",
+      "accepted_us": 1795392094899205
     },
     {
       "kind": "result",
@@ -264,8 +270,8 @@
       "exit_status": 2,
       "output_bytes": 6,
       "output": "flap 2",
-      "execution_end": "1795386888.144223",
-      "accepted_us": 1795386888190992
+      "execution_end": "1795392095.317382",
+      "accepted_us": 1795392095363268
     },
     {
       "kind": "result",
@@ -275,8 +281,8 @@
       "exit_status": 0,
       "output_bytes": 6,
       "output": "flap 3",
-      "execution_end": "1795386888.611896",
-      "accepted_us": 1795386888659332
+      "execution_end": "1795392095.763977",
+      "accepted_us": 1795392095811266
     },
     {
       "kind": "result",
@@ -286,8 +292,8 @@
       "exit_status": 2,
       "output_bytes": 6,
       "output": "flap 4",
-      "execution_end": "1795386889.096969",
-      "accepted_us": 1795386889143153
+      "execution_end": "1795392096.240435",
+      "accepted_us": 1795392096287318
     },
     {
       "kind": "result",
@@ -297,8 +303,8 @@
       "exit_status": 0,
       "output_bytes": 6,
       "output": "flap 5",
-      "execution_end": "1795386889.559875",
-      "accepted_us": 1795386889607109
+      "execution_end": "1795392096.676380",
+      "accepted_us": 1795392096723293
     },
     {
       "kind": "result",
@@ -306,10 +312,10 @@
       "object_type": "service",
       "cap_id": "tx",
       "exit_status": 2,
-      "output_bytes": 8,
-      "output": "steady 6",
-      "execution_end": "1795386890.303671",
-      "accepted_us": 1795386890351090
+      "output_bytes": 6,
+      "output": "flap 6",
+      "execution_end": "1795392097.128999",
+      "accepted_us": 1795392097175518
     },
     {
       "kind": "result",
@@ -319,8 +325,8 @@
       "exit_status": 2,
       "output_bytes": 8,
       "output": "steady 7",
-      "execution_end": "1795386890.788190",
-      "accepted_us": 1795386890835102
+      "execution_end": "1795392097.840423",
+      "accepted_us": 1795392097887306
     },
     {
       "kind": "result",
@@ -330,8 +336,8 @@
       "exit_status": 2,
       "output_bytes": 8,
       "output": "steady 8",
-      "execution_end": "1795386891.272120",
-      "accepted_us": 1795386891323952
+      "execution_end": "1795392098.280278",
+      "accepted_us": 1795392098331310
     },
     {
       "kind": "result",
@@ -341,8 +347,8 @@
       "exit_status": 2,
       "output_bytes": 8,
       "output": "steady 9",
-      "execution_end": "1795386891.756774",
-      "accepted_us": 1795386891807014
+      "execution_end": "1795392098.736729",
+      "accepted_us": 1795392098783274
     },
     {
       "kind": "result",
@@ -352,8 +358,8 @@
       "exit_status": 2,
       "output_bytes": 9,
       "output": "steady 10",
-      "execution_end": "1795386892.252915",
-      "accepted_us": 1795386892299432
+      "execution_end": "1795392099.196708",
+      "accepted_us": 1795392099243304
     },
     {
       "kind": "result",
@@ -363,8 +369,8 @@
       "exit_status": 2,
       "output_bytes": 9,
       "output": "steady 11",
-      "execution_end": "1795386892.716048",
-      "accepted_us": 1795386892763199
+      "execution_end": "1795392099.648366",
+      "accepted_us": 1795392099695512
     },
     {
       "kind": "result",
@@ -374,8 +380,8 @@
       "exit_status": 2,
       "output_bytes": 9,
       "output": "steady 12",
-      "execution_end": "1795386893.176264",
-      "accepted_us": 1795386893223018
+      "execution_end": "1795392100.105305",
+      "accepted_us": 1795392100159592
     },
     {
       "kind": "result",
@@ -385,8 +391,8 @@
       "exit_status": 2,
       "output_bytes": 9,
       "output": "steady 13",
-      "execution_end": "1795386893.660874",
-      "accepted_us": 1795386893707213
+      "execution_end": "1795392100.576425",
+      "accepted_us": 1795392100627313
     },
     {
       "kind": "result",
@@ -396,8 +402,8 @@
       "exit_status": 2,
       "output_bytes": 9,
       "output": "steady 14",
-      "execution_end": "1795386894.124485",
-      "accepted_us": 1795386894172101
+      "execution_end": "1795392101.032366",
+      "accepted_us": 1795392101083337
     },
     {
       "kind": "result",
@@ -407,8 +413,8 @@
       "exit_status": 2,
       "output_bytes": 9,
       "output": "steady 15",
-      "execution_end": "1795386894.596333",
-      "accepted_us": 1795386894647034
+      "execution_end": "1795392101.513361",
+      "accepted_us": 1795392101559425
     },
     {
       "kind": "result",
@@ -418,8 +424,8 @@
       "exit_status": 2,
       "output_bytes": 9,
       "output": "steady 16",
-      "execution_end": "1795386895.068475",
-      "accepted_us": 1795386895115179
+      "execution_end": "1795392101.968674",
+      "accepted_us": 1795392102015341
     },
     {
       "kind": "result",
@@ -429,8 +435,8 @@
       "exit_status": 2,
       "output_bytes": 9,
       "output": "steady 17",
-      "execution_end": "1795386895.535932",
-      "accepted_us": 1795386895583196
+      "execution_end": "1795392102.432834",
+      "accepted_us": 1795392102479670
     },
     {
       "kind": "result",
@@ -440,8 +446,8 @@
       "exit_status": 2,
       "output_bytes": 9,
       "output": "steady 18",
-      "execution_end": "1795386896.024151",
-      "accepted_us": 1795386896071613
+      "execution_end": "1795392102.936713",
+      "accepted_us": 1795392102987459
     },
     {
       "kind": "result",
@@ -451,8 +457,8 @@
       "exit_status": 2,
       "output_bytes": 9,
       "output": "steady 19",
-      "execution_end": "1795386896.496818",
-      "accepted_us": 1795386896543178
+      "execution_end": "1795392103.396317",
+      "accepted_us": 1795392103443870
     },
     {
       "kind": "result",
@@ -462,8 +468,8 @@
       "exit_status": 2,
       "output_bytes": 9,
       "output": "steady 20",
-      "execution_end": "1795386896.976816",
-      "accepted_us": 1795386897027993
+      "execution_end": "1795392103.880389",
+      "accepted_us": 1795392103927908
     },
     {
       "kind": "result",
@@ -473,23 +479,34 @@
       "exit_status": 2,
       "output_bytes": 9,
       "output": "steady 21",
-      "execution_end": "1795386897.452271",
-      "accepted_us": 1795386897498972
+      "execution_end": "1795392104.404268",
+      "accepted_us": 1795392104451336
+    },
+    {
+      "kind": "result",
+      "id": "r25",
+      "object_type": "service",
+      "cap_id": "tx",
+      "exit_status": 2,
+      "output_bytes": 9,
+      "output": "steady 22",
+      "execution_end": "1795392104.896368",
+      "accepted_us": 1795392104947568
     },
     {
       "kind": "admitted",
-      "id": "d25",
+      "id": "d26",
       "auth": "bearer",
       "request": {
         "path": "/hooks/icinga2/33333333-3333-4333-8333-333333333333",
-        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"tx\",\"state\":\"OK\",\"state_type\":\"HARD\",\"last_state_change\":\"1795386887.660238\",\"output\":\"flap 1\",\"notification_type\":\"RECOVERY\",\"notification_time\":\"1795386887.665978\"}",
-        "body_sha256": "80383b29d7ffe08588c2c302c93ed70b90269a5a362a33e0b7c0b904312fdf48",
+        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"tx\",\"state\":\"OK\",\"state_type\":\"HARD\",\"last_state_change\":\"1795392094.852828\",\"output\":\"flap 1\",\"notification_type\":\"RECOVERY\",\"notification_time\":\"1795392094.858428\"}",
+        "body_sha256": "bf24d2d1133054de69f3106fe15d692e5197a7eab888bca17d39973fbdcecc51",
         "body_size": 246
       },
       "response_status": 202,
       "raw": {
-        "id": "952c5c22-3818-43d8-b31a-98250b17f96d",
-        "body_sha256": "80383b29d7ffe08588c2c302c93ed70b90269a5a362a33e0b7c0b904312fdf48",
+        "id": "023d1639-de8b-4c1b-a867-9fd4012df4a1",
+        "body_sha256": "bf24d2d1133054de69f3106fe15d692e5197a7eab888bca17d39973fbdcecc51",
         "status": "done",
         "outcome": {
           "upstream_omitted": 0,
@@ -511,10 +528,10 @@
         {
           "disposition": "ready",
           "state_outcome": "applied",
-          "source_time": "2026-11-22T22:34:47.660238Z",
+          "source_time": "2026-11-23T00:01:34.852828Z",
           "cloud_event": {
             "specversion": "1.0",
-            "id": "bb11476c-c19e-5c6d-83bb-aa7e0dc76f50",
+            "id": "a2ad49ba-11ca-5753-90b6-dcdf0e45d4d9",
             "source": "urn:correlia:source:33333333-3333-4333-8333-333333333333",
             "type": "io.correlia.alert.v1",
             "datacontenttype": "application/json",
@@ -522,9 +539,9 @@
             "subject": "d97a077cb313cecf31e8ed6a705df61c4c39e1f22fbc2be015c8a24e965e4226",
             "partitionkey": "d97a077cb313cecf31e8ed6a705df61c4c39e1f22fbc2be015c8a24e965e4226",
             "correliatenant": "default",
-            "time": "2026-11-22T22:34:47.660238Z",
+            "time": "2026-11-23T00:01:34.852828Z",
             "data": {
-              "event_id": "bb11476c-c19e-5c6d-83bb-aa7e0dc76f50",
+              "event_id": "a2ad49ba-11ca-5753-90b6-dcdf0e45d4d9",
               "fingerprint": "d97a077cb313cecf31e8ed6a705df61c4c39e1f22fbc2be015c8a24e965e4226",
               "tenant": "default",
               "namespace": "33333333-3333-4333-8333-333333333333",
@@ -544,17 +561,17 @@
               "annotations": {
                 "icinga2.notification_type": "RECOVERY"
               },
-              "source_time": "2026-11-22T22:34:47.660238Z",
-              "reported_source_time": "2026-11-22T22:34:47.660238Z",
-              "observed_at": "2026-11-22T22:34:47.670991Z",
-              "processed_at": "2026-11-22T22:34:47.845363Z",
+              "source_time": "2026-11-23T00:01:34.852828Z",
+              "reported_source_time": "2026-11-23T00:01:34.852828Z",
+              "observed_at": "2026-11-23T00:01:34.863298Z",
+              "processed_at": "2026-11-23T00:01:35.080429Z",
               "raw": {
-                "ref": "raw:2026-11-22T22:34:47.670991Z/952c5c22-3818-43d8-b31a-98250b17f96d",
-                "sha256": "80383b29d7ffe08588c2c302c93ed70b90269a5a362a33e0b7c0b904312fdf48",
+                "ref": "raw:2026-11-23T00:01:34.863298Z/023d1639-de8b-4c1b-a867-9fd4012df4a1",
+                "sha256": "bf24d2d1133054de69f3106fe15d692e5197a7eab888bca17d39973fbdcecc51",
                 "size": 246
               },
               "pipeline": {
-                "version": "98c7bdc4fbea2c7514b59787fcae15e0b160e21937457387618b217dc07c5305",
+                "version": "b3a111b0530adb748c62a540927c99834c23e9a44adceee41efbe37696d7c700",
                 "generation": 0
               },
               "extensions": {},
@@ -566,7 +583,7 @@
                   "raw": "tx"
                 }
               },
-              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAADUAWyJpY2luZ2EyLm5vdGlmeS52MSIsIk9LIiwiSEFSRCIsIjE3OTUzODY4ODc2NjAyMzgiXQ=="
+              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAADUAWyJpY2luZ2EyLm5vdGlmeS52MSIsIk9LIiwiSEFSRCIsIjE3OTUzOTIwOTQ4NTI4MjgiXQ=="
             }
           },
           "outbox": [
@@ -580,18 +597,18 @@
     },
     {
       "kind": "admitted",
-      "id": "d26",
+      "id": "d27",
       "auth": "bearer",
       "request": {
         "path": "/hooks/icinga2/33333333-3333-4333-8333-333333333333",
-        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"tx\",\"state\":\"CRITICAL\",\"state_type\":\"HARD\",\"last_state_change\":\"1795386888.144223\",\"output\":\"flap 2\",\"notification_type\":\"PROBLEM\",\"notification_time\":\"1795386888.149614\"}",
-        "body_sha256": "014a29fe3f29d6593025cbd1d160eeb8d7f3c728876dcca059b50da4a1b3d584",
+        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"tx\",\"state\":\"CRITICAL\",\"state_type\":\"HARD\",\"last_state_change\":\"1795392095.317382\",\"output\":\"flap 2\",\"notification_type\":\"PROBLEM\",\"notification_time\":\"1795392095.322654\"}",
+        "body_sha256": "4d7609b2210d83b847bf378c4def987d2ae1ec984c94a23eb42340b2930c219f",
         "body_size": 251
       },
       "response_status": 202,
       "raw": {
-        "id": "5a591fe3-bbfc-47cb-9c95-b07d9fcaf80b",
-        "body_sha256": "014a29fe3f29d6593025cbd1d160eeb8d7f3c728876dcca059b50da4a1b3d584",
+        "id": "b2c9d0c3-7cb6-4d9f-aae0-ddac6bab88c5",
+        "body_sha256": "4d7609b2210d83b847bf378c4def987d2ae1ec984c94a23eb42340b2930c219f",
         "status": "done",
         "outcome": {
           "upstream_omitted": 0,
@@ -613,10 +630,10 @@
         {
           "disposition": "ready",
           "state_outcome": "applied",
-          "source_time": "2026-11-22T22:34:48.144223Z",
+          "source_time": "2026-11-23T00:01:35.317382Z",
           "cloud_event": {
             "specversion": "1.0",
-            "id": "ad82c24e-5599-5089-adc4-fb49d4d6bc26",
+            "id": "aa84a254-0f26-56c5-9ce1-5678b82076ca",
             "source": "urn:correlia:source:33333333-3333-4333-8333-333333333333",
             "type": "io.correlia.alert.v1",
             "datacontenttype": "application/json",
@@ -624,9 +641,9 @@
             "subject": "d97a077cb313cecf31e8ed6a705df61c4c39e1f22fbc2be015c8a24e965e4226",
             "partitionkey": "d97a077cb313cecf31e8ed6a705df61c4c39e1f22fbc2be015c8a24e965e4226",
             "correliatenant": "default",
-            "time": "2026-11-22T22:34:48.144223Z",
+            "time": "2026-11-23T00:01:35.317382Z",
             "data": {
-              "event_id": "ad82c24e-5599-5089-adc4-fb49d4d6bc26",
+              "event_id": "aa84a254-0f26-56c5-9ce1-5678b82076ca",
               "fingerprint": "d97a077cb313cecf31e8ed6a705df61c4c39e1f22fbc2be015c8a24e965e4226",
               "tenant": "default",
               "namespace": "33333333-3333-4333-8333-333333333333",
@@ -646,17 +663,17 @@
               "annotations": {
                 "icinga2.notification_type": "PROBLEM"
               },
-              "source_time": "2026-11-22T22:34:48.144223Z",
-              "reported_source_time": "2026-11-22T22:34:48.144223Z",
-              "observed_at": "2026-11-22T22:34:48.154372Z",
-              "processed_at": "2026-11-22T22:34:48.359866Z",
+              "source_time": "2026-11-23T00:01:35.317382Z",
+              "reported_source_time": "2026-11-23T00:01:35.317382Z",
+              "observed_at": "2026-11-23T00:01:35.327714Z",
+              "processed_at": "2026-11-23T00:01:35.340972Z",
               "raw": {
-                "ref": "raw:2026-11-22T22:34:48.154372Z/5a591fe3-bbfc-47cb-9c95-b07d9fcaf80b",
-                "sha256": "014a29fe3f29d6593025cbd1d160eeb8d7f3c728876dcca059b50da4a1b3d584",
+                "ref": "raw:2026-11-23T00:01:35.327714Z/b2c9d0c3-7cb6-4d9f-aae0-ddac6bab88c5",
+                "sha256": "4d7609b2210d83b847bf378c4def987d2ae1ec984c94a23eb42340b2930c219f",
                 "size": 251
               },
               "pipeline": {
-                "version": "98c7bdc4fbea2c7514b59787fcae15e0b160e21937457387618b217dc07c5305",
+                "version": "b3a111b0530adb748c62a540927c99834c23e9a44adceee41efbe37696d7c700",
                 "generation": 0
               },
               "extensions": {},
@@ -668,7 +685,7 @@
                   "raw": "tx"
                 }
               },
-              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAADsAWyJpY2luZ2EyLm5vdGlmeS52MSIsIkNSSVRJQ0FMIiwiSEFSRCIsIjE3OTUzODY4ODgxNDQyMjMiXQ=="
+              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAADsAWyJpY2luZ2EyLm5vdGlmeS52MSIsIkNSSVRJQ0FMIiwiSEFSRCIsIjE3OTUzOTIwOTUzMTczODIiXQ=="
             }
           },
           "outbox": [
@@ -682,18 +699,18 @@
     },
     {
       "kind": "admitted",
-      "id": "d27",
+      "id": "d28",
       "auth": "bearer",
       "request": {
         "path": "/hooks/icinga2/33333333-3333-4333-8333-333333333333",
-        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"tx\",\"state\":\"OK\",\"state_type\":\"HARD\",\"last_state_change\":\"1795386888.611896\",\"output\":\"flap 3\",\"notification_type\":\"RECOVERY\",\"notification_time\":\"1795386888.617264\"}",
-        "body_sha256": "793f257bda494ea8268c5c9273978644617fa96e1e73b0de3e4a8629bf58a415",
+        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"tx\",\"state\":\"OK\",\"state_type\":\"HARD\",\"last_state_change\":\"1795392095.763977\",\"output\":\"flap 3\",\"notification_type\":\"RECOVERY\",\"notification_time\":\"1795392095.769600\"}",
+        "body_sha256": "a03203b5c1d408c6166af9f3d542fb3f9e3116f98694b5e040c757837ddde366",
         "body_size": 246
       },
       "response_status": 202,
       "raw": {
-        "id": "a0de21d0-a4cc-49d1-a1bd-31dfc508c972",
-        "body_sha256": "793f257bda494ea8268c5c9273978644617fa96e1e73b0de3e4a8629bf58a415",
+        "id": "065214d0-9262-4ba8-b67e-90fd75c1b7b6",
+        "body_sha256": "a03203b5c1d408c6166af9f3d542fb3f9e3116f98694b5e040c757837ddde366",
         "status": "done",
         "outcome": {
           "upstream_omitted": 0,
@@ -715,10 +732,10 @@
         {
           "disposition": "ready",
           "state_outcome": "applied",
-          "source_time": "2026-11-22T22:34:48.611896Z",
+          "source_time": "2026-11-23T00:01:35.763977Z",
           "cloud_event": {
             "specversion": "1.0",
-            "id": "158af541-7c76-5c35-b478-a53c4e3afb15",
+            "id": "c7e93cda-2d01-5268-b810-8ef19ed5fc76",
             "source": "urn:correlia:source:33333333-3333-4333-8333-333333333333",
             "type": "io.correlia.alert.v1",
             "datacontenttype": "application/json",
@@ -726,9 +743,9 @@
             "subject": "d97a077cb313cecf31e8ed6a705df61c4c39e1f22fbc2be015c8a24e965e4226",
             "partitionkey": "d97a077cb313cecf31e8ed6a705df61c4c39e1f22fbc2be015c8a24e965e4226",
             "correliatenant": "default",
-            "time": "2026-11-22T22:34:48.611896Z",
+            "time": "2026-11-23T00:01:35.763977Z",
             "data": {
-              "event_id": "158af541-7c76-5c35-b478-a53c4e3afb15",
+              "event_id": "c7e93cda-2d01-5268-b810-8ef19ed5fc76",
               "fingerprint": "d97a077cb313cecf31e8ed6a705df61c4c39e1f22fbc2be015c8a24e965e4226",
               "tenant": "default",
               "namespace": "33333333-3333-4333-8333-333333333333",
@@ -748,17 +765,17 @@
               "annotations": {
                 "icinga2.notification_type": "RECOVERY"
               },
-              "source_time": "2026-11-22T22:34:48.611896Z",
-              "reported_source_time": "2026-11-22T22:34:48.611896Z",
-              "observed_at": "2026-11-22T22:34:48.622212Z",
-              "processed_at": "2026-11-22T22:34:48.875090Z",
+              "source_time": "2026-11-23T00:01:35.763977Z",
+              "reported_source_time": "2026-11-23T00:01:35.763977Z",
+              "observed_at": "2026-11-23T00:01:35.774450Z",
+              "processed_at": "2026-11-23T00:01:35.855061Z",
               "raw": {
-                "ref": "raw:2026-11-22T22:34:48.622212Z/a0de21d0-a4cc-49d1-a1bd-31dfc508c972",
-                "sha256": "793f257bda494ea8268c5c9273978644617fa96e1e73b0de3e4a8629bf58a415",
+                "ref": "raw:2026-11-23T00:01:35.774450Z/065214d0-9262-4ba8-b67e-90fd75c1b7b6",
+                "sha256": "a03203b5c1d408c6166af9f3d542fb3f9e3116f98694b5e040c757837ddde366",
                 "size": 246
               },
               "pipeline": {
-                "version": "98c7bdc4fbea2c7514b59787fcae15e0b160e21937457387618b217dc07c5305",
+                "version": "b3a111b0530adb748c62a540927c99834c23e9a44adceee41efbe37696d7c700",
                 "generation": 0
               },
               "extensions": {},
@@ -770,7 +787,7 @@
                   "raw": "tx"
                 }
               },
-              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAADUAWyJpY2luZ2EyLm5vdGlmeS52MSIsIk9LIiwiSEFSRCIsIjE3OTUzODY4ODg2MTE4OTYiXQ=="
+              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAADUAWyJpY2luZ2EyLm5vdGlmeS52MSIsIk9LIiwiSEFSRCIsIjE3OTUzOTIwOTU3NjM5NzciXQ=="
             }
           },
           "outbox": [
@@ -784,18 +801,18 @@
     },
     {
       "kind": "admitted",
-      "id": "d28",
+      "id": "d29",
       "auth": "bearer",
       "request": {
         "path": "/hooks/icinga2/33333333-3333-4333-8333-333333333333",
-        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"tx\",\"state\":\"CRITICAL\",\"state_type\":\"HARD\",\"last_state_change\":\"1795386889.096969\",\"output\":\"flap 4\",\"notification_type\":\"PROBLEM\",\"notification_time\":\"1795386889.102483\"}",
-        "body_sha256": "205dc034c75d6e151ebada49a2b2d536b7d0c4f0f24500e72703549b3970b32a",
+        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"tx\",\"state\":\"CRITICAL\",\"state_type\":\"HARD\",\"last_state_change\":\"1795392096.240435\",\"output\":\"flap 4\",\"notification_type\":\"PROBLEM\",\"notification_time\":\"1795392096.246133\"}",
+        "body_sha256": "fd1e826fcf157465e3fb6830ea44152d5600a7f4cdbe2f515d6392c3675e52f8",
         "body_size": 251
       },
       "response_status": 202,
       "raw": {
-        "id": "21c50d8c-dcb7-4567-b27c-3859fe2a174f",
-        "body_sha256": "205dc034c75d6e151ebada49a2b2d536b7d0c4f0f24500e72703549b3970b32a",
+        "id": "760b4298-11ab-4fe9-a7a3-af1963904ef6",
+        "body_sha256": "fd1e826fcf157465e3fb6830ea44152d5600a7f4cdbe2f515d6392c3675e52f8",
         "status": "done",
         "outcome": {
           "upstream_omitted": 0,
@@ -817,10 +834,10 @@
         {
           "disposition": "ready",
           "state_outcome": "applied",
-          "source_time": "2026-11-22T22:34:49.096969Z",
+          "source_time": "2026-11-23T00:01:36.240435Z",
           "cloud_event": {
             "specversion": "1.0",
-            "id": "cdb71f45-3f44-5cd3-b82e-92f97bf4636a",
+            "id": "422f7686-f373-5819-8376-774add2e2bd9",
             "source": "urn:correlia:source:33333333-3333-4333-8333-333333333333",
             "type": "io.correlia.alert.v1",
             "datacontenttype": "application/json",
@@ -828,9 +845,9 @@
             "subject": "d97a077cb313cecf31e8ed6a705df61c4c39e1f22fbc2be015c8a24e965e4226",
             "partitionkey": "d97a077cb313cecf31e8ed6a705df61c4c39e1f22fbc2be015c8a24e965e4226",
             "correliatenant": "default",
-            "time": "2026-11-22T22:34:49.096969Z",
+            "time": "2026-11-23T00:01:36.240435Z",
             "data": {
-              "event_id": "cdb71f45-3f44-5cd3-b82e-92f97bf4636a",
+              "event_id": "422f7686-f373-5819-8376-774add2e2bd9",
               "fingerprint": "d97a077cb313cecf31e8ed6a705df61c4c39e1f22fbc2be015c8a24e965e4226",
               "tenant": "default",
               "namespace": "33333333-3333-4333-8333-333333333333",
@@ -850,17 +867,17 @@
               "annotations": {
                 "icinga2.notification_type": "PROBLEM"
               },
-              "source_time": "2026-11-22T22:34:49.096969Z",
-              "reported_source_time": "2026-11-22T22:34:49.096969Z",
-              "observed_at": "2026-11-22T22:34:49.107551Z",
-              "processed_at": "2026-11-22T22:34:49.136450Z",
+              "source_time": "2026-11-23T00:01:36.240435Z",
+              "reported_source_time": "2026-11-23T00:01:36.240435Z",
+              "observed_at": "2026-11-23T00:01:36.251350Z",
+              "processed_at": "2026-11-23T00:01:36.370055Z",
               "raw": {
-                "ref": "raw:2026-11-22T22:34:49.107551Z/21c50d8c-dcb7-4567-b27c-3859fe2a174f",
-                "sha256": "205dc034c75d6e151ebada49a2b2d536b7d0c4f0f24500e72703549b3970b32a",
+                "ref": "raw:2026-11-23T00:01:36.251350Z/760b4298-11ab-4fe9-a7a3-af1963904ef6",
+                "sha256": "fd1e826fcf157465e3fb6830ea44152d5600a7f4cdbe2f515d6392c3675e52f8",
                 "size": 251
               },
               "pipeline": {
-                "version": "98c7bdc4fbea2c7514b59787fcae15e0b160e21937457387618b217dc07c5305",
+                "version": "b3a111b0530adb748c62a540927c99834c23e9a44adceee41efbe37696d7c700",
                 "generation": 0
               },
               "extensions": {},
@@ -872,7 +889,7 @@
                   "raw": "tx"
                 }
               },
-              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAADsAWyJpY2luZ2EyLm5vdGlmeS52MSIsIkNSSVRJQ0FMIiwiSEFSRCIsIjE3OTUzODY4ODkwOTY5NjkiXQ=="
+              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAADsAWyJpY2luZ2EyLm5vdGlmeS52MSIsIkNSSVRJQ0FMIiwiSEFSRCIsIjE3OTUzOTIwOTYyNDA0MzUiXQ=="
             }
           },
           "outbox": [
@@ -886,18 +903,18 @@
     },
     {
       "kind": "admitted",
-      "id": "d29",
+      "id": "d30",
       "auth": "bearer",
       "request": {
         "path": "/hooks/icinga2/33333333-3333-4333-8333-333333333333",
-        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"tx\",\"state\":\"OK\",\"state_type\":\"HARD\",\"output\":\"flap 5\",\"notification_type\":\"FLAPPINGSTART\",\"notification_time\":\"1795386889.565343\"}",
-        "body_sha256": "6d99e1f5c7648f57a3cb9c7b3559c365f693a9c1b853482074ede511f3e62453",
+        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"tx\",\"state\":\"OK\",\"state_type\":\"HARD\",\"output\":\"flap 5\",\"notification_type\":\"FLAPPINGSTART\",\"notification_time\":\"1795392096.681882\"}",
+        "body_sha256": "be35d38b205c57fb1d9597896a50ec5775b493407fa86226aaf7e9db86a3e970",
         "body_size": 211
       },
       "response_status": 202,
       "raw": {
-        "id": "de661483-764f-4f0b-a96e-eb52afd38760",
-        "body_sha256": "6d99e1f5c7648f57a3cb9c7b3559c365f693a9c1b853482074ede511f3e62453",
+        "id": "c0bda2bf-6735-498e-a674-e7ca69a04723",
+        "body_sha256": "be35d38b205c57fb1d9597896a50ec5775b493407fa86226aaf7e9db86a3e970",
         "status": "done",
         "outcome": {
           "upstream_omitted": 0,
@@ -919,10 +936,10 @@
         {
           "disposition": "ready",
           "state_outcome": null,
-          "source_time": "2026-11-22T22:34:49.565343Z",
+          "source_time": "2026-11-23T00:01:36.681882Z",
           "cloud_event": {
             "specversion": "1.0",
-            "id": "7c65f0a2-e7ee-5dd4-b83b-53ff9046811a",
+            "id": "2615039f-c477-5246-b02a-e21d93716ee9",
             "source": "urn:correlia:source:33333333-3333-4333-8333-333333333333",
             "type": "io.correlia.state.v1",
             "datacontenttype": "application/json",
@@ -930,9 +947,9 @@
             "subject": "d97a077cb313cecf31e8ed6a705df61c4c39e1f22fbc2be015c8a24e965e4226",
             "partitionkey": "d97a077cb313cecf31e8ed6a705df61c4c39e1f22fbc2be015c8a24e965e4226",
             "correliatenant": "default",
-            "time": "2026-11-22T22:34:49.565343Z",
+            "time": "2026-11-23T00:01:36.681882Z",
             "data": {
-              "event_id": "7c65f0a2-e7ee-5dd4-b83b-53ff9046811a",
+              "event_id": "2615039f-c477-5246-b02a-e21d93716ee9",
               "fingerprint": "d97a077cb313cecf31e8ed6a705df61c4c39e1f22fbc2be015c8a24e965e4226",
               "tenant": "default",
               "namespace": "33333333-3333-4333-8333-333333333333",
@@ -951,17 +968,17 @@
               "annotations": {
                 "icinga2.notification_type": "FLAPPINGSTART"
               },
-              "source_time": "2026-11-22T22:34:49.565343Z",
-              "reported_source_time": "2026-11-22T22:34:49.565343Z",
-              "observed_at": "2026-11-22T22:34:49.570283Z",
-              "processed_at": "2026-11-22T22:34:49.650049Z",
+              "source_time": "2026-11-23T00:01:36.681882Z",
+              "reported_source_time": "2026-11-23T00:01:36.681882Z",
+              "observed_at": "2026-11-23T00:01:36.687025Z",
+              "processed_at": "2026-11-23T00:01:36.883964Z",
               "raw": {
-                "ref": "raw:2026-11-22T22:34:49.570283Z/de661483-764f-4f0b-a96e-eb52afd38760",
-                "sha256": "6d99e1f5c7648f57a3cb9c7b3559c365f693a9c1b853482074ede511f3e62453",
+                "ref": "raw:2026-11-23T00:01:36.687025Z/c0bda2bf-6735-498e-a674-e7ca69a04723",
+                "sha256": "be35d38b205c57fb1d9597896a50ec5775b493407fa86226aaf7e9db86a3e970",
                 "size": 211
               },
               "pipeline": {
-                "version": "98c7bdc4fbea2c7514b59787fcae15e0b160e21937457387618b217dc07c5305",
+                "version": "b3a111b0530adb748c62a540927c99834c23e9a44adceee41efbe37696d7c700",
                 "generation": 0
               },
               "extensions": {},
@@ -973,7 +990,7 @@
                   "raw": "tx"
                 }
               },
-              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAAEoAWyJpY2luZ2EyLm5vdGlmeS5GTEFQUElOR1NUQVJULnYxIiwiRkxBUFBJTkdTVEFSVCIsIjE3OTUzODY4ODk1NjUzNDMiLCIiXQ=="
+              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAAEoAWyJpY2luZ2EyLm5vdGlmeS5GTEFQUElOR1NUQVJULnYxIiwiRkxBUFBJTkdTVEFSVCIsIjE3OTUzOTIwOTY2ODE4ODIiLCIiXQ=="
             }
           },
           "outbox": [
@@ -987,18 +1004,18 @@
     },
     {
       "kind": "admitted",
-      "id": "d30",
+      "id": "d31",
       "auth": "bearer",
       "request": {
         "path": "/hooks/icinga2/33333333-3333-4333-8333-333333333333",
-        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"tx\",\"state\":\"CRITICAL\",\"state_type\":\"HARD\",\"output\":\"steady 21\",\"notification_type\":\"FLAPPINGEND\",\"notification_time\":\"1795386897.457688\"}",
-        "body_sha256": "16196536a9460536b796636485b3ad566c36c96daafa8e449112b379e3cb5a6a",
+        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"tx\",\"state\":\"CRITICAL\",\"state_type\":\"HARD\",\"output\":\"steady 21\",\"notification_type\":\"FLAPPINGEND\",\"notification_time\":\"1795392104.410060\"}",
+        "body_sha256": "75abdfe22a01a24265047c60cc1d8b7f21468a32e91e6099ab767c955bf17bb3",
         "body_size": 218
       },
       "response_status": 202,
       "raw": {
-        "id": "4bfd421a-a8b4-40ca-97ae-64703336ab3e",
-        "body_sha256": "16196536a9460536b796636485b3ad566c36c96daafa8e449112b379e3cb5a6a",
+        "id": "b1b0a89b-0e3f-41f1-a3b9-ecdc21f5a010",
+        "body_sha256": "75abdfe22a01a24265047c60cc1d8b7f21468a32e91e6099ab767c955bf17bb3",
         "status": "done",
         "outcome": {
           "upstream_omitted": 0,
@@ -1020,10 +1037,10 @@
         {
           "disposition": "ready",
           "state_outcome": null,
-          "source_time": "2026-11-22T22:34:57.457688Z",
+          "source_time": "2026-11-23T00:01:44.410060Z",
           "cloud_event": {
             "specversion": "1.0",
-            "id": "ca9c98da-f2c7-5235-a218-051319ee0bca",
+            "id": "484c3479-cfb0-544a-9dda-e8452d53d81c",
             "source": "urn:correlia:source:33333333-3333-4333-8333-333333333333",
             "type": "io.correlia.state.v1",
             "datacontenttype": "application/json",
@@ -1031,9 +1048,9 @@
             "subject": "d97a077cb313cecf31e8ed6a705df61c4c39e1f22fbc2be015c8a24e965e4226",
             "partitionkey": "d97a077cb313cecf31e8ed6a705df61c4c39e1f22fbc2be015c8a24e965e4226",
             "correliatenant": "default",
-            "time": "2026-11-22T22:34:57.457688Z",
+            "time": "2026-11-23T00:01:44.410060Z",
             "data": {
-              "event_id": "ca9c98da-f2c7-5235-a218-051319ee0bca",
+              "event_id": "484c3479-cfb0-544a-9dda-e8452d53d81c",
               "fingerprint": "d97a077cb313cecf31e8ed6a705df61c4c39e1f22fbc2be015c8a24e965e4226",
               "tenant": "default",
               "namespace": "33333333-3333-4333-8333-333333333333",
@@ -1052,17 +1069,17 @@
               "annotations": {
                 "icinga2.notification_type": "FLAPPINGEND"
               },
-              "source_time": "2026-11-22T22:34:57.457688Z",
-              "reported_source_time": "2026-11-22T22:34:57.457688Z",
-              "observed_at": "2026-11-22T22:34:57.462762Z",
-              "processed_at": "2026-11-22T22:34:57.497932Z",
+              "source_time": "2026-11-23T00:01:44.410060Z",
+              "reported_source_time": "2026-11-23T00:01:44.410060Z",
+              "observed_at": "2026-11-23T00:01:44.415264Z",
+              "processed_at": "2026-11-23T00:01:44.469346Z",
               "raw": {
-                "ref": "raw:2026-11-22T22:34:57.462762Z/4bfd421a-a8b4-40ca-97ae-64703336ab3e",
-                "sha256": "16196536a9460536b796636485b3ad566c36c96daafa8e449112b379e3cb5a6a",
+                "ref": "raw:2026-11-23T00:01:44.415264Z/b1b0a89b-0e3f-41f1-a3b9-ecdc21f5a010",
+                "sha256": "75abdfe22a01a24265047c60cc1d8b7f21468a32e91e6099ab767c955bf17bb3",
                 "size": 218
               },
               "pipeline": {
-                "version": "98c7bdc4fbea2c7514b59787fcae15e0b160e21937457387618b217dc07c5305",
+                "version": "b3a111b0530adb748c62a540927c99834c23e9a44adceee41efbe37696d7c700",
                 "generation": 0
               },
               "extensions": {},
@@ -1074,7 +1091,7 @@
                   "raw": "tx"
                 }
               },
-              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAAEYAWyJpY2luZ2EyLm5vdGlmeS5GTEFQUElOR0VORC52MSIsIkZMQVBQSU5HRU5EIiwiMTc5NTM4Njg5NzQ1NzY4OCIsIiJd"
+              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAAEYAWyJpY2luZ2EyLm5vdGlmeS5GTEFQUElOR0VORC52MSIsIkZMQVBQSU5HRU5EIiwiMTc5NTM5MjEwNDQxMDA2MCIsIiJd"
             }
           },
           "outbox": [
@@ -1088,18 +1105,18 @@
     },
     {
       "kind": "admitted",
-      "id": "d31",
+      "id": "d32",
       "auth": "bearer",
       "request": {
         "path": "/hooks/icinga2/33333333-3333-4333-8333-333333333333",
-        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"tx\",\"state\":\"CRITICAL\",\"state_type\":\"HARD\",\"last_state_change\":\"1795386890.303671\",\"output\":\"steady 21\",\"notification_type\":\"PROBLEM\",\"notification_time\":\"1795386898.483527\"}",
-        "body_sha256": "a1c65bdb26a74223b0b74d3309441dde0fde9b856e279902e9c7f96010262779",
+        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"tx\",\"state\":\"CRITICAL\",\"state_type\":\"HARD\",\"last_state_change\":\"1795392097.128999\",\"output\":\"steady 22\",\"notification_type\":\"PROBLEM\",\"notification_time\":\"1795392107.173030\"}",
+        "body_sha256": "8e20d1e6f2f2b3bf7efb48c34ca5b609173a0cdb7f5d0bf988d597ac82d5932b",
         "body_size": 254
       },
       "response_status": 202,
       "raw": {
-        "id": "ff568716-1fef-4a46-999d-4e6a0fb8b092",
-        "body_sha256": "a1c65bdb26a74223b0b74d3309441dde0fde9b856e279902e9c7f96010262779",
+        "id": "f8f126ed-3ccd-4da1-8215-795817b88b5a",
+        "body_sha256": "8e20d1e6f2f2b3bf7efb48c34ca5b609173a0cdb7f5d0bf988d597ac82d5932b",
         "status": "done",
         "outcome": {
           "upstream_omitted": 0,
@@ -1121,10 +1138,10 @@
         {
           "disposition": "ready",
           "state_outcome": "applied",
-          "source_time": "2026-11-22T22:34:50.303671Z",
+          "source_time": "2026-11-23T00:01:37.128999Z",
           "cloud_event": {
             "specversion": "1.0",
-            "id": "a74aba0f-268e-5543-88e3-bf1db405285a",
+            "id": "95e88907-37b1-51b9-b684-68ef03827e66",
             "source": "urn:correlia:source:33333333-3333-4333-8333-333333333333",
             "type": "io.correlia.alert.v1",
             "datacontenttype": "application/json",
@@ -1132,9 +1149,9 @@
             "subject": "d97a077cb313cecf31e8ed6a705df61c4c39e1f22fbc2be015c8a24e965e4226",
             "partitionkey": "d97a077cb313cecf31e8ed6a705df61c4c39e1f22fbc2be015c8a24e965e4226",
             "correliatenant": "default",
-            "time": "2026-11-22T22:34:50.303671Z",
+            "time": "2026-11-23T00:01:37.128999Z",
             "data": {
-              "event_id": "a74aba0f-268e-5543-88e3-bf1db405285a",
+              "event_id": "95e88907-37b1-51b9-b684-68ef03827e66",
               "fingerprint": "d97a077cb313cecf31e8ed6a705df61c4c39e1f22fbc2be015c8a24e965e4226",
               "tenant": "default",
               "namespace": "33333333-3333-4333-8333-333333333333",
@@ -1143,7 +1160,7 @@
               "severity": "EVENT_SEVERITY_CRITICAL",
               "severity_original": "CRITICAL",
               "summary": "lab!tx CRITICAL",
-              "description": "steady 21",
+              "description": "steady 22",
               "resource": {},
               "observer": {
                 "source_instance": "33333333-3333-4333-8333-333333333333",
@@ -1154,17 +1171,17 @@
               "annotations": {
                 "icinga2.notification_type": "PROBLEM"
               },
-              "source_time": "2026-11-22T22:34:50.303671Z",
-              "reported_source_time": "2026-11-22T22:34:50.303671Z",
-              "observed_at": "2026-11-22T22:34:58.490359Z",
-              "processed_at": "2026-11-22T22:34:58.513805Z",
+              "source_time": "2026-11-23T00:01:37.128999Z",
+              "reported_source_time": "2026-11-23T00:01:37.128999Z",
+              "observed_at": "2026-11-23T00:01:47.179096Z",
+              "processed_at": "2026-11-23T00:01:47.208753Z",
               "raw": {
-                "ref": "raw:2026-11-22T22:34:58.490359Z/ff568716-1fef-4a46-999d-4e6a0fb8b092",
-                "sha256": "a1c65bdb26a74223b0b74d3309441dde0fde9b856e279902e9c7f96010262779",
+                "ref": "raw:2026-11-23T00:01:47.179096Z/f8f126ed-3ccd-4da1-8215-795817b88b5a",
+                "sha256": "8e20d1e6f2f2b3bf7efb48c34ca5b609173a0cdb7f5d0bf988d597ac82d5932b",
                 "size": 254
               },
               "pipeline": {
-                "version": "98c7bdc4fbea2c7514b59787fcae15e0b160e21937457387618b217dc07c5305",
+                "version": "b3a111b0530adb748c62a540927c99834c23e9a44adceee41efbe37696d7c700",
                 "generation": 0
               },
               "extensions": {},
@@ -1176,7 +1193,7 @@
                   "raw": "tx"
                 }
               },
-              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAADsAWyJpY2luZ2EyLm5vdGlmeS52MSIsIkNSSVRJQ0FMIiwiSEFSRCIsIjE3OTUzODY4OTAzMDM2NzEiXQ=="
+              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAADsAWyJpY2luZ2EyLm5vdGlmeS52MSIsIkNSSVRJQ0FMIiwiSEFSRCIsIjE3OTUzOTIwOTcxMjg5OTkiXQ=="
             }
           },
           "outbox": [
@@ -1190,18 +1207,18 @@
     },
     {
       "kind": "admitted",
-      "id": "d32",
+      "id": "d33",
       "auth": "bearer",
       "request": {
         "path": "/hooks/icinga2/33333333-3333-4333-8333-333333333333",
-        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"tx\",\"state\":\"CRITICAL\",\"state_type\":\"HARD\",\"output\":\"steady 21\",\"notification_type\":\"DOWNTIMESTART\",\"notification_author\":\"operator\",\"notification_comment\":\"window\",\"notification_time\":\"1795386905.793724\"}",
-        "body_sha256": "27ef5e13a5469018f9944be4b3ba4fabc76df717c2e023ef7b8215e0e45e8aaf",
+        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"tx\",\"state\":\"CRITICAL\",\"state_type\":\"HARD\",\"output\":\"steady 22\",\"notification_type\":\"DOWNTIMESTART\",\"notification_author\":\"operator\",\"notification_comment\":\"window\",\"notification_time\":\"1795392115.162473\"}",
+        "body_sha256": "4672ff6e924fb94b0136944ee8746a3ff7e05bef943af0ce054e00bfcf6c809a",
         "body_size": 285
       },
       "response_status": 202,
       "raw": {
-        "id": "8e9cb870-0f0f-455c-bb55-fcedf7cdebd8",
-        "body_sha256": "27ef5e13a5469018f9944be4b3ba4fabc76df717c2e023ef7b8215e0e45e8aaf",
+        "id": "4cc610f2-4652-49e3-8d05-1df762401dfc",
+        "body_sha256": "4672ff6e924fb94b0136944ee8746a3ff7e05bef943af0ce054e00bfcf6c809a",
         "status": "done",
         "outcome": {
           "upstream_omitted": 0,
@@ -1223,10 +1240,10 @@
         {
           "disposition": "ready",
           "state_outcome": null,
-          "source_time": "2026-11-22T22:35:05.793724Z",
+          "source_time": "2026-11-23T00:01:55.162473Z",
           "cloud_event": {
             "specversion": "1.0",
-            "id": "19954630-fada-5496-8a3d-91cfbafcd59e",
+            "id": "a9c9d807-4eaf-5798-af20-50874b2f5140",
             "source": "urn:correlia:source:33333333-3333-4333-8333-333333333333",
             "type": "io.correlia.downtime.v1",
             "datacontenttype": "application/json",
@@ -1234,9 +1251,9 @@
             "subject": "d97a077cb313cecf31e8ed6a705df61c4c39e1f22fbc2be015c8a24e965e4226",
             "partitionkey": "d97a077cb313cecf31e8ed6a705df61c4c39e1f22fbc2be015c8a24e965e4226",
             "correliatenant": "default",
-            "time": "2026-11-22T22:35:05.793724Z",
+            "time": "2026-11-23T00:01:55.162473Z",
             "data": {
-              "event_id": "19954630-fada-5496-8a3d-91cfbafcd59e",
+              "event_id": "a9c9d807-4eaf-5798-af20-50874b2f5140",
               "fingerprint": "d97a077cb313cecf31e8ed6a705df61c4c39e1f22fbc2be015c8a24e965e4226",
               "tenant": "default",
               "namespace": "33333333-3333-4333-8333-333333333333",
@@ -1257,17 +1274,17 @@
                 "icinga2.notification_type": "DOWNTIMESTART",
                 "icinga2.notification_author": "operator"
               },
-              "source_time": "2026-11-22T22:35:05.793724Z",
-              "reported_source_time": "2026-11-22T22:35:05.793724Z",
-              "observed_at": "2026-11-22T22:35:05.798845Z",
-              "processed_at": "2026-11-22T22:35:05.855076Z",
+              "source_time": "2026-11-23T00:01:55.162473Z",
+              "reported_source_time": "2026-11-23T00:01:55.162473Z",
+              "observed_at": "2026-11-23T00:01:55.168209Z",
+              "processed_at": "2026-11-23T00:01:55.314271Z",
               "raw": {
-                "ref": "raw:2026-11-22T22:35:05.798845Z/8e9cb870-0f0f-455c-bb55-fcedf7cdebd8",
-                "sha256": "27ef5e13a5469018f9944be4b3ba4fabc76df717c2e023ef7b8215e0e45e8aaf",
+                "ref": "raw:2026-11-23T00:01:55.168209Z/4cc610f2-4652-49e3-8d05-1df762401dfc",
+                "sha256": "4672ff6e924fb94b0136944ee8746a3ff7e05bef943af0ce054e00bfcf6c809a",
                 "size": 285
               },
               "pipeline": {
-                "version": "98c7bdc4fbea2c7514b59787fcae15e0b160e21937457387618b217dc07c5305",
+                "version": "b3a111b0530adb748c62a540927c99834c23e9a44adceee41efbe37696d7c700",
                 "generation": 0
               },
               "extensions": {},
@@ -1279,7 +1296,7 @@
                   "raw": "tx"
                 }
               },
-              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAAFIAWyJpY2luZ2EyLm5vdGlmeS5ET1dOVElNRVNUQVJULnYxIiwiRE9XTlRJTUVTVEFSVCIsIjE3OTUzODY5MDU3OTM3MjQiLCJvcGVyYXRvciJd"
+              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAAFIAWyJpY2luZ2EyLm5vdGlmeS5ET1dOVElNRVNUQVJULnYxIiwiRE9XTlRJTUVTVEFSVCIsIjE3OTUzOTIxMTUxNjI0NzMiLCJvcGVyYXRvciJd"
             }
           },
           "outbox": [
@@ -1293,18 +1310,18 @@
     },
     {
       "kind": "admitted",
-      "id": "d33",
+      "id": "d34",
       "auth": "bearer",
       "request": {
         "path": "/hooks/icinga2/33333333-3333-4333-8333-333333333333",
-        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"tx\",\"state\":\"CRITICAL\",\"state_type\":\"HARD\",\"output\":\"steady 21\",\"notification_type\":\"DOWNTIMEEND\",\"notification_author\":\"operator\",\"notification_comment\":\"window\",\"notification_time\":\"1795386912.542614\"}",
-        "body_sha256": "2a55db2d30505345b53945dec89e5a5c067c017c577f5e4b45f92b596f15ddad",
+        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"tx\",\"state\":\"CRITICAL\",\"state_type\":\"HARD\",\"output\":\"steady 22\",\"notification_type\":\"DOWNTIMEEND\",\"notification_author\":\"operator\",\"notification_comment\":\"window\",\"notification_time\":\"1795392122.171209\"}",
+        "body_sha256": "902ebbf93d1bbc3297ecd5a210da88c2e380717f7f9eb992f6c7c08c9123428b",
         "body_size": 283
       },
       "response_status": 202,
       "raw": {
-        "id": "367e479c-bce7-4c09-ac83-d8fe45323ca1",
-        "body_sha256": "2a55db2d30505345b53945dec89e5a5c067c017c577f5e4b45f92b596f15ddad",
+        "id": "02048fbc-e744-44c1-a39d-a7b6fa48cd7e",
+        "body_sha256": "902ebbf93d1bbc3297ecd5a210da88c2e380717f7f9eb992f6c7c08c9123428b",
         "status": "done",
         "outcome": {
           "upstream_omitted": 0,
@@ -1326,10 +1343,10 @@
         {
           "disposition": "ready",
           "state_outcome": null,
-          "source_time": "2026-11-22T22:35:12.542614Z",
+          "source_time": "2026-11-23T00:02:02.171209Z",
           "cloud_event": {
             "specversion": "1.0",
-            "id": "1615697e-5ce3-55e6-a0d2-7714d8d57aea",
+            "id": "f05d88f0-7153-5e7b-bbf6-6b34906f1ebb",
             "source": "urn:correlia:source:33333333-3333-4333-8333-333333333333",
             "type": "io.correlia.downtime.v1",
             "datacontenttype": "application/json",
@@ -1337,9 +1354,9 @@
             "subject": "d97a077cb313cecf31e8ed6a705df61c4c39e1f22fbc2be015c8a24e965e4226",
             "partitionkey": "d97a077cb313cecf31e8ed6a705df61c4c39e1f22fbc2be015c8a24e965e4226",
             "correliatenant": "default",
-            "time": "2026-11-22T22:35:12.542614Z",
+            "time": "2026-11-23T00:02:02.171209Z",
             "data": {
-              "event_id": "1615697e-5ce3-55e6-a0d2-7714d8d57aea",
+              "event_id": "f05d88f0-7153-5e7b-bbf6-6b34906f1ebb",
               "fingerprint": "d97a077cb313cecf31e8ed6a705df61c4c39e1f22fbc2be015c8a24e965e4226",
               "tenant": "default",
               "namespace": "33333333-3333-4333-8333-333333333333",
@@ -1360,17 +1377,17 @@
                 "icinga2.notification_type": "DOWNTIMEEND",
                 "icinga2.notification_author": "operator"
               },
-              "source_time": "2026-11-22T22:35:12.542614Z",
-              "reported_source_time": "2026-11-22T22:35:12.542614Z",
-              "observed_at": "2026-11-22T22:35:12.547458Z",
-              "processed_at": "2026-11-22T22:35:12.689925Z",
+              "source_time": "2026-11-23T00:02:02.171209Z",
+              "reported_source_time": "2026-11-23T00:02:02.171209Z",
+              "observed_at": "2026-11-23T00:02:02.185169Z",
+              "processed_at": "2026-11-23T00:02:02.410284Z",
               "raw": {
-                "ref": "raw:2026-11-22T22:35:12.547458Z/367e479c-bce7-4c09-ac83-d8fe45323ca1",
-                "sha256": "2a55db2d30505345b53945dec89e5a5c067c017c577f5e4b45f92b596f15ddad",
+                "ref": "raw:2026-11-23T00:02:02.185169Z/02048fbc-e744-44c1-a39d-a7b6fa48cd7e",
+                "sha256": "902ebbf93d1bbc3297ecd5a210da88c2e380717f7f9eb992f6c7c08c9123428b",
                 "size": 283
               },
               "pipeline": {
-                "version": "98c7bdc4fbea2c7514b59787fcae15e0b160e21937457387618b217dc07c5305",
+                "version": "b3a111b0530adb748c62a540927c99834c23e9a44adceee41efbe37696d7c700",
                 "generation": 0
               },
               "extensions": {},
@@ -1382,7 +1399,7 @@
                   "raw": "tx"
                 }
               },
-              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAAE4AWyJpY2luZ2EyLm5vdGlmeS5ET1dOVElNRUVORC52MSIsIkRPV05USU1FRU5EIiwiMTc5NTM4NjkxMjU0MjYxNCIsIm9wZXJhdG9yIl0="
+              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAAE4AWyJpY2luZ2EyLm5vdGlmeS5ET1dOVElNRUVORC52MSIsIkRPV05USU1FRU5EIiwiMTc5NTM5MjEyMjE3MTIwOSIsIm9wZXJhdG9yIl0="
             }
           },
           "outbox": [
@@ -1396,18 +1413,18 @@
     },
     {
       "kind": "admitted",
-      "id": "d34",
+      "id": "d35",
       "auth": "bearer",
       "request": {
         "path": "/hooks/icinga2/33333333-3333-4333-8333-333333333333",
-        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"tx\",\"state\":\"CRITICAL\",\"state_type\":\"HARD\",\"last_state_change\":\"1795386890.303671\",\"output\":\"steady 21\",\"notification_type\":\"PROBLEM\",\"notification_time\":\"1795386913.483362\"}",
-        "body_sha256": "8404cd607b1e61ed3196b6c38267526ad005273e1eba3f823369f86002223ccf",
+        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"tx\",\"state\":\"CRITICAL\",\"state_type\":\"HARD\",\"last_state_change\":\"1795392097.128999\",\"output\":\"steady 22\",\"notification_type\":\"PROBLEM\",\"notification_time\":\"1795392122.173562\"}",
+        "body_sha256": "be087054225275414f4c3480968c83c547f7fcb7374be5b857d6b17b2eaf7b0f",
         "body_size": 254
       },
       "response_status": 202,
       "raw": {
-        "id": "2680b8ac-3af7-461b-b35c-f15836414b36",
-        "body_sha256": "8404cd607b1e61ed3196b6c38267526ad005273e1eba3f823369f86002223ccf",
+        "id": "fee90055-488f-4fc9-9dd7-c9ef927823c4",
+        "body_sha256": "be087054225275414f4c3480968c83c547f7fcb7374be5b857d6b17b2eaf7b0f",
         "status": "done",
         "outcome": {
           "upstream_omitted": 0,
@@ -1429,29 +1446,29 @@
     },
     {
       "kind": "result",
-      "id": "r35",
+      "id": "r36",
       "object_type": "service",
       "cap_id": "tx",
       "exit_status": 0,
       "output_bytes": 11,
       "output": "OK: tx back",
-      "execution_end": "1795386922.165192",
-      "accepted_us": 1795386922217651
+      "execution_end": "1795392130.205978",
+      "accepted_us": 1795392130257741
     },
     {
       "kind": "admitted",
-      "id": "d36",
+      "id": "d37",
       "auth": "bearer",
       "request": {
         "path": "/hooks/icinga2/33333333-3333-4333-8333-333333333333",
-        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"tx\",\"state\":\"OK\",\"state_type\":\"HARD\",\"last_state_change\":\"1795386922.165192\",\"output\":\"OK: tx back\",\"notification_type\":\"RECOVERY\",\"notification_time\":\"1795386922.170906\"}",
-        "body_sha256": "e27f183a61822e4533b3ccab30129f79aff644f6a8df5665d09bc4296bb947d1",
+        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"tx\",\"state\":\"OK\",\"state_type\":\"HARD\",\"last_state_change\":\"1795392130.205978\",\"output\":\"OK: tx back\",\"notification_type\":\"RECOVERY\",\"notification_time\":\"1795392130.211481\"}",
+        "body_sha256": "23d440b02bd397b0cd285cbdcd6dd43448941b2335135adf3b5962146c0ab089",
         "body_size": 251
       },
       "response_status": 202,
       "raw": {
-        "id": "f8dbff7a-6069-43dc-9a3c-6c99863e22b0",
-        "body_sha256": "e27f183a61822e4533b3ccab30129f79aff644f6a8df5665d09bc4296bb947d1",
+        "id": "b94faaa3-e021-40e1-aa64-9a68b21e948a",
+        "body_sha256": "23d440b02bd397b0cd285cbdcd6dd43448941b2335135adf3b5962146c0ab089",
         "status": "done",
         "outcome": {
           "upstream_omitted": 0,
@@ -1473,10 +1490,10 @@
         {
           "disposition": "ready",
           "state_outcome": "applied",
-          "source_time": "2026-11-22T22:35:22.165192Z",
+          "source_time": "2026-11-23T00:02:10.205978Z",
           "cloud_event": {
             "specversion": "1.0",
-            "id": "2f0208f3-9910-5a5f-a44c-b06cd792c7f0",
+            "id": "534696d1-2950-5603-8f73-9224224d2c5f",
             "source": "urn:correlia:source:33333333-3333-4333-8333-333333333333",
             "type": "io.correlia.alert.v1",
             "datacontenttype": "application/json",
@@ -1484,9 +1501,9 @@
             "subject": "d97a077cb313cecf31e8ed6a705df61c4c39e1f22fbc2be015c8a24e965e4226",
             "partitionkey": "d97a077cb313cecf31e8ed6a705df61c4c39e1f22fbc2be015c8a24e965e4226",
             "correliatenant": "default",
-            "time": "2026-11-22T22:35:22.165192Z",
+            "time": "2026-11-23T00:02:10.205978Z",
             "data": {
-              "event_id": "2f0208f3-9910-5a5f-a44c-b06cd792c7f0",
+              "event_id": "534696d1-2950-5603-8f73-9224224d2c5f",
               "fingerprint": "d97a077cb313cecf31e8ed6a705df61c4c39e1f22fbc2be015c8a24e965e4226",
               "tenant": "default",
               "namespace": "33333333-3333-4333-8333-333333333333",
@@ -1506,17 +1523,17 @@
               "annotations": {
                 "icinga2.notification_type": "RECOVERY"
               },
-              "source_time": "2026-11-22T22:35:22.165192Z",
-              "reported_source_time": "2026-11-22T22:35:22.165192Z",
-              "observed_at": "2026-11-22T22:35:22.175862Z",
-              "processed_at": "2026-11-22T22:35:22.399623Z",
+              "source_time": "2026-11-23T00:02:10.205978Z",
+              "reported_source_time": "2026-11-23T00:02:10.205978Z",
+              "observed_at": "2026-11-23T00:02:10.216127Z",
+              "processed_at": "2026-11-23T00:02:10.263859Z",
               "raw": {
-                "ref": "raw:2026-11-22T22:35:22.175862Z/f8dbff7a-6069-43dc-9a3c-6c99863e22b0",
-                "sha256": "e27f183a61822e4533b3ccab30129f79aff644f6a8df5665d09bc4296bb947d1",
+                "ref": "raw:2026-11-23T00:02:10.216127Z/b94faaa3-e021-40e1-aa64-9a68b21e948a",
+                "sha256": "23d440b02bd397b0cd285cbdcd6dd43448941b2335135adf3b5962146c0ab089",
                 "size": 251
               },
               "pipeline": {
-                "version": "98c7bdc4fbea2c7514b59787fcae15e0b160e21937457387618b217dc07c5305",
+                "version": "b3a111b0530adb748c62a540927c99834c23e9a44adceee41efbe37696d7c700",
                 "generation": 0
               },
               "extensions": {},
@@ -1528,7 +1545,7 @@
                   "raw": "tx"
                 }
               },
-              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAADUAWyJpY2luZ2EyLm5vdGlmeS52MSIsIk9LIiwiSEFSRCIsIjE3OTUzODY5MjIxNjUxOTIiXQ=="
+              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAADUAWyJpY2luZ2EyLm5vdGlmeS52MSIsIk9LIiwiSEFSRCIsIjE3OTUzOTIxMzAyMDU5NzgiXQ=="
             }
           },
           "outbox": [
@@ -1551,9 +1568,9 @@
         "status": "resolved",
         "severity": "info",
         "version": 6,
-        "fence_event_id": "2f0208f3-9910-5a5f-a44c-b06cd792c7f0",
-        "fence_effective_seconds": 1795386922,
-        "fence_effective_nanos": 165192000,
+        "fence_event_id": "534696d1-2950-5603-8f73-9224224d2c5f",
+        "fence_effective_seconds": 1795392130,
+        "fence_effective_nanos": 205978000,
         "summary": "lab!tx OK"
       },
       "events": {
@@ -1572,214 +1589,214 @@
       "kind": "log",
       "label": "transitions",
       "lines": [
-        "[2026-11-22 22:34:46 +0000] notice/ApiListener: Relaying 'event::SendNotifications' message",
-        "[2026-11-22 22:34:46 +0000] notice/ApiListener: Relaying 'event::SetForceNextNotification' message",
-        "[2026-11-22 22:34:46 +0000] notice/Notification: Attempting to send notifications of type 'Problem' for notification object 'lab!tx!correlia-service'.",
-        "[2026-11-22 22:34:46 +0000] information/Notification: Sending 'Problem' notification 'lab!tx!correlia-service' for user 'correlia'",
-        "[2026-11-22 22:34:46 +0000] notice/ApiListener: Relaying 'event::NotificationSentToAllUsers' message",
-        "[2026-11-22 22:34:46 +0000] notice/Process: Running command '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:44885\"' '--host' '\"lab\"' '--last-state-change' '\"1795386886.100001\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795386886.965805\"' '--notification-type' '\"PROBLEM\"' '--object-type' '\"service\"' '--output' '\"CRITICAL: tx\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"': PID 4230",
-        "[2026-11-22 22:34:46 +0000] information/Notification: Completed sending 'Problem' notification 'lab!tx!correlia-service' for checkable 'lab!tx' and user 'correlia' using command 'correlia-service'.",
-        "[2026-11-22 22:34:46 +0000] notice/ApiListener: Relaying 'event::NotificationSentUser' message",
-        "[2026-11-22 22:34:46 +0000] notice/Process: PID 4230 ('/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:44885\"' '--host' '\"lab\"' '--last-state-change' '\"1795386886.100001\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795386886.965805\"' '--notification-type' '\"PROBLEM\"' '--object-type' '\"service\"' '--output' '\"CRITICAL: tx\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 0",
-        "[2026-11-22 22:34:47 +0000] notice/ApiListener: Relaying 'event::SendNotifications' message",
-        "[2026-11-22 22:34:47 +0000] notice/ApiListener: Relaying 'event::SetForceNextNotification' message",
-        "[2026-11-22 22:34:47 +0000] notice/Notification: Attempting to send notifications of type 'Acknowledgement' for notification object 'lab!tx!correlia-service'.",
-        "[2026-11-22 22:34:47 +0000] information/Notification: Sending 'Acknowledgement' notification 'lab!tx!correlia-service' for user 'correlia'",
-        "[2026-11-22 22:34:47 +0000] notice/ApiListener: Relaying 'event::NotificationSentToAllUsers' message",
-        "[2026-11-22 22:34:47 +0000] notice/Process: Running command '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:44885\"' '--host' '\"lab\"' '--notification-author' '\"operator\"' '--notification-comment' '\"ack\"' '--notification-time' '\"1795386887.135589\"' '--notification-type' '\"ACKNOWLEDGEMENT\"' '--object-type' '\"service\"' '--output' '\"CRITICAL: tx\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"': PID 4235",
-        "[2026-11-22 22:34:47 +0000] information/Notification: Completed sending 'Acknowledgement' notification 'lab!tx!correlia-service' for checkable 'lab!tx' and user 'correlia' using command 'correlia-service'.",
-        "[2026-11-22 22:34:47 +0000] notice/ApiListener: Relaying 'event::NotificationSentUser' message",
-        "[2026-11-22 22:34:47 +0000] notice/Process: PID 4235 ('/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:44885\"' '--host' '\"lab\"' '--notification-author' '\"operator\"' '--notification-comment' '\"ack\"' '--notification-time' '\"1795386887.135589\"' '--notification-type' '\"ACKNOWLEDGEMENT\"' '--object-type' '\"service\"' '--output' '\"CRITICAL: tx\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 0",
-        "[2026-11-22 22:34:47 +0000] notice/ApiListener: Relaying 'event::SendNotifications' message",
-        "[2026-11-22 22:34:47 +0000] notice/ApiListener: Relaying 'event::SetForceNextNotification' message",
-        "[2026-11-22 22:34:47 +0000] notice/Notification: Attempting to send notifications of type 'Recovery' for notification object 'lab!tx!correlia-service'.",
-        "[2026-11-22 22:34:47 +0000] information/Notification: Sending 'Recovery' notification 'lab!tx!correlia-service' for user 'correlia'",
-        "[2026-11-22 22:34:47 +0000] notice/ApiListener: Relaying 'event::NotificationSentToAllUsers' message",
-        "[2026-11-22 22:34:47 +0000] notice/Process: Running command '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:44885\"' '--host' '\"lab\"' '--last-state-change' '\"1795386887.660238\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795386887.665978\"' '--notification-type' '\"RECOVERY\"' '--object-type' '\"service\"' '--output' '\"flap 1\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"OK\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"': PID 4246",
-        "[2026-11-22 22:34:47 +0000] information/Notification: Completed sending 'Recovery' notification 'lab!tx!correlia-service' for checkable 'lab!tx' and user 'correlia' using command 'correlia-service'.",
-        "[2026-11-22 22:34:47 +0000] notice/ApiListener: Relaying 'event::NotificationSentUser' message",
-        "[2026-11-22 22:34:47 +0000] notice/Process: PID 4246 ('/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:44885\"' '--host' '\"lab\"' '--last-state-change' '\"1795386887.660238\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795386887.665978\"' '--notification-type' '\"RECOVERY\"' '--object-type' '\"service\"' '--output' '\"flap 1\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"OK\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 0",
-        "[2026-11-22 22:34:48 +0000] notice/ApiListener: Relaying 'event::SendNotifications' message",
-        "[2026-11-22 22:34:48 +0000] notice/ApiListener: Relaying 'event::SetForceNextNotification' message",
-        "[2026-11-22 22:34:48 +0000] notice/Notification: Attempting to send notifications of type 'Problem' for notification object 'lab!tx!correlia-service'.",
-        "[2026-11-22 22:34:48 +0000] information/Notification: Sending 'Problem' notification 'lab!tx!correlia-service' for user 'correlia'",
-        "[2026-11-22 22:34:48 +0000] notice/ApiListener: Relaying 'event::NotificationSentToAllUsers' message",
-        "[2026-11-22 22:34:48 +0000] notice/Process: Running command '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:44885\"' '--host' '\"lab\"' '--last-state-change' '\"1795386888.144223\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795386888.149614\"' '--notification-type' '\"PROBLEM\"' '--object-type' '\"service\"' '--output' '\"flap 2\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"': PID 4257",
-        "[2026-11-22 22:34:48 +0000] information/Notification: Completed sending 'Problem' notification 'lab!tx!correlia-service' for checkable 'lab!tx' and user 'correlia' using command 'correlia-service'.",
-        "[2026-11-22 22:34:48 +0000] notice/ApiListener: Relaying 'event::NotificationSentUser' message",
-        "[2026-11-22 22:34:48 +0000] notice/Process: PID 4257 ('/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:44885\"' '--host' '\"lab\"' '--last-state-change' '\"1795386888.144223\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795386888.149614\"' '--notification-type' '\"PROBLEM\"' '--object-type' '\"service\"' '--output' '\"flap 2\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 0",
-        "[2026-11-22 22:34:48 +0000] notice/NotificationComponent: Reminder notification 'lab!long!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:34:48 +0000] notice/NotificationComponent: Reminder notification 'lab!ts!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:34:48 +0000] notice/NotificationComponent: Reminder notification 'lab!ss!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:34:48 +0000] notice/NotificationComponent: Reminder notification 'lab!invalid-output!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:34:48 +0000] notice/NotificationComponent: Reminder notification 'lab!dt!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:34:48 +0000] notice/NotificationComponent: Reminder notification 'host-ss!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:34:48 +0000] notice/NotificationComponent: Reminder notification 'host-ts!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:34:48 +0000] notice/NotificationComponent: Reminder notification 'lab!custom!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:34:48 +0000] notice/NotificationComponent: Reminder notification 'lab!cv!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:34:48 +0000] notice/NotificationComponent: Reminder notification 'lab!tx!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:34:48 +0000] notice/NotificationComponent: Reminder notification 'host-neg!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:34:48 +0000] notice/ApiListener: Relaying 'event::SendNotifications' message",
-        "[2026-11-22 22:34:48 +0000] notice/ApiListener: Relaying 'event::SetForceNextNotification' message",
-        "[2026-11-22 22:34:48 +0000] notice/Notification: Attempting to send notifications of type 'Recovery' for notification object 'lab!tx!correlia-service'.",
-        "[2026-11-22 22:34:48 +0000] information/Notification: Sending 'Recovery' notification 'lab!tx!correlia-service' for user 'correlia'",
-        "[2026-11-22 22:34:48 +0000] notice/ApiListener: Relaying 'event::NotificationSentToAllUsers' message",
-        "[2026-11-22 22:34:48 +0000] notice/Process: Running command '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:44885\"' '--host' '\"lab\"' '--last-state-change' '\"1795386888.611896\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795386888.617264\"' '--notification-type' '\"RECOVERY\"' '--object-type' '\"service\"' '--output' '\"flap 3\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"OK\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"': PID 4268",
-        "[2026-11-22 22:34:48 +0000] information/Notification: Completed sending 'Recovery' notification 'lab!tx!correlia-service' for checkable 'lab!tx' and user 'correlia' using command 'correlia-service'.",
-        "[2026-11-22 22:34:48 +0000] notice/ApiListener: Relaying 'event::NotificationSentUser' message",
-        "[2026-11-22 22:34:48 +0000] notice/Process: PID 4268 ('/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:44885\"' '--host' '\"lab\"' '--last-state-change' '\"1795386888.611896\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795386888.617264\"' '--notification-type' '\"RECOVERY\"' '--object-type' '\"service\"' '--output' '\"flap 3\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"OK\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 0",
-        "[2026-11-22 22:34:49 +0000] notice/ApiListener: Relaying 'event::SendNotifications' message",
-        "[2026-11-22 22:34:49 +0000] notice/ApiListener: Relaying 'event::SetForceNextNotification' message",
-        "[2026-11-22 22:34:49 +0000] notice/Notification: Attempting to send notifications of type 'Problem' for notification object 'lab!tx!correlia-service'.",
-        "[2026-11-22 22:34:49 +0000] information/Notification: Sending 'Problem' notification 'lab!tx!correlia-service' for user 'correlia'",
-        "[2026-11-22 22:34:49 +0000] notice/ApiListener: Relaying 'event::NotificationSentToAllUsers' message",
-        "[2026-11-22 22:34:49 +0000] notice/Process: Running command '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:44885\"' '--host' '\"lab\"' '--last-state-change' '\"1795386889.096969\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795386889.102483\"' '--notification-type' '\"PROBLEM\"' '--object-type' '\"service\"' '--output' '\"flap 4\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"': PID 4280",
-        "[2026-11-22 22:34:49 +0000] information/Notification: Completed sending 'Problem' notification 'lab!tx!correlia-service' for checkable 'lab!tx' and user 'correlia' using command 'correlia-service'.",
-        "[2026-11-22 22:34:49 +0000] notice/ApiListener: Relaying 'event::NotificationSentUser' message",
-        "[2026-11-22 22:34:49 +0000] notice/Process: PID 4280 ('/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:44885\"' '--host' '\"lab\"' '--last-state-change' '\"1795386889.096969\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795386889.102483\"' '--notification-type' '\"PROBLEM\"' '--object-type' '\"service\"' '--output' '\"flap 4\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 0",
-        "[2026-11-22 22:34:49 +0000] notice/ApiListener: Relaying 'event::SendNotifications' message",
-        "[2026-11-22 22:34:49 +0000] notice/ApiListener: Relaying 'event::SetForceNextNotification' message",
-        "[2026-11-22 22:34:49 +0000] notice/Notification: Attempting to send notifications of type 'FlappingStart' for notification object 'lab!tx!correlia-service'.",
-        "[2026-11-22 22:34:49 +0000] information/Notification: Sending 'FlappingStart' notification 'lab!tx!correlia-service' for user 'correlia'",
-        "[2026-11-22 22:34:49 +0000] notice/ApiListener: Relaying 'event::NotificationSentToAllUsers' message",
-        "[2026-11-22 22:34:49 +0000] notice/Process: Running command '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:44885\"' '--host' '\"lab\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795386889.565343\"' '--notification-type' '\"FLAPPINGSTART\"' '--object-type' '\"service\"' '--output' '\"flap 5\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"OK\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"': PID 4291",
-        "[2026-11-22 22:34:49 +0000] information/Notification: Completed sending 'FlappingStart' notification 'lab!tx!correlia-service' for checkable 'lab!tx' and user 'correlia' using command 'correlia-service'.",
-        "[2026-11-22 22:34:49 +0000] notice/ApiListener: Relaying 'event::NotificationSentUser' message",
-        "[2026-11-22 22:34:49 +0000] notice/Process: PID 4291 ('/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:44885\"' '--host' '\"lab\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795386889.565343\"' '--notification-type' '\"FLAPPINGSTART\"' '--object-type' '\"service\"' '--output' '\"flap 5\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"OK\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 0",
-        "[2026-11-22 22:34:53 +0000] notice/NotificationComponent: Reminder notification 'lab!long!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:34:53 +0000] notice/NotificationComponent: Reminder notification 'lab!ts!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:34:53 +0000] notice/NotificationComponent: Reminder notification 'lab!ss!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:34:53 +0000] notice/NotificationComponent: Reminder notification 'lab!invalid-output!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:34:53 +0000] notice/NotificationComponent: Reminder notification 'lab!dt!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:34:53 +0000] notice/NotificationComponent: Reminder notification 'host-ss!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:34:53 +0000] notice/NotificationComponent: Reminder notification 'host-ts!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:34:53 +0000] notice/NotificationComponent: Reminder notification 'lab!custom!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:34:53 +0000] notice/NotificationComponent: Reminder notification 'lab!cv!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:34:53 +0000] notice/NotificationComponent: Reminder notification 'host-neg!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:34:57 +0000] notice/ApiListener: Relaying 'event::SendNotifications' message",
-        "[2026-11-22 22:34:57 +0000] notice/ApiListener: Relaying 'event::SetForceNextNotification' message",
-        "[2026-11-22 22:34:57 +0000] notice/Notification: Attempting to send notifications of type 'FlappingEnd' for notification object 'lab!tx!correlia-service'.",
-        "[2026-11-22 22:34:57 +0000] information/Notification: Sending 'FlappingEnd' notification 'lab!tx!correlia-service' for user 'correlia'",
-        "[2026-11-22 22:34:57 +0000] notice/ApiListener: Relaying 'event::NotificationSentToAllUsers' message",
-        "[2026-11-22 22:34:57 +0000] notice/Process: Running command '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:44885\"' '--host' '\"lab\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795386897.457688\"' '--notification-type' '\"FLAPPINGEND\"' '--object-type' '\"service\"' '--output' '\"steady 21\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"': PID 4416",
-        "[2026-11-22 22:34:57 +0000] information/Notification: Completed sending 'FlappingEnd' notification 'lab!tx!correlia-service' for checkable 'lab!tx' and user 'correlia' using command 'correlia-service'.",
-        "[2026-11-22 22:34:57 +0000] notice/ApiListener: Relaying 'event::NotificationSentUser' message",
-        "[2026-11-22 22:34:57 +0000] notice/Process: PID 4416 ('/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:44885\"' '--host' '\"lab\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795386897.457688\"' '--notification-type' '\"FLAPPINGEND\"' '--object-type' '\"service\"' '--output' '\"steady 21\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 0",
-        "[2026-11-22 22:34:58 +0000] notice/NotificationComponent: Reminder notification 'lab!long!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:34:58 +0000] notice/NotificationComponent: Reminder notification 'lab!ts!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:34:58 +0000] notice/NotificationComponent: Reminder notification 'lab!ss!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:34:58 +0000] notice/NotificationComponent: Reminder notification 'lab!invalid-output!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:34:58 +0000] notice/NotificationComponent: Reminder notification 'lab!dt!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:34:58 +0000] notice/NotificationComponent: Reminder notification 'host-ss!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:34:58 +0000] notice/NotificationComponent: Reminder notification 'host-ts!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:34:58 +0000] notice/NotificationComponent: Reminder notification 'lab!custom!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:34:58 +0000] notice/NotificationComponent: Reminder notification 'lab!cv!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:34:58 +0000] notice/NotificationComponent: Attempting to send reminder notification 'lab!tx!correlia-service'.",
-        "[2026-11-22 22:34:58 +0000] notice/Notification: Attempting to send reminder notifications of type 'Problem' for notification object 'lab!tx!correlia-service'.",
-        "[2026-11-22 22:34:58 +0000] information/Notification: Sending reminder 'Problem' notification 'lab!tx!correlia-service' for user 'correlia'",
-        "[2026-11-22 22:34:58 +0000] notice/NotificationComponent: Reminder notification 'host-neg!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:34:58 +0000] notice/ApiListener: Relaying 'event::NotificationSentToAllUsers' message",
-        "[2026-11-22 22:34:58 +0000] notice/Process: Running command '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:44885\"' '--host' '\"lab\"' '--last-state-change' '\"1795386890.303671\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795386898.483527\"' '--notification-type' '\"PROBLEM\"' '--object-type' '\"service\"' '--output' '\"steady 21\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"': PID 4434",
-        "[2026-11-22 22:34:58 +0000] information/Notification: Completed sending 'Problem' notification 'lab!tx!correlia-service' for checkable 'lab!tx' and user 'correlia' using command 'correlia-service'.",
-        "[2026-11-22 22:34:58 +0000] notice/ApiListener: Relaying 'event::NotificationSentUser' message",
-        "[2026-11-22 22:34:58 +0000] notice/Process: PID 4434 ('/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:44885\"' '--host' '\"lab\"' '--last-state-change' '\"1795386890.303671\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795386898.483527\"' '--notification-type' '\"PROBLEM\"' '--object-type' '\"service\"' '--output' '\"steady 21\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 0",
-        "[2026-11-22 22:35:03 +0000] notice/NotificationComponent: Reminder notification 'lab!long!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:03 +0000] notice/NotificationComponent: Reminder notification 'lab!ts!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:03 +0000] notice/NotificationComponent: Reminder notification 'lab!ss!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:03 +0000] notice/NotificationComponent: Reminder notification 'lab!invalid-output!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:03 +0000] notice/NotificationComponent: Reminder notification 'lab!dt!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:03 +0000] notice/NotificationComponent: Reminder notification 'host-ss!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:03 +0000] notice/NotificationComponent: Reminder notification 'host-ts!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:03 +0000] notice/NotificationComponent: Reminder notification 'lab!custom!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:03 +0000] notice/NotificationComponent: Reminder notification 'lab!cv!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:03 +0000] notice/NotificationComponent: Reminder notification 'lab!tx!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:03 +0000] notice/NotificationComponent: Reminder notification 'host-neg!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:05 +0000] notice/ApiListener: Relaying 'event::SendNotifications' message",
-        "[2026-11-22 22:35:05 +0000] notice/ApiListener: Relaying 'event::SetForceNextNotification' message",
-        "[2026-11-22 22:35:05 +0000] notice/Notification: Attempting to send notifications of type 'DowntimeStart' for notification object 'lab!tx!correlia-service'.",
-        "[2026-11-22 22:35:05 +0000] information/Notification: Sending 'DowntimeStart' notification 'lab!tx!correlia-service' for user 'correlia'",
-        "[2026-11-22 22:35:05 +0000] notice/ApiListener: Relaying 'event::NotificationSentToAllUsers' message",
-        "[2026-11-22 22:35:05 +0000] notice/Process: Running command '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:44885\"' '--host' '\"lab\"' '--notification-author' '\"operator\"' '--notification-comment' '\"window\"' '--notification-time' '\"1795386905.793724\"' '--notification-type' '\"DOWNTIMESTART\"' '--object-type' '\"service\"' '--output' '\"steady 21\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"': PID 4539",
-        "[2026-11-22 22:35:05 +0000] information/Notification: Completed sending 'DowntimeStart' notification 'lab!tx!correlia-service' for checkable 'lab!tx' and user 'correlia' using command 'correlia-service'.",
-        "[2026-11-22 22:35:05 +0000] notice/ApiListener: Relaying 'event::NotificationSentUser' message",
-        "[2026-11-22 22:35:05 +0000] notice/Process: PID 4539 ('/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:44885\"' '--host' '\"lab\"' '--notification-author' '\"operator\"' '--notification-comment' '\"window\"' '--notification-time' '\"1795386905.793724\"' '--notification-type' '\"DOWNTIMESTART\"' '--object-type' '\"service\"' '--output' '\"steady 21\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 0",
-        "[2026-11-22 22:35:08 +0000] notice/NotificationComponent: Reminder notification 'lab!long!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:08 +0000] notice/NotificationComponent: Reminder notification 'lab!ts!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:08 +0000] notice/NotificationComponent: Reminder notification 'lab!ss!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:08 +0000] notice/NotificationComponent: Reminder notification 'lab!invalid-output!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:08 +0000] notice/NotificationComponent: Reminder notification 'lab!dt!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:08 +0000] notice/NotificationComponent: Reminder notification 'host-ss!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:08 +0000] notice/NotificationComponent: Reminder notification 'host-ts!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:08 +0000] notice/NotificationComponent: Reminder notification 'lab!custom!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:08 +0000] notice/NotificationComponent: Reminder notification 'lab!cv!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:08 +0000] notice/NotificationComponent: Reminder notification 'host-neg!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:12 +0000] notice/ApiListener: Relaying 'event::SendNotifications' message",
-        "[2026-11-22 22:35:12 +0000] notice/ApiListener: Relaying 'event::SetForceNextNotification' message",
-        "[2026-11-22 22:35:12 +0000] notice/Notification: Attempting to send notifications of type 'DowntimeEnd' for notification object 'lab!tx!correlia-service'.",
-        "[2026-11-22 22:35:12 +0000] information/Notification: Sending 'DowntimeEnd' notification 'lab!tx!correlia-service' for user 'correlia'",
-        "[2026-11-22 22:35:12 +0000] notice/ApiListener: Relaying 'event::NotificationSentToAllUsers' message",
-        "[2026-11-22 22:35:12 +0000] notice/Process: Running command '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:44885\"' '--host' '\"lab\"' '--notification-author' '\"operator\"' '--notification-comment' '\"window\"' '--notification-time' '\"1795386912.542614\"' '--notification-type' '\"DOWNTIMEEND\"' '--object-type' '\"service\"' '--output' '\"steady 21\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"': PID 4634",
-        "[2026-11-22 22:35:12 +0000] information/Notification: Completed sending 'DowntimeEnd' notification 'lab!tx!correlia-service' for checkable 'lab!tx' and user 'correlia' using command 'correlia-service'.",
-        "[2026-11-22 22:35:12 +0000] notice/ApiListener: Relaying 'event::NotificationSentUser' message",
-        "[2026-11-22 22:35:12 +0000] notice/Process: PID 4634 ('/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:44885\"' '--host' '\"lab\"' '--notification-author' '\"operator\"' '--notification-comment' '\"window\"' '--notification-time' '\"1795386912.542614\"' '--notification-type' '\"DOWNTIMEEND\"' '--object-type' '\"service\"' '--output' '\"steady 21\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 0",
-        "[2026-11-22 22:35:13 +0000] notice/NotificationComponent: Reminder notification 'lab!long!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:13 +0000] notice/NotificationComponent: Reminder notification 'lab!ts!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:13 +0000] notice/NotificationComponent: Reminder notification 'lab!ss!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:13 +0000] notice/NotificationComponent: Reminder notification 'lab!invalid-output!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:13 +0000] notice/NotificationComponent: Reminder notification 'lab!dt!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:13 +0000] notice/NotificationComponent: Reminder notification 'host-ss!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:13 +0000] notice/NotificationComponent: Reminder notification 'host-ts!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:13 +0000] notice/NotificationComponent: Reminder notification 'lab!custom!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:13 +0000] notice/NotificationComponent: Reminder notification 'lab!cv!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:13 +0000] notice/NotificationComponent: Attempting to send reminder notification 'lab!tx!correlia-service'.",
-        "[2026-11-22 22:35:13 +0000] notice/Notification: Attempting to send reminder notifications of type 'Problem' for notification object 'lab!tx!correlia-service'.",
-        "[2026-11-22 22:35:13 +0000] information/Notification: Sending reminder 'Problem' notification 'lab!tx!correlia-service' for user 'correlia'",
-        "[2026-11-22 22:35:13 +0000] notice/NotificationComponent: Reminder notification 'host-neg!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:13 +0000] notice/ApiListener: Relaying 'event::NotificationSentToAllUsers' message",
-        "[2026-11-22 22:35:13 +0000] notice/Process: Running command '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:44885\"' '--host' '\"lab\"' '--last-state-change' '\"1795386890.303671\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795386913.483362\"' '--notification-type' '\"PROBLEM\"' '--object-type' '\"service\"' '--output' '\"steady 21\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"': PID 4652",
-        "[2026-11-22 22:35:13 +0000] information/Notification: Completed sending 'Problem' notification 'lab!tx!correlia-service' for checkable 'lab!tx' and user 'correlia' using command 'correlia-service'.",
-        "[2026-11-22 22:35:13 +0000] notice/ApiListener: Relaying 'event::NotificationSentUser' message",
-        "[2026-11-22 22:35:13 +0000] notice/Process: PID 4652 ('/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:44885\"' '--host' '\"lab\"' '--last-state-change' '\"1795386890.303671\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795386913.483362\"' '--notification-type' '\"PROBLEM\"' '--object-type' '\"service\"' '--output' '\"steady 21\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 0",
-        "[2026-11-22 22:35:18 +0000] notice/NotificationComponent: Reminder notification 'lab!long!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:18 +0000] notice/NotificationComponent: Reminder notification 'lab!ts!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:18 +0000] notice/NotificationComponent: Reminder notification 'lab!ss!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:18 +0000] notice/NotificationComponent: Reminder notification 'lab!invalid-output!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:18 +0000] notice/NotificationComponent: Reminder notification 'lab!dt!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:18 +0000] notice/NotificationComponent: Reminder notification 'host-ss!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:18 +0000] notice/NotificationComponent: Reminder notification 'host-ts!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:18 +0000] notice/NotificationComponent: Reminder notification 'lab!custom!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:18 +0000] notice/NotificationComponent: Reminder notification 'lab!cv!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:18 +0000] notice/NotificationComponent: Reminder notification 'lab!tx!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:18 +0000] notice/NotificationComponent: Reminder notification 'host-neg!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:22 +0000] notice/ApiListener: Relaying 'event::SendNotifications' message",
-        "[2026-11-22 22:35:22 +0000] notice/ApiListener: Relaying 'event::SetForceNextNotification' message",
-        "[2026-11-22 22:35:22 +0000] notice/Notification: Attempting to send notifications of type 'Recovery' for notification object 'lab!tx!correlia-service'.",
-        "[2026-11-22 22:35:22 +0000] information/Notification: Sending 'Recovery' notification 'lab!tx!correlia-service' for user 'correlia'",
-        "[2026-11-22 22:35:22 +0000] notice/ApiListener: Relaying 'event::NotificationSentToAllUsers' message",
-        "[2026-11-22 22:35:22 +0000] notice/Process: Running command '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:44885\"' '--host' '\"lab\"' '--last-state-change' '\"1795386922.165192\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795386922.170906\"' '--notification-type' '\"RECOVERY\"' '--object-type' '\"service\"' '--output' '\"OK: tx back\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"OK\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"': PID 4747",
-        "[2026-11-22 22:35:22 +0000] information/Notification: Completed sending 'Recovery' notification 'lab!tx!correlia-service' for checkable 'lab!tx' and user 'correlia' using command 'correlia-service'.",
-        "[2026-11-22 22:35:22 +0000] notice/ApiListener: Relaying 'event::NotificationSentUser' message",
-        "[2026-11-22 22:35:22 +0000] notice/Process: PID 4747 ('/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:44885\"' '--host' '\"lab\"' '--last-state-change' '\"1795386922.165192\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795386922.170906\"' '--notification-type' '\"RECOVERY\"' '--object-type' '\"service\"' '--output' '\"OK: tx back\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"OK\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 0",
-        "[2026-11-22 22:35:23 +0000] notice/NotificationComponent: Reminder notification 'lab!long!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:23 +0000] notice/NotificationComponent: Reminder notification 'lab!ts!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:23 +0000] notice/NotificationComponent: Reminder notification 'lab!ss!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:23 +0000] notice/NotificationComponent: Reminder notification 'lab!invalid-output!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:23 +0000] notice/NotificationComponent: Reminder notification 'lab!dt!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:23 +0000] notice/NotificationComponent: Reminder notification 'host-ss!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:23 +0000] notice/NotificationComponent: Reminder notification 'host-ts!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:23 +0000] notice/NotificationComponent: Reminder notification 'lab!custom!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:23 +0000] notice/NotificationComponent: Reminder notification 'lab!cv!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:23 +0000] notice/NotificationComponent: Reminder notification 'host-neg!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:28 +0000] notice/NotificationComponent: Reminder notification 'lab!long!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:28 +0000] notice/NotificationComponent: Reminder notification 'lab!ts!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:28 +0000] notice/NotificationComponent: Reminder notification 'lab!ss!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:28 +0000] notice/NotificationComponent: Reminder notification 'lab!invalid-output!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:28 +0000] notice/NotificationComponent: Reminder notification 'lab!dt!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:28 +0000] notice/NotificationComponent: Reminder notification 'host-ss!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:28 +0000] notice/NotificationComponent: Reminder notification 'host-ts!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:28 +0000] notice/NotificationComponent: Reminder notification 'lab!custom!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:28 +0000] notice/NotificationComponent: Reminder notification 'lab!cv!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
-        "[2026-11-22 22:35:28 +0000] notice/NotificationComponent: Reminder notification 'host-neg!correlia-host': Notification was sent out once and interval=0 disables reminder notifications."
+        "[2026-11-23 00:01:34 +0000] notice/ApiListener: Relaying 'event::SendNotifications' message",
+        "[2026-11-23 00:01:34 +0000] notice/ApiListener: Relaying 'event::SetForceNextNotification' message",
+        "[2026-11-23 00:01:34 +0000] notice/Notification: Attempting to send notifications of type 'Problem' for notification object 'lab!tx!correlia-service'.",
+        "[2026-11-23 00:01:34 +0000] information/Notification: Sending 'Problem' notification 'lab!tx!correlia-service' for user 'correlia'",
+        "[2026-11-23 00:01:34 +0000] notice/ApiListener: Relaying 'event::NotificationSentToAllUsers' message",
+        "[2026-11-23 00:01:34 +0000] notice/Process: Running command '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:40945\"' '--host' '\"lab\"' '--last-state-change' '\"1795392094.100001\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795392094.071514\"' '--notification-type' '\"PROBLEM\"' '--object-type' '\"service\"' '--output' '\"CRITICAL: tx\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"': PID 4240",
+        "[2026-11-23 00:01:34 +0000] information/Notification: Completed sending 'Problem' notification 'lab!tx!correlia-service' for checkable 'lab!tx' and user 'correlia' using command 'correlia-service'.",
+        "[2026-11-23 00:01:34 +0000] notice/ApiListener: Relaying 'event::NotificationSentUser' message",
+        "[2026-11-23 00:01:34 +0000] notice/Process: PID 4240 ('/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:40945\"' '--host' '\"lab\"' '--last-state-change' '\"1795392094.100001\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795392094.071514\"' '--notification-type' '\"PROBLEM\"' '--object-type' '\"service\"' '--output' '\"CRITICAL: tx\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 0",
+        "[2026-11-23 00:01:34 +0000] notice/Notification: Attempting to send notifications of type 'Acknowledgement' for notification object 'lab!tx!correlia-service'.",
+        "[2026-11-23 00:01:34 +0000] notice/ApiListener: Relaying 'event::SendNotifications' message",
+        "[2026-11-23 00:01:34 +0000] information/Notification: Sending 'Acknowledgement' notification 'lab!tx!correlia-service' for user 'correlia'",
+        "[2026-11-23 00:01:34 +0000] notice/ApiListener: Relaying 'event::SetForceNextNotification' message",
+        "[2026-11-23 00:01:34 +0000] notice/ApiListener: Relaying 'event::NotificationSentToAllUsers' message",
+        "[2026-11-23 00:01:34 +0000] notice/Process: Running command '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:40945\"' '--host' '\"lab\"' '--notification-author' '\"operator\"' '--notification-comment' '\"ack\"' '--notification-time' '\"1795392094.344922\"' '--notification-type' '\"ACKNOWLEDGEMENT\"' '--object-type' '\"service\"' '--output' '\"CRITICAL: tx\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"': PID 4245",
+        "[2026-11-23 00:01:34 +0000] information/Notification: Completed sending 'Acknowledgement' notification 'lab!tx!correlia-service' for checkable 'lab!tx' and user 'correlia' using command 'correlia-service'.",
+        "[2026-11-23 00:01:34 +0000] notice/ApiListener: Relaying 'event::NotificationSentUser' message",
+        "[2026-11-23 00:01:34 +0000] notice/Process: PID 4245 ('/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:40945\"' '--host' '\"lab\"' '--notification-author' '\"operator\"' '--notification-comment' '\"ack\"' '--notification-time' '\"1795392094.344922\"' '--notification-type' '\"ACKNOWLEDGEMENT\"' '--object-type' '\"service\"' '--output' '\"CRITICAL: tx\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 0",
+        "[2026-11-23 00:01:34 +0000] notice/ApiListener: Relaying 'event::SendNotifications' message",
+        "[2026-11-23 00:01:34 +0000] notice/ApiListener: Relaying 'event::SetForceNextNotification' message",
+        "[2026-11-23 00:01:34 +0000] notice/Notification: Attempting to send notifications of type 'Recovery' for notification object 'lab!tx!correlia-service'.",
+        "[2026-11-23 00:01:34 +0000] information/Notification: Sending 'Recovery' notification 'lab!tx!correlia-service' for user 'correlia'",
+        "[2026-11-23 00:01:34 +0000] notice/ApiListener: Relaying 'event::NotificationSentToAllUsers' message",
+        "[2026-11-23 00:01:34 +0000] notice/Process: Running command '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:40945\"' '--host' '\"lab\"' '--last-state-change' '\"1795392094.852828\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795392094.858428\"' '--notification-type' '\"RECOVERY\"' '--object-type' '\"service\"' '--output' '\"flap 1\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"OK\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"': PID 4256",
+        "[2026-11-23 00:01:34 +0000] information/Notification: Completed sending 'Recovery' notification 'lab!tx!correlia-service' for checkable 'lab!tx' and user 'correlia' using command 'correlia-service'.",
+        "[2026-11-23 00:01:34 +0000] notice/ApiListener: Relaying 'event::NotificationSentUser' message",
+        "[2026-11-23 00:01:34 +0000] notice/Process: PID 4256 ('/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:40945\"' '--host' '\"lab\"' '--last-state-change' '\"1795392094.852828\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795392094.858428\"' '--notification-type' '\"RECOVERY\"' '--object-type' '\"service\"' '--output' '\"flap 1\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"OK\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 0",
+        "[2026-11-23 00:01:35 +0000] notice/ApiListener: Relaying 'event::SendNotifications' message",
+        "[2026-11-23 00:01:35 +0000] notice/ApiListener: Relaying 'event::SetForceNextNotification' message",
+        "[2026-11-23 00:01:35 +0000] notice/Notification: Attempting to send notifications of type 'Problem' for notification object 'lab!tx!correlia-service'.",
+        "[2026-11-23 00:01:35 +0000] information/Notification: Sending 'Problem' notification 'lab!tx!correlia-service' for user 'correlia'",
+        "[2026-11-23 00:01:35 +0000] notice/ApiListener: Relaying 'event::NotificationSentToAllUsers' message",
+        "[2026-11-23 00:01:35 +0000] notice/Process: Running command '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:40945\"' '--host' '\"lab\"' '--last-state-change' '\"1795392095.317382\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795392095.322654\"' '--notification-type' '\"PROBLEM\"' '--object-type' '\"service\"' '--output' '\"flap 2\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"': PID 4267",
+        "[2026-11-23 00:01:35 +0000] information/Notification: Completed sending 'Problem' notification 'lab!tx!correlia-service' for checkable 'lab!tx' and user 'correlia' using command 'correlia-service'.",
+        "[2026-11-23 00:01:35 +0000] notice/ApiListener: Relaying 'event::NotificationSentUser' message",
+        "[2026-11-23 00:01:35 +0000] notice/Process: PID 4267 ('/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:40945\"' '--host' '\"lab\"' '--last-state-change' '\"1795392095.317382\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795392095.322654\"' '--notification-type' '\"PROBLEM\"' '--object-type' '\"service\"' '--output' '\"flap 2\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 0",
+        "[2026-11-23 00:01:35 +0000] notice/NotificationComponent: Reminder notification 'lab!cv!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:35 +0000] notice/NotificationComponent: Reminder notification 'lab!long!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:35 +0000] notice/NotificationComponent: Reminder notification 'host-ts!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:35 +0000] notice/NotificationComponent: Reminder notification 'lab!tx!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:35 +0000] notice/NotificationComponent: Reminder notification 'lab!ts!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:35 +0000] notice/NotificationComponent: Reminder notification 'lab!dt!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:35 +0000] notice/NotificationComponent: Reminder notification 'lab!ss!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:35 +0000] notice/NotificationComponent: Reminder notification 'host-neg!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:35 +0000] notice/NotificationComponent: Reminder notification 'lab!invalid-output!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:35 +0000] notice/NotificationComponent: Reminder notification 'lab!custom!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:35 +0000] notice/NotificationComponent: Reminder notification 'host-ss!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:35 +0000] notice/ApiListener: Relaying 'event::SendNotifications' message",
+        "[2026-11-23 00:01:35 +0000] notice/ApiListener: Relaying 'event::SetForceNextNotification' message",
+        "[2026-11-23 00:01:35 +0000] notice/Notification: Attempting to send notifications of type 'Recovery' for notification object 'lab!tx!correlia-service'.",
+        "[2026-11-23 00:01:35 +0000] information/Notification: Sending 'Recovery' notification 'lab!tx!correlia-service' for user 'correlia'",
+        "[2026-11-23 00:01:35 +0000] notice/ApiListener: Relaying 'event::NotificationSentToAllUsers' message",
+        "[2026-11-23 00:01:35 +0000] notice/Process: Running command '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:40945\"' '--host' '\"lab\"' '--last-state-change' '\"1795392095.763977\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795392095.769600\"' '--notification-type' '\"RECOVERY\"' '--object-type' '\"service\"' '--output' '\"flap 3\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"OK\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"': PID 4278",
+        "[2026-11-23 00:01:35 +0000] information/Notification: Completed sending 'Recovery' notification 'lab!tx!correlia-service' for checkable 'lab!tx' and user 'correlia' using command 'correlia-service'.",
+        "[2026-11-23 00:01:35 +0000] notice/ApiListener: Relaying 'event::NotificationSentUser' message",
+        "[2026-11-23 00:01:35 +0000] notice/Process: PID 4278 ('/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:40945\"' '--host' '\"lab\"' '--last-state-change' '\"1795392095.763977\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795392095.769600\"' '--notification-type' '\"RECOVERY\"' '--object-type' '\"service\"' '--output' '\"flap 3\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"OK\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 0",
+        "[2026-11-23 00:01:36 +0000] notice/ApiListener: Relaying 'event::SendNotifications' message",
+        "[2026-11-23 00:01:36 +0000] notice/ApiListener: Relaying 'event::SetForceNextNotification' message",
+        "[2026-11-23 00:01:36 +0000] notice/Notification: Attempting to send notifications of type 'Problem' for notification object 'lab!tx!correlia-service'.",
+        "[2026-11-23 00:01:36 +0000] information/Notification: Sending 'Problem' notification 'lab!tx!correlia-service' for user 'correlia'",
+        "[2026-11-23 00:01:36 +0000] notice/ApiListener: Relaying 'event::NotificationSentToAllUsers' message",
+        "[2026-11-23 00:01:36 +0000] notice/Process: Running command '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:40945\"' '--host' '\"lab\"' '--last-state-change' '\"1795392096.240435\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795392096.246133\"' '--notification-type' '\"PROBLEM\"' '--object-type' '\"service\"' '--output' '\"flap 4\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"': PID 4289",
+        "[2026-11-23 00:01:36 +0000] information/Notification: Completed sending 'Problem' notification 'lab!tx!correlia-service' for checkable 'lab!tx' and user 'correlia' using command 'correlia-service'.",
+        "[2026-11-23 00:01:36 +0000] notice/ApiListener: Relaying 'event::NotificationSentUser' message",
+        "[2026-11-23 00:01:36 +0000] notice/Process: PID 4289 ('/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:40945\"' '--host' '\"lab\"' '--last-state-change' '\"1795392096.240435\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795392096.246133\"' '--notification-type' '\"PROBLEM\"' '--object-type' '\"service\"' '--output' '\"flap 4\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 0",
+        "[2026-11-23 00:01:36 +0000] notice/ApiListener: Relaying 'event::SendNotifications' message",
+        "[2026-11-23 00:01:36 +0000] notice/ApiListener: Relaying 'event::SetForceNextNotification' message",
+        "[2026-11-23 00:01:36 +0000] notice/Notification: Attempting to send notifications of type 'FlappingStart' for notification object 'lab!tx!correlia-service'.",
+        "[2026-11-23 00:01:36 +0000] information/Notification: Sending 'FlappingStart' notification 'lab!tx!correlia-service' for user 'correlia'",
+        "[2026-11-23 00:01:36 +0000] notice/ApiListener: Relaying 'event::NotificationSentToAllUsers' message",
+        "[2026-11-23 00:01:36 +0000] notice/Process: Running command '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:40945\"' '--host' '\"lab\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795392096.681882\"' '--notification-type' '\"FLAPPINGSTART\"' '--object-type' '\"service\"' '--output' '\"flap 5\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"OK\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"': PID 4300",
+        "[2026-11-23 00:01:36 +0000] information/Notification: Completed sending 'FlappingStart' notification 'lab!tx!correlia-service' for checkable 'lab!tx' and user 'correlia' using command 'correlia-service'.",
+        "[2026-11-23 00:01:36 +0000] notice/ApiListener: Relaying 'event::NotificationSentUser' message",
+        "[2026-11-23 00:01:36 +0000] notice/Process: PID 4300 ('/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:40945\"' '--host' '\"lab\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795392096.681882\"' '--notification-type' '\"FLAPPINGSTART\"' '--object-type' '\"service\"' '--output' '\"flap 5\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"OK\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 0",
+        "[2026-11-23 00:01:40 +0000] notice/NotificationComponent: Reminder notification 'lab!cv!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:40 +0000] notice/NotificationComponent: Reminder notification 'lab!long!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:40 +0000] notice/NotificationComponent: Reminder notification 'host-ts!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:40 +0000] notice/NotificationComponent: Reminder notification 'lab!ts!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:40 +0000] notice/NotificationComponent: Reminder notification 'lab!dt!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:40 +0000] notice/NotificationComponent: Reminder notification 'lab!ss!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:40 +0000] notice/NotificationComponent: Reminder notification 'host-neg!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:40 +0000] notice/NotificationComponent: Reminder notification 'lab!invalid-output!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:40 +0000] notice/NotificationComponent: Reminder notification 'lab!custom!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:40 +0000] notice/NotificationComponent: Reminder notification 'host-ss!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:44 +0000] notice/ApiListener: Relaying 'event::SendNotifications' message",
+        "[2026-11-23 00:01:44 +0000] notice/ApiListener: Relaying 'event::SetForceNextNotification' message",
+        "[2026-11-23 00:01:44 +0000] notice/Notification: Attempting to send notifications of type 'FlappingEnd' for notification object 'lab!tx!correlia-service'.",
+        "[2026-11-23 00:01:44 +0000] information/Notification: Sending 'FlappingEnd' notification 'lab!tx!correlia-service' for user 'correlia'",
+        "[2026-11-23 00:01:44 +0000] notice/ApiListener: Relaying 'event::NotificationSentToAllUsers' message",
+        "[2026-11-23 00:01:44 +0000] notice/Process: Running command '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:40945\"' '--host' '\"lab\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795392104.410060\"' '--notification-type' '\"FLAPPINGEND\"' '--object-type' '\"service\"' '--output' '\"steady 21\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"': PID 4424",
+        "[2026-11-23 00:01:44 +0000] information/Notification: Completed sending 'FlappingEnd' notification 'lab!tx!correlia-service' for checkable 'lab!tx' and user 'correlia' using command 'correlia-service'.",
+        "[2026-11-23 00:01:44 +0000] notice/ApiListener: Relaying 'event::NotificationSentUser' message",
+        "[2026-11-23 00:01:44 +0000] notice/Process: PID 4424 ('/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:40945\"' '--host' '\"lab\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795392104.410060\"' '--notification-type' '\"FLAPPINGEND\"' '--object-type' '\"service\"' '--output' '\"steady 21\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 0",
+        "[2026-11-23 00:01:47 +0000] notice/NotificationComponent: Reminder notification 'lab!cv!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:47 +0000] notice/NotificationComponent: Reminder notification 'lab!long!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:47 +0000] notice/NotificationComponent: Reminder notification 'host-ts!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:47 +0000] notice/NotificationComponent: Attempting to send reminder notification 'lab!tx!correlia-service'.",
+        "[2026-11-23 00:01:47 +0000] notice/Notification: Attempting to send reminder notifications of type 'Problem' for notification object 'lab!tx!correlia-service'.",
+        "[2026-11-23 00:01:47 +0000] information/Notification: Sending reminder 'Problem' notification 'lab!tx!correlia-service' for user 'correlia'",
+        "[2026-11-23 00:01:47 +0000] notice/NotificationComponent: Reminder notification 'lab!ts!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:47 +0000] notice/NotificationComponent: Reminder notification 'lab!dt!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:47 +0000] notice/ApiListener: Relaying 'event::NotificationSentToAllUsers' message",
+        "[2026-11-23 00:01:47 +0000] notice/NotificationComponent: Reminder notification 'lab!ss!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:47 +0000] notice/NotificationComponent: Reminder notification 'host-neg!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:47 +0000] notice/NotificationComponent: Reminder notification 'lab!invalid-output!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:47 +0000] notice/NotificationComponent: Reminder notification 'lab!custom!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:47 +0000] notice/NotificationComponent: Reminder notification 'host-ss!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:47 +0000] notice/Process: Running command '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:40945\"' '--host' '\"lab\"' '--last-state-change' '\"1795392097.128999\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795392107.173030\"' '--notification-type' '\"PROBLEM\"' '--object-type' '\"service\"' '--output' '\"steady 22\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"': PID 4442",
+        "[2026-11-23 00:01:47 +0000] information/Notification: Completed sending 'Problem' notification 'lab!tx!correlia-service' for checkable 'lab!tx' and user 'correlia' using command 'correlia-service'.",
+        "[2026-11-23 00:01:47 +0000] notice/ApiListener: Relaying 'event::NotificationSentUser' message",
+        "[2026-11-23 00:01:47 +0000] notice/Process: PID 4442 ('/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:40945\"' '--host' '\"lab\"' '--last-state-change' '\"1795392097.128999\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795392107.173030\"' '--notification-type' '\"PROBLEM\"' '--object-type' '\"service\"' '--output' '\"steady 22\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 0",
+        "[2026-11-23 00:01:52 +0000] notice/NotificationComponent: Reminder notification 'lab!cv!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:52 +0000] notice/NotificationComponent: Reminder notification 'lab!long!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:52 +0000] notice/NotificationComponent: Reminder notification 'host-ts!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:52 +0000] notice/NotificationComponent: Reminder notification 'lab!tx!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:52 +0000] notice/NotificationComponent: Reminder notification 'lab!ts!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:52 +0000] notice/NotificationComponent: Reminder notification 'lab!dt!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:52 +0000] notice/NotificationComponent: Reminder notification 'lab!ss!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:52 +0000] notice/NotificationComponent: Reminder notification 'host-neg!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:52 +0000] notice/NotificationComponent: Reminder notification 'lab!invalid-output!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:52 +0000] notice/NotificationComponent: Reminder notification 'lab!custom!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:52 +0000] notice/NotificationComponent: Reminder notification 'host-ss!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:55 +0000] notice/ApiListener: Relaying 'event::SendNotifications' message",
+        "[2026-11-23 00:01:55 +0000] notice/ApiListener: Relaying 'event::SetForceNextNotification' message",
+        "[2026-11-23 00:01:55 +0000] notice/Notification: Attempting to send notifications of type 'DowntimeStart' for notification object 'lab!tx!correlia-service'.",
+        "[2026-11-23 00:01:55 +0000] information/Notification: Sending 'DowntimeStart' notification 'lab!tx!correlia-service' for user 'correlia'",
+        "[2026-11-23 00:01:55 +0000] notice/ApiListener: Relaying 'event::NotificationSentToAllUsers' message",
+        "[2026-11-23 00:01:55 +0000] notice/Process: Running command '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:40945\"' '--host' '\"lab\"' '--notification-author' '\"operator\"' '--notification-comment' '\"window\"' '--notification-time' '\"1795392115.162473\"' '--notification-type' '\"DOWNTIMESTART\"' '--object-type' '\"service\"' '--output' '\"steady 22\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"': PID 4553",
+        "[2026-11-23 00:01:55 +0000] information/Notification: Completed sending 'DowntimeStart' notification 'lab!tx!correlia-service' for checkable 'lab!tx' and user 'correlia' using command 'correlia-service'.",
+        "[2026-11-23 00:01:55 +0000] notice/ApiListener: Relaying 'event::NotificationSentUser' message",
+        "[2026-11-23 00:01:55 +0000] notice/Process: PID 4553 ('/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:40945\"' '--host' '\"lab\"' '--notification-author' '\"operator\"' '--notification-comment' '\"window\"' '--notification-time' '\"1795392115.162473\"' '--notification-type' '\"DOWNTIMESTART\"' '--object-type' '\"service\"' '--output' '\"steady 22\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 0",
+        "[2026-11-23 00:01:57 +0000] notice/NotificationComponent: Reminder notification 'lab!cv!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:57 +0000] notice/NotificationComponent: Reminder notification 'lab!long!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:57 +0000] notice/NotificationComponent: Reminder notification 'host-ts!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:57 +0000] notice/NotificationComponent: Reminder notification 'lab!ts!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:57 +0000] notice/NotificationComponent: Reminder notification 'lab!dt!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:57 +0000] notice/NotificationComponent: Reminder notification 'lab!ss!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:57 +0000] notice/NotificationComponent: Reminder notification 'host-neg!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:57 +0000] notice/NotificationComponent: Reminder notification 'lab!invalid-output!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:57 +0000] notice/NotificationComponent: Reminder notification 'lab!custom!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:01:57 +0000] notice/NotificationComponent: Reminder notification 'host-ss!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:02 +0000] notice/ApiListener: Relaying 'event::SendNotifications' message",
+        "[2026-11-23 00:02:02 +0000] notice/ApiListener: Relaying 'event::SetForceNextNotification' message",
+        "[2026-11-23 00:02:02 +0000] notice/Notification: Attempting to send notifications of type 'DowntimeEnd' for notification object 'lab!tx!correlia-service'.",
+        "[2026-11-23 00:02:02 +0000] information/Notification: Sending 'DowntimeEnd' notification 'lab!tx!correlia-service' for user 'correlia'",
+        "[2026-11-23 00:02:02 +0000] notice/ApiListener: Relaying 'event::NotificationSentToAllUsers' message",
+        "[2026-11-23 00:02:02 +0000] notice/Process: Running command '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:40945\"' '--host' '\"lab\"' '--notification-author' '\"operator\"' '--notification-comment' '\"window\"' '--notification-time' '\"1795392122.171209\"' '--notification-type' '\"DOWNTIMEEND\"' '--object-type' '\"service\"' '--output' '\"steady 22\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"': PID 4648",
+        "[2026-11-23 00:02:02 +0000] information/Notification: Completed sending 'DowntimeEnd' notification 'lab!tx!correlia-service' for checkable 'lab!tx' and user 'correlia' using command 'correlia-service'.",
+        "[2026-11-23 00:02:02 +0000] notice/ApiListener: Relaying 'event::NotificationSentUser' message",
+        "[2026-11-23 00:02:02 +0000] notice/NotificationComponent: Reminder notification 'lab!cv!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:02 +0000] notice/NotificationComponent: Reminder notification 'lab!long!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:02 +0000] notice/NotificationComponent: Reminder notification 'host-ts!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:02 +0000] notice/NotificationComponent: Attempting to send reminder notification 'lab!tx!correlia-service'.",
+        "[2026-11-23 00:02:02 +0000] notice/Notification: Attempting to send reminder notifications of type 'Problem' for notification object 'lab!tx!correlia-service'.",
+        "[2026-11-23 00:02:02 +0000] information/Notification: Sending reminder 'Problem' notification 'lab!tx!correlia-service' for user 'correlia'",
+        "[2026-11-23 00:02:02 +0000] notice/NotificationComponent: Reminder notification 'lab!ts!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:02 +0000] notice/NotificationComponent: Reminder notification 'lab!dt!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:02 +0000] notice/NotificationComponent: Reminder notification 'lab!ss!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:02 +0000] notice/ApiListener: Relaying 'event::NotificationSentToAllUsers' message",
+        "[2026-11-23 00:02:02 +0000] notice/NotificationComponent: Reminder notification 'host-neg!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:02 +0000] notice/NotificationComponent: Reminder notification 'lab!invalid-output!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:02 +0000] notice/NotificationComponent: Reminder notification 'lab!custom!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:02 +0000] notice/NotificationComponent: Reminder notification 'host-ss!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:02 +0000] notice/Process: Running command '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:40945\"' '--host' '\"lab\"' '--last-state-change' '\"1795392097.128999\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795392122.173562\"' '--notification-type' '\"PROBLEM\"' '--object-type' '\"service\"' '--output' '\"steady 22\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"': PID 4651",
+        "[2026-11-23 00:02:02 +0000] information/Notification: Completed sending 'Problem' notification 'lab!tx!correlia-service' for checkable 'lab!tx' and user 'correlia' using command 'correlia-service'.",
+        "[2026-11-23 00:02:02 +0000] notice/ApiListener: Relaying 'event::NotificationSentUser' message",
+        "[2026-11-23 00:02:02 +0000] notice/Process: PID 4648 ('/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:40945\"' '--host' '\"lab\"' '--notification-author' '\"operator\"' '--notification-comment' '\"window\"' '--notification-time' '\"1795392122.171209\"' '--notification-type' '\"DOWNTIMEEND\"' '--object-type' '\"service\"' '--output' '\"steady 22\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 0",
+        "[2026-11-23 00:02:02 +0000] notice/Process: PID 4651 ('/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:40945\"' '--host' '\"lab\"' '--last-state-change' '\"1795392097.128999\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795392122.173562\"' '--notification-type' '\"PROBLEM\"' '--object-type' '\"service\"' '--output' '\"steady 22\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 0",
+        "[2026-11-23 00:02:07 +0000] notice/NotificationComponent: Reminder notification 'lab!cv!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:07 +0000] notice/NotificationComponent: Reminder notification 'lab!long!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:07 +0000] notice/NotificationComponent: Reminder notification 'host-ts!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:07 +0000] notice/NotificationComponent: Reminder notification 'lab!tx!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:07 +0000] notice/NotificationComponent: Reminder notification 'lab!ts!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:07 +0000] notice/NotificationComponent: Reminder notification 'lab!dt!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:07 +0000] notice/NotificationComponent: Reminder notification 'lab!ss!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:07 +0000] notice/NotificationComponent: Reminder notification 'host-neg!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:07 +0000] notice/NotificationComponent: Reminder notification 'lab!invalid-output!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:07 +0000] notice/NotificationComponent: Reminder notification 'lab!custom!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:07 +0000] notice/NotificationComponent: Reminder notification 'host-ss!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:10 +0000] notice/ApiListener: Relaying 'event::SendNotifications' message",
+        "[2026-11-23 00:02:10 +0000] notice/ApiListener: Relaying 'event::SetForceNextNotification' message",
+        "[2026-11-23 00:02:10 +0000] notice/Notification: Attempting to send notifications of type 'Recovery' for notification object 'lab!tx!correlia-service'.",
+        "[2026-11-23 00:02:10 +0000] information/Notification: Sending 'Recovery' notification 'lab!tx!correlia-service' for user 'correlia'",
+        "[2026-11-23 00:02:10 +0000] notice/ApiListener: Relaying 'event::NotificationSentToAllUsers' message",
+        "[2026-11-23 00:02:10 +0000] notice/Process: Running command '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:40945\"' '--host' '\"lab\"' '--last-state-change' '\"1795392130.205978\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795392130.211481\"' '--notification-type' '\"RECOVERY\"' '--object-type' '\"service\"' '--output' '\"OK: tx back\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"OK\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"': PID 4763",
+        "[2026-11-23 00:02:10 +0000] information/Notification: Completed sending 'Recovery' notification 'lab!tx!correlia-service' for checkable 'lab!tx' and user 'correlia' using command 'correlia-service'.",
+        "[2026-11-23 00:02:10 +0000] notice/ApiListener: Relaying 'event::NotificationSentUser' message",
+        "[2026-11-23 00:02:10 +0000] notice/Process: PID 4763 ('/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:40945\"' '--host' '\"lab\"' '--last-state-change' '\"1795392130.205978\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795392130.211481\"' '--notification-type' '\"RECOVERY\"' '--object-type' '\"service\"' '--output' '\"OK: tx back\"' '--service' '\"tx\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"OK\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 0",
+        "[2026-11-23 00:02:12 +0000] notice/NotificationComponent: Reminder notification 'lab!cv!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:12 +0000] notice/NotificationComponent: Reminder notification 'lab!long!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:12 +0000] notice/NotificationComponent: Reminder notification 'host-ts!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:12 +0000] notice/NotificationComponent: Reminder notification 'lab!ts!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:12 +0000] notice/NotificationComponent: Reminder notification 'lab!dt!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:12 +0000] notice/NotificationComponent: Reminder notification 'lab!ss!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:12 +0000] notice/NotificationComponent: Reminder notification 'host-neg!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:12 +0000] notice/NotificationComponent: Reminder notification 'lab!invalid-output!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:12 +0000] notice/NotificationComponent: Reminder notification 'lab!custom!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:12 +0000] notice/NotificationComponent: Reminder notification 'host-ss!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:17 +0000] notice/NotificationComponent: Reminder notification 'lab!cv!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:17 +0000] notice/NotificationComponent: Reminder notification 'lab!long!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:17 +0000] notice/NotificationComponent: Reminder notification 'host-ts!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:17 +0000] notice/NotificationComponent: Reminder notification 'lab!ts!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:17 +0000] notice/NotificationComponent: Reminder notification 'lab!dt!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:17 +0000] notice/NotificationComponent: Reminder notification 'lab!ss!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:17 +0000] notice/NotificationComponent: Reminder notification 'host-neg!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:17 +0000] notice/NotificationComponent: Reminder notification 'lab!invalid-output!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:17 +0000] notice/NotificationComponent: Reminder notification 'lab!custom!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:02:17 +0000] notice/NotificationComponent: Reminder notification 'host-ss!correlia-host': Notification was sent out once and interval=0 disables reminder notifications."
       ]
     }
   ]

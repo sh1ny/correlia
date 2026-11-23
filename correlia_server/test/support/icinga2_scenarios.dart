@@ -234,16 +234,34 @@ final Map<String, Check> scenarioChecks = {
     final ds = c.admitted('oversized_custom_notification');
     final custom = ds.singleWhere((d) => d.notificationType == 'CUSTOM');
     final states = c.of('oversized_custom_notification', 'state');
+    // The sender cuts each text at its byte bound and marks it; the event
+    // stores the delivered text cut again at its display bound.
+    final comment = '${'c' * 8192}$truncationMarker';
+    final author = '${'a' * 1024}$truncationMarker';
+    final data = custom.events.isEmpty
+        ? const <String, Object?>{}
+        : custom.data();
+    final annotations =
+        (data['annotations'] as Map<String, Object?>?) ?? const {};
+    final description =
+        CanonicalEventBounds.CanonicalEventDescriptionLength.max!;
+    final value =
+        CanonicalEventBounds.CanonicalEventAnnotationsValueLength.max!;
     return [
-      if (custom.data()['kind'] != 'EVENT_KIND_COMMENT') 'not a comment event',
-      if (!(custom.body['notification_comment']! as String).endsWith(
-        truncationMarker,
-      ))
-        'comment not cut and marked',
-      if (!(custom.body['notification_author']! as String).endsWith(
-        truncationMarker,
-      ))
-        'author not cut and marked',
+      if (custom.events.length != 1 || data['kind'] != 'EVENT_KIND_COMMENT')
+        'not one comment event',
+      if (custom.body['notification_comment'] != comment)
+        'comment not cut at 8192 bytes and marked',
+      if (custom.body['notification_author'] != author)
+        'author not cut at 1024 bytes and marked',
+      if (data['description'] !=
+          normalizeDisplayText(comment, maxScalars: description))
+        'the stored description is not the delivered comment cut at '
+            '$description scalars',
+      if (annotations['icinga2.notification_author'] !=
+          normalizeDisplayText(author, maxScalars: value))
+        'the stored author annotation is not the delivered author cut at '
+            '$value scalars',
       if (jsonEncode(states.first.json['alert']) !=
           jsonEncode(states.last.json['alert']))
         'the alert changed',

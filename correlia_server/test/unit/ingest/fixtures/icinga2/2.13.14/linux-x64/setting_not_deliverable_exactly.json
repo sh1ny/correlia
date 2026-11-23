@@ -2,6 +2,12 @@
   "scenario": "setting_not_deliverable_exactly",
   "release": "2.13.14",
   "architecture": "linux-x64",
+  "sender_sha256": "b73c59c0d38600cfe5980094a5d140818e37b2d01e715427cc367039a4c87aa3",
+  "contrib_sha256": {
+    "correlia-commands.conf": "3b439bd4b7975cb733aee755bf50fe8e76e225388f0a0b2acb275b2e51ee458d",
+    "correlia-functions.conf": "a30f9c9a5de0441765ebbc9e4d12b9324d3d743aaa335ec568078471faf78034",
+    "correlia.conf": "ba23a7c8031d5783137222c1188fe47674cce50bd19f467742a6e25961efd78e"
+  },
   "records": [
     {
       "kind": "case",
@@ -12,7 +18,7 @@
       "id": "f1",
       "exit_code": 2,
       "detail": "invalid_argument --base-url",
-      "log": "[2026-11-22 22:38:43 +0000] warning/PluginNotificationTask: Notification command for object 'lab!rej2' (PID: 8671, arguments: '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"\"' '--host' '\"lab\"' '--notification-author' '\"operator\"' '--notification-comment' '\"probe\"' '--notification-time' '\"1795387123.736599\"' '--notification-type' '\"CUSTOM\"' '--object-type' '\"service\"' '--output' '\"\"' '--service' '\"rej2\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"UNKNOWN\"' '--state-type' '\"SOFT\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 2, output: invalid_argument --base-url"
+      "log": "[2026-11-23 00:05:29 +0000] warning/PluginNotificationTask: Notification command for object 'lab!rej2' (PID: 8697, arguments: '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"\"' '--host' '\"lab\"' '--notification-author' '\"operator\"' '--notification-comment' '\"probe\"' '--notification-time' '\"1795392329.807964\"' '--notification-type' '\"CUSTOM\"' '--object-type' '\"service\"' '--output' '\"\"' '--service' '\"rej2\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"UNKNOWN\"' '--state-type' '\"SOFT\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 2, output: invalid_argument --base-url"
     },
     {
       "kind": "case",
@@ -23,7 +29,7 @@
       "id": "f2",
       "exit_code": 2,
       "detail": "invalid_argument --token-file",
-      "log": "[2026-11-22 22:38:50 +0000] warning/PluginNotificationTask: Notification command for object 'lab!rej2' (PID: 8940, arguments: '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:44885\"' '--host' '\"lab\"' '--notification-author' '\"operator\"' '--notification-comment' '\"probe\"' '--notification-time' '\"1795387130.253312\"' '--notification-type' '\"CUSTOM\"' '--object-type' '\"service\"' '--output' '\"\"' '--service' '\"rej2\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"UNKNOWN\"' '--state-type' '\"SOFT\"' '--token-file' '\"\"') terminated with exit code 2, output: invalid_argument --token-file"
+      "log": "[2026-11-23 00:05:34 +0000] warning/PluginNotificationTask: Notification command for object 'lab!rej2' (PID: 8971, arguments: '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:40945\"' '--host' '\"lab\"' '--notification-author' '\"operator\"' '--notification-comment' '\"probe\"' '--notification-time' '\"1795392334.979377\"' '--notification-type' '\"CUSTOM\"' '--object-type' '\"service\"' '--output' '\"\"' '--service' '\"rej2\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"UNKNOWN\"' '--state-type' '\"SOFT\"' '--token-file' '\"\"') terminated with exit code 2, output: invalid_argument --token-file"
     },
     {
       "kind": "case",
@@ -34,7 +40,7 @@
       "id": "f3",
       "exit_code": 2,
       "detail": "invalid_argument --token-file",
-      "log": "[2026-11-22 22:38:55 +0000] warning/PluginNotificationTask: Notification command for object 'lab!rej2' (PID: 9221, arguments: '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:44885\"' '--host' '\"lab\"' '--notification-author' '\"operator\"' '--notification-comment' '\"probe\"' '--notification-time' '\"1795387135.525312\"' '--notification-type' '\"CUSTOM\"' '--object-type' '\"service\"' '--output' '\"\"' '--service' '\"rej2\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"UNKNOWN\"' '--state-type' '\"SOFT\"' '--token-file' '\"\"') terminated with exit code 2, output: invalid_argument --token-file"
+      "log": "[2026-11-23 00:05:40 +0000] warning/PluginNotificationTask: Notification command for object 'lab!rej2' (PID: 9245, arguments: '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:40945\"' '--host' '\"lab\"' '--notification-author' '\"operator\"' '--notification-comment' '\"probe\"' '--notification-time' '\"1795392340.314403\"' '--notification-type' '\"CUSTOM\"' '--object-type' '\"service\"' '--output' '\"\"' '--service' '\"rej2\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"UNKNOWN\"' '--state-type' '\"SOFT\"' '--token-file' '\"\"') terminated with exit code 2, output: invalid_argument --token-file"
     },
     {
       "kind": "case",
@@ -45,7 +51,7 @@
       "id": "f4",
       "exit_code": 2,
       "detail": "invalid_argument --token-file",
-      "log": "[2026-11-22 22:39:00 +0000] warning/PluginNotificationTask: Notification command for object 'lab!rej2' (PID: 9501, arguments: '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:44885\"' '--host' '\"lab\"' '--notification-author' '\"operator\"' '--notification-comment' '\"probe\"' '--notification-time' '\"1795387140.754070\"' '--notification-type' '\"CUSTOM\"' '--object-type' '\"service\"' '--output' '\"\"' '--service' '\"rej2\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"UNKNOWN\"' '--state-type' '\"SOFT\"' '--token-file' '\"\"') terminated with exit code 2, output: invalid_argument --token-file"
+      "log": "[2026-11-23 00:05:45 +0000] warning/PluginNotificationTask: Notification command for object 'lab!rej2' (PID: 9519, arguments: '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:40945\"' '--host' '\"lab\"' '--notification-author' '\"operator\"' '--notification-comment' '\"probe\"' '--notification-time' '\"1795392345.649638\"' '--notification-type' '\"CUSTOM\"' '--object-type' '\"service\"' '--output' '\"\"' '--service' '\"rej2\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"UNKNOWN\"' '--state-type' '\"SOFT\"' '--token-file' '\"\"') terminated with exit code 2, output: invalid_argument --token-file"
     },
     {
       "kind": "case",
@@ -56,7 +62,7 @@
       "id": "f5",
       "exit_code": 2,
       "detail": "invalid_argument --hmac-key-file",
-      "log": "[2026-11-22 22:39:05 +0000] warning/PluginNotificationTask: Notification command for object 'lab!rej2' (PID: 9782, arguments: '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:44885\"' '--hmac-key-file' '\"\"' '--host' '\"lab\"' '--notification-author' '\"operator\"' '--notification-comment' '\"probe\"' '--notification-time' '\"1795387145.841225\"' '--notification-type' '\"CUSTOM\"' '--object-type' '\"service\"' '--output' '\"\"' '--service' '\"rej2\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"UNKNOWN\"' '--state-type' '\"SOFT\"') terminated with exit code 2, output: invalid_argument --hmac-key-file"
+      "log": "[2026-11-23 00:05:50 +0000] warning/PluginNotificationTask: Notification command for object 'lab!rej2' (PID: 9793, arguments: '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:40945\"' '--hmac-key-file' '\"\"' '--host' '\"lab\"' '--notification-author' '\"operator\"' '--notification-comment' '\"probe\"' '--notification-time' '\"1795392350.838456\"' '--notification-type' '\"CUSTOM\"' '--object-type' '\"service\"' '--output' '\"\"' '--service' '\"rej2\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"UNKNOWN\"' '--state-type' '\"SOFT\"') terminated with exit code 2, output: invalid_argument --hmac-key-file"
     },
     {
       "kind": "case",
@@ -67,7 +73,7 @@
       "id": "f6",
       "exit_code": 127,
       "detail": "/usr/bin/env: '': No such file or directory",
-      "log": "[2026-11-22 22:39:11 +0000] warning/PluginNotificationTask: Notification command for object 'lab!rej2' (PID: 10077, arguments: '/usr/bin/env' '-i' '' '--base-url' '\"http://127.0.0.1:44885\"' '--host' '\"lab\"' '--notification-author' '\"operator\"' '--notification-comment' '\"probe\"' '--notification-time' '\"1795387151.517355\"' '--notification-type' '\"CUSTOM\"' '--object-type' '\"service\"' '--output' '\"\"' '--service' '\"rej2\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"UNKNOWN\"' '--state-type' '\"SOFT\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 127, output: /usr/bin/env: '': No such file or directory"
+      "log": "[2026-11-23 00:05:56 +0000] warning/PluginNotificationTask: Notification command for object 'lab!rej2' (PID: 10079, arguments: '/usr/bin/env' '-i' '' '--base-url' '\"http://127.0.0.1:40945\"' '--host' '\"lab\"' '--notification-author' '\"operator\"' '--notification-comment' '\"probe\"' '--notification-time' '\"1795392356.657304\"' '--notification-type' '\"CUSTOM\"' '--object-type' '\"service\"' '--output' '\"\"' '--service' '\"rej2\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"UNKNOWN\"' '--state-type' '\"SOFT\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 127, output: /usr/bin/env: '': No such file or directory"
     },
     {
       "kind": "console",
@@ -85,7 +91,7 @@
       "id": "f8",
       "exit_code": 127,
       "detail": "/usr/bin/env: '': No such file or directory",
-      "log": "[2026-11-22 22:39:17 +0000] warning/PluginNotificationTask: Notification command for object 'lab!rej2' (PID: 10369, arguments: '/usr/bin/env' '-i' '' '--base-url' '\"http://127.0.0.1:44885\"' '--host' '\"lab\"' '--notification-author' '\"operator\"' '--notification-comment' '\"probe\"' '--notification-time' '\"1795387157.317392\"' '--notification-type' '\"CUSTOM\"' '--object-type' '\"service\"' '--output' '\"\"' '--service' '\"rej2\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"UNKNOWN\"' '--state-type' '\"SOFT\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 127, output: /usr/bin/env: '': No such file or directory"
+      "log": "[2026-11-23 00:06:02 +0000] warning/PluginNotificationTask: Notification command for object 'lab!rej2' (PID: 10372, arguments: '/usr/bin/env' '-i' '' '--base-url' '\"http://127.0.0.1:40945\"' '--host' '\"lab\"' '--notification-author' '\"operator\"' '--notification-comment' '\"probe\"' '--notification-time' '\"1795392362.833325\"' '--notification-type' '\"CUSTOM\"' '--object-type' '\"service\"' '--output' '\"\"' '--service' '\"rej2\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"UNKNOWN\"' '--state-type' '\"SOFT\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 127, output: /usr/bin/env: '': No such file or directory"
     },
     {
       "kind": "secret_scan",

@@ -249,6 +249,17 @@ final class Capture {
     ];
   });
 
+  /// The sender and definition hashes the capture file [name] declares, as
+  /// JSON text: the bundle that made it.
+  (String, String) bundleOf(String name) {
+    final json =
+        jsonDecode(file(name).readAsStringSync()) as Map<String, Object?>;
+    return (
+      jsonEncode(json['sender_sha256']),
+      jsonEncode(json['contrib_sha256']),
+    );
+  }
+
   /// Every capture file name (without the extension) except the manifest.
   List<String> get names =>
       pair.directory.existsSync()
@@ -1336,12 +1347,25 @@ List<String> gateManifest(Capture c) {
   for (final name in names.difference(captureScenarios.toSet())) {
     out.add('$name.json is no capture scenario');
   }
-  // Every capture file is this pair's, including those no gate reads.
+  // Every capture file is this pair's, including those no gate reads, and
+  // was made with the bundle the manifest names.
+  final bundle = (
+    jsonEncode(m['sender_sha256']),
+    jsonEncode(m['contrib_sha256']),
+  );
   for (final name in c.names) {
     try {
       c.records(name);
     } on ForeignCapture catch (error) {
       out.add('not this pair\'s capture: $error');
+      continue;
+    }
+    if (c.bundleOf(name) != bundle) {
+      final (sender, contrib) = c.bundleOf(name);
+      out.add(
+        '$name.json was made with sender $sender and definitions $contrib, '
+        'not the manifest\'s bundle',
+      );
     }
   }
   final failed = m['failed_scenarios'];

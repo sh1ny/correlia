@@ -7,7 +7,7 @@ artifact is built but not published.
 ## Script
 
 - `tool/icinga2_capture.sh` (driver `correlia_server/tool/icinga2_capture/`), script version
-  `14` (recorded in every `manifest.json`). Version 2 routes the capture source to a webhook output and records
+  `15` (recorded in every `manifest.json`). Version 2 routes the capture source to a webhook output and records
   each committed event's outbox intents; its downtime scenario tells the expiring and the hand-removed downtime
   apart by comment and records when the manual removal was requested. Version 3 adds
   `concurrent_signed_notifications_beyond_the_cap`: three signed notifications from one Icinga 2 action overlap
@@ -43,8 +43,9 @@ artifact is built but not published.
   capture of a pair is refused, writes each run into a staging directory and replaces the pair's directory with
   it only once the manifest is written, so the pair holds the records of one run; it adds
   `first_unknown_result_of_a_new_service`, the first HARD UNKNOWN result of a new service through the shipped
-  service command, followed by a reminder.
-- Full run (after the pre-ship review, round 20, with script version 14; round 15 has the optional texts read once and an empty one
+  service command, followed by a reminder. Version 15 changes no scenario: every evidence file also names the
+  sender and definition hashes of the bundle that made it, which the matrix requires to be the manifest's.
+- Full run (after the pre-ship review, round 22, with script version 15; round 15 has the optional texts read once and an empty one
   delivered as absent):
   `tool/icinga2_capture.sh 2.13.14 2.14.10 2.15.7 2.16.6`, every mapped scenario, no failed scenario.
 - Sender artifact (linux-x64): SHA-256 `b73c59c0d38600cfe5980094a5d140818e37b2d01e715427cc367039a4c87aa3`, the same in every manifest.
@@ -59,7 +60,7 @@ artifact is built but not published.
 Gates: S = same-second service state, H = same-second host state, N = same-second notification time,
 C = production notification clock, D = downtime removal, F = first problem of a new object,
 202 = recorded 202 and decoded event. Judged by `correlia_server/test/unit/ingest/icinga2_versions_test.dart`
-on the committed captures (90 tests, all passing).
+on the committed captures (92 tests, all passing).
 
 | Release | Architecture | Image | Digest | Icinga 2 | S | H | N | C | D | F | 202 |
 |---|---|---|---|---|---|---|---|---|---|---|---|

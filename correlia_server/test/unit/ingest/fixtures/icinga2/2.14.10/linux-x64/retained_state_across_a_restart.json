@@ -2,6 +2,12 @@
   "scenario": "retained_state_across_a_restart",
   "release": "2.14.10",
   "architecture": "linux-x64",
+  "sender_sha256": "b73c59c0d38600cfe5980094a5d140818e37b2d01e715427cc367039a4c87aa3",
+  "contrib_sha256": {
+    "correlia-commands.conf": "3b439bd4b7975cb733aee755bf50fe8e76e225388f0a0b2acb275b2e51ee458d",
+    "correlia-functions.conf": "a30f9c9a5de0441765ebbc9e4d12b9324d3d743aaa335ec568078471faf78034",
+    "correlia.conf": "ba23a7c8031d5783137222c1188fe47674cce50bd19f467742a6e25961efd78e"
+  },
   "records": [
     {
       "kind": "admitted",
@@ -9,14 +15,14 @@
       "auth": "bearer",
       "request": {
         "path": "/hooks/icinga2/33333333-3333-4333-8333-333333333333",
-        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"host\",\"host\":\"fp-startup\",\"state\":\"DOWN\",\"state_type\":\"HARD\",\"last_state_change\":\"1795387490.300001\",\"output\":\"DOWN: second fp-startup\",\"notification_type\":\"PROBLEM\",\"notification_time\":\"1795387808.865382\"}",
-        "body_sha256": "6913a61d7cef1edc53adaa8fa912d88fe57bd43ce7b58bc7f568c0de9e7214c8",
+        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"host\",\"host\":\"fp-startup\",\"state\":\"DOWN\",\"state_type\":\"HARD\",\"last_state_change\":\"1795392695.300001\",\"output\":\"DOWN: second fp-startup\",\"notification_type\":\"PROBLEM\",\"notification_time\":\"1795393008.109242\"}",
+        "body_sha256": "886c36b13b0ef6b6ace4726f50b67cc87a2a769642d36ca74909ff9ff96eedf9",
         "body_size": 253
       },
       "response_status": 202,
       "raw": {
-        "id": "a0de872b-192d-4298-b351-d0f470835575",
-        "body_sha256": "6913a61d7cef1edc53adaa8fa912d88fe57bd43ce7b58bc7f568c0de9e7214c8",
+        "id": "56664918-0bb2-4521-8ae9-d2c4cb303443",
+        "body_sha256": "886c36b13b0ef6b6ace4726f50b67cc87a2a769642d36ca74909ff9ff96eedf9",
         "status": "done",
         "outcome": {
           "upstream_omitted": 0,
@@ -46,8 +52,8 @@
         "status": "firing",
         "severity": "critical",
         "version": 1,
-        "fence_event_id": "698cd773-6e93-5a04-ac9f-351c2c79206e",
-        "fence_effective_seconds": 1795387490,
+        "fence_event_id": "1cc69614-1ca9-592e-b097-72844474df62",
+        "fence_effective_seconds": 1795392695,
         "fence_effective_nanos": 300001000,
         "summary": "fp-startup DOWN"
       },

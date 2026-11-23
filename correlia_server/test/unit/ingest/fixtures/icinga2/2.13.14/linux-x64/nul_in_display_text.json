@@ -2,6 +2,12 @@
   "scenario": "nul_in_display_text",
   "release": "2.13.14",
   "architecture": "linux-x64",
+  "sender_sha256": "b73c59c0d38600cfe5980094a5d140818e37b2d01e715427cc367039a4c87aa3",
+  "contrib_sha256": {
+    "correlia-commands.conf": "3b439bd4b7975cb733aee755bf50fe8e76e225388f0a0b2acb275b2e51ee458d",
+    "correlia-functions.conf": "a30f9c9a5de0441765ebbc9e4d12b9324d3d743aaa335ec568078471faf78034",
+    "correlia.conf": "ba23a7c8031d5783137222c1188fe47674cce50bd19f467742a6e25961efd78e"
+  },
   "records": [
     {
       "kind": "admitted",
@@ -9,14 +15,14 @@
       "auth": "bearer",
       "request": {
         "path": "/hooks/icinga2/33333333-3333-4333-8333-333333333333",
-        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"nultext\",\"state\":\"UNKNOWN\",\"state_type\":\"SOFT\",\"notification_type\":\"CUSTOM\",\"notification_author\":\"ali�ce\",\"notification_comment\":\"before�after\",\"notification_time\":\"1795386836.470559\"}",
-        "body_sha256": "9006ac5fab56fc7aa92827d078acf7951848dbbed4bd7876232958f7dc623c26",
+        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"nultext\",\"state\":\"UNKNOWN\",\"state_type\":\"SOFT\",\"notification_type\":\"CUSTOM\",\"notification_author\":\"ali�ce\",\"notification_comment\":\"before�after\",\"notification_time\":\"1795392045.705421\"}",
+        "body_sha256": "8a77201d4fe4690f1e8fa77f8a52deb147331266ba1c622b9362b381dcdbaedd",
         "body_size": 269
       },
       "response_status": 202,
       "raw": {
-        "id": "3ed9e1b6-4e61-497d-84db-1101c4f8f9de",
-        "body_sha256": "9006ac5fab56fc7aa92827d078acf7951848dbbed4bd7876232958f7dc623c26",
+        "id": "9319540f-5ffd-4b84-a20d-2db751405b6f",
+        "body_sha256": "8a77201d4fe4690f1e8fa77f8a52deb147331266ba1c622b9362b381dcdbaedd",
         "status": "done",
         "outcome": {
           "upstream_omitted": 0,
@@ -38,10 +44,10 @@
         {
           "disposition": "ready",
           "state_outcome": null,
-          "source_time": "2026-11-22T22:33:56.470559Z",
+          "source_time": "2026-11-23T00:00:45.705421Z",
           "cloud_event": {
             "specversion": "1.0",
-            "id": "7e6da798-8ce3-5ea6-b4b1-1a2ebd0759ce",
+            "id": "03f6bf7e-71d6-599d-be61-af2bb9121611",
             "source": "urn:correlia:source:33333333-3333-4333-8333-333333333333",
             "type": "io.correlia.comment.v1",
             "datacontenttype": "application/json",
@@ -49,9 +55,9 @@
             "subject": "4b70a72c66711afd8d73daa499b50cedd2ac19d99cc03fc4952fef6efdf9cc29",
             "partitionkey": "4b70a72c66711afd8d73daa499b50cedd2ac19d99cc03fc4952fef6efdf9cc29",
             "correliatenant": "default",
-            "time": "2026-11-22T22:33:56.470559Z",
+            "time": "2026-11-23T00:00:45.705421Z",
             "data": {
-              "event_id": "7e6da798-8ce3-5ea6-b4b1-1a2ebd0759ce",
+              "event_id": "03f6bf7e-71d6-599d-be61-af2bb9121611",
               "fingerprint": "4b70a72c66711afd8d73daa499b50cedd2ac19d99cc03fc4952fef6efdf9cc29",
               "tenant": "default",
               "namespace": "33333333-3333-4333-8333-333333333333",
@@ -72,17 +78,17 @@
                 "icinga2.notification_type": "CUSTOM",
                 "icinga2.notification_author": "ali�ce"
               },
-              "source_time": "2026-11-22T22:33:56.470559Z",
-              "reported_source_time": "2026-11-22T22:33:56.470559Z",
-              "observed_at": "2026-11-22T22:33:56.475581Z",
-              "processed_at": "2026-11-22T22:33:56.701698Z",
+              "source_time": "2026-11-23T00:00:45.705421Z",
+              "reported_source_time": "2026-11-23T00:00:45.705421Z",
+              "observed_at": "2026-11-23T00:00:45.710536Z",
+              "processed_at": "2026-11-23T00:00:45.810007Z",
               "raw": {
-                "ref": "raw:2026-11-22T22:33:56.475581Z/3ed9e1b6-4e61-497d-84db-1101c4f8f9de",
-                "sha256": "9006ac5fab56fc7aa92827d078acf7951848dbbed4bd7876232958f7dc623c26",
+                "ref": "raw:2026-11-23T00:00:45.710536Z/9319540f-5ffd-4b84-a20d-2db751405b6f",
+                "sha256": "8a77201d4fe4690f1e8fa77f8a52deb147331266ba1c622b9362b381dcdbaedd",
                 "size": 269
               },
               "pipeline": {
-                "version": "98c7bdc4fbea2c7514b59787fcae15e0b160e21937457387618b217dc07c5305",
+                "version": "b3a111b0530adb748c62a540927c99834c23e9a44adceee41efbe37696d7c700",
                 "generation": 0
               },
               "extensions": {},
@@ -94,7 +100,7 @@
                   "raw": "nultext"
                 }
               },
-              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAAEQAWyJpY2luZ2EyLm5vdGlmeS5DVVNUT00udjEiLCJDVVNUT00iLCIxNzk1Mzg2ODM2NDcwNTU5IiwiYWxp77+9Y2UiXQ=="
+              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAAEQAWyJpY2luZ2EyLm5vdGlmeS5DVVNUT00udjEiLCJDVVNUT00iLCIxNzk1MzkyMDQ1NzA1NDIxIiwiYWxp77+9Y2UiXQ=="
             }
           },
           "outbox": [

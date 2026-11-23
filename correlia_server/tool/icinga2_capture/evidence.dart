@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 
 import '../../test/support/icinga2_delivery.dart';
+import 'bundle.dart';
 import 'lab.dart';
 import 'rig.dart';
 
@@ -23,6 +24,7 @@ final class Capture {
     required this.lab,
     required this.out,
     required this.shipped,
+    required this.bundle,
   });
 
   final CorreliaRig rig;
@@ -31,6 +33,10 @@ final class Capture {
 
   /// The shipped `correlia.conf`, before the capture sets its constants.
   final String shipped;
+
+  /// The sender and definitions this capture installed; every evidence file
+  /// names their hashes, so a file of another bundle is told apart.
+  final CaptureBundle bundle;
 
   int _proxyCursor = 0;
   int _receiverCursor = 0;
@@ -338,7 +344,7 @@ final class Evidence {
   void save(String release) {
     final file = File('${cap.out.path}/$name.json');
     file.writeAsStringSync(
-      '${const JsonEncoder.withIndent('  ').convert({'scenario': name, 'release': release, 'architecture': captureArchitecture, 'records': _redact(records)})}\n',
+      '${const JsonEncoder.withIndent('  ').convert({'scenario': name, 'release': release, 'architecture': captureArchitecture, 'sender_sha256': cap.bundle.senderSha256, 'contrib_sha256': cap.bundle.contribSha256, 'records': _redact(records)})}\n',
     );
   }
 

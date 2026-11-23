@@ -23,7 +23,7 @@ import 'scenarios.dart';
 import 'staging.dart';
 
 /// Bumped when the evidence format or the scenario set changes.
-const scriptVersion = '14';
+const scriptVersion = '15';
 
 /// Scenarios that rely on objects another scenario prepared, with that
 /// scenario: a partial run must select both.
@@ -151,7 +151,13 @@ Future<void> main(List<String> arguments) async {
     );
     await lab.writeCaptureConfig(config.render());
     final shipped = bundle.shippedSettings;
-    final capture = Capture(rig: rig, lab: lab, out: out, shipped: shipped);
+    final capture = Capture(
+      rig: rig,
+      lab: lab,
+      out: out,
+      shipped: shipped,
+      bundle: bundle,
+    );
 
     final run = Scenarios(
       capture,

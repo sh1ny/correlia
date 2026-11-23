@@ -2,6 +2,12 @@
   "scenario": "retained_state_across_a_restart",
   "release": "2.15.7",
   "architecture": "linux-x64",
+  "sender_sha256": "b73c59c0d38600cfe5980094a5d140818e37b2d01e715427cc367039a4c87aa3",
+  "contrib_sha256": {
+    "correlia-commands.conf": "3b439bd4b7975cb733aee755bf50fe8e76e225388f0a0b2acb275b2e51ee458d",
+    "correlia-functions.conf": "a30f9c9a5de0441765ebbc9e4d12b9324d3d743aaa335ec568078471faf78034",
+    "correlia.conf": "ba23a7c8031d5783137222c1188fe47674cce50bd19f467742a6e25961efd78e"
+  },
   "records": [
     {
       "kind": "admitted",
@@ -9,14 +15,14 @@
       "auth": "bearer",
       "request": {
         "path": "/hooks/icinga2/33333333-3333-4333-8333-333333333333",
-        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"host\",\"host\":\"fp-startup\",\"state\":\"DOWN\",\"state_type\":\"HARD\",\"last_state_change\":\"1795388265.300001\",\"output\":\"DOWN: second fp-startup\",\"notification_type\":\"PROBLEM\",\"notification_time\":\"1795388519.853943\"}",
-        "body_sha256": "5970cb3890862fbe458259021a2205bdc796228d8ccf12c366d7d334244ec307",
+        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"host\",\"host\":\"fp-startup\",\"state\":\"DOWN\",\"state_type\":\"HARD\",\"last_state_change\":\"1795393446.300001\",\"output\":\"DOWN: second fp-startup\",\"notification_type\":\"PROBLEM\",\"notification_time\":\"1795393691.300579\"}",
+        "body_sha256": "50100e6cbb89f7bd7640deaa37173a53639b5b00a4550d36884ab54a64ada377",
         "body_size": 253
       },
       "response_status": 202,
       "raw": {
-        "id": "d5b6ab9d-d288-4f61-aebf-f07dae6f0c38",
-        "body_sha256": "5970cb3890862fbe458259021a2205bdc796228d8ccf12c366d7d334244ec307",
+        "id": "9719e757-2a52-436f-89b8-8c3a8d98e654",
+        "body_sha256": "50100e6cbb89f7bd7640deaa37173a53639b5b00a4550d36884ab54a64ada377",
         "status": "done",
         "outcome": {
           "upstream_omitted": 0,
@@ -46,8 +52,8 @@
         "status": "firing",
         "severity": "critical",
         "version": 1,
-        "fence_event_id": "e4842f6d-1950-52e5-a8c5-92431b1b25ca",
-        "fence_effective_seconds": 1795388265,
+        "fence_event_id": "f5be8f75-fe4a-5fcd-8af3-a10edba7786b",
+        "fence_effective_seconds": 1795393446,
         "fence_effective_nanos": 300001000,
         "summary": "fp-startup DOWN"
       },
