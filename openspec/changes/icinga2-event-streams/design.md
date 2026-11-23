@@ -205,21 +205,30 @@ Scope decisions S1-S5 are in `proposal.md`.
   element of `results` before parsing it with the guarded parser. A bad element does not stop the reading, so
   a persistent bad object never hides the objects after it (review round 2, Critical 7). A bad object is never
   admitted (D20): a well-framed element that fails validation is counted `invalid_object`, an element with an
-  error code (2.16) `object_error`, an element over 1 MiB (skipped by the scanner without buffering)
+  error code (2.16) `object_error`, a fully framed element over 1 MiB (scanned without its payload)
   `object_too_large`; the sync keeps the identifiers and codes of the first 20, logs those 20 and one summary with the counts (review round 7, Moderate 6), and ends `failed`. An
   identifier is the host and service name only when both were read as valid names of at most 255 bytes without
   control characters; otherwise it is the position `results[<index>]`, so the log and status never carry
   unvalidated text, and the sample is at most 20 × 600 bytes (review round 4, Moderate 3).
 
-  Recovery needs framing the scanner can follow. An unterminated string or an unmatched bracket leaves no
-  reliable next element, so it ends the reading `invalid_framing`. A truncated response, HTTP error or
-  deadline likewise closes the connection; rows already admitted still apply. HTTP 403 is `forbidden`;
+  Recovery needs framing the scanner can follow. An unterminated string or unmatched bracket leaves
+  no reliable next element, so it ends reading as `invalid_framing`. Structural framing tracks at
+  most 1,048,576 simultaneously open containers per result element. Attempting to open another
+  also ends the read as `invalid_framing`, even if the element would eventually close correctly.
+  Ordinary oversized elements at or below this nesting ceiling are counted and skipped without
+  retaining them. Important: yes. Chosen by: user during apply to bound framing memory without disk spill.
+  Count the result element's own container but not the envelope. Beyond the byte limit discard the
+  payload and keep checking string state and bracket types. A mismatch or depth violation is
+  `invalid_framing`, not `object_too_large`; report it before stopping or reconnecting.
+  A truncated response, HTTP error, or deadline likewise closes the connection; rows already admitted
+  still apply. HTTP 403 is `forbidden`;
   HTTP 404 is `http_status`, including a response that says no objects were found. Do not inspect the
   error body to infer permission or treat an ambiguous 404 as a successful empty projection. The status
   exposes the bounded class, and the setup docs warn that a genuinely empty host or service collection
   can keep the sync degraded. A sync that ends at the deadline records the last object it read, and the
-  status counts consecutive timeouts, so an installation that cannot enumerate within 15 minutes is visible. Memory is bounded by one
-  object plus one batch. The whole sync has a 15-minute deadline and a 60-second read-idle deadline.
+  status counts consecutive timeouts, so an installation that cannot enumerate within 15 minutes is visible.
+  Memory is bounded by one object, one batch, and a bracket stack of at most 1 MiB plus constant framing state.
+  The whole sync has a 15-minute deadline and a 60-second read-idle deadline.
 - **Rejected:** Sync on connect only (a missed event on a healthy connection is never repaired); an idle
   timeout as a liveness probe (quiet sites would reconnect constantly); decoding the whole response at once
   (memory grows with the installation).
@@ -716,10 +725,12 @@ Scope decisions S1-S5 are in `proposal.md`.
 
 - **Choice:** A sync object that fails validation, carries an error code or exceeds 1 MiB is not admitted as a
   raw row. The sync counts it (`invalid_object`, `object_error`, `object_too_large`), keeps the names and codes
-  of the first 20 such objects, logs those and one summary, and ends `failed`; the object requests no sync. Bad stream lines are
-  unchanged: each is admitted alone and fails visibly (D6). A bad object that Icinga 2 keeps returning therefore
-  adds nothing to the retained-work count, so it cannot pause the source, and fixing it upstream makes the next
-  sync `complete` (review round 3, Critical 4).
+  of the first 20 such objects, logs those and one summary, and ends `failed`; the object requests no sync.
+  Oversized elements are counted and skipped only once their framing closes intact. If framing fails
+  while skipping, D3 takes precedence; keep already admitted rows and the fixed error class.
+  Bad stream lines are unchanged: each is admitted alone and fails visibly (D6). A bad object that
+  Icinga 2 keeps returning adds nothing to the retained-work count, so it cannot pause the source.
+  Fixing it upstream makes the next sync `complete` (review round 3, Critical 4).
 - **Rejected:** One failing row per bad object and sync (fills the cap: one row per sync, with no drain in this
   release); one row per object, deduplicated by content (needs a lookup by object and hash); keeping the rows but
   excluding them from the cap (failed rows grow without bound until change 7).
@@ -954,7 +965,7 @@ Scope decisions S1-S5 are in `proposal.md`.
 | S5 | Soft/hard policy | Stream sources only | On webhook sources | low | no | agent |
 | D1 | Ordering evidence | `vars_after` + `execution_start`; ADR 0017 limits stated | `last_state_change`; emission timestamp; live state; no clamp | high | yes | user |
 | D2 | Reconcile | Confirm silently, repair published, silent tombstone | Publish every sync; no fence advance; nothing for no alert | medium | yes | user |
-| D3 | Sync timing | Connect + every 3600 s; incremental parse; short names | Connect only; idle timeout; whole-response decode | low | yes | user |
+| D3 | Sync timing and framing | Connect + every 3600 s; incremental parse with a 1,048,576-container framing ceiling; short names | Connect only; idle timeout; whole-response decode; bracket stack on disk | low | yes | user |
 | D4 | Lease | Lease row, generation, no renew after expiry, local deadline from acquisition or renewal send | Session advisory lock | medium | yes | user |
 | D5 | Admission | Separate fenced path; lines as read with receipt times | Reuse webhook admission; parsed values; per-row lease | medium | yes | user |
 | D6 | Validation and batches | In consumer; all-depth guard; invalid line alone; encoded and ×9 fanout bounds | Row per line; no validation; raw bytes only | low | no | agent |
@@ -1253,7 +1264,8 @@ Data boundaries (T4): configuration (`mode`, `api`, `state_type_policy`, `max_pe
 | In-flight batches | 1 per consumer | Reading waits | Stall timer 30 s (reader blocked only); connection closed ≤ 4 s after stop | Unchanged |
 | Retained raw rows per source | `max_pending_rows` (default 1000), pending + failed, counted through a partial index | Pause reading | 30 s reader blocked → disconnect | Cap holds; count cost independent of other sources |
 | Icinga 2 per-client queue | Not bounded by Correlia (D24): the stall and lag rules close only once a trigger persists | Disconnect | 30 s stall; 60 s excess lag for 120 s | Residual risk, documented with the measured drain rate |
-| Sync object | 1 MiB per element | Skipped, counted `object_too_large`, reading continues, sync `failed` | — | Unchanged |
+| Sync object | 1 MiB per element | If fully framed, skip and count `object_too_large`; reading continues, sync `failed` | Depth or bracket mismatch → `invalid_framing` | No oversized payload retained |
+| Sync framing | Up to 1 MiB for bracket types plus constant string state | Type matching continues after payload discard | 1,048,577th open container → `invalid_framing` | No disk spill |
 | Bad-object sample | 20 identifiers and codes per sync, 600 bytes each | Further ones counted only | — | Unchanged |
 | Reuse backfill | Three passes (snapshots, commitment rows, credential rows), batches of 500 up to fixed boundaries | Each pass resumes from its own mark | — | Linear in history, off the publication lock |
 | Admission records | One per consumer raw row | Deleted with the row | — | Follow kept rows (D21) |

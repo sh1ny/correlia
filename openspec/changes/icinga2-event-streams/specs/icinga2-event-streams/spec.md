@@ -438,7 +438,7 @@ before the sync query is sent.
 
 #### Scenario: Sync on a large installation
 - **WHEN** Icinga 2 has hosts and services together producing a sync response of 200 MiB
-- **THEN** the sync completes with each object parsed on its own and the consumer's memory bounded by one object and one batch
+- **THEN** the sync completes, parsing one object at a time with one object buffer, one batch and at most 1 MiB of bracket tracking
 
 #### Scenario: Object without a check result
 - **WHEN** a service has never been checked
@@ -468,9 +468,10 @@ source in the same namespace shares only the fingerprint.
 
 ### Requirement: A bad sync object does not hide the objects after it
 
-A sync object that fails validation, that the response reports as an error, or that is over 1 MiB SHALL NOT be
-admitted. It SHALL be counted on the sync (`invalid_object`, `object_error`, `object_too_large`), with the
-names and error codes of the first 20 such objects, and logged; the sync SHALL go on reading and end `failed`.
+A sync object that fails validation, reports an error, or exceeds 1 MiB SHALL NOT be admitted.
+If its framing closes intact, count it (`invalid_object`, `object_error`, `object_too_large`), log and keep
+the names and codes of the first 20, continue reading, and end the sync `failed`. Broken framing takes
+precedence: end the read with `invalid_framing` instead of counting the element as oversized.
 A bad object SHALL NOT request a sync.
 
 #### Scenario: Persistent bad object before a missed recovery
@@ -502,10 +503,23 @@ response. The sample SHALL hold at most 20 entries of at most 600 bytes each, an
 
 ### Requirement: Broken sync framing ends the reading
 
-An element whose JSON framing cannot be followed (an unterminated string or an unmatched bracket), a truncated
-response, an HTTP error or the sync deadline SHALL end the reading and fail the sync (`invalid_framing`,
-`truncated`, `forbidden` for HTTP 403, `http_status` for HTTP 404 or other unexpected status, or `timeout`),
-keeping rows already admitted, and close the connection.
+An unterminated string, mismatched bracket or more than 1,048,576 simultaneously open containers in
+one result element SHALL end reading with `invalid_framing`. Otherwise, skip oversized elements
+whose framing can be followed. Truncation, HTTP errors and deadlines SHALL end reading with
+`truncated`, `forbidden` (403), `http_status` (404 or other unexpected status) or `timeout`.
+Fatal reads SHALL fail the sync and close the connection without discarding admitted rows.
+
+#### Scenario: Structural nesting exceeds the framing ceiling
+- **WHEN** an element opens a 1,048,577th container, counting its own container but not the response envelope
+- **THEN** the sync fails with `invalid_framing`, keeps already admitted rows, and closes the connection
+
+#### Scenario: Structural nesting fits the framing ceiling
+- **WHEN** an oversized element has 1,048,576 balanced open containers at its deepest point
+- **THEN** the sync counts one `object_too_large` and reads the valid element after it
+
+#### Scenario: Mismatched bracket in an oversized object
+- **WHEN** an element crosses 1 MiB and a closing bracket does not match its opener
+- **THEN** the sync ends with `invalid_framing` instead of counting `object_too_large` for that element
 
 #### Scenario: Truncated response after a valid prefix
 - **WHEN** the service response ends mid-object after 500 valid objects were admitted
