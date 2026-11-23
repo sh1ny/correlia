@@ -1,5 +1,36 @@
 {
   "format": 1,
   "packs": {},
-  "catalogue": []
+  "catalogue": [
+    {
+      "name": "gamedev",
+      "description": "Engine-neutral game development: the GDD, game design, systems and levels, narrative, game UX and playtests.",
+      "requires": [
+        "ui-prototyping"
+      ],
+      "signals": [
+        "project.godot",
+        "**/project.godot",
+        "*.uproject",
+        "ProjectSettings/ProjectVersion.txt",
+        "game.project",
+        "docs/game/gdd.md"
+      ]
+    },
+    {
+      "name": "godot",
+      "description": "Godot 4 stack pack: in-engine evidence, data-resource tunables and Godot 4 guidance.",
+      "requires": [],
+      "signals": [
+        "project.godot",
+        "**/project.godot"
+      ]
+    },
+    {
+      "name": "ui-prototyping",
+      "description": "Clickable single-file HTML prototypes and design tokens that settle UI layout and flow before it is specified.",
+      "requires": [],
+      "signals": []
+    }
+  ]
 }

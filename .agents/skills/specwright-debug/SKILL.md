@@ -2,15 +2,17 @@
 name: specwright-debug
 description: "Root-cause debugging discipline: reproduce, trace, test hypotheses, fix test-first. Use for unexplained failures, not for the deliberate red step of test-first work. Triggers: a bug report, an issue link, an unexpected test or CI failure, an error or crash, 'debug this', 'why does X happen', 'fix this bug', or specwright-pr watch handing off a CI failure."
 metadata:
-  version: 0.19.0
+  version: 0.39.1
 ---
 
 # Specwright Debug
 
 Find the cause before changing code. One hypothesis, one change, at a time.
 
+**`<sw>`.** Specwright's own work runs in one binary, `sw`, which the install prompt places. Read `openspec/.specwright/VERSION` in the code checkout; it must be `x.y.z` with an optional `-<pre-release>` and `+<build>` suffix and nothing else. Any other value (a path, a space, an empty file, no file): stop before building any path and tell the user to rerun the install prompt. `<sw>` is `<home>/.specwright/bin/<VERSION>/sw` (`sw.exe` on Windows); `<home>` is `SPECWRIGHT_HOME` when set, else the user's home. Never run an `sw` found on `PATH`, another version's binary or a copy elsewhere. When that file does not exist, stop the step and tell the user to rerun the install prompt. Before the first other `<sw>` command of a run, run `<sw> version --json` with a 10-second tool timeout and stop unless it exits 0 in time and prints one JSON object whose `version` is `<VERSION>` and which reports interface 3: on any other result run no other `<sw>` command and tell the user to rerun the install prompt. A project at an older version, whose binary reports interface 2 or 1, stops the same way; tell the user to update this project. Any `<sw>` command that prints a `sw_mismatch` document (the binary and the project's `VERSION` differ) stops the step the same way, showing its `message`. Every `<sw>` command prints one JSON document unless its section says otherwise.
+
 ## 1. Reproduce
-- Read the tree first: `bash <specwright-pr>/scripts/vcs.sh state --repo <toplevel> --role code` (`<specwright-pr>` is that skill's folder) prints one JSON document with `backend` (`git`, `jj` or `gitbutler`), `branch`, `clean` and `dirty_paths`; an `error` stops with its `message`.
+- Read the tree first: `<sw> vcs state --repo <toplevel> --role code` prints one JSON document with `backend` (`git`, `jj` or `gitbutler`), `branch`, `clean` and `dirty_paths`; an `error` stops with its `message`.
 - On the Git backend, start with `git stash list`. Each entry reads `stash@{n}: On <branch>: <message>`, so match the marker after Git's `On <branch>: ` prefix: take the entries whose message starts with `specwright-debug: `. Report each one found with its ref and topic and offer to restore it (see Stash below); do not stash again until the user decides. None found: report no leftover stash and continue. Other stashes (yours or the user's) are left alone: never offered, applied or dropped.
 - Read the whole report or thread, not just the title. Get the exact error, inputs and environment.
 - Build a named, repeatable check that fails on this bug now (a test, a command, a script). No reproduction means no fix - report what you tried.
@@ -46,7 +48,7 @@ Find the cause before changing code. One hypothesis, one change, at a time.
 In a Specwright change, a cause that invalidates a spec, scenario or design decision is drift: amend the artifact rather than coding around it.
 
 ## CI mode (from specwright-pr watch)
-- Input: the failing checks and their logs (`pr-snapshot.sh --logs`). Handle all failures in one pass.
+- Input: the failing checks and their logs (`<sw> pr snapshot --logs`). Handle all failures in one pass.
 - Infrastructure flakes (runner died, network, timeouts unrelated to the change) → re-run, not a code fix.
 - Fix only convergent failures - where the right fix is clear and keeps the existing contract. Never weaken, skip or mock away a failing assertion.
 - A failure whose fix would reverse a deliberate contract is needs-human: report it with options.

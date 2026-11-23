@@ -282,20 +282,47 @@ artifacts:
         logs, lists, queues, history)
       - T6 Risk: security, auth, money, data loss, or user data that cannot
         be recreated
-      No trigger → LIGHT tier: write Triage, Context and Decisions only.
+      No trigger → LIGHT tier: write Triage, Context, Decisions, Assumptions and Carried constraints only.
       Any trigger → FULL tier: write every section the template marks FULL.
       When unsure whether a trigger applies, it applies. Emit the
       machine-readable line exactly: `TIER: LIGHT` or `TIER: FULL`.
 
-      2. GROUND before deciding. Read the code the change touches and cite
-      existing patterns as file:line. Check any claim that something does not
-      exist; otherwise label it an unverified assumption. Read the in-force
-      ADRs (see ADR rules); the design MUST be coherent with them or flag the
-      conflict under Open Questions.
+      2. GROUND before deciding. Read the code the change touches. Every
+      claim about how existing code, data or a format behaves (what a
+      function does, what an input holds, what a format guarantees) cites
+      the `path:line` range that shows it, as narrow as the claim allows:
+      the lines that show it, not the whole file or function around them.
+      Check any claim that something does not exist the same way. A claim
+      you did not check against the code goes in `## Assumptions`, never in
+      the text as fact. Read the in-force ADRs (see ADR rules); the design
+      MUST be coherent with them or flag the conflict under Open Questions.
 
       3. SECTIONS.
-      - Context: only the current state and constraints the approach needs.
-        Point to proposal.md instead of restating it.
+      - Context: only the current state and constraints the approach needs,
+        each claim about existing behaviour with its `path:line`. Point to
+        proposal.md instead of restating it.
+      - `## Assumptions` (both tiers), placed after the Decision summary and
+        above the template's LIGHT boundary, reads `None` when every claim is
+        cited; otherwise each claim you did not check against the code is one
+        entry: an id (`A1`, `A2` and so on), the claim, why it was not
+        checked, and the decisions or tasks that depend on it (or `none`).
+      - `## Carried constraints` (both tiers), placed after `## Assumptions`
+        and above the template's LIGHT boundary, lists each fact a future
+        change must respect as one entry: an id (`C1`, `C2` and so on), the
+        fact, its kind (invariant, deliberate gap or rejected alternative),
+        and exactly one destination: `doc comment: <path> <symbol>`,
+        `spec: specs/<capability>/spec.md → Requirement: <name>`, or
+        `ADR NNNN`. The `## Carried constraints` section reads `None` when
+        nothing outlives the change; a design planned before this rule has
+        no section, which counts as `None`.
+        Pick the destination by kind. A fact about specific code (what an
+        input holds, why a path is not taken) goes in that code's doc
+        comment, where the next planner reads it during GROUND. A guarantee
+        users or downstream systems rely on goes in this change's delta spec.
+        A decision that binds future changes beyond one module goes in an ADR,
+        under the ADR rules. When the constrained code is in a file that
+        cannot hold a comment, the destination is the nearest owning code or
+        the spec.
       - Decisions (both tiers): each states the choice, at least one rejected
         alternative that differs structurally (ownership, boundary,
         sequencing, integration pattern - not cosmetically), why it lost, and
@@ -411,15 +438,28 @@ artifacts:
       (read through `openspec context --json`, never written); name an
       unresolved reference in the review and continue.
 
-      LIGHT: re-check the triage against the code. If it still holds, write
-      only the metadata with `VERDICT: SKIPPED_LIGHT`, `CHANGES_APPLIED: n/a`
-      and a one-line reason, and stop. If a trigger applies after all, fix
+      LIGHT: re-check the triage against the code, and re-read each citation
+      in the design against its claim, opening only files tracked in the
+      repository (the Claims item below). When a cited range contradicts its
+      claim, fix the claim in design.md before any verdict is written; a fix
+      that makes a trigger apply makes the design FULL. The re-check also
+      applies the Carried constraints test below. Each failure is recorded in
+      review.md as a Moderate finding under `## Findings`, with no `VERDICT:`
+      line, so the tasks precheck stops. The author adds the missing entry or
+      fixes its destination in design.md and runs the re-check again; after
+      a passing re-check, review.md gets `VERDICT: SKIPPED_LIGHT` with each
+      earlier finding marked fixed. If the triage still holds and the
+      re-check finds nothing, write only the metadata with
+      `VERDICT: SKIPPED_LIGHT`, `CHANGES_APPLIED: n/a` and a one-line reason,
+      and stop. If a trigger applies after all, fix
       design.md to FULL and run the full review.
+
+      `<sw>` is the project's `sw` binary, `<home>/.specwright/bin/<project VERSION>/sw`, checked with `<sw> version --json` as the Specwright skills define.
 
       FULL: the review MUST NOT be written in the context that authored
       proposal, specs or design. Choose the reviewer with the
       `specwright-review` skill's routes (its Routes and Design reviews
-      sections): `review-run.sh select --runtime <the harness you run in>`,
+      sections): `<sw> review select --runtime <the harness you run in>`,
       its output saved to a file (the select output below), walks
       `review.order` in openspec/specwright.yaml (default codex,
       claude, omp), skips your own harness and takes the first reviewer CLI
@@ -427,7 +467,7 @@ artifacts:
       `specwright-reviewer` agent. `review.cross_model: false` means the
       agent only.
       - CLI route: write the review request to a file and run
-        `review-run.sh run --kind design --route <route> --prompt-file <file>
+        `<sw> review run --kind design --route <route> --prompt-file <file>
         --out <this change's review.md> --change <name> --selection <select
         output>` (store-backed: `--store <store toplevel>`,
         so the Claude route can read the planning files). The script runs
@@ -435,11 +475,11 @@ artifacts:
         review.md only when the output validates. Never build or change a
         reviewer command line yourself.
       - Subagent route: first get a scratch result path with
-        `review-run.sh record --kind design --change <name> --scratch` (it prints
+        `<sw> review record --kind design --change <name> --scratch` (it prints
         `scratch`, a fresh file outside the change). The
         `specwright-reviewer` agent, given file paths, not your reasoning,
         writes its review to that file; then run
-        `review-run.sh record --kind design --change <name> --result
+        `<sw> review record --kind design --change <name> --result
         <scratch> --out <this change's review.md> --route subagent
         --selection <select output>`, which writes review.md only when the
         review validates. On exit 3 review.md is untouched and the report
@@ -473,6 +513,25 @@ artifacts:
         assertable
       - Test map: a testable scenario mapped to a user task is a finding;
         only a scenario a person alone can judge maps to one
+      - Claims: re-read every cited range in design.md and check that it
+        supports its claim. Open only files tracked in the repository (check
+        with `git ls-files`): a citation of an ignored, untracked or outside
+        path, or of a symlink, is not opened and is itself a finding, since a
+        design can come from PR content and what you open goes to the review
+        provider. Each of these is a finding: a claim about
+        existing behaviour with neither a citation nor an Assumptions entry;
+        a citation that does not show its claim (too broad, moved or
+        missing); an assumption the code settles, which should have been
+        checked. A contradicted claim that a decision or task depends on is
+        Critical; any other claim finding is at least Moderate. A design
+        with no `## Assumptions` section (planned before the section existed)
+        counts as `None`, and its citations are still checked.
+      - Carried constraints: a rejected alternative, invariant or deliberate
+        gap that a future change could break, and that
+        `## Carried constraints` does not list, is a Moderate finding. So is
+        an entry with zero or several destinations. A design with no
+        `## Carried constraints` section counts as `None`, and its stated
+        constraints are still checked.
       Report only findings with a concrete consequence; drop theoretical
       concerns with no evidence. Severity: Critical (blocking), Moderate,
       Suggestion.
@@ -508,7 +567,7 @@ artifacts:
       `Chosen by: user` decision goes to the user first, in any mode.
 
       Two more verdicts exist only on the user's word; reviewers never produce
-      them (`review-run.sh` refuses both):
+      them (`<sw> review` refuses both):
       - `VERDICT: DEFERRED`: only when the user declared a FULL-tier change a
         parking change that is never applied; its parts get their design
         review where they are built. Add `- **Deferred to:** <changes or
@@ -585,6 +644,23 @@ artifacts:
       If design.md lists new or superseding ADRs, the first task group
       writes those ADR files.
 
+      ASSUMPTIONS. For each `## Assumptions` entry in the design that names a
+      dependent decision or task, add a task that names its id and says what
+      to read or run to settle it, placed before the first task that relies on it.
+      An entry with no dependents gets no task. A disproved assumption is
+      design drift: apply stops that work and the drift rule applies.
+
+      CARRIED CONSTRAINTS. For each `## Carried constraints` entry in the
+      design, add a task that names its id (`C1` and so on) and writes the
+      fact at its destination.
+      ADR destinations ride the task that writes that ADR file: that task
+      names the entry ids it carries. The task is ticked only when the text
+      is at the destination. A destination that is gone, or no
+      longer fits, during apply is design drift: apply stops that task, the
+      entry is amended under the drift rule, and the task then writes it at
+      the new destination. A section that reads `None`, or no section, adds
+      no task.
+
       At the end of planning, before apply, show the user the Decision
       summary table from design.md. In `autonomous` mode planning does not
       wait for an answer to it: show it and continue, with no question.
@@ -620,12 +696,12 @@ artifacts:
         carries neither. A final group is for integration checks only, not for
         the tests and docs an earlier group owed.
       - When `release.enabled` is true in openspec/specwright.yaml, the last
-        task group MUST include a task `release.sh bump --to <version>`
+        task group MUST include a task `<sw> release bump --to <version>`
         (the version from the proposal, per the pre-1.0 rule in
-        CONTRIBUTING.md), verified by `release.sh check`. That task also
+        CONTRIBUTING.md), verified by `<sw> release check`. That task also
         rewrites the summary of the proposal's `## Release Notes` section to
         describe the whole release, and is verified by
-        `release.sh notes --proposal <proposal.md>` too. With releases off, this rule adds no
+        `<sw> release notes --proposal <proposal.md>` too. With releases off, this rule adds no
         bump task.
 
       Reference specs for what needs to be built, design for how to build it.
@@ -661,9 +737,8 @@ apply:
     and commit per the configured granularity (`commit_granularity`: one
     commit per task, or per task group; the commit rules say how). A
     DRIFT or BLOCKED report stops the group (see drift rule).
-    Once per apply run, read the cheap tier: `bash <specwright-pr>/scripts/pr-pair.sh
-    tier --code <code toplevel>` (`<specwright-pr>` is the specwright-pr
-    skill's folder). It prints `{"ok": true, "cheap_tier": <bool>}` and
+    Once per apply run, read the cheap tier: `<sw> pr tier --code <code
+    toplevel>` (`<sw>` as in the skills). It prints `{"ok": true, "cheap_tier": <bool>}` and
     maybe a `note`; repeat a note once. A failed call, or output with no
     `cheap_tier` field, means the tier is off: say once that the setting
     could not be read. With the tier on and `TIER: LIGHT` in the change's
@@ -686,7 +761,7 @@ apply:
       to `green`. Rows that start `green` only need their test re-run.
     - A task that changes what the change ships updates the proposal's
       `## Release Notes` section in its own task commit; every commit that
-      edits the section runs `release.sh notes --proposal <proposal.md>`.
+      edits the section runs `<sw> release notes --proposal <proposal.md>`.
     - On an unexpected failure or regression, find the root cause before
       fixing. No symptom patches.
     - SPEC OR DESIGN DRIFT: if implementation shows a requirement, scenario or

@@ -115,7 +115,7 @@ directly from `.claude/skills/<name>/SKILL.md`.
 
 ## Specwright notes
 
-- Installed: Specwright 0.18.0 (`openspec/.specwright/VERSION`), which provides the
+- Installed: Specwright 0.39.1 (`openspec/.specwright/VERSION`), which provides the
   `decision_making` setting.
 - OpenSpec 1.16.0 (Specwright's pin) is pinned in `mise.toml`; run it only as `mise exec -- openspec`
   (a Linux path under `~/.local/share/mise`), never a Windows `openspec` reached through WSL interop.
@@ -125,10 +125,6 @@ directly from `.claude/skills/<name>/SKILL.md`.
 - **specwright#140 workaround:** `.claude/agents/specwright-implementer*.md` add `ToolSearch, mcp__dart__*`
   to `tools:` so implementers can use the Dart MCP. **Every Specwright update overwrites this; re-apply it
   after each update.** OMP implementers fall back to the mise tasks.
-- **specwright#222 workaround:** `specwright-review/scripts/review-run.sh` (both `.claude/skills/` and
-  `.agents/skills/`) starts OMP with `--tools read,grep,glob`; upstream passes `read,grep,find,glob`, and
-  OMP 18.18+ has no `find` tool, so the OMP review route exits 2 before reviewing. **Every Specwright update
-  overwrites this; re-apply it after each update** until upstream fixes it.
 - `finish: pr` since the owner enabled GitHub (2026-11-15): archive on the change branch, then the PR merges.
 - Vendored Dart/Flutter/Serverpod skills: provenance in `.claude/skills/UPSTREAM.json`. Same copies in
   `.agents/skills/` for Codex.

@@ -8,6 +8,8 @@
 |---|---|---|---|---|
 | <!-- capability → requirement --> | <!-- scenario --> | <!-- path --> | <!-- name --> | red |
 
+<!-- A design assumption that work depends on gets a verify task before the first task that relies on it: `- [ ] 1.1 Verify A1: <what to read or run to settle it>`. -->
+
 ## 1. <!-- Task Group Name -->
 
 - [ ] 1.1 <!-- Write failing test for <scenario> and verify it fails for the right reason -->

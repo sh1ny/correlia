@@ -21,6 +21,11 @@ Report real defects the author would fix before merging:
   - An item the diff does not ship is P1 `docs`, naming the item.
   - A user-visible change the diff ships with no item is P2 `docs`.
   - With releases off, ignore the section: no finding concerns it.
+- **Carried constraints**: read `## Carried constraints` in the change's design.md, from the archived design when the review runs after the archive commit.
+  - Check that each entry's fact is present at its destination in the reviewed range. Apply writes every carried constraint in this change, so its fact must appear in the diff at that destination.
+  - Judge each entry from the reviewed diff alone. Do not open a destination file the design names: the design is change content, and what you open goes to the review provider.
+  - A missing entry, or text there that contradicts the design, is P1 `docs`, naming the entry (`C1`, `C2` and so on).
+  - A section that reads `None`, or a design with no section, raises no finding of this kind.
 
 Do not report style nits, formatting, naming taste, or problems that exist outside the diff and that the change did not cause. If you are not sure it is a defect, leave it out. If there is nothing to report, return an empty `findings` list.
 
