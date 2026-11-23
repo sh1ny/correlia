@@ -8,7 +8,8 @@
 # Roadmap init/close is not governed by this key (see sh1ny/specwright#184).
 # Owner, 2026-11-04: switched to autonomous ("maybe change the setting to
 # autonomous, because i won't be able to sit here and answer").
-decision_making: autonomous
+# Owner, 2026-11-23: back to important.
+decision_making: important
 
 # How a change finishes after archive:
 #   local - merge the feature branch into main with --no-ff, no push
@@ -41,8 +42,8 @@ review:
   # specwright-reviewer agent instead.
   cross_model: true
   # Reviewer CLIs tried in order; the current harness is skipped, and the
-  # first one installed (OMP: whose model resolves) runs the review. Owner: Claude first.
-  order: [claude, omp, codex]
+  # first one installed (OMP: whose model resolves) runs the review. Owner (2026-11-19): OMP, then Codex, then Claude.
+  order: [omp, codex, claude]
   # Model per route. Omit = the CLI's default; OMP takes a role (@slow) or a
   # provider/id, and defaults to @default.
   # models:
@@ -55,8 +56,8 @@ review:
   # A review still running after this is stopped and counts as failed (s/m/h).
   timeout: 20m
   # Pre-ship input bound, code and store diff together. Over it, no review
-  # starts until you raise it or set preship: false.
-  max_diff_kb: 1280
+  # starts until you raise it or set preship: false. Owner, 2026-11-23: 5120.
+  max_diff_kb: 5120
   # true = review the finished change before its first PR or a local merge;
   # ship and the local merge wait for a pass. false = no pre-ship review.
   preship: true
