@@ -1,20 +1,23 @@
 ## Metadata
 
-Scope covered D3, D16, the `icinga2-event-streams` delta, and its task map. This was a read-only review. No files changed and no tests ran. Official-image fixtures and full consumer evidence remain pending in tasks 2 and 11.
+Independent review of the `icinga2-event-streams` D11 amendment, its delta requirement and scenario, and its task mapping. I inspected the four supplied captures and the canonical identity and event representations. Tests were not run.
 
 ## Findings
 
-1. **The release gate does not explicitly require the per-grant denial matrix.** The delta’s support requirement gates each release on successful captures and a real-consumer run. Its missing-permission scenario describes one omitted entry, while task 11.4 requires the permission test to pass without specifying a complete release-by-grant matrix. A partial run could satisfy those checks and leave a documented grant untested. [D16](/home/bgshi/Development/dart/correlia/openspec/changes/icinga2-event-streams/design.md:638) · [Delta spec](/home/bgshi/Development/dart/correlia/openspec/changes/icinga2-event-streams/specs/icinga2-event-streams/spec.md:945) · [Task 11.4](/home/bgshi/Development/dart/correlia/openspec/changes/icinga2-event-streams/tasks.md:393)
+- All four captures show `AcknowledgementCleared` omitting both `author` and `comment`. Each corresponding `AcknowledgementSet` includes both. The evidence supports emitting clears without an actor or description. [2.13.14](correlia_server/test/unit/ingest/fixtures/icinga2/2.13.14/stream/events.ndjson#L8) · [2.14.10](correlia_server/test/unit/ingest/fixtures/icinga2/2.14.10/stream/events.ndjson#L8) · [2.15.7](correlia_server/test/unit/ingest/fixtures/icinga2/2.15.7/stream/events.ndjson#L8) · [2.16.6](correlia_server/test/unit/ingest/fixtures/icinga2/2.16.6/stream/events.ndjson#L8)
+- JSON `null` preserves the four-element key and gives identical replays a stable author slot. The stream type and D17 timestamp text still participate in identity, and acknowledgement sets retain author-based distinction. The null is inside the serialized native key, which the canonical identity layer accepts as text. The canonical event can omit the description and the author attribute. [D11](openspec/changes/icinga2-event-streams/design.md#L450) · [D17](openspec/changes/icinga2-event-streams/design.md#L654) · [Native key](correlia_server/lib/src/event/identity.dart#L318) · [Icinga mapper](correlia_server/lib/src/ingest/icinga2/mapper.dart#L104)
+- The delta scenario matches D11 and maps to `acknowledgement_clear_uses_null_author` in the decoder suite. Tasks 5.1 and 5.2 cover the fixture-backed test and implementation. The scenario specifies the emitted `ack`, `info` status, absent actor and description, no alert effect, and the null author slot. The existing set scenarios cover the author-bearing path. [Delta spec](openspec/changes/icinga2-event-streams/specs/icinga2-event-streams/spec.md#L783) · [Test map](openspec/changes/icinga2-event-streams/tasks.md#L223) · [Task group 5](openspec/changes/icinga2-event-streams/tasks.md#L344)
 
 ## Verdict
 
-VERDICT: APPROVE_WITH_CHANGES
-CHANGES_APPLIED: yes
+VERDICT: APPROVE
+
+CHANGES_APPLIED: n/a
 
 ## Required Changes
 
-Require tasks 2 and 11 to capture and verify one populated-fixture run per documented grant omitted individually for each supported release. Make complete matrix coverage a release criterion. For each case, record the upstream status and assert the corresponding consumer error class, no successful first sync, and no sync started when the subscription itself is refused.
+None.
 
 ## Rebuttals
 
-D3 and the delta implement the owner’s decision consistently. Subscription 404 backs off before sync. An object-query 404 fails the sync as `http_status`, records a gap, and closes the connection even when the collection is genuinely empty. HTTP 403 is `forbidden`. The task map covers both classifications and the operator warning. The finding concerns matrix completeness while retaining all four candidates. [D3](/home/bgshi/Development/dart/correlia/openspec/changes/icinga2-event-streams/design.md:214) · [Delta spec](/home/bgshi/Development/dart/correlia/openspec/changes/icinga2-event-streams/specs/icinga2-event-streams/spec.md:445) · [Task map](/home/bgshi/Development/dart/correlia/openspec/changes/icinga2-event-streams/tasks.md:168)
+The four captures supersede the prior assumption that clear events carry an author. An explicit null in the existing slot implements the owner’s decision without deriving identity or display fields from a prior event.

@@ -782,10 +782,10 @@ prompt copy of the same result.
 
 ### Requirement: Acknowledgement, downtime and flapping from the stream
 
-`AcknowledgementSet` and `AcknowledgementCleared` SHALL become `ack` events, `DowntimeStarted` and
-`DowntimeRemoved` `downtime` events, and `Flapping` a `state` event, each with status `info`, the object's
-fingerprint and the event `timestamp` as source time, and no alert-state effect. Their observation key SHALL
-hold the type, the `timestamp`, and the author, downtime name or flapping flag.
+Acknowledgement set/clear, downtime start/removal and flapping SHALL emit `ack`, `downtime` and `state`
+events respectively, all `info`, with the object's fingerprint and event timestamp, without changing alert
+state. Their key SHALL include the type, timestamp and author, downtime name or flap flag. An authorless
+clear SHALL key JSON `null` in the author slot and SHALL NOT infer actor or description.
 
 #### Scenario: Acknowledgement set
 - **WHEN** an operator acknowledges a firing service in Icinga 2
@@ -794,6 +794,10 @@ hold the type, the `timestamp`, and the author, downtime name or flapping flag.
 #### Scenario: Two acknowledgements by different authors at one instant
 - **WHEN** two `AcknowledgementSet` events of one service carry the same `timestamp` and different authors
 - **THEN** they have different event ids, each key holding `icinga2.stream.acknowledgementset.v1`, the type, the timestamp text and the author
+
+#### Scenario: Acknowledgement cleared without author or comment
+- **WHEN** a real `AcknowledgementCleared` fixture supplies neither field
+- **THEN** it emits one `ack` with status `info`, no actor or description, no alert effect and a key containing the clear type, timestamp text and JSON `null` in the author slot
 
 ### Requirement: Unsupported event types fail
 

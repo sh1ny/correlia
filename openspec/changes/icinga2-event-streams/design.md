@@ -455,13 +455,16 @@ Scope decisions S1-S5 are in `proposal.md`.
   - `Flapping` becomes a `state` event.
 
   All are `info` with no alert effect. Their key is `["icinga2.stream.<type>.v1", <type>, <timestamp text>,
-  <extra>]` (D17 for the text), where `<extra>` is the author for acknowledgements, the downtime's `name` for
-  downtimes and `is_flapping` for flapping. The source time is the event `timestamp`. The description is the
-  comment, bounded like the webhook's.
+  <extra>]` (D17 for the text). The extra is the author for `AcknowledgementSet`, JSON `null` for
+  `AcknowledgementCleared` with no author, the nested downtime's `name` for downtime events and `is_flapping`
+  for flapping. The source time is the event `timestamp`. Use the bounded comment when present; an
+  `AcknowledgementCleared` without author or comment has no actor or description. Do not infer either from
+  a previous event. Captures from 2.13.14, 2.14.10, 2.15.7 and 2.16.6 all omit those fields on clears.
 - **Rejected:** Object-native ids only (flapping has none; mixed rules per type).
 - **Reversal cost:** medium (event ids).
 - **Important:** yes (binds event ids).
-- **Chosen by:** user (owner, 2026-11-23: "Type + Icinga timestamp")
+- **Chosen by:** user (owner, 2026-11-23: "Type + Icinga timestamp"; during apply, keep clear events and use
+  explicit JSON `null` in the key for their absent author).
 
 ### D12: Status, gaps, sync completion and resync requests
 
@@ -940,7 +943,7 @@ Scope decisions S1-S5 are in `proposal.md`.
 | D8 | TLS and secrets | Exclusive CA trust; keyed commitments; reuse table with backfill | System roots; plugin commitments; current secrets only | low | yes | user |
 | D9 | Host state | Icinga's own mapping; unreachable from `reachable` | Live top-level state | medium | yes | user |
 | D10 | SOFT under hard_only | Counted, not stored; pinned policy | Info event; policy in key | low | yes | user |
-| D11 | Non-state keys | Type + Icinga timestamp + author/name/flag | Object-native ids | medium | yes | user |
+| D11 | Non-state keys | Type + Icinga timestamp + author, null on authorless clear, downtime name or flap flag | Object-native ids | medium | yes | user |
 | D12 | Status and gaps | Status table, gap sequence, sync progress with guarded finalization, stream-row resync table, endpoint | Table and logs only; gap table; holder-computed outcome | medium | yes | user |
 | D13 | Stop | Dedicated connection; close it at 4 s; 10 s local stop; release measured, not promised | `pg_terminate_backend`; abandon the insert; timeouts only | low | no | agent |
 | D14 | Mode | Immutable; webhook route 401 | Mutable mode | low | yes | user |
