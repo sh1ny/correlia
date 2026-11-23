@@ -18,7 +18,7 @@ TIER: <VALUE>
 
 ## Context
 
-<!-- Current state and constraints the approach needs. Cite existing patterns as file:line. Point to proposal.md instead of restating it. -->
+<!-- Current state and constraints the approach needs. Cite each claim about existing behaviour as `path:line`, the narrowest range that shows it. Point to proposal.md instead of restating it. -->
 
 ## Decisions
 
@@ -38,6 +38,18 @@ TIER: <VALUE>
 
 | # | Decision | Choice | Rejected | Reversal cost | Important | Chosen by |
 |---|---|---|---|---|---|---|
+
+## Assumptions
+
+<!-- Both tiers. One entry per claim not checked against the code, or `None` when every claim is cited. -->
+
+- **A1:** <!-- the claim --> Not checked because <!-- why -->. Depends on it: <!-- decisions or tasks, or none -->
+
+## Carried constraints
+
+<!-- Both tiers. One entry per fact a future change must respect, or `None` when nothing outlives the change. Exactly one destination: `doc comment: <path> <symbol>`, `spec: specs/<capability>/spec.md → Requirement: <name>`, or `ADR NNNN`. -->
+
+- **C1:** <!-- the fact --> Kind: <!-- invariant | deliberate gap | rejected alternative -->. Destination: <!-- doc comment: <path> <symbol> -->
 
 <!-- ===== LIGHT tier ends here. Delete everything below for LIGHT. ===== -->
 
