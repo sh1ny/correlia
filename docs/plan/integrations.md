@@ -42,8 +42,9 @@ in its manifest, and each capability has its own config schema, required secrets
 ## Tiers
 
 - **P0:** needed for the owner's real traffic. Delivered in M1-M3.
-- **P1:** planned for M6-M9. Not a 1.0 blocker: each ships when it meets the definition of done, in its
-  milestone or in a 1.x point release (owner, 2026-11-03, D27).
+- **P1:** planned for M2 (the basic Prometheus/Thanos query enricher), M6, M7 and M9, and for the 1.x integration wave that the owner moved out of M8 on
+  2026-11-22. Not a 1.0 blocker: each ships when it meets the definition of done, in its milestone or in a
+  1.x point release (owner, 2026-11-03, D27).
 - **P2:** after 1.0, on demand. The plugin SDK makes them community-buildable.
 - **Avoid:** do not build.
 
@@ -52,15 +53,15 @@ in its manifest, and each capability has its own config schema, required secrets
 | Integration | Capabilities | Runs | Milestone | Notes |
 |---|---|---|---|---|
 | Prometheus Alertmanager | source.push, decoder | built in | M1 | Webhook v4. One canonical event per alert in the notification group. Original selected labels determine identity; the upstream fingerprint is evidence only (ADR 0024). Supports `send_resolved` and the `truncatedAlerts` count. |
-| NATS / JetStream | output (M1), source.consume (M8) | external Go | M1 | The reference external plugin (ADR 0018). Its consume side is a leased durable consumer with explicit ack. |
+| NATS / JetStream | output | external Go | M1 | The reference external plugin (ADR 0018). Its consume side is P1, in the event bus table below. |
 | Icinga2 | source.push, source.consume (event streams API), source.pull (state sync), decoder, sync (ack, downtime), action | built in | M2 | Host and service state changes, check output, acknowledgement/downtime/flapping flags, soft vs hard state. Pull is used for state reconciliation after downtime of Correlia itself. |
 | Thanos (Ruler, Query) | source.push via the Alertmanager decoder; query via Prometheus query | built in | M2 | A tested configuration plus tenant headers and auth, not a separate decoder. |
 | Generic inbound webhook | source.push, decoder (declarative mapping) | built in | M2 | Any JSON mapped by a versioned mapping document (JSON pointer/path + matcher functions), with a preview against a pasted sample. |
 | Generic webhook out | output, notify, action | built in | M1 (output), M6 (notify) | Signed (HMAC) JSON, CloudEvents structured mode, retry with backoff. |
 
-## P1: planned for M6-M9, not a 1.0 blocker
+## P1: planned for M6, M7, M9 and 1.x, not a 1.0 blocker
 
-### Monitoring sources (M8 unless noted)
+### Monitoring sources (1.x unless noted)
 
 | Integration | Capabilities | Runs | Notes |
 |---|---|---|---|
@@ -114,7 +115,8 @@ in its manifest, and each capability has its own config schema, required secrets
 
 | Integration | Capabilities | Milestone | Notes |
 |---|---|---|---|
-| Kafka | output, source.consume | M8 | Cheap once NATS exists; same Go SDK. |
+| Kafka | output, source.consume | 1.x | Cheap once NATS exists; same Go SDK. |
+| NATS / JetStream consume | source.consume | 1.x | Moved out of M8 by the owner, 2026-11-22. A leased durable consumer with explicit ack. |
 
 ## P2: after 1.0 (on demand, community-buildable)
 

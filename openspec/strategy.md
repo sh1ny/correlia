@@ -85,6 +85,7 @@ is a candidate question.
 <!-- Chosen by: `agent`, `user`, or `pending` (awaiting the owner). A pending or agent row the owner later settles is updated in place to `user` with the answer. -->
 
 - close M1 2026-11-18: autonomous (source: setting)
+- roadmap cuts 2026-11-23: autonomous (source: setting); the owner's four cuts of 2026-11-22, relayed by the coordinator
 
 | # | Run | Decision | Choice | Rejected | Reason | Important | Chosen by |
 |---|---|---|---|---|---|---|---|
@@ -92,3 +93,11 @@ is a candidate question.
 | R2 | close M1 | Order of the M2 changes | The source model first, then the two source changes, then rules, then the simulator, then dead letters and retention | Dead letters before the sources | Replay with the configuration active at replay time (DUR-13) needs the declarative mapping of change 3 to exist | no | agent |
 | R3 | close M1 | Golden fixtures in M2 | Captured from real Icinga2 and Thanos releases, never hand-authored | Fixtures written from the documentation | M1's real-Alertmanager check failed on fields the documentation omitted (0.32+), which cost a gap-closing change | yes | agent |
 | R4 | close M1 | M1 user criterion evidence | Real Alertmanager v0.35.0 in Docker against a dev instance, seen by the owner in the console and on a NATS subscriber, firing and resolved | A production Alertmanager | The owner has no production Alertmanager; the runbook's isolated check uses the real release binary, and the owner chose it ("we have to fake it") and verified the result on 2026-11-18 | no | user |
+| R5 | roadmap cuts | M8 integration wave and plugin SDKs | Moved after 1.0, into 1.x | Keeping them in M8 | Owner's cut of 2026-11-22 | yes | user |
+| R6 | roadmap cuts | Pre-ship review rounds | At most 4 per change; after round 4 the owner decides whether to continue, ship or rework | Specwright's built-in stop after 2; no cap | Owner's cut of 2026-11-22 | yes | user |
+| R7 | roadmap cuts | Minimal container image and compose file | Pulled forward from M10 to the end of M3 | Leaving all packaging in M10 | Owner's cut of 2026-11-22 | yes | user |
+| R8 | roadmap cuts | M3 console | A read-only incident list, so the M3 replay check is done in the UI | Checking the replay through the API | Owner's cut of 2026-11-22 | yes | user |
+| R9 | roadmap cuts | Milestone numbering after M8 leaves | M8 is retired, not reused; M9 and M10 keep their names | Renumbering M9 and M10 to M8 and M9 | Accepted ADR 0018 and archived changes name M8 and M10, and they are never edited; renumbering would make them point at the wrong milestone | no | agent |
+| R10 | roadmap cuts | Where the review cap lives | `review.preship_max_rounds: 4` in `openspec/specwright.yaml`, read by a patched `specwright-review` skill, with the rule in `AGENTS.md` | Prose in the roadmap only | Specwright 0.19.0 has no round-cap setting and hard-codes 2; only a key the skill reads changes what the review loop does | no | agent |
+| R11 | roadmap cuts | M3 exit check for the packaging | An agent check that compose starts Correlia from the image and an Alertmanager webhook shows up as an incident in the list | No new exit criterion | The pulled-forward packaging needs a test that proves it runs | no | agent |
+| R12 | roadmap cuts | Questions the cuts force | D32 (what the minimal image includes), D33 (which M8 plugin items stay in M10), D34 (what the incident list shows), D35 (what a review round counts), D36 (the plugin protocol surface frozen at 1.0): each as its recorded default | Deciding them in the plan without the owner | The owner accepted every default on 2026-11-23 | yes | user |

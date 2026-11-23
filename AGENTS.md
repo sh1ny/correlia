@@ -125,6 +125,13 @@ directly from `.claude/skills/<name>/SKILL.md`.
 - **specwright#140 workaround:** `.claude/agents/specwright-implementer*.md` add `ToolSearch, mcp__dart__*`
   to `tools:` so implementers can use the Dart MCP. **Every Specwright update overwrites this; re-apply it
   after each update.** OMP implementers fall back to the mise tasks.
+- **Pre-ship review cap (owner, 2026-11-22):** at most 4 pre-ship review rounds per change. After round 4,
+  if the review still has an unwaived P0/P1, stop and ask the owner whether to continue, ship or rework;
+  never run a fifth round, waive or ship on your own. The cap is `review.preship_max_rounds: 4` in
+  `openspec/specwright.yaml`. Specwright (checked at 0.39.1) has no such setting: its `specwright-review`
+  skill hard-codes 2. So `specwright-review/SKILL.md` (both `.claude/skills/` and `.agents/skills/`) is
+  patched to read the key: steps 3 to 5, each marked `[Correlia patch: ...]`.
+  **Every Specwright update overwrites this; re-apply it after each update.**
 - `finish: pr` since the owner enabled GitHub (2026-11-15): archive on the change branch, then the PR merges.
 - Vendored Dart/Flutter/Serverpod skills: provenance in `.claude/skills/UPSTREAM.json`. Same copies in
   `.agents/skills/` for Codex.

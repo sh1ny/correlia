@@ -8,6 +8,10 @@ The long-form feature plan for every milestone up to 1.0 is in `docs/plan/milest
 backlog is in `docs/plan/integrations.md`, the named acceptance scenarios in
 `docs/plan/acceptance-scenarios.md`, and the owner's open decisions in `docs/plan/open-decisions.md`.
 
+**Pre-ship review cap** (owner, 2026-11-22): every change gets at most 4 pre-ship review rounds. After
+round 4, the owner decides whether to continue, ship or rework. The cap is `review.preship_max_rounds` in
+`openspec/specwright.yaml`.
+
 ## Now: M2 - Icinga2, Thanos and the ingest track
 
 **Outcome:** The owner's two real sources flow in, are enriched by rules that can be tested in a
@@ -82,11 +86,18 @@ key; one transaction per event batch with serialization retries and hot-group ha
 peak severity; incident events on NATS and webhook out; manual merge, split, link, owner and note through
 the API. It retires the risk that grouping stays correct under a 10k/60 s storm on one hot group.
 
+Two owner cuts of 2026-11-22 add to M3:
+- a read-only incident list in the console (D34), so the owner checks the M3 replay of a recorded day
+  of traffic in the UI rather than through the API;
+- at the end of M3, a minimal container image and a compose file (D32), pulled forward from M10's
+  packaging, so the owner can run Correlia outside the dev checkout.
+
 ## Later
 
 - M4 - Console v1 and access control:
   - invite-only email OTP, roles, teams and API keys;
-  - incident and alert views; rule editors and the simulator UI;
+  - incident and alert views (extending M3's read-only incident list with filters, detail and actions);
+  - rule editors and the simulator UI;
   - source wizards; plugin and system pages; REST `/api/v1/`.
 - M5 - Noise control: silences, maintenance windows (including Icinga2 downtime sync), flapping, inhibition
   and noise-ratio insight.
@@ -95,22 +106,29 @@ the API. It retires the risk that grouping stays correct under a 10k/60 s storm 
   - email, Slack, Teams, Mattermost, Telegram, PagerDuty and webhook-out.
 - M7 - Workflows and ticketing: durable typed-action workflows, Jira and ServiceNow, two-way sync and
   runbooks.
-- M8 - Integration wave and plugin SDKs:
-  - the P1 sources;
-  - Kafka;
-  - NATS consume;
-  - Go and Python SDKs with a conformance suite;
-  - the plugin lockfile.
+- M8 - Moved after 1.0 (owner, 2026-11-22): the integration wave and the Go and Python SDKs are now the
+  1.x integration wave below. The number M8 is retired, not reused, so M9 and M10 keep their names.
 - M9 - Topology and context: the NetBox enricher, CMDB import, a service model, topology-aware
   correlation and context panels.
 - M10 - Hardening for 1.0:
   - multi-instance; load and soak qualification; partition maintenance;
   - backup and restore; OIDC; OpenTelemetry;
-  - packaging (image, compose, systemd, Helm);
+  - packaging: the production image and compose (hardening M3's minimal ones), systemd and Helm;
+  - the plugin install layout, a plugin lockfile with checksums and a protocol conformance suite for the
+    first-party external plugins (kept from M8, D33);
   - a security review, docs and the licence.
 - 1.0 - Stable release (owner, 2026-11-03, D27): the P0 integrations; event format, plugin protocol and
   `/api/v1/` declared stable under semver; every acceptance scenario green; documented upgrade and restore.
-  P1 integrations and the plugin SDKs ship in the milestones above or in 1.x point releases.
+  The P1 integrations planned in M2, M6, M7 and M9 ship there or in 1.x point releases (M2's is the basic
+  Prometheus/Thanos query enricher); the former M8 wave ships in 1.x.
+- 1.x - Integration wave and plugin SDKs (moved from M8 by the owner, 2026-11-22):
+  - the P1 monitoring sources;
+  - Kafka;
+  - NATS consume;
+  - Go and Python SDKs with a conformance suite;
+  - the signed-manifest option and the plugin catalog page (D33).
+  At 1.0 only part of `correlia.plugin.v1` is frozen: the subprocess handshake, `PluginService`
+  (`GetMetadata`, `Configure`, `CheckHealth`) and `OutputService` (`Deliver`); the other plugin kinds join it as additive minor versions in 1.x (D36).
 
 ## Done
 - M1 - Walking skeleton (2026-11-18): Alertmanager to canonical event to NATS and the live console, on
