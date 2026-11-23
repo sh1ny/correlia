@@ -53,7 +53,7 @@ in its manifest, and each capability has its own config schema, required secrets
 | Integration | Capabilities | Runs | Milestone | Notes |
 |---|---|---|---|---|
 | Prometheus Alertmanager | source.push, decoder | built in | M1 | Webhook v4. One canonical event per alert in the notification group. Original selected labels determine identity; the upstream fingerprint is evidence only (ADR 0024). Supports `send_resolved` and the `truncatedAlerts` count. |
-| NATS / JetStream | output (M1), source.consume (1.x) | external Go | M1 | The reference external plugin (ADR 0018). Its consume side is a leased durable consumer with explicit ack. |
+| NATS / JetStream | output | external Go | M1 | The reference external plugin (ADR 0018). Its consume side is P1, in the event bus table below. |
 | Icinga2 | source.push, source.consume (event streams API), source.pull (state sync), decoder, sync (ack, downtime), action | built in | M2 | Host and service state changes, check output, acknowledgement/downtime/flapping flags, soft vs hard state. Pull is used for state reconciliation after downtime of Correlia itself. |
 | Thanos (Ruler, Query) | source.push via the Alertmanager decoder; query via Prometheus query | built in | M2 | A tested configuration plus tenant headers and auth, not a separate decoder. |
 | Generic inbound webhook | source.push, decoder (declarative mapping) | built in | M2 | Any JSON mapped by a versioned mapping document (JSON pointer/path + matcher functions), with a preview against a pasted sample. |
@@ -116,6 +116,7 @@ in its manifest, and each capability has its own config schema, required secrets
 | Integration | Capabilities | Milestone | Notes |
 |---|---|---|---|
 | Kafka | output, source.consume | 1.x | Cheap once NATS exists; same Go SDK. |
+| NATS / JetStream consume | source.consume | 1.x | Moved out of M8 by the owner, 2026-11-22. A leased durable consumer with explicit ack. |
 
 ## P2: after 1.0 (on demand, community-buildable)
 
