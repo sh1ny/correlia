@@ -126,8 +126,8 @@ Two owner cuts of 2026-11-22 add to M3:
   - NATS consume;
   - Go and Python SDKs with a conformance suite;
   - the signed-manifest option and the plugin catalog page (D33).
-  At 1.0 only the output service of `correlia.plugin.v1` is frozen; the other plugin kinds join it as
-  additive minor versions in 1.x (D36).
+  At 1.0 only the output service of `correlia.plugin.v1` and its shared handshake, configuration and health
+  calls are frozen; the other plugin kinds join it as additive minor versions in 1.x (D36).
 
 ## Done
 - M1 - Walking skeleton (2026-11-18): Alertmanager to canonical event to NATS and the live console, on

@@ -166,7 +166,8 @@ proven fixed.
   through the API; the UI comes in M4.
 - **Topology-free grouping helpers:** same host, same service across hosts, same label set.
 - **Console incident list (owner, 2026-11-22):** a read-only list of incidents in the console, beside the
-  M1 alert list, with no actions and no auth (dev mode, bound to localhost, as in M1). What it shows is
+  M1 alert list, with no actions and no auth (dev mode, behind M1's loopback access policy: a request is served only when
+  its TCP peer is loopback; the listeners themselves bind every address, so network isolation is D32's job). What it shows is
   decision D34. M4 extends it into the full incident views.
 - **Minimal packaging (owner, 2026-11-22), the last change of M3:** a minimal container image and a compose
   file that run Correlia against a real Postgres, pulled forward from M10. What "minimal" includes is
@@ -381,8 +382,8 @@ retired so that M9 and M10 keep their names.
 1.0 means (owner, 2026-11-03, D27):
 - every P0 integration;
 - a public API, canonical event and plugin protocol declared stable under semver; for the plugin protocol
-  that is the output service only, and the other plugin kinds join `correlia.plugin.v1` as additive minor
-  versions in 1.x (D36);
+  that is the output service and the shared handshake, configuration and health calls; the other plugin
+  kinds join `correlia.plugin.v1` as additive minor versions in 1.x (D36);
 - every acceptance scenario green;
 - documented upgrade and restore.
 
