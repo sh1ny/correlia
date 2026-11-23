@@ -49,9 +49,11 @@ These instructions are shared by every harness (Claude Code, Codex, OMP). Keep t
   publish them. Never copy third-party code, schemas, templates or provider configs; specs and ADRs state
   Correlia's own decisions in their own words.
 - **Decision mode.** `decision_making: important` is set (owner, 2026-11-23; it was `autonomous` from
-  2026-11-04): important scope and design decisions go to the owner with options and a recommendation,
-  and the agent records only minor ones as `Chosen by: agent`. A `Chosen by: user` decision still goes to
-  the owner before it changes. Never record an agent choice as the owner's.
+  2026-11-04): each scope and design decision is classified `Important: yes|no` per
+  `openspec/schemas/specwright/schema.yaml`. Every `Important: yes` decision goes to the owner with options
+  and a recommendation before it is written; only `Important: no` ones are recorded `Chosen by: agent`, plus
+  any the owner hands back, with a note saying so. A `Chosen by: user` decision still goes to the owner
+  before it changes. Never record an agent choice as the owner's.
 - Commits: author and committer `Nikolay Bochev <309868+sh1ny@users.noreply.github.com>`, message ends with
   one `Co-authored-by: KintsugiBot <296966193+KintsugiBot@users.noreply.github.com>` trailer.
 - Always use the toolchain through mise (`mise run <task>`, `mise exec -- <cmd>`), never a bare
