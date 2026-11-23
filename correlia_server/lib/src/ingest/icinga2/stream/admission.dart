@@ -10,16 +10,16 @@ import 'lease.dart';
 
 /// A single already sanitized wire line and its original receipt time.
 sealed class StreamAdmissionItem {
-  const StreamAdmissionItem._(this.received, this.invalidJson, this.redacted);
+  StreamAdmissionItem._(this.received, this.invalidJson, this.redacted);
 
-  const factory StreamAdmissionItem.text(
+  factory StreamAdmissionItem.text(
     DateTime received,
     String line, {
     bool invalidJson,
     bool redacted,
   }) = _TextItem;
 
-  const factory StreamAdmissionItem.binary(
+  factory StreamAdmissionItem.binary(
     DateTime received,
     Uint8List bytes, {
     bool redacted,
@@ -28,6 +28,11 @@ sealed class StreamAdmissionItem {
   final DateTime received;
   final bool invalidJson;
   final bool redacted;
+
+  late final Uint8List _encoded = utf8.encode(jsonEncode(_toJson()));
+
+  /// The byte count in the exact wire representation used at admission.
+  int get encodedLength => _encoded.length;
 
   Map<String, Object> _toJson() => {
     'received': received.microsecondsSinceEpoch,
@@ -44,7 +49,7 @@ sealed class StreamAdmissionItem {
 }
 
 final class _TextItem extends StreamAdmissionItem {
-  const _TextItem(
+  _TextItem(
     DateTime received,
     this.line, {
     bool invalidJson = false,
@@ -55,7 +60,7 @@ final class _TextItem extends StreamAdmissionItem {
 }
 
 final class _BinaryItem extends StreamAdmissionItem {
-  const _BinaryItem(
+  _BinaryItem(
     DateTime received,
     this.bytes, {
     bool redacted = false,
@@ -80,6 +85,23 @@ final class StreamRawBatch {
   final List<List<StreamAdmissionItem>> rows;
   final String? syncId;
 }
+
+Uint8List _rowPrefix(
+  IcingaStreamOrigin origin,
+  String connectionId,
+  String? syncId,
+) => utf8.encode(
+  '{"format":"$icingaStreamFormat","origin":"${origin.name}",'
+  '"connection":${jsonEncode(connectionId)},'
+  '${syncId == null ? '' : '"sync":${jsonEncode(syncId)},'}"items":[',
+);
+
+/// Bytes outside the items and their separators in an admitted raw row.
+int streamEnvelopeBytes(
+  IcingaStreamOrigin origin,
+  String connectionId, {
+  String? syncId,
+}) => _rowPrefix(origin, connectionId, syncId).length + 2;
 
 /// The result of a committed admission decision.
 enum StreamAdmissionResult {
@@ -229,20 +251,19 @@ final class ConsumerAdmission {
       throw ArgumentError('Invalid stream row item count');
     }
     var earliest = row.first.received;
-    final items = <Map<String, Object>>[];
+    final encoded = BytesBuilder(copy: false)
+      ..add(_rowPrefix(batch.origin, batch.connectionId, batch.syncId));
+    var separator = false;
     for (final item in row) {
       if (item.received.isBefore(earliest)) earliest = item.received;
-      items.add(item._toJson());
+      if (separator) encoded.addByte(44);
+      encoded.add(item._encoded);
+      separator = true;
     }
-    final body = utf8.encode(
-      jsonEncode({
-        'format': icingaStreamFormat,
-        'origin': batch.origin.name,
-        'connection': batch.connectionId,
-        'sync': ?batch.syncId,
-        'items': items,
-      }),
-    );
+    encoded
+      ..addByte(93)
+      ..addByte(125);
+    final body = encoded.takeBytes();
     await tx.execute(
       pg.Sql.named('''WITH admitted AS (
           INSERT INTO raw_inbox(observed_at,raw_id,source_id,body,body_sha256,content_type)

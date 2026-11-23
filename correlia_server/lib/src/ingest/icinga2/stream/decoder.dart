@@ -143,6 +143,7 @@ IcingaStreamLineResult decodeIcingaStreamLine(
   required EventTimestamp receivedAt,
   required StreamStateTypePolicy policy,
   IcingaStreamOrigin origin = IcingaStreamOrigin.stream,
+  void Function(EventTimestamp)? onUpstreamTime,
 }) {
   final document = readStreamJson(line);
   if (origin == IcingaStreamOrigin.sync) {
@@ -180,9 +181,10 @@ IcingaStreamLineResult decodeIcingaStreamLine(
     'downtime': _downtime,
     'downtime.source_location': _sourceLocation,
   });
+  final upstream = _time(document, 'timestamp', 'timestamp');
+  final IcingaStreamLineResult result;
   if (type == 'StateChange') {
-    _time(document, 'timestamp', 'timestamp');
-    return _checkObservation(
+    result = _checkObservation(
       document,
       'check_result',
       'check_result',
@@ -191,8 +193,11 @@ IcingaStreamLineResult decodeIcingaStreamLine(
       request,
       receivedAt,
     );
+  } else {
+    result = _infoObservation(type, document, request, receivedAt, upstream);
   }
-  return _infoObservation(type, document, request, receivedAt);
+  onUpstreamTime?.call(upstream.toTimestamp());
+  return result;
 }
 
 IcingaStreamLineResult _checkObservation(
@@ -273,8 +278,9 @@ IcingaStreamEvent _infoObservation(
   Map<String, Object?> document,
   DecodeRequest request,
   EventTimestamp receivedAt,
+  StreamKeyTime timestamp,
 ) {
-  final timestamp = _time(document, 'timestamp', 'timestamp');
+  // Parsed once for both event ordering and the reader's lag observation.
   final Icinga2Object object;
   final EventKind kind;
   final Object? extra;

@@ -254,9 +254,11 @@ admission" states.
 
 ### Requirement: An echoed password is redacted before admission
 
-Before semantic parsing or emitting any evidence, the consumer SHALL redact API password and base64/base64url
-echoes in decoded JSON strings or malformed input bytes. The replacement SHALL NOT reproduce an echo.
-Unrelated content SHALL stay intact and changed items SHALL be marked `redacted`.
+Before semantic parsing, batching, sampling, or logging, the consumer SHALL redact the API password
+and padded and unpadded base64/base64url forms from decoded JSON strings. For malformed input it SHALL
+also remove literal byte echoes and recoverable string echoes. Replacement SHALL NOT create an echo,
+even across its boundaries. Keep unrelated wire bytes, flag changed items `redacted`, and retain the
+original lexical failure for malformed stream lines.
 
 #### Scenario: Password echoed after a successful subscription
 - **WHEN** an authenticated subscription returns a malformed line containing the password and a well-formed acknowledgement whose comment contains it

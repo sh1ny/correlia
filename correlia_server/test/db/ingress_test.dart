@@ -1,5 +1,3 @@
-import '../support/secret_fixture.dart';
-
 import 'dart:typed_data';
 
 import 'package:correlia_server/src/ingest/admission.dart';
@@ -7,8 +5,10 @@ import 'package:correlia_server/src/ingest/config_repository.dart';
 import 'package:test/test.dart';
 
 import '../integration/test_tools/serverpod_test_tools.dart';
+import '../support/icinga2_pipeline.dart';
 import '../support/icinga2_stream_fixture.dart';
 import '../support/ingest_schema.dart';
+import '../support/secret_fixture.dart';
 import 'ingest_config_test.dart' as fixture;
 
 void main() {
@@ -34,7 +34,7 @@ void main() {
 
       test('admission_commit_fails', () async {
         final session = builder.build();
-        await initializeIngestSchema(session);
+        await clearPipelineTables(session);
         await IngestConfigRepository(
           session,
           secretStore: testSecretStore,
