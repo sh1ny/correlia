@@ -94,6 +94,10 @@ Current state that shapes the approach (paths under `correlia_server/`):
     guaranteed.
   - Objects queries have no pagination and refuse unknown attributes (400 before 2.16, a per-object error from
     2.16). `host_name` exists only on services; a service's `name` attribute is its short name.
+  - A preliminary official-image probe returned 404 for a subscription missing `events/StateChange` on all
+    four D16 candidates. For a host query, missing permission produced 404 on 2.13.14 and 403 on 2.14.10,
+    2.15.7 and 2.16.6. The 2.13.14 denial body was identical to an authorized query matching zero hosts
+    (`No objects found.`); an authorized zero-match query also returned 404 on 2.16.6.
 
 ## Decisions
 
@@ -208,9 +212,12 @@ Scope decisions S1-S5 are in `proposal.md`.
   unvalidated text, and the sample is at most 20 × 600 bytes (review round 4, Moderate 3).
 
   Recovery needs framing the scanner can follow. An unterminated string or an unmatched bracket leaves no
-  reliable next element, so it ends the reading `invalid_framing`, like a truncated response, an HTTP error or
-  the deadline (`truncated`, `http_status`, `timeout`), which close the connection; rows already admitted still
-  apply (review round 3, Moderate 3). A sync that ends at the deadline records the last object it read, and the
+  reliable next element, so it ends the reading `invalid_framing`. A truncated response, HTTP error or
+  deadline likewise closes the connection; rows already admitted still apply. HTTP 403 is `forbidden`;
+  HTTP 404 is `http_status`, including a response that says no objects were found. Do not inspect the
+  error body to infer permission or treat an ambiguous 404 as a successful empty projection. The status
+  exposes the bounded class, and the setup docs warn that a genuinely empty host or service collection
+  can keep the sync degraded. A sync that ends at the deadline records the last object it read, and the
   status counts consecutive timeouts, so an installation that cannot enumerate within 15 minutes is visible. Memory is bounded by one
   object plus one batch. The whole sync has a 15-minute deadline and a 60-second read-idle deadline.
 - **Rejected:** Sync on connect only (a missed event on a healthy connection is never repaired); an idle
@@ -218,7 +225,8 @@ Scope decisions S1-S5 are in `proposal.md`.
   (memory grows with the installation).
 - **Reversal cost:** low.
 - **Important:** yes (changes behaviour and adds a setting).
-- **Chosen by:** user (owner, 2026-11-23: "Connect + hourly")
+- **Chosen by:** user (owner, 2026-11-23: "Connect + hourly"; during apply, keep all four candidates and fail
+  closed on ambiguous 404 rather than claiming empty sync success).
 
 ### D4: A lease row with generation, fenced at every write
 
@@ -628,11 +636,13 @@ Scope decisions S1-S5 are in `proposal.md`.
     recovery.
 
   Fixtures go to `test/unit/ingest/fixtures/icinga2/<release>/stream/`. A matrix test decodes every capture,
-  compares the expected events and the key text of every captured time. A run with the permission list minus one
-  must fail `forbidden`. The supported-release list names exactly the releases whose captures pass; a release
-  whose capture fails is removed from the list, and the change does not ship unless at least one release
-  qualifies (review round 1, Critical 4; review round 2, Moderate 7). The roadmap's M2 line that names
-  `CheckResult` is corrected by a task (S2 chose not to consume it).
+  compares the expected events and key text, and checks a complete matrix: each documented grant is omitted
+  individually on every candidate release with a populated fixture. Capture the actual upstream 403 or 404
+  and the real consumer's `forbidden` or `http_status` respectively, with no successful first sync; a
+  subscription refusal never starts a sync. The supported-release list
+  names exactly the releases whose captures pass; a release whose capture fails is removed from the list, and
+  the change does not ship unless at least one release qualifies (review round 1, Critical 4; review round 2, Moderate 7).
+  The roadmap excludes `CheckResult` (S2).
 - **Rejected:** Hand-written lines (M1 learned that documented payloads differ from real ones).
 - **Reversal cost:** low.
 - **Important:** no.

@@ -63,7 +63,7 @@ variable SHALL change trust, proxy or key logging.
 The consumer SHALL subscribe with `POST /v1/events`, a `queue` named for the source, no filter, and exactly
 the types `StateChange`, `AcknowledgementSet`, `AcknowledgementCleared`, `DowntimeStarted`,
 `DowntimeRemoved` and `Flapping`. Response headers SHALL arrive within 10 seconds and the TCP connect within
-10 seconds, or the attempt fails.
+10 seconds, or the attempt fails. HTTP 403 SHALL fail as `forbidden`, and HTTP 404 as `http_status`.
 
 #### Scenario: Subscription accepted
 - **WHEN** Icinga 2 answers the subscription with 200 within the deadline
@@ -74,8 +74,12 @@ the types `StateChange`, `AcknowledgementSet`, `AcknowledgementCleared`, `Downti
 - **THEN** the attempt fails with error class `timeout`, the socket is closed, and the consumer backs off
 
 #### Scenario: Permission missing
-- **WHEN** the API user lacks `events/StateChange` and Icinga 2 answers 403
+- **WHEN** a subscription is refused with HTTP 403
 - **THEN** the status records error class `forbidden` and the consumer backs off without syncing
+
+#### Scenario: Subscription not found
+- **WHEN** the subscription answers 404, including the response caused by a missing event grant on the captured releases
+- **THEN** the status records `http_status` and the consumer backs off without syncing
 
 ### Requirement: One durable writer per stream source
 
@@ -438,6 +442,14 @@ before the sync query is sent.
 - **WHEN** the host query answers 500, or the sync does not finish within 15 minutes
 - **THEN** the sync outcome is `failed` with its error class, the connection is closed, one gap is recorded, and the consumer reconnects after backoff
 
+#### Scenario: Sync object query is forbidden
+- **WHEN** a host or service query answers 403
+- **THEN** the sync fails with `forbidden`, counts a gap, and closes the connection
+
+#### Scenario: Ambiguous no-objects response
+- **WHEN** a host or service projection answers 404, including `No objects found.`
+- **THEN** the sync fails with `http_status`, counts a gap, and closes the connection without reporting that projection as an empty success
+
 ### Requirement: Sync objects share the stream's identity
 
 A service's identity SHALL come from its `host_name` and its short `name`, the same values a `StateChange`
@@ -485,8 +497,9 @@ response. The sample SHALL hold at most 20 entries of at most 600 bytes each, an
 ### Requirement: Broken sync framing ends the reading
 
 An element whose JSON framing cannot be followed (an unterminated string or an unmatched bracket), a truncated
-response, an HTTP error or the sync deadline SHALL end the reading and the sync `failed` (`invalid_framing`,
-`truncated`, `http_status`, `timeout`), keeping the rows already admitted, and close the connection.
+response, an HTTP error or the sync deadline SHALL end the reading and fail the sync (`invalid_framing`,
+`truncated`, `forbidden` for HTTP 403, `http_status` for HTTP 404 or other unexpected status, or `timeout`),
+keeping rows already admitted, and close the connection.
 
 #### Scenario: Truncated response after a valid prefix
 - **WHEN** the service response ends mid-object after 500 valid objects were admitted
@@ -929,10 +942,9 @@ release time is promised for every backend state or topology, and the documentat
 
 ### Requirement: Supported Icinga 2 releases for Event Streams
 
-Event Streams support SHALL be claimed only for releases whose subscription, every consumed event type and both
-sync responses are captured from the official Icinga 2 image by the committed capture tool, decode in the
-version-matrix test, and pass a run of the real consumer against that image. The change SHALL NOT ship unless
-at least one release qualifies.
+A release SHALL be supported only with official-image captures of subscription, every consumed type and
+both sync responses, successful decoding and consumer runs, and a complete denial matrix testing each
+documented grant omitted individually from a populated fixture. At least one release SHALL qualify.
 
 #### Scenario: Version matrix
 - **WHEN** the matrix test runs over the committed captures of every release listed as supported
@@ -951,19 +963,18 @@ at least one release qualifies.
 - **THEN** the consumer subscribes, its first sync completes, its status is `connected`, and a forced recovery resolves its alert
 
 #### Scenario: Missing permission in the documented list
-- **WHEN** the documented permission list minus one entry is applied to the capture rig's `ApiUser`
-- **THEN** the consumer's subscription or sync fails with `forbidden`
+- **WHEN** each documented grant is omitted individually on the populated capture rig for every candidate release
+- **THEN** the recorded upstream 403 or 404 maps to `forbidden` or `http_status`, respectively; no attempt has a successful first sync, and subscription refusal starts no sync
 
 ### Requirement: Event Streams setup documentation
 
-The documentation SHALL state the `ApiUser` permissions, the CA setup, that one Icinga 2 instance feeds one
-stream source, that every process of every role is upgraded before a stream source is published, that no
-process of an older release may run against the database once a stream source is published, and that the status
-method is limited to local development and test.
+Setup docs SHALL state the API grants and CA setup, one Icinga instance per stream source, all-role upgrade
+before first publication, no older processes afterward, and status access limited to local development/test.
+The docs SHALL warn that an ambiguous object-query 404 fails the sync even for a genuinely empty collection.
 
 #### Scenario: Setup items present
 - **WHEN** a test reads the setup section
-- **THEN** it finds the permission list used by the capture rig, the CA setup, the one-instance rule, the all-role upgrade order, the no-older-release rollback boundary and the status access note
+- **THEN** it finds the API grants, CA setup, one-instance rule, upgrade and rollback boundaries, status access note and warning that an ambiguous 404 fails even for an empty collection
 
 ### Requirement: Event Streams limits documentation
 

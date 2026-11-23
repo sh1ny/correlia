@@ -1,23 +1,20 @@
 ## Metadata
 
-- **Change** `icinga2-event-streams`, working-tree amendment at base `793d649`.
-- **Scope** The sole outstanding round 11 D31 finding and regressions introduced by its fix. Reviewed tracked artifacts and source, with the explicitly requested, untracked `round-11.md` as the sole exception. No files were written and no tests were run.
+Scope covered D3, D16, the `icinga2-event-streams` delta, and its task map. This was a read-only review. No files changed and no tests ran. Official-image fixtures and full consumer evidence remain pending in tasks 2 and 11.
 
 ## Findings
 
-No outstanding findings. I found no concrete regressions in the amendment.
+1. **The release gate does not explicitly require the per-grant denial matrix.** The delta’s support requirement gates each release on successful captures and a real-consumer run. Its missing-permission scenario describes one omitted entry, while task 11.4 requires the permission test to pass without specifying a complete release-by-grant matrix. A partial run could satisfy those checks and leave a documented grant untested. [D16](/home/bgshi/Development/dart/correlia/openspec/changes/icinga2-event-streams/design.md:638) · [Delta spec](/home/bgshi/Development/dart/correlia/openspec/changes/icinga2-event-streams/specs/icinga2-event-streams/spec.md:945) · [Task 11.4](/home/bgshi/Development/dart/correlia/openspec/changes/icinga2-event-streams/tasks.md:393)
 
 ## Verdict
 
-VERDICT: APPROVE
+VERDICT: APPROVE_WITH_CHANGES
+CHANGES_APPLIED: yes
 
 ## Required Changes
 
-CHANGES_APPLIED: n/a
-
-None.
+Require tasks 2 and 11 to capture and verify one populated-fixture run per documented grant omitted individually for each supported release. Make complete matrix coverage a release criterion. For each case, record the upstream status and assert the corresponding consumer error class, no successful first sync, and no sync started when the subscription itself is refused.
 
 ## Rebuttals
 
-- **Round 11 D31 is resolved.** The lexical pass classifies the original bytes before redaction. For either malformed JSON or invalid UTF-8, the consumer records the fixed `invalid_json` flag in the internal raw envelope and admits the sanitized item in a row of its own. The pipeline checks the flag before parsing the stored line, so text repaired by redaction still fails with `invalid_json`. Unflagged items still use the guarded parser, and sync keeps its existing bad-object and broken-framing rules. [Raw envelope](/home/bgshi/Development/dart/correlia/openspec/changes/icinga2-event-streams/design.md:287) · [D31](/home/bgshi/Development/dart/correlia/openspec/changes/icinga2-event-streams/design.md:813)
-- The literal-tab scenario reproduces the counterexample by making the password a raw tab inside a stream comment and making the retained text parseable through redaction. The mapped database test calls for isolated admission, preservation of the original verdict, a failed raw row with that exact code, and no emitted event. [Scenario](/home/bgshi/Development/dart/correlia/openspec/changes/icinga2-event-streams/specs/icinga2-event-streams/spec.md:277) · [Test map](/home/bgshi/Development/dart/correlia/openspec/changes/icinga2-event-streams/tasks.md:140)
+D3 and the delta implement the owner’s decision consistently. Subscription 404 backs off before sync. An object-query 404 fails the sync as `http_status`, records a gap, and closes the connection even when the collection is genuinely empty. HTTP 403 is `forbidden`. The task map covers both classifications and the operator warning. The finding concerns matrix completeness while retaining all four candidates. [D3](/home/bgshi/Development/dart/correlia/openspec/changes/icinga2-event-streams/design.md:214) · [Delta spec](/home/bgshi/Development/dart/correlia/openspec/changes/icinga2-event-streams/specs/icinga2-event-streams/spec.md:445) · [Task map](/home/bgshi/Development/dart/correlia/openspec/changes/icinga2-event-streams/tasks.md:168)
