@@ -743,8 +743,8 @@ mapping to status and severity SHALL be the webhook's.
 
 Under `soft_and_hard`, a SOFT non-OK observation SHALL fire like a HARD one. Under `hard_only` (default), a
 SOFT non-OK observation SHALL store no event and no observation key and change no alert; it SHALL be counted
-`soft_info` on its row. An OK or UP observation SHALL resolve under both. The policy of the row's pinned
-configuration snapshot SHALL apply, so the first revision that applies an observation decides its effect.
+`soft_info` on its row. An OK or UP observation SHALL resolve under both. Use the state policy of the snapshot
+recorded at admission, not the snapshot selected for routing at first claim.
 
 #### Scenario: Missed recovery superseded by a SOFT result
 - **WHEN** under `hard_only` a HARD CRITICAL alert is firing, its OK result is missed during a gap, and on reconnect the object's last result is a newer SOFT CRITICAL
@@ -760,7 +760,7 @@ configuration snapshot SHALL apply, so the first revision that applies an observ
 
 #### Scenario: Policy changed between admission and claim
 - **WHEN** a SOFT CRITICAL row is admitted under `hard_only`, and a revision switching to `soft_and_hard` is active when the row is first claimed
-- **THEN** the row is processed under `soft_and_hard`, its pinned snapshot's policy
+- **THEN** the pinned `hard_only` policy still applies: the row counts `soft_info`, stores no event or observation key, and does not fire an alert
 
 #### Scenario: Copies of one result under two policies
 - **WHEN** one SOFT CRITICAL result is admitted twice, and the copies are pinned to a `hard_only` and a `soft_and_hard` revision, processed in both orders

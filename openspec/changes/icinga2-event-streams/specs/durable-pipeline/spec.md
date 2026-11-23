@@ -159,10 +159,10 @@ Every state observation, reconcile ones included, SHALL reserve its observation 
 
 ### Requirement: Consumer admission into the raw inbox
 
-A pull consumer SHALL insert raw rows only through a fenced consumer admission path (lease generation,
-configuration revision and source mode checked in the insert transaction). Its rows SHALL be claimed, pinned,
-retried and failed exactly like webhook rows, and decoded by the row's stored format, never by the source kind
-alone. Each item's receipt time SHALL be its observed time.
+A pull consumer SHALL insert raw rows only through fenced admission, checking lease generation, configuration
+revision and source mode in the insert transaction. Source lookup, identity namespace and routing SHALL use the
+first-claim snapshot, as for webhook rows; the same claim, retry and failure rules apply. Stream and sync state
+policy SHALL use the admission snapshot in `icinga2_raw_origin`. Use stored format and each item's own receipt time.
 
 #### Scenario: Stream row processed
 - **WHEN** a consumer admits a row of 100 valid `StateChange` items

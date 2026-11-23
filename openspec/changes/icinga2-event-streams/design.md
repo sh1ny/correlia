@@ -285,7 +285,7 @@ Scope decisions S1-S5 are in `proposal.md`.
   ids older than one hour for every source, held or not, so a removed source leaves none
   behind; a retry follows its failure within seconds (review round 6, Moderate 2).
 
-  The same transaction writes `icinga2_raw_origin(rawId, origin, syncId)` for each row. Every failure path of a
+  The same transaction writes `icinga2_raw_origin(rawId, origin, syncId, admissionSnapshotId)` for each row. Every failure path of a
   consumer row, the pre-decode refusals (`source_not_configured`, `unsupported_kind`, `unsupported_format`) and
   retry exhaustion through `_recordError` included (`pipeline.dart:339-355, 740-785`), reads this record by raw
   id, never the body or the pinned source. A failed sync row adds `rowsFailed` to its sync and raises no request;
@@ -443,12 +443,14 @@ Scope decisions S1-S5 are in `proposal.md`.
 
 ### D10: SOFT problems under `hard_only` are counted, not stored
 
-- **Choice:** `state_type_policy` is read from the row's pinned snapshot at decode. Under `hard_only`, a SOFT
-  non-OK observation (stream or sync) stores no event and no observation key, changes no alert and is counted
+- **Choice:** `state_type_policy` comes from the admission snapshot stored on `icinga2_raw_origin`, not
+  the first-claim snapshot used for source lookup, identity namespace and routing. Under `hard_only`, a SOFT
+  non-OK observation (stream or sync) stores no event or observation key, changes no alert and counts
   `soft_info`. Under `soft_and_hard` it fires. OK/UP always resolves. Because a skipped observation leaves no
-  key, the first revision that applies a result decides its effect: two copies pinned to different policies end
-  with the `soft_and_hard` copy firing, in either order (review round 1, Critical 2; `icinga2-ingest` round 4
-  Critical 5).
+  key, two copies admitted under different policies end with the `soft_and_hard` copy firing, in either
+  order (review round 1, Critical 2; `icinga2-ingest` round 4 Critical 5).
+  A queued row keeps the policy recorded at admission even if a new active revision selects a different
+  policy before claim. Important: yes. Chosen by: user (apply, separate admission and first-claim snapshots).
 - **Rejected:** Storing an `info` event under `hard_only` (its key blocks a later `soft_and_hard` copy, so the
   outcome depends on processing order); putting the policy in the key (one result gets two event ids).
 - **Reversal cost:** low.
@@ -925,8 +927,9 @@ Scope decisions S1-S5 are in `proposal.md`.
 
 ### D29: Consumer rows carry an admission record by raw id
 
-- **Choice:** `icinga2_raw_origin(rawId, origin, syncId)`, written in the admission transaction (D5), is the
-  only source the pipeline's failure paths use for a consumer row's origin and sync. `raw_inbox` is unchanged.
+- **Choice:** `icinga2_raw_origin(rawId, origin, syncId, admissionSnapshotId)`, written in the admission
+  transaction (D5), is the only source of failure provenance and admission-time policy for a consumer row.
+  `raw_inbox` is unchanged; its snapshot still pins source lookup, identity namespace and routes at first claim.
 - **Rejected:** Nullable `origin` and `syncId` columns on `raw_inbox` (changes the table every source uses).
 - **Reversal cost:** low (one table).
 - **Important:** yes (a stored table).
