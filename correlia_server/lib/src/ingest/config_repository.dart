@@ -151,7 +151,17 @@ final class IngestConfigRepository {
             );
           }
         }
-        await _refuseKindChanges(input, transaction);
+        await _refuseSourceChanges(input, transaction);
+        if (input.sources.any(
+          (source) => source.mode == SourceMode.eventStreams,
+        )) {
+          // No stream password can be activated before the secure publication cutover.
+          throw const BootstrapError(
+            'config',
+            'sources',
+            'reuse_inventory_pending',
+          );
+        }
         await _validateCommitments(imported, transaction);
         await _importSecrets(input, imported, transaction);
         if (requireLiveSecrets) {
@@ -257,27 +267,36 @@ final class IngestConfigRepository {
     }
   }
 
-  /// A source UUID keeps the kind it was first published with, also once it is
-  /// disabled (its row is never deleted), so pinned raw rows decode with it.
-  Future<void> _refuseKindChanges(
+  /// Rejects a different kind or admission mode for an existing source UUID.
+  ///
+  /// Removing a source disables its row but preserves both fields.
+  Future<void> _refuseSourceChanges(
     IngestBootstrap input,
     Transaction transaction,
   ) async {
     final stored = {
       for (final row in await session.db.unsafeQuery(
-        'SELECT "sourceId"::text,kind FROM ingest_source',
+        'SELECT "sourceId"::text,kind,mode FROM ingest_source',
         transaction: transaction,
         timeoutInSeconds: 5,
       ))
-        row[0]! as String: row[1]! as String,
+        row[0]! as String: (kind: row[1]! as String, mode: row[2]! as String),
     };
     for (final source in input.sources) {
       final existing = stored[source.id];
-      if (existing != null && existing != source.kind.name) {
+      if (existing == null) continue;
+      if (existing.kind != source.kind.name) {
         throw BootstrapError(
           'config',
           'sources[${source.declaredAt}].kind',
           'kind_changed',
+        );
+      }
+      if (existing.mode != source.mode.wire) {
+        throw BootstrapError(
+          'config',
+          'sources[${source.declaredAt}].mode',
+          'mode_changed',
         );
       }
     }

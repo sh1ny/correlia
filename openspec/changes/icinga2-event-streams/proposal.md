@@ -85,8 +85,8 @@ It advances these M2 exit criteria:
 
 - Server: new `correlia_server/lib/src/ingest/icinga2/stream/` (HTTP client, line reader, parsers, consumer,
   lease, status), changes in the source model and bootstrap parser, admission, pipeline routing, the alert-state
-  service and the worker registry; one Serverpod migration (lease and status tables) and possibly one Correlia
-  schema step. The stream client is built on `dart:io` with exclusive TLS trust.
+  service and the worker registry. Serverpod migrations add the source mode and consumer tables; Correlia
+  schema steps install the SQL-owned publication and admission fences. The client uses exclusive TLS trust.
 - Configuration: new source fields (`mode`, `api` settings, `state_type_policy`); no change for existing
   webhook and Alertmanager sources.
 - Outputs: stream sources publish the same event kinds as the webhook (`alert`, `state`, `ack`, `downtime`)

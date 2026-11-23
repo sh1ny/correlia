@@ -81,9 +81,9 @@ Each webhook-mode source SHALL have a request-rate budget (`rate_limit.per_secon
 
 ### Requirement: A source's mode never changes
 
-An `icinga2` source UUID SHALL keep the mode it was first published with, also while disabled. A configuration
-that gives it another mode SHALL fail activation with `mode_changed`, so a raw row always decodes in the mode it
-was admitted under.
+An `icinga2` source UUID SHALL keep the mode it was first published with, also across disable and
+re-enable. A configuration that gives it another mode SHALL fail activation with `mode_changed`, so a raw
+row always decodes in the mode it was admitted under.
 
 #### Scenario: Mode change refused
 - **WHEN** a source published as `webhook` is republished with the same UUID and `mode: event_streams`

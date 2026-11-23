@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:correlia_server/src/ingest/admission.dart';
 import 'package:correlia_server/src/ingest/bootstrap.dart';
 import 'package:correlia_server/src/event/identity.dart';
 import 'package:correlia_server/src/ingest/config_repository.dart';
@@ -20,6 +21,7 @@ import 'ingest_config_test.dart' show token;
 const _alertmanagerId = '11111111-1111-4111-8111-111111111111';
 const _icinga2Id = '33333333-3333-4333-8333-333333333333';
 final _now = DateTime.utc(2026, 11, 18);
+const _streamId = '44444444-4444-4444-8444-444444444444';
 
 final class _Routes implements RouteHost {
   _Routes(this.web);
@@ -80,7 +82,10 @@ void main() {
         client = HttpClient();
       });
 
-      Future<void> start(IngestBootstrap input) async {
+      Future<void> start(
+        IngestBootstrap input, {
+        Future<void> Function()? beforeBody,
+      }) async {
         web = WebServer(serverpod: session.serverpod);
         ingress = IngressSubsystem(
           pod: session.serverpod,
@@ -88,6 +93,7 @@ void main() {
           ready: () => true,
           log: (_) {},
           clock: () => _now,
+          beforeBody: beforeBody,
         );
         ingress.mountRoutes(_Routes(web));
         await ingress.start();
@@ -116,6 +122,66 @@ void main() {
                 'SELECT count(*) FROM raw_inbox',
               )).single[0]!
               as int;
+
+      test('delivery_to_a_stream_source', () async {
+        final input = await publish(both: false);
+        // Exercise both mode fences even if stale credential state exists.
+        await session.db.unsafeSimpleExecute(
+          "UPDATE ingest_source SET mode='event_streams' WHERE kind='icinga2'",
+        );
+        var bodyReads = 0;
+        await start(
+          input,
+          beforeBody: () async {
+            bodyReads++;
+          },
+        );
+        Future<(int, String)> rejected(String id) async {
+          final request = await client.post(
+            '127.0.0.1',
+            web.port!,
+            '/hooks/icinga2/$id',
+          );
+          request.headers.contentType = ContentType.json;
+          request.headers.set('authorization', 'Bearer ${token(2)}');
+          request.write('{}');
+          final response = await request.close();
+          return (response.statusCode, await utf8.decodeStream(response));
+        }
+
+        final absent = await rejected(_alertmanagerId);
+        expect(absent.$1, 401);
+        expect(await rejected(_icinga2Id), absent);
+        expect(bodyReads, 0);
+        final direct = await IngestAdmission(session).admit(
+          sourceId: _icinga2Id,
+          kind: 'icinga2',
+          credential: input.sources.single.credentials.single,
+          pathToken: false,
+          body: utf8.encode('{}'),
+          contentType: 'application/json',
+          observedAt: _now,
+        );
+        expect(direct, AdmissionOutcome.unauthorized);
+        expect(await rawCount(), 0);
+        expect(
+          (await session.db.unsafeQuery(
+            'SELECT count(*) FROM transport_keys',
+          )).single[0],
+          0,
+        );
+      });
+
+      test('webhook_source_unaffected', () async {
+        final input = await publish(both: false);
+        await session.db.unsafeSimpleExecute('''
+          INSERT INTO ingest_source ("sourceId",kind,mode,enabled,"allowPathToken")
+          VALUES ('$_streamId','icinga2','event_streams',true,false)
+        ''');
+        await start(input);
+        expect(await post('/hooks/icinga2/$_icinga2Id', bearer: 2), 202);
+        expect(await rawCount(), 1);
+      });
 
       test('supported_kinds', () async {
         await start(await publish(both: true));

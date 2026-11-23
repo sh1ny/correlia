@@ -65,7 +65,8 @@ final class IngestAdmission {
         transaction: tx,
       );
       final sources = await session.db.unsafeQuery(
-        'SELECT enabled, "allowPathToken", kind FROM ingest_source WHERE "sourceId"=CAST(@source AS uuid) FOR SHARE',
+        '''SELECT enabled, "allowPathToken", kind FROM ingest_source
+        WHERE "sourceId"=CAST(@source AS uuid) AND mode='webhook' FOR SHARE''',
         parameters: QueryParameters.named({'source': sourceId}),
         transaction: tx,
         timeoutInSeconds: 5,

@@ -346,11 +346,17 @@ final class IngestBootstrap {
       'sources',
     ).indexed) {
       final field = 'sources[$index]';
-      for (final credential in _credentialInputs(
-        _map(value, 'config', field),
-        version,
-        field,
-      )) {
+      final row = _map(value, 'config', field);
+      final kind =
+          SourceKind.named(version == 1 ? 'alertmanager' : row['kind']) ??
+          _bad('config', '$field.kind', 'kind');
+      if (_sourceMode(row, kind, field) == SourceMode.eventStreams) {
+        final api = _map(row['api'], 'config', '$field.api');
+        yield _ref(api['password_ref'], '$field.api.password_ref');
+        yield _ref(api['ca_ref'], '$field.api.ca_ref');
+        continue;
+      }
+      for (final credential in _credentialInputs(row, version, field)) {
         yield credential.reference;
       }
     }

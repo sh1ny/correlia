@@ -46,6 +46,34 @@ Matcher field(String path) =>
     throwsA(isA<BootstrapError>().having((e) => e.field, 'field', path));
 
 void main() {
+  test('webhook_mode_by_default', () {
+    final webhook = parse(fields: {'kind': 'icinga2'}).sources.single;
+    expect(webhook.toJson(), isNot(contains('api')));
+    expect(webhook.credentials.single.reference, 'key1');
+    expect(webhook.rateLimit!.burst, 40);
+  });
+
+  test('mode_on_another_kind_or_unknown_mode', () {
+    expect(
+      () => parse(fields: {'mode': 'event_streams'}),
+      field('sources[0].mode'),
+    );
+    expect(
+      () => parse(fields: {'kind': 'icinga2', 'mode': 'poll'}),
+      field('sources[0].mode'),
+    );
+  });
+
+  test('existing_snapshot_republished_after_the_upgrade', () {
+    const previousSnapshot =
+        '9609c9e2f4cffe145a2d4bba19ffdd2d7b153d6b4cf7542d97f5a204cea0e92e';
+    expect(parse(fields: {'kind': 'icinga2'}).snapshotId, previousSnapshot);
+    expect(
+      parse(fields: {'kind': 'icinga2', 'mode': 'webhook'}).snapshotId,
+      previousSnapshot,
+    );
+  });
+
   test('unsupported_kind_or_field', () {
     expect(() => parse(fields: {'kind': 'zabbix'}), field('sources[0].kind'));
     expect(() => parse(fields: {'foreign': true}), field('sources[0].foreign'));
@@ -159,8 +187,8 @@ void main() {
       expect(mapped.namespace, 'legacy');
       expect(mapped.credentials.single.type.name, 'bearer');
       expect(mapped.credentials.single.reference, 'key1');
-      expect(mapped.rateLimit.perSecond, 20);
-      expect(mapped.rateLimit.burst, 40);
+      expect(mapped.rateLimit!.perSecond, 20);
+      expect(mapped.rateLimit!.burst, 40);
       final snapshot = jsonDecode(legacy.publicJson) as Map<String, Object?>;
       expect(snapshot['format_version'], 2);
       expect(legacy.publicJson, isNot(contains(material['key1']!)));
@@ -172,7 +200,7 @@ void main() {
       fields: {
         'rate_limit': {'per_second': 1000, 'burst': 10000},
       },
-    ).sources.single.rateLimit;
+    ).sources.single.rateLimit!;
     expect((rate.perSecond, rate.burst), (1000, 10000));
     for (final (perSecond, burst, path) in [
       (0, 1, 'per_second'),

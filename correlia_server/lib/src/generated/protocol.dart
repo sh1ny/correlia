@@ -540,6 +540,13 @@ class Protocol extends _is.DatabaseSerializationManager
           columnDefault: '\'alertmanager\'',
         ),
         _isp.ColumnDefinition(
+          name: 'mode',
+          columnType: _isp.ColumnType.text,
+          isNullable: false,
+          dartType: 'String',
+          columnDefault: '\'webhook\'',
+        ),
+        _isp.ColumnDefinition(
           name: 'enabled',
           columnType: _isp.ColumnType.boolean,
           isNullable: false,
