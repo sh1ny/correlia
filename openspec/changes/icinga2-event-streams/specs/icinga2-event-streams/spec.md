@@ -863,10 +863,10 @@ change SHALL be logged.
 
 ### Requirement: Gaps counted once per connection
 
-Each connection SHALL get the next number of the source's connection sequence, recorded before its subscription
-is sent. The gap of a connection SHALL be counted only if its number is higher than the last one counted, and a
-holder SHALL count the gap of its previous connection, or its predecessor's last one, before it numbers a new
-connection.
+After TLS verification, the holder SHALL record the next connection number before sending its subscription.
+Failed DNS, TCP or TLS attempts SHALL log the error and back off without numbering a connection. A numbered
+connection's gap SHALL count only if its number exceeds the last one counted, even if no subscription was sent.
+Before numbering a new connection, the holder SHALL count its own or its predecessor's last gap.
 
 #### Scenario: Gap recorded by the next holder
 - **WHEN** a holder dies while `connected`, and another worker takes over
@@ -879,6 +879,11 @@ connection.
 #### Scenario: Death between recording a connection and subscribing
 - **WHEN** a holder records a new connection number and dies before its subscription is sent
 - **THEN** the next holder records one gap for that connection
+
+#### Scenario: Numbering acknowledgement lost
+- **WHEN** the subscription deadline expires while the commit outcome of its number is unknown
+- **THEN** the peer receives no HTTP bytes, and no replacement allocates before the old operation settles or is fenced out
+- **AND** the next allocation counts one outstanding gap if the number committed, or none if it rolled back
 
 #### Scenario: Late retry of an older gap
 - **WHEN** a holder retries counting the gap of connection 4 after the gap of connection 5 was counted

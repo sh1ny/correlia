@@ -399,6 +399,9 @@ Scope decisions S1-S5 are in `proposal.md`.
     `RawSecureSocket.close()` alone may wait for queued output. D13 invokes that abort directly
     even before `HttpClient` has registered the factory task. Check the monotonic lease at handoff
     and before every raw write, including writable callbacks resuming partial writes after a pause.
+    Each subscription owns a fresh HTTP client and verified TLS transport: no idle socket can
+    bypass authorization. Hand its socket to `HttpClient` only after the numbering commit is
+    acknowledged. Keep queries on separate clients; their requests cannot allocate a stream sequence.
     Detach continuation references to the attempt, HTTP client, request, credentials and waiters
     on abort. A late continuation needs only enough state to close a late result or consume an
     error. Peer closure and bounded retained resources matter as well as bounded registry size.
@@ -513,8 +516,37 @@ Scope decisions S1-S5 are in `proposal.md`.
     holds `state`, `connectionId`, `connectionSeq`, `connectedAt`, `lastEventAt`; `gapCount`, `lastGapSeq`,
     `lastGapAt`, `oversizeLines`; `lagMs`, `lastErrorClass`; `servedResyncSeq`; `syncTimeoutsInARow`; the current
     and last sync id. The endpoint derives "unserved requests" from `requestSeq > servedResyncSeq`.
-  - **Gaps:** every connection gets the next `connectionSeq`, written (fenced) before its subscription is sent;
-    if that write fails, no subscription is sent. A gap for connection *n* is recorded by
+  - **Gaps:** once TCP and TLS verification succeed, write the next `connectionSeq` under the lease fence
+    before any HTTP subscription bytes are sent. If the write fails, abort without sending. Failed DNS,
+    TCP, or TLS attempts log their error and back off but do not number a connection. HTTP errors and a
+    death after numbering still add one gap. Important: yes. Chosen by: Ormy on behalf of the owner during
+    apply (owner delegated decisions, 2026-11-24). A gap counts a stream interruption, not failed dials.
+    Number under the shared source row lock and then the lease fence: require enabled `event_streams`,
+    active pinned revision, holder, generation and unexpired lease. After commit, recheck that the
+    same attempt is still live, uncancelled and inside the original header deadline before any HTTP.
+    The numbering commit is the authorization point for that subscription. Publication before it
+    blocks old authorization. Publication after it is observed by the existing D15 poll/refusal
+    rules (no synchronous push revocation or database lock across HTTP); once observed, a changed
+    target closes immediately, including any partial authenticated write. Admission always checks
+    current revision, so a connection authorized just before publication cannot admit under the
+    old revision after publication. Prove both publication orders and cancellation after numbering.
+    A late or unknown commit closes the socket without sending credentials. The next allocation
+    reconciles the durable predecessor sequence and counts any outstanding gap in the same transaction
+    that increments the sequence. The in-memory last acknowledgement is not authoritative.
+    Drain the prior numbering operation before any replacement on that dedicated session. If it
+    cannot settle within the local budget, close the dedicated session and require a newer lease
+    generation before retry; the old fenced transaction cannot advance past that generation.
+    Acquisition resets previous live status to `connecting` in its lease transaction, keeping
+    counters and sync IDs; a renewed lease cannot make the previous generation appear `connected`.
+    Set `backoff` with the bounded error after a refused dial, TLS or subscription. Only the
+    successful end of sync reading (including isolated bad objects) returns status to `connected`.
+    The holder joins the previous sync reader before starting a successor; a delayed progress
+    result changes only its own row. Any connection-scoped status update must match the current
+    connection ID under the fence. No old success can report `connected` for a replacement.
+    Pre-numbering retry status belongs to the holder's single current attempt. Await its terminal
+    status write before running another, including if that write fails. Prove an old completion
+    cannot overwrite the replacement's status, and a numbered HTTP refusal counts once.
+    A gap for connection *n* is recorded by
     `UPDATE … SET gapCount = gapCount + 1, lastGapSeq = n WHERE lastGapSeq < n`, so each ended connection counts
     once whoever records it and in whatever order; a new holder records its predecessor's last connection. A
     holder that cannot write keeps the pending gap in memory and writes it with its next fenced write. No gap
@@ -1187,8 +1219,8 @@ Consumer state machine (T2):
 ```mermaid
 stateDiagram-v2
   [*] --> stopped
-  stopped --> connecting: lease acquired (local deadline armed), connection seq recorded
-  connecting --> syncing: subscribed (headers < 10 s)
+  stopped --> connecting: lease acquired (local deadline armed)
+  connecting --> syncing: TLS verified, seq recorded, then subscribed (headers < 10 s)
   connecting --> backoff: connect/TLS/401/403/timeout
   syncing --> connected: reading ended (bad objects only counted)
   syncing --> backoff: framing / truncated / HTTP error / deadline / stall
