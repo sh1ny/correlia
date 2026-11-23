@@ -311,8 +311,8 @@ their group re-runs that test. Every other row starts `red` and turns green when
 
 ## 1. ADR 0030 and roadmap correction
 
-- [ ] 1.1 Write `docs/adr/0030-pull-sources-leased-consumers.md` ("Pull sources: leased consumers, fenced admission and reconcile observations", `Status: accepted`) from design D2, D4, D5, D7, D13, D18–D32, listing its exceptions to ADRs 0016, 0017, 0024 and 0029 as the design's ADRs section states. It carries **C2** (fenced admission, pause rather than drop, batch id instead of a transport key) and **C14** (kept stream rows grow until change 7's watermark; empty sync rows are deleted). Add it to the in-force index in `openspec/architecture.md`. Verify: the file names C2 and C14's facts, `mise run check` passes the doc lints, and the index lists 0030.
-- [ ] 1.2 Correct `openspec/roadmap.md:42`: the consumer subscribes to `StateChange`, acknowledgement, downtime and flapping events, and `CheckResult` is deliberately not consumed (S2, D16). Verify: the line no longer lists `CheckResult` as consumed and names the S2 decision.
+- [x] 1.1 Write `docs/adr/0030-pull-sources-leased-consumers.md` ("Pull sources: leased consumers, fenced admission and reconcile observations", `Status: accepted`) from design D2, D4, D5, D7, D13, D18–D32, listing its exceptions to ADRs 0016, 0017, 0024 and 0029 as the design's ADRs section states. It carries **C2** (fenced admission, pause rather than drop, batch id instead of a transport key) and **C14** (kept stream rows grow until change 7's watermark; empty sync rows are deleted). Add it to the in-force index in `openspec/architecture.md`. Verify: the file names C2 and C14's facts, `mise run check` passes the doc lints, and the index lists 0030.
+- [x] 1.2 Correct `openspec/roadmap.md:42`: the consumer subscribes to `StateChange`, acknowledgement, downtime and flapping events, and `CheckResult` is deliberately not consumed (S2, D16). Verify: the line no longer lists `CheckResult` as consumed and names the S2 decision.
 
 ## 2. Captures from real releases and the version matrix
 
