@@ -1,0 +1,35 @@
+{
+  "scenario": "nul_in_a_file_path",
+  "release": "2.14.10",
+  "architecture": "linux-x64",
+  "sender_sha256": "b73c59c0d38600cfe5980094a5d140818e37b2d01e715427cc367039a4c87aa3",
+  "contrib_sha256": {
+    "correlia-commands.conf": "3b439bd4b7975cb733aee755bf50fe8e76e225388f0a0b2acb275b2e51ee458d",
+    "correlia-functions.conf": "a30f9c9a5de0441765ebbc9e4d12b9324d3d743aaa335ec568078471faf78034",
+    "correlia.conf": "ba23a7c8031d5783137222c1188fe47674cce50bd19f467742a6e25961efd78e"
+  },
+  "records": [
+    {
+      "kind": "case",
+      "label": "nul_in_ca_path"
+    },
+    {
+      "kind": "command_failure",
+      "id": "f1",
+      "exit_code": 2,
+      "detail": "invalid_argument --ca-file",
+      "log": "[2026-11-23 00:19:05 +0000] warning/PluginNotificationTask: Notification command for object 'lab!rej2' (PID: 9925, arguments: '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:33655\"' '--ca-file' '\"/etc/icinga2/correlia/ca.pem\\u0000-next\"' '--host' '\"lab\"' '--notification-author' '\"operator\"' '--notification-comment' '\"probe\"' '--notification-time' '\"1795393145.614761\"' '--notification-type' '\"CUSTOM\"' '--object-type' '\"service\"' '--output' '\"\"' '--service' '\"rej2\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"UNKNOWN\"' '--state-type' '\"SOFT\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 2, output: invalid_argument --ca-file"
+    },
+    {
+      "kind": "case",
+      "label": "nul_in_sender_path"
+    },
+    {
+      "kind": "command_failure",
+      "id": "f2",
+      "exit_code": 127,
+      "detail": "/usr/bin/env: '': No such file or directory",
+      "log": "[2026-11-23 00:19:11 +0000] warning/PluginNotificationTask: Notification command for object 'lab!rej2' (PID: 10162, arguments: '/usr/bin/env' '-i' '' '--base-url' '\"http://127.0.0.1:33655\"' '--host' '\"lab\"' '--notification-author' '\"operator\"' '--notification-comment' '\"probe\"' '--notification-time' '\"1795393151.658781\"' '--notification-type' '\"CUSTOM\"' '--object-type' '\"service\"' '--output' '\"\"' '--service' '\"rej2\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"UNKNOWN\"' '--state-type' '\"SOFT\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 127, output: /usr/bin/env: '': No such file or directory"
+    }
+  ]
+}

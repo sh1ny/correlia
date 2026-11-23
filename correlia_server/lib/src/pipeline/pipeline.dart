@@ -10,11 +10,14 @@ import '../event/canonical_event.dart';
 import '../event/cloud_event.dart';
 import '../event/event_timestamp.dart';
 import '../event/validation.dart';
-import '../ingest/alertmanager_decoder.dart';
-import '../ingest/bootstrap.dart' show sha256Digest;
+import '../ingest/bootstrap.dart'
+    show AlertmanagerSourceKind, Icinga2SourceKind, SourceKind, sha256Digest;
+import '../ingest/icinga2/decoder.dart';
+import '../ingest/source_decoder.dart';
 import '../runtime/process_options.dart';
 import '../runtime/subsystem.dart';
 import '../state/alert_state_service.dart';
+import '../state/ordering_key.dart';
 
 const _transactionLimit = Duration(seconds: 10);
 const _fanoutLimit = 16 * 1024 * 1024;
@@ -62,39 +65,78 @@ String formatUnknownFieldWarning(
   return 'pipeline source=$source unknown_top_level_fields=${names.length + overflow} tags=$tags';
 }
 
-String _safePath(String path) {
-  const fields = {
-    'body',
-    'alerts',
-    'version',
-    'status',
-    'receiver',
-    'groupKey',
-    'groupLabels',
-    'routeLabels',
-    'commonLabels',
-    'commonAnnotations',
-    'externalURL',
-    'notification_reason',
-    'truncatedAlerts',
-    'labels',
-    'annotations',
-    'startsAt',
-    'endsAt',
-    'generatorURL',
-    'fingerprint',
-    'key',
-    'identity_fields',
-    'observation_key',
-    'source_time',
-    'reported_source_time',
+/// The documented field names of Alertmanager's payload and of the canonical
+/// event, kept in a stored failure path of an Alertmanager source.
+const _alertmanagerPathFields = {
+  'body',
+  'alerts',
+  'version',
+  'status',
+  'receiver',
+  'groupKey',
+  'groupLabels',
+  'routeLabels',
+  'commonLabels',
+  'commonAnnotations',
+  'externalURL',
+  'notification_reason',
+  'truncatedAlerts',
+  'labels',
+  'annotations',
+  'startsAt',
+  'endsAt',
+  'generatorURL',
+  'fingerprint',
+  'key',
+  'identity_fields',
+  'observation_key',
+  'source_time',
+  'reported_source_time',
+};
+
+/// The fields of the Icinga2 webhook document v1 and of the canonical event,
+/// kept in a stored failure path of an Icinga2 source.
+const _icinga2PathFields = {
+  'body',
+  'format',
+  'object_type',
+  'host',
+  'service',
+  'state',
+  'state_type',
+  'last_state_change',
+  'output',
+  'notification_type',
+  'notification_author',
+  'notification_comment',
+  'notification_time',
+  'labels',
+  'annotations',
+  'fingerprint',
+  'key',
+  'identity_fields',
+  'observation_key',
+  'source_time',
+  'reported_source_time',
+};
+
+/// Renders a validation path for storage: the documented field names of
+/// [kind]'s payload and of the canonical event stay, any other segment (a
+/// sender-chosen name) becomes `*`, and the result is bounded. Each kind
+/// keeps only its own names, so a name another kind documents is still
+/// redacted when a sender chooses it.
+String safeFailurePath(String path, SourceKind kind) {
+  final (fields, indexed) = switch (kind) {
+    AlertmanagerSourceKind() => (
+      _alertmanagerPathFields,
+      RegExp(r'^alerts\[[0-9]{1,4}\]$'),
+    ),
+    Icinga2SourceKind() => (_icinga2PathFields, null),
   };
-  final parts = path.split('.');
-  final safe = parts
+  final safe = path
+      .split('.')
       .map(
-        (part) =>
-            fields.contains(part) ||
-                RegExp(r'^alerts\[[0-9]{1,4}\]$').hasMatch(part)
+        (part) => fields.contains(part) || (indexed?.hasMatch(part) ?? false)
             ? part
             : '*',
       )
@@ -173,11 +215,13 @@ final class PipelineRepository {
     this.session, {
     DateTime Function()? clock,
     this.afterPin,
+    this.afterClaim,
     Map<String, int>? retryCounts,
     this.retryDelay,
     PipelineCounters? counters,
     this.stateSkewAllowance = skewAllowance,
     this.log,
+    this.icinga2Decoder = decodeIcinga2Request,
   }) : clock = clock ?? DateTime.now,
        _retryCounts = retryCounts ?? {},
        counters = counters ?? PipelineCounters();
@@ -185,6 +229,10 @@ final class PipelineRepository {
   final Session session;
   final DateTime Function() clock;
   final Future<void> Function()? afterPin;
+
+  /// Runs inside [processOne]'s transaction right after it claimed a row,
+  /// before anything else; tests use it to hold that transaction open.
+  final Future<void> Function()? afterClaim;
   final Map<String, int> _retryCounts;
   final Duration Function(int)? retryDelay;
   final PipelineCounters counters;
@@ -192,6 +240,10 @@ final class PipelineRepository {
 
   /// The optional best-effort post-commit warning sink.
   final void Function(String)? log;
+
+  /// The decoder of `icinga2` sources, the real one by default; `null` means
+  /// that kind has no decoder.
+  final KindDecoder? icinga2Decoder;
 
   Future<void> _limits(Transaction tx, _Deadline deadline) async {
     await session.db.unsafeQuery(
@@ -247,7 +299,7 @@ WHERE observed_at=@observed AND raw_id=CAST(@id AS uuid)''',
   /// Processes one pinned eligible row, or returns false when none is eligible.
   Future<bool> processOne() async {
     _Raw? claimed;
-    AlertmanagerBatch? completedBatch;
+    DecodedBatch? completedBatch;
     final deadline = _Deadline();
     try {
       final processed = await session.db.transaction((tx) async {
@@ -281,6 +333,7 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
           row[5] as String,
         );
         claimed = raw;
+        if (afterClaim case final hook?) await hook();
         await _limits(tx, deadline);
         final snapshots = await session.db.unsafeQuery(
           'SELECT "publicJson" FROM ingest_config_snapshot WHERE "snapshotId"=@pin',
@@ -325,21 +378,29 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
         if (outputs.length != outputIds.length) {
           throw StateError('Invalid pinned routing');
         }
-        late final AlertmanagerBatch batch;
+        final kind = _kindOf(snapshot, source);
+        final decoder = _decoderFor(kind);
+        if (kind == null || decoder == null) {
+          await _fail(tx, deadline, raw, 'unsupported_kind', null);
+          return true;
+        }
+        late final DecodedBatch batch;
         final prepared = <_Prepared>[];
         try {
-          batch = decodeAlertmanager(
-            bytes: raw.bytes,
-            sourceInstance: raw.source,
-            namespace: source['namespace'] as String,
-            excludedLabels:
-                (source['excluded_identity_labels'] as List<Object?>)
-                    .cast<String>(),
-            rawRef: 'raw:${raw.observed.toUtc().toIso8601String()}/${raw.id}',
-            rawSha256: raw.digest,
-            observedAt: _timestamp(raw.observed),
-            processedAt: _timestamp(clock()),
-            configVersion: raw.pin,
+          batch = decoder(
+            DecodeRequest(
+              bytes: raw.bytes,
+              sourceInstance: raw.source,
+              namespace: source['namespace'] as String,
+              excludedLabels:
+                  (source['excluded_identity_labels'] as List<Object?>)
+                      .cast<String>(),
+              rawRef: 'raw:${raw.observed.toUtc().toIso8601String()}/${raw.id}',
+              rawSha256: raw.digest,
+              observedAt: _timestamp(raw.observed),
+              processedAt: _timestamp(clock()),
+              configVersion: raw.pin,
+            ),
           );
           deadline.check();
           for (final event in batch.events) {
@@ -352,7 +413,13 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
             prepared.add(_Prepared(event, disposition, data));
           }
         } on EventValidationError catch (error) {
-          await _fail(tx, deadline, raw, error.code, _safePath(error.path));
+          await _fail(
+            tx,
+            deadline,
+            raw,
+            error.code,
+            safeFailurePath(error.path, kind),
+          );
           return true;
         }
         prepared.sort((a, b) => a.event.eventId.compareTo(b.event.eventId));
@@ -363,7 +430,8 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
             late = 0,
             unrouted = 0,
             applied = 0,
-            stale = 0;
+            stale = 0,
+            clamped = 0;
         var aggregate = 0;
         final seen = <String>{};
         final savepoint = await tx.createSavepoint();
@@ -412,7 +480,11 @@ ON CONFLICT ("eventId") DO NOTHING RETURNING "eventId"''',
                   transaction: tx,
                   timeoutInSeconds: 5,
                 );
-                if (original.single[0] == 'ready') {
+                // A duplicate refreshes the alert only when both it and the
+                // original are ready: a late or future-dated redelivery of a
+                // ready observation says nothing about the object's freshness.
+                if (original.single[0] == 'ready' &&
+                    item.disposition == EvidenceDisposition.ready) {
                   stateInputs.add(StateInput(event, duplicate: true));
                 }
                 continue;
@@ -440,11 +512,20 @@ ON CONFLICT ("eventId") DO NOTHING RETURNING "eventId"''',
               EvidenceDisposition.late => 'late',
               EvidenceDisposition.futureDated => 'future_dated',
             };
+            // The same function the fence uses; the column keeps microseconds.
+            final effective = OrderingKey.fromSource(
+              sourceTime: event.sourceTime!,
+              observedAt: event.observedAt,
+              eventId: event.eventId,
+              skewAllowance: stateSkewAllowance,
+            );
+            final isClamped =
+                compareTimestamps(event.sourceTime!, effective.effectiveAt) > 0;
             await _limits(tx, deadline);
             final inserted = await session.db.unsafeQuery(
               '''INSERT INTO events
-(observed_at,event_id,disposition,raw_observed_at,raw_id,source_id,config_snapshot_id,source_time,payload,state_outcome)
-VALUES (@observed,CAST(@event AS uuid),@disposition,@observed,CAST(@raw AS uuid),CAST(@source AS uuid),@pin,@sourceTime,@payload,@stateOutcome)
+(observed_at,event_id,disposition,raw_observed_at,raw_id,source_id,config_snapshot_id,source_time,payload,state_outcome,effective_source_time)
+VALUES (@observed,CAST(@event AS uuid),@disposition,@observed,CAST(@raw AS uuid),CAST(@source AS uuid),@pin,@sourceTime,@payload,@stateOutcome,@effective)
 ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
               parameters: QueryParameters.named({
                 'observed': raw.observed,
@@ -456,11 +537,13 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
                 'sourceTime': _date(event.sourceTime!),
                 'payload': item.payload,
                 'stateOutcome': stateOutcomes[event.eventId],
+                'effective': _date(effective.effectiveAt),
               }),
               transaction: tx,
               timeoutInSeconds: 5,
             );
             if (inserted.isNotEmpty) {
+              if (isClamped) clamped++;
               aggregate +=
                   item.payload.length *
                   (1 +
@@ -534,7 +617,13 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
           }
         } on EventValidationError catch (error) {
           await savepoint.rollback();
-          await _fail(tx, deadline, raw, error.code, _safePath(error.path));
+          await _fail(
+            tx,
+            deadline,
+            raw,
+            error.code,
+            safeFailurePath(error.path, kind),
+          );
           return true;
         }
         await savepoint.release();
@@ -556,6 +645,7 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
               'late': late,
               'applied': applied,
               'stale': stale,
+              'clamped': clamped,
             }),
           }),
           transaction: tx,
@@ -588,6 +678,27 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
       await _recordError(claimed!, error);
       return true;
     }
+  }
+
+  /// The pinned source's kind, or `null` when it has none.
+  ///
+  /// A format version 1 snapshot carries no kind and defines Alertmanager. In
+  /// a version 2 snapshot a missing or unknown kind is none.
+  SourceKind? _kindOf(
+    Map<String, Object?> snapshot,
+    Map<String, Object?> source,
+  ) => switch (snapshot['format_version']) {
+    1 => SourceKind.alertmanager,
+    _ => SourceKind.named(source['kind']),
+  };
+
+  /// The decoder of [kind], or `null` when there is no kind.
+  KindDecoder? _decoderFor(SourceKind? kind) {
+    return switch (kind) {
+      null => null,
+      AlertmanagerSourceKind() => decodeAlertmanagerRequest,
+      Icinga2SourceKind() => icinga2Decoder,
+    };
   }
 
   Future<void> _fail(

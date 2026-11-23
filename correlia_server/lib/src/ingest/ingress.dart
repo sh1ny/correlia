@@ -177,6 +177,10 @@ final class _IngressRoute extends Route {
     if (request.method != Method.post) return _reject(405, source);
     if (request.url.hasQuery) return _reject(400, source);
     if (owner._inflight >= 16) return _reject(503, source);
+    // A credential in the path exists only on the Alertmanager route.
+    if (segments.length == 4 && kind != SourceKind.alertmanager.name) {
+      return _reject(401, source);
+    }
     final assertion = _assertion(request, segments, observedAt);
     if (source == null || assertion == null) return _reject(401, source);
     final signed = assertion is _Hmac;

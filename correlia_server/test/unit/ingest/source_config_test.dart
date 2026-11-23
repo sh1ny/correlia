@@ -47,8 +47,46 @@ Matcher field(String path) =>
 
 void main() {
   test('unsupported_kind_or_field', () {
-    expect(() => parse(fields: {'kind': 'icinga2'}), field('sources[0].kind'));
+    expect(() => parse(fields: {'kind': 'zabbix'}), field('sources[0].kind'));
     expect(() => parse(fields: {'foreign': true}), field('sources[0].foreign'));
+  });
+
+  test('icinga2_source_declares_a_path_token', () {
+    expect(
+      parse(fields: {'kind': 'icinga2'}).sources.single.toJson()['kind'],
+      'icinga2',
+    );
+    expect(
+      () => parse(fields: {'kind': 'icinga2', 'path_token_enabled': true}),
+      field('sources[0].path_token_enabled'),
+    );
+    expect(
+      parse(
+        fields: {'kind': 'alertmanager', 'path_token_enabled': true},
+      ).sources.single.pathTokenEnabled,
+      isTrue,
+    );
+  });
+
+  test('icinga2_source_declares_excluded_identity_labels', () {
+    expect(
+      () => parse(
+        fields: {
+          'kind': 'icinga2',
+          'excluded_identity_labels': ['service'],
+        },
+      ),
+      field('sources[0].excluded_identity_labels'),
+    );
+    expect(
+      parse(
+        fields: {
+          'kind': 'alertmanager',
+          'excluded_identity_labels': ['service'],
+        },
+      ).sources.single.excludedIdentityLabels,
+      {'service'},
+    );
   });
 
   test('activation_without_a_usable_credential', () {
@@ -117,7 +155,7 @@ void main() {
         runMode: 'test',
       );
       final mapped = legacy.sources.single;
-      expect(mapped.kind, 'alertmanager');
+      expect(mapped.kind.name, 'alertmanager');
       expect(mapped.namespace, 'legacy');
       expect(mapped.credentials.single.type.name, 'bearer');
       expect(mapped.credentials.single.reference, 'key1');

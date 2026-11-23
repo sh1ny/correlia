@@ -12,6 +12,8 @@ import 'package:serverpod/serverpod.dart';
 import 'package:test/test.dart';
 
 import '../integration/test_tools/serverpod_test_tools.dart';
+import '../support/icinga2_delivery.dart' show delivery;
+import '../support/icinga2_pipeline.dart';
 import '../support/ingest_schema.dart';
 import '../unit/ingest/alertmanager_decoder_test.dart' as payload;
 import 'ingest_config_test.dart' as fixture;
@@ -116,6 +118,28 @@ Future<Map<String, Object?>> latestOutcome(Session session) async =>
               as String,
         )
         as Map<String, Object?>;
+
+DateTime at(int hour, int minute, [int day = 10]) =>
+    DateTime.utc(2026, 11, day, hour, minute);
+
+/// An Icinga2 problem (or, with [recovery], an OK) of `db1!disk` whose last
+/// state change is [changed].
+Map<String, Object?> notice(DateTime changed, {bool recovery = false}) =>
+    delivery(
+      set: {
+        'state': recovery ? 'OK' : 'CRITICAL',
+        'notification_type': recovery ? 'RECOVERY' : 'PROBLEM',
+        'last_state_change': timeText(changed),
+        'notification_time': timeText(changed),
+      },
+    );
+
+Future<void> freshIcinga2(Session session, {bool shared = false}) async {
+  await clearPipelineTables(session);
+  await publishIcinga2Config(session, sharedNamespace: shared);
+}
+
+int epochSeconds(DateTime time) => time.millisecondsSinceEpoch ~/ 1000;
 
 void main() {
   withServerpod(
@@ -489,6 +513,307 @@ void main() {
           base.add(const Duration(minutes: 5)).millisecondsSinceEpoch ~/ 1000,
         );
         expect(alert['fenceEffectiveNanos'], 0);
+      });
+    },
+    rollbackDatabase: RollbackDatabase.disabled,
+    testGroupTagsOverride: ['db'],
+  );
+
+  withServerpod(
+    'Icinga2 alert state through the real pipeline',
+    (builder, _) {
+      late Session s;
+      setUp(() => s = builder.build());
+
+      test('ord_7a_two_observations_in_both_orders', () async {
+        final a = notice(at(10, 0));
+        final b = notice(at(10, 5), recovery: true);
+        final observedA = at(10, 10), observedB = at(10, 6);
+        for (final bFirst in [false, true]) {
+          await freshIcinga2(s);
+          final first = bFirst ? (b, observedB) : (a, observedA);
+          final second = bFirst ? (a, observedA) : (b, observedB);
+          await deliverIcinga2(s, first.$1, first.$2);
+          final secondRaw = await deliverIcinga2(s, second.$1, second.$2);
+          final alert = await theAlert(s);
+          final reason = 'B first: $bFirst';
+          expect(alert['status'], 'resolved', reason: reason);
+          expect(alert['severity'], 'info', reason: reason);
+          expect(alert['fenceEventId'], eventIdOf(b), reason: reason);
+          expect(alert['lastObservedAt'], observedA, reason: reason);
+          // B first commits one change, A first commits two.
+          expect(alert['version'], bFirst ? 1 : 2, reason: reason);
+          expect(await countRows(s, 'activity'), alert['version']);
+          final outcome = await outcomeOf(s, secondRaw);
+          expect(outcome['stale'], bFirst ? 1 : 0, reason: reason);
+          expect(outcome['applied'], bFirst ? 0 : 1, reason: reason);
+          expect(outcome['duplicate_observation'], 0, reason: reason);
+        }
+      });
+
+      test('ord_7b_late_and_new_observations_in_any_schedule', () async {
+        final late = notice(at(10, 10).subtract(const Duration(days: 8)));
+        final fresh = notice(at(10, 5));
+        final observedLate = at(10, 10), observedFresh = at(10, 6);
+
+        Future<void> expectConverged(String reason, String lateRaw) async {
+          final alert = await theAlert(s);
+          expect(alert['status'], 'firing', reason: reason);
+          expect(alert['version'], 1, reason: reason);
+          expect(alert['fenceEventId'], eventIdOf(fresh), reason: reason);
+          expect(alert['lastObservedAt'], observedFresh, reason: reason);
+          expect(await countRows(s, 'alerts'), 1, reason: reason);
+          expect(await countRows(s, 'activity'), 1, reason: reason);
+          expect(
+            (await storedEvent(s, eventIdOf(late)))['_disposition'],
+            'late',
+            reason: reason,
+          );
+          expect(
+            (await queryRows(
+              s,
+              'SELECT disposition FROM observation_keys WHERE "eventId"=CAST(\'${eventIdOf(late)}\' AS uuid)',
+            )).single['disposition'],
+            'late',
+            reason: reason,
+          );
+          final outcome = await outcomeOf(s, lateRaw);
+          expect(outcome['late'], 1, reason: reason);
+          expect(outcome['applied'], 0, reason: reason);
+        }
+
+        for (final lateFirst in [true, false]) {
+          await freshIcinga2(s);
+          late String lateRaw;
+          if (lateFirst) {
+            lateRaw = await deliverIcinga2(s, late, observedLate);
+            await deliverIcinga2(s, fresh, observedFresh);
+          } else {
+            await deliverIcinga2(s, fresh, observedFresh);
+            lateRaw = await deliverIcinga2(s, late, observedLate);
+          }
+          await expectConverged('late first: $lateFirst', lateRaw);
+        }
+
+        // Two overlapping transactions. The first claims its row and is held
+        // open at that boundary while the second claims, processes and
+        // commits the other row; then the first finishes. Each row is the
+        // first one claimed once.
+        Future<String?> statusOf(String raw) async =>
+            (await queryRows(
+                  s,
+                  "SELECT status FROM raw_inbox WHERE raw_id=CAST('$raw' AS uuid)",
+                )).single['status']
+                as String?;
+        for (final lateStartsFirst in [false, true]) {
+          await freshIcinga2(s);
+          final freshRaw = await seedIcinga2(s, fresh, observedFresh);
+          final lateRaw = await seedIcinga2(s, late, observedLate);
+          final (firstRaw, secondRaw) = lateStartsFirst
+              ? (lateRaw, freshRaw)
+              : (freshRaw, lateRaw);
+          DateTime clock() => at(10, 11);
+          final pinner = PipelineRepository(builder.build(), clock: clock);
+          while (await pinner.pinOne()) {}
+          final claimed = Completer<void>();
+          final release = Completer<void>();
+          final first = PipelineRepository(
+            builder.build(),
+            clock: clock,
+            afterClaim: () async {
+              claimed.complete();
+              await release.future;
+            },
+          );
+          final second = PipelineRepository(builder.build(), clock: clock);
+          // Rows are claimed in observed order, fresh (10:06) before late
+          // (10:10): to have the late row claimed first, a third transaction
+          // locks the fresh row while the first claims.
+          final locked = Completer<void>();
+          final unlock = Completer<void>();
+          final hold = lateStartsFirst
+              ? builder.build().db.transaction((tx) async {
+                  await builder.build().db.unsafeQuery(
+                    "SELECT 1 FROM raw_inbox WHERE raw_id=CAST('$freshRaw' AS uuid) FOR UPDATE",
+                    transaction: tx,
+                  );
+                  locked.complete();
+                  await unlock.future;
+                })
+              : null;
+          if (hold != null) await locked.future;
+          final one = first.processOne();
+          await claimed.future;
+          if (hold != null) {
+            unlock.complete();
+            await hold;
+          }
+          final reason = 'late starts first: $lateStartsFirst';
+          expect(await second.processOne(), isTrue, reason: reason);
+          // The second committed while the first transaction is still open.
+          expect(release.isCompleted, isFalse, reason: reason);
+          expect(await statusOf(secondRaw), 'done', reason: reason);
+          expect(await statusOf(firstRaw), 'pending', reason: reason);
+          release.complete();
+          expect(await one, isTrue, reason: reason);
+          expect(freshRaw, isNot(lateRaw));
+          await expectConverged('overlapping, $reason', lateRaw);
+          expect(
+            (await queryRows(
+              s,
+              'SELECT status FROM raw_inbox',
+            )).map((r) => r['status']),
+            everyElement('done'),
+          );
+        }
+      });
+
+      test('duplicate_deliveries_carry_one_observation', () async {
+        final doc = notice(at(10, 0));
+        final early = at(10, 6), later = at(10, 10);
+        for (final earlyFirst in [true, false]) {
+          await freshIcinga2(s);
+          final (first, second) = earlyFirst ? (early, later) : (later, early);
+          await deliverIcinga2(s, doc, first);
+          final secondRaw = await deliverIcinga2(s, doc, second);
+          final reason = 'early first: $earlyFirst';
+          final alert = await theAlert(s);
+          expect(alert['fenceObservedSeconds'], epochSeconds(first));
+          expect(alert['fenceEventId'], eventIdOf(doc), reason: reason);
+          expect(alert['status'], 'firing', reason: reason);
+          expect(alert['version'], 1, reason: reason);
+          expect(alert['lastObservedAt'], later, reason: reason);
+          final outcome = await outcomeOf(s, secondRaw);
+          expect(outcome['duplicate_observation'], 1, reason: reason);
+          expect(outcome['applied'], 0, reason: reason);
+          expect(await countRows(s, 'events'), 1, reason: reason);
+          expect(await countRows(s, 'observation_keys'), 1, reason: reason);
+          expect(await countRows(s, 'activity'), 1, reason: reason);
+        }
+      });
+
+      test('same_observation_key_from_two_sources', () async {
+        await freshIcinga2(s, shared: true);
+        final doc = notice(at(10, 0));
+        final first = await deliverIcinga2(s, doc, at(10, 6));
+        final second = await deliverIcinga2(
+          s,
+          doc,
+          at(10, 7),
+          source: icinga2OtherDbSourceId,
+        );
+        final events = await queryRows(
+          s,
+          'SELECT event_id::text AS id, source_id::text AS source, state_outcome FROM events',
+        );
+        expect(events, hasLength(2));
+        expect(events.map((e) => e['id']).toSet(), hasLength(2));
+        expect(events.map((e) => e['source']).toSet(), {
+          icinga2DbSourceId,
+          icinga2OtherDbSourceId,
+        });
+        expect(await countRows(s, 'observation_keys'), 2);
+        expect(await countRows(s, 'alerts'), 1);
+        for (final raw in [first, second]) {
+          expect((await outcomeOf(s, raw))['duplicate_observation'], 0);
+          expect((await outcomeOf(s, raw))['late'], 0);
+        }
+        expect(
+          events.map((e) => e['state_outcome']),
+          everyElement(isNotNull),
+          reason: 'each source observation is applied or stale, never skipped',
+        );
+        expect((await theAlert(s))['status'], 'firing');
+      });
+
+      test('late_duplicate_of_a_ready_observation', () async {
+        await freshIcinga2(s);
+        final doc = notice(at(10, 0));
+        await deliverIcinga2(s, doc, at(10, 5));
+        final before = await theAlert(s);
+        expect(before['lastObservedAt'], at(10, 5));
+        final raw = await deliverIcinga2(s, doc, at(10, 5, 19));
+        final outcome = await outcomeOf(s, raw);
+        expect(outcome['duplicate_observation'], 1);
+        expect(outcome['late'], 0);
+        expect(await theAlert(s), before);
+        expect(await countRows(s, 'events'), 1);
+        expect(await countRows(s, 'activity'), 1);
+      });
+
+      test('ord_7c_duplicate_of_a_late_observation', () async {
+        await freshIcinga2(s);
+        final late = notice(at(10, 10).subtract(const Duration(days: 8)));
+        await deliverIcinga2(s, notice(at(10, 5)), at(10, 6));
+        await deliverIcinga2(s, late, at(10, 10));
+        final before = await theAlert(s);
+        expect(before['lastObservedAt'], at(10, 6));
+        final raw = await deliverIcinga2(s, late, at(10, 20));
+        expect((await outcomeOf(s, raw))['duplicate_observation'], 1);
+        expect(await theAlert(s), before);
+        expect(await countRows(s, 'activity'), 1);
+      });
+
+      test('ord_6_late_firing_after_resolution_and_expiry', () async {
+        await freshIcinga2(s);
+        final firingDoc = notice(at(10, 0));
+        await deliverIcinga2(s, firingDoc, at(10, 1));
+        await deliverIcinga2(s, notice(at(10, 30), recovery: true), at(10, 31));
+        final before = await theAlert(s);
+        expect(before['status'], 'resolved');
+        expect(before['version'], 2);
+        // Retention arrives later: remove the expired evidence directly.
+        await s.db.unsafeSimpleExecute('DELETE FROM outbox');
+        await s.db.unsafeSimpleExecute('DELETE FROM events');
+        await s.db.unsafeSimpleExecute('DELETE FROM observation_keys');
+        final activity = await countRows(s, 'activity');
+        // The firing observation of the same alert, redelivered 8 days later,
+        // and a firing observation that never had a key.
+        final redelivered = await deliverIcinga2(
+          s,
+          firingDoc,
+          at(10, 1, 18),
+        );
+        final unseen = await deliverIcinga2(
+          s,
+          notice(at(9, 0)),
+          at(9, 0, 18),
+        );
+        for (final raw in [redelivered, unseen]) {
+          final outcome = await outcomeOf(s, raw);
+          expect(outcome['late'], 1);
+          expect(outcome['applied'], 0);
+          expect(outcome['stale'], 0);
+        }
+        expect(await theAlert(s), before);
+        expect(await countRows(s, 'alerts'), 1);
+        expect(await countRows(s, 'activity'), activity);
+        expect(await countRows(s, 'outbox'), 0);
+        expect(
+          (await queryRows(
+            s,
+            'SELECT disposition FROM events',
+          )).map((r) => r['disposition']),
+          everyElement('late'),
+        );
+      });
+
+      test('late_firing_for_a_fingerprint_with_no_alert', () async {
+        await freshIcinga2(s);
+        final raw = await deliverIcinga2(s, notice(at(10, 0)), at(10, 0, 18));
+        expect(await countRows(s, 'alerts'), 0);
+        expect(await countRows(s, 'activity'), 0);
+        expect(await countRows(s, 'outbox'), 0);
+        final outcome = await outcomeOf(s, raw);
+        expect(outcome['late'], 1);
+        expect(outcome['applied'], 0);
+        expect(
+          (await queryRows(
+            s,
+            'SELECT disposition FROM events',
+          )).single['disposition'],
+          'late',
+        );
       });
     },
     rollbackDatabase: RollbackDatabase.disabled,

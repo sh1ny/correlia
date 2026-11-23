@@ -8,6 +8,7 @@ import 'src/runtime/registry.dart';
 import 'src/runtime/role_runtime.dart';
 import 'src/runtime/serverpod_adapter.dart';
 import 'src/runtime/startup_state.dart';
+import 'src/schema/schema_steps.dart' show defaultSchemaLockTimeout;
 import 'src/runtime/test_mode_switches.dart';
 import 'src/runtime/test_stop_hooks.dart';
 
@@ -74,7 +75,10 @@ Future<void> run(List<String> args) async {
       if (switches.stopProbe || switches.stopGate != null)
         _testStopHooks(switches, pod, log),
     ],
-    port: ServerpodAdapter(pod),
+    port: ServerpodAdapter(
+      pod,
+      schemaLockTimeout: switches.schemaLockTimeout ?? defaultSchemaLockTimeout,
+    ),
     startup: startup,
     log: log,
   );

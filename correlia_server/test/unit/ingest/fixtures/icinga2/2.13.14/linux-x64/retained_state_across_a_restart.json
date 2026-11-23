@@ -1,0 +1,71 @@
+{
+  "scenario": "retained_state_across_a_restart",
+  "release": "2.13.14",
+  "architecture": "linux-x64",
+  "sender_sha256": "b73c59c0d38600cfe5980094a5d140818e37b2d01e715427cc367039a4c87aa3",
+  "contrib_sha256": {
+    "correlia-commands.conf": "3b439bd4b7975cb733aee755bf50fe8e76e225388f0a0b2acb275b2e51ee458d",
+    "correlia-functions.conf": "a30f9c9a5de0441765ebbc9e4d12b9324d3d743aaa335ec568078471faf78034",
+    "correlia.conf": "ba23a7c8031d5783137222c1188fe47674cce50bd19f467742a6e25961efd78e"
+  },
+  "records": [
+    {
+      "kind": "admitted",
+      "id": "d1",
+      "auth": "bearer",
+      "request": {
+        "path": "/hooks/icinga2/33333333-3333-4333-8333-333333333333",
+        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"host\",\"host\":\"fp-startup\",\"state\":\"DOWN\",\"state_type\":\"HARD\",\"last_state_change\":\"1795391928.300001\",\"output\":\"DOWN: second fp-startup\",\"notification_type\":\"PROBLEM\",\"notification_time\":\"1795392239.968882\"}",
+        "body_sha256": "d850712de1b184878d1881621d4bcc957749fdf500070981be8d660782172c38",
+        "body_size": 253
+      },
+      "response_status": 202,
+      "raw": {
+        "id": "c5147ba6-3ed6-4c70-8515-c0fcbea3235b",
+        "body_sha256": "d850712de1b184878d1881621d4bcc957749fdf500070981be8d660782172c38",
+        "status": "done",
+        "outcome": {
+          "upstream_omitted": 0,
+          "unknown_top_level_fields": [],
+          "unknown_top_level_overflow": 0,
+          "committed": 0,
+          "unrouted": 0,
+          "duplicate_observation": 1,
+          "future_dated": 0,
+          "duplicate_quarantine": 0,
+          "late": 0,
+          "applied": 0,
+          "stale": 0,
+          "clamped": 0
+        },
+        "failure": null
+      },
+      "events": []
+    },
+    {
+      "kind": "state",
+      "after": "reminder",
+      "object": {
+        "host": "fp-startup"
+      },
+      "alert": {
+        "status": "firing",
+        "severity": "critical",
+        "version": 1,
+        "fence_event_id": "fd7fd37d-d13d-5211-8ea6-f9ba4264cfba",
+        "fence_effective_seconds": 1795391928,
+        "fence_effective_nanos": 300001000,
+        "summary": "fp-startup DOWN"
+      },
+      "events": {
+        "total": 1,
+        "by_disposition": {
+          "ready": 1
+        },
+        "by_status": {
+          "firing": 1
+        }
+      }
+    }
+  ]
+}

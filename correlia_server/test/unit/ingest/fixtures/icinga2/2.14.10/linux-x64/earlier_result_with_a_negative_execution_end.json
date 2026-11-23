@@ -1,0 +1,173 @@
+{
+  "scenario": "earlier_result_with_a_negative_execution_end",
+  "release": "2.14.10",
+  "architecture": "linux-x64",
+  "sender_sha256": "b73c59c0d38600cfe5980094a5d140818e37b2d01e715427cc367039a4c87aa3",
+  "contrib_sha256": {
+    "correlia-commands.conf": "3b439bd4b7975cb733aee755bf50fe8e76e225388f0a0b2acb275b2e51ee458d",
+    "correlia-functions.conf": "a30f9c9a5de0441765ebbc9e4d12b9324d3d743aaa335ec568078471faf78034",
+    "correlia.conf": "ba23a7c8031d5783137222c1188fe47674cce50bd19f467742a6e25961efd78e"
+  },
+  "records": [
+    {
+      "kind": "result",
+      "id": "r1",
+      "object_type": "host",
+      "cap_id": "host-neg",
+      "exit_status": 0,
+      "output_bytes": 10,
+      "output": "UP: before",
+      "execution_end": "-1.000000",
+      "accepted_us": 1795392839620912,
+      "label": "negative_end"
+    },
+    {
+      "kind": "result",
+      "id": "r2",
+      "object_type": "host",
+      "cap_id": "host-neg",
+      "exit_status": 1,
+      "output_bytes": 10,
+      "output": "DOWN: soft",
+      "execution_end": "1795392839.200001",
+      "accepted_us": 1795392839668893,
+      "label": "soft_down"
+    },
+    {
+      "kind": "result",
+      "id": "r3",
+      "object_type": "host",
+      "cap_id": "host-neg",
+      "exit_status": 1,
+      "output_bytes": 10,
+      "output": "DOWN: hard",
+      "execution_end": "1795392839.700002",
+      "accepted_us": 1795392839716794,
+      "label": "hard_down"
+    },
+    {
+      "kind": "admitted",
+      "id": "d4",
+      "auth": "bearer",
+      "request": {
+        "path": "/hooks/icinga2/33333333-3333-4333-8333-333333333333",
+        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"host\",\"host\":\"host-neg\",\"state\":\"DOWN\",\"state_type\":\"HARD\",\"last_state_change\":\"1795392839.200001\",\"output\":\"DOWN: hard\",\"notification_type\":\"PROBLEM\",\"notification_time\":\"1795392839.673888\"}",
+        "body_sha256": "04f7f54df50a8cc1aebe65f16fa3aa140096e667c467b4139d24e77543e9be7e",
+        "body_size": 238
+      },
+      "response_status": 202,
+      "raw": {
+        "id": "a1eb4265-9b0b-41d6-926b-251b21ef4d84",
+        "body_sha256": "04f7f54df50a8cc1aebe65f16fa3aa140096e667c467b4139d24e77543e9be7e",
+        "status": "done",
+        "outcome": {
+          "upstream_omitted": 0,
+          "unknown_top_level_fields": [],
+          "unknown_top_level_overflow": 0,
+          "committed": 1,
+          "unrouted": 0,
+          "duplicate_observation": 0,
+          "future_dated": 0,
+          "duplicate_quarantine": 0,
+          "late": 0,
+          "applied": 1,
+          "stale": 0,
+          "clamped": 0
+        },
+        "failure": null
+      },
+      "events": [
+        {
+          "disposition": "ready",
+          "state_outcome": "applied",
+          "source_time": "2026-11-23T00:13:59.200001Z",
+          "cloud_event": {
+            "specversion": "1.0",
+            "id": "f6d6139f-d14c-5ab0-88a8-0f447fe9a613",
+            "source": "urn:correlia:source:33333333-3333-4333-8333-333333333333",
+            "type": "io.correlia.alert.v1",
+            "datacontenttype": "application/json",
+            "dataschema": "urn:correlia:schema:event:1.0",
+            "subject": "3869622f6a8254e73c6d78d40da3be5f0fe2a49d314bb6a70822e9d8a6c43d17",
+            "partitionkey": "3869622f6a8254e73c6d78d40da3be5f0fe2a49d314bb6a70822e9d8a6c43d17",
+            "correliatenant": "default",
+            "time": "2026-11-23T00:13:59.200001Z",
+            "data": {
+              "event_id": "f6d6139f-d14c-5ab0-88a8-0f447fe9a613",
+              "fingerprint": "3869622f6a8254e73c6d78d40da3be5f0fe2a49d314bb6a70822e9d8a6c43d17",
+              "tenant": "default",
+              "namespace": "33333333-3333-4333-8333-333333333333",
+              "kind": "EVENT_KIND_ALERT",
+              "status": "EVENT_STATUS_FIRING",
+              "severity": "EVENT_SEVERITY_CRITICAL",
+              "severity_original": "DOWN",
+              "summary": "host-neg DOWN",
+              "description": "DOWN: hard",
+              "resource": {},
+              "observer": {
+                "source_instance": "33333333-3333-4333-8333-333333333333",
+                "source_kind": "icinga2"
+              },
+              "labels": {},
+              "labels_origin": {},
+              "annotations": {
+                "icinga2.notification_type": "PROBLEM"
+              },
+              "source_time": "2026-11-23T00:13:59.200001Z",
+              "reported_source_time": "2026-11-23T00:13:59.200001Z",
+              "observed_at": "2026-11-23T00:13:59.679361Z",
+              "processed_at": "2026-11-23T00:13:59.748946Z",
+              "raw": {
+                "ref": "raw:2026-11-23T00:13:59.679361Z/a1eb4265-9b0b-41d6-926b-251b21ef4d84",
+                "sha256": "04f7f54df50a8cc1aebe65f16fa3aa140096e667c467b4139d24e77543e9be7e",
+                "size": 238
+              },
+              "pipeline": {
+                "version": "fd6ede1e1e5cb9770771e3ac4218e5091f40753a68bfec299486e0127b0eeb9e",
+                "generation": 0
+              },
+              "extensions": {},
+              "identity_fields": {
+                "host": {
+                  "raw": "host-neg"
+                }
+              },
+              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAADcAWyJpY2luZ2EyLm5vdGlmeS52MSIsIkRPV04iLCJIQVJEIiwiMTc5NTM5MjgzOTIwMDAwMSJd"
+            }
+          },
+          "outbox": [
+            {
+              "output_id": "44444444-4444-4444-8444-444444444444",
+              "kind": "webhook"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "state",
+      "after": "d4",
+      "object": {
+        "host": "host-neg"
+      },
+      "alert": {
+        "status": "firing",
+        "severity": "critical",
+        "version": 1,
+        "fence_event_id": "f6d6139f-d14c-5ab0-88a8-0f447fe9a613",
+        "fence_effective_seconds": 1795392839,
+        "fence_effective_nanos": 200001000,
+        "summary": "host-neg DOWN"
+      },
+      "events": {
+        "total": 1,
+        "by_disposition": {
+          "ready": 1
+        },
+        "by_status": {
+          "firing": 1
+        }
+      }
+    }
+  ]
+}

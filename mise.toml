@@ -85,9 +85,24 @@ run = "dart run tool/bin/tool.dart test"
 depends = ["setup"]
 
 [tasks."test:all"]
-description = "Run every tier except load (fast, db, e2e, plugin)"
-run = "dart run tool/bin/tool.dart test --all"
+description = "Run every tier except load (fast, db, e2e, plugin), and every Icinga 2 sender test including its compiled-binary e2e test"
+run = [
+  "dart run tool/bin/tool.dart test --all",
+  "cd correlia_icinga2_notify && dart test",
+]
 depends = ["setup"]
+
+[tasks."build:icinga2-notify"]
+description = "Compile the Icinga 2 notification sender for linux-x64 and linux-arm64 into build/icinga2-notify/"
+run = [
+  "install -d build/icinga2-notify/linux-x64 build/icinga2-notify/linux-arm64",
+  "tool/build_icinga2_notify.sh correlia_icinga2_notify x64 build/icinga2-notify/linux-x64/correlia-icinga2-notify",
+  "tool/build_icinga2_notify.sh correlia_icinga2_notify arm64 build/icinga2-notify/linux-arm64/correlia-icinga2-notify",
+]
+
+[tasks."release:icinga2-notify"]
+description = "Remove the earlier publication, build the Icinga 2 sender, and publish it into build/icinga2-notify/release/ for each architecture with a qualified release pair"
+run = "tool/release_icinga2_notify.sh"
 
 [tasks."build:web"]
 description = "Build the Flutter console into correlia_server/web/app (served by the api role)"
@@ -106,6 +121,7 @@ run = [
   "dart run tool/bin/tool.dart proto:check",
   "dart run tool/bin/tool.dart test",
   "cd tool && dart test",
+  "cd correlia_icinga2_notify && dart test -P fast",
   "cd correlia_flutter && flutter test --no-pub",
 ]
 depends = ["setup", "proto:setup"]

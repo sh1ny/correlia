@@ -1,0 +1,200 @@
+{
+  "scenario": "runtime_options_in_icinga_s_environment",
+  "release": "2.13.14",
+  "architecture": "linux-x64",
+  "sender_sha256": "b73c59c0d38600cfe5980094a5d140818e37b2d01e715427cc367039a4c87aa3",
+  "contrib_sha256": {
+    "correlia-commands.conf": "3b439bd4b7975cb733aee755bf50fe8e76e225388f0a0b2acb275b2e51ee458d",
+    "correlia-functions.conf": "a30f9c9a5de0441765ebbc9e4d12b9324d3d743aaa335ec568078471faf78034",
+    "correlia.conf": "ba23a7c8031d5783137222c1188fe47674cce50bd19f467742a6e25961efd78e"
+  },
+  "records": [
+    {
+      "kind": "result",
+      "id": "r1",
+      "object_type": "service",
+      "cap_id": "env1",
+      "exit_status": 2,
+      "output_bytes": 13,
+      "output": "CRITICAL: env",
+      "execution_end": "1795392271.100001",
+      "accepted_us": 1795392271920964
+    },
+    {
+      "kind": "admitted",
+      "id": "d2",
+      "auth": "bearer",
+      "request": {
+        "path": "/hooks/icinga2/33333333-3333-4333-8333-333333333333",
+        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"env1\",\"state\":\"CRITICAL\",\"state_type\":\"HARD\",\"last_state_change\":\"1795392271.100001\",\"output\":\"CRITICAL: env\",\"notification_type\":\"PROBLEM\",\"notification_time\":\"1795392271.880181\"}",
+        "body_sha256": "5514cbc54343c084484b2c321344f4ecef74a1615f8810820921761ce84d4565",
+        "body_size": 260
+      },
+      "response_status": 202,
+      "raw": {
+        "id": "bb9536cd-c0f5-4b24-8d0c-5219556944ce",
+        "body_sha256": "5514cbc54343c084484b2c321344f4ecef74a1615f8810820921761ce84d4565",
+        "status": "done",
+        "outcome": {
+          "upstream_omitted": 0,
+          "unknown_top_level_fields": [],
+          "unknown_top_level_overflow": 0,
+          "committed": 1,
+          "unrouted": 0,
+          "duplicate_observation": 0,
+          "future_dated": 0,
+          "duplicate_quarantine": 0,
+          "late": 0,
+          "applied": 1,
+          "stale": 0,
+          "clamped": 0
+        },
+        "failure": null
+      },
+      "events": [
+        {
+          "disposition": "ready",
+          "state_outcome": "applied",
+          "source_time": "2026-11-23T00:04:31.100001Z",
+          "cloud_event": {
+            "specversion": "1.0",
+            "id": "db2b5342-f61e-5fce-b7cf-01e7c5049d72",
+            "source": "urn:correlia:source:33333333-3333-4333-8333-333333333333",
+            "type": "io.correlia.alert.v1",
+            "datacontenttype": "application/json",
+            "dataschema": "urn:correlia:schema:event:1.0",
+            "subject": "1886ba3cfe9154b1792c18c3d109f06f4ea38f413e5ba1d4d085307f60908ecb",
+            "partitionkey": "1886ba3cfe9154b1792c18c3d109f06f4ea38f413e5ba1d4d085307f60908ecb",
+            "correliatenant": "default",
+            "time": "2026-11-23T00:04:31.100001Z",
+            "data": {
+              "event_id": "db2b5342-f61e-5fce-b7cf-01e7c5049d72",
+              "fingerprint": "1886ba3cfe9154b1792c18c3d109f06f4ea38f413e5ba1d4d085307f60908ecb",
+              "tenant": "default",
+              "namespace": "33333333-3333-4333-8333-333333333333",
+              "kind": "EVENT_KIND_ALERT",
+              "status": "EVENT_STATUS_FIRING",
+              "severity": "EVENT_SEVERITY_CRITICAL",
+              "severity_original": "CRITICAL",
+              "summary": "lab!env1 CRITICAL",
+              "description": "CRITICAL: env",
+              "resource": {},
+              "observer": {
+                "source_instance": "33333333-3333-4333-8333-333333333333",
+                "source_kind": "icinga2"
+              },
+              "labels": {},
+              "labels_origin": {},
+              "annotations": {
+                "icinga2.notification_type": "PROBLEM"
+              },
+              "source_time": "2026-11-23T00:04:31.100001Z",
+              "reported_source_time": "2026-11-23T00:04:31.100001Z",
+              "observed_at": "2026-11-23T00:04:31.885611Z",
+              "processed_at": "2026-11-23T00:04:32.000164Z",
+              "raw": {
+                "ref": "raw:2026-11-23T00:04:31.885611Z/bb9536cd-c0f5-4b24-8d0c-5219556944ce",
+                "sha256": "5514cbc54343c084484b2c321344f4ecef74a1615f8810820921761ce84d4565",
+                "size": 260
+              },
+              "pipeline": {
+                "version": "b3a111b0530adb748c62a540927c99834c23e9a44adceee41efbe37696d7c700",
+                "generation": 0
+              },
+              "extensions": {},
+              "identity_fields": {
+                "host": {
+                  "raw": "lab"
+                },
+                "service": {
+                  "raw": "env1"
+                }
+              },
+              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAADsAWyJpY2luZ2EyLm5vdGlmeS52MSIsIkNSSVRJQ0FMIiwiSEFSRCIsIjE3OTUzOTIyNzExMDAwMDEiXQ=="
+            }
+          },
+          "outbox": [
+            {
+              "output_id": "44444444-4444-4444-8444-444444444444",
+              "kind": "webhook"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "state",
+      "after": "d2",
+      "object": {
+        "host": "lab",
+        "service": "env1"
+      },
+      "alert": {
+        "status": "firing",
+        "severity": "critical",
+        "version": 1,
+        "fence_event_id": "db2b5342-f61e-5fce-b7cf-01e7c5049d72",
+        "fence_effective_seconds": 1795392271,
+        "fence_effective_nanos": 100001000,
+        "summary": "lab!env1 CRITICAL"
+      },
+      "events": {
+        "total": 1,
+        "by_disposition": {
+          "ready": 1
+        },
+        "by_status": {
+          "firing": 1
+        }
+      }
+    },
+    {
+      "kind": "log",
+      "label": "env",
+      "lines": [
+        "[2026-11-23 00:04:28 +0000] notice/NotificationComponent: Reminder notification 'lab!dt!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:04:28 +0000] notice/NotificationComponent: Reminder notification 'lab!gated!correlia-service-delayed': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:04:28 +0000] notice/NotificationComponent: Reminder notification 'lab!ts!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:04:28 +0000] notice/NotificationComponent: Reminder notification 'host-ts!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:04:28 +0000] notice/NotificationComponent: Reminder notification 'lab!custom!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:04:28 +0000] notice/NotificationComponent: Reminder notification 'lab!ss!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:04:28 +0000] notice/NotificationComponent: Reminder notification 'lab!invalid-output!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:04:28 +0000] notice/NotificationComponent: Reminder notification 'lab!auth2!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:04:28 +0000] notice/NotificationComponent: Reminder notification 'lab!cv!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:04:28 +0000] notice/NotificationComponent: Reminder notification 'lab!long!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:04:28 +0000] notice/NotificationComponent: Reminder notification 'db1!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:04:28 +0000] notice/NotificationComponent: Reminder notification 'host-neg!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:04:28 +0000] notice/NotificationComponent: Reminder notification 'host-ss!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:04:28 +0000] notice/NotificationComponent: Reminder notification 'lab!nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:04:28 +0000] notice/NotificationComponent: Reminder notification 'lab!auth1!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:04:29 +0000] information/NotificationComponent: 'notification' stopped.",
+        "[2026-11-23 00:04:30 +0000] information/NotificationComponent: 'notification' started.",
+        "[2026-11-23 00:04:31 +0000] notice/ApiListener: Relaying 'event::SendNotifications' message",
+        "[2026-11-23 00:04:31 +0000] notice/ApiListener: Relaying 'event::SetForceNextNotification' message",
+        "[2026-11-23 00:04:31 +0000] notice/Notification: Attempting to send notifications of type 'Problem' for notification object 'lab!env1!correlia-service'.",
+        "[2026-11-23 00:04:31 +0000] information/Notification: Sending 'Problem' notification 'lab!env1!correlia-service' for user 'correlia'",
+        "[2026-11-23 00:04:31 +0000] notice/ApiListener: Relaying 'event::NotificationSentToAllUsers' message",
+        "[2026-11-23 00:04:31 +0000] notice/Process: Running command '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:40945\"' '--host' '\"lab\"' '--last-state-change' '\"1795392271.100001\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795392271.880181\"' '--notification-type' '\"PROBLEM\"' '--object-type' '\"service\"' '--output' '\"CRITICAL: env\"' '--service' '\"env1\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"': PID 6512",
+        "[2026-11-23 00:04:31 +0000] information/Notification: Completed sending 'Problem' notification 'lab!env1!correlia-service' for checkable 'lab!env1' and user 'correlia' using command 'correlia-service'.",
+        "[2026-11-23 00:04:31 +0000] notice/ApiListener: Relaying 'event::NotificationSentUser' message",
+        "[2026-11-23 00:04:31 +0000] notice/Process: PID 6512 ('/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"http://127.0.0.1:40945\"' '--host' '\"lab\"' '--last-state-change' '\"1795392271.100001\"' '--notification-author' '\"\"' '--notification-comment' '\"\"' '--notification-time' '\"1795392271.880181\"' '--notification-type' '\"PROBLEM\"' '--object-type' '\"service\"' '--output' '\"CRITICAL: env\"' '--service' '\"env1\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"CRITICAL\"' '--state-type' '\"HARD\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 0",
+        "[2026-11-23 00:04:35 +0000] notice/NotificationComponent: Reminder notification 'lab!auth2!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:04:35 +0000] notice/NotificationComponent: Reminder notification 'host-ss!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:04:35 +0000] notice/NotificationComponent: Reminder notification 'db1!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:04:35 +0000] notice/NotificationComponent: Reminder notification 'lab!invalid-output!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:04:35 +0000] notice/NotificationComponent: Reminder notification 'lab!custom!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:04:35 +0000] notice/NotificationComponent: Reminder notification 'lab!ss!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:04:35 +0000] notice/NotificationComponent: Reminder notification 'lab!ts!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:04:35 +0000] notice/NotificationComponent: Reminder notification 'host-neg!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:04:35 +0000] notice/NotificationComponent: Reminder notification 'lab!nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:04:35 +0000] notice/NotificationComponent: Reminder notification 'lab!long!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:04:35 +0000] notice/NotificationComponent: Reminder notification 'host-ts!correlia-host': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:04:35 +0000] notice/NotificationComponent: Reminder notification 'lab!cv!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:04:35 +0000] notice/NotificationComponent: Reminder notification 'lab!auth1!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:04:35 +0000] notice/NotificationComponent: Reminder notification 'lab!env1!correlia-service': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:04:35 +0000] notice/NotificationComponent: Reminder notification 'lab!gated!correlia-service-delayed': Notification was sent out once and interval=0 disables reminder notifications.",
+        "[2026-11-23 00:04:35 +0000] notice/NotificationComponent: Reminder notification 'lab!dt!correlia-service': Notification was sent out once and interval=0 disables reminder notifications."
+      ]
+    }
+  ]
+}

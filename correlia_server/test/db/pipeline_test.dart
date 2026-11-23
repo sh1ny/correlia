@@ -10,6 +10,8 @@ import 'package:serverpod/serverpod.dart';
 import 'package:test/test.dart';
 
 import '../integration/test_tools/serverpod_test_tools.dart';
+import '../support/icinga2_delivery.dart';
+import '../support/icinga2_pipeline.dart';
 import '../support/ingest_schema.dart';
 import '../unit/ingest/alertmanager_decoder_test.dart' as payload;
 import 'ingest_config_test.dart' as fixture;
@@ -277,6 +279,75 @@ LANGUAGE plpgsql AS \$\$ BEGIN RAISE EXCEPTION 'test failure' USING ERRCODE='400
         expect(await count(session, 'events'), 0);
         expect(await count(session, 'observation_keys'), 0);
         expect(await count(session, 'outbox'), 0);
+      });
+
+      Future<void> seedFiringAt(Session session, String sourceTime) =>
+          seed(session, [payload.alert(startsAt: sourceTime)]);
+
+      Future<
+        ({
+          Object? stored,
+          Object? effective,
+          Map<String, Object?> outcome,
+          String time,
+        })
+      >
+      processedEvent(Session session) async {
+        final row = (await session.db.unsafeQuery(
+          'SELECT effective_source_time, events_effective_source_time(e), '
+          'payload FROM events e',
+        )).single;
+        final outcome = (await session.db.unsafeQuery(
+          'SELECT outcome_json FROM raw_inbox',
+        )).single[0];
+        final published =
+            jsonDecode(utf8.decode(row[2] as List<int>))
+                as Map<String, Object?>;
+        return (
+          stored: row[0],
+          effective: row[1],
+          outcome: jsonDecode(outcome as String) as Map<String, Object?>,
+          time: published['time'] as String,
+        );
+      }
+
+      test('ord_4_future_source_time_beyond_the_skew_limit', () async {
+        final session = builder.build();
+        // An Icinga2 firing observation whose source time is 3 hours after
+        // its observed time.
+        final changed = DateTime.utc(2026, 11, 10, 15);
+        await publishIcinga2Config(session, revision: 2);
+        await seedIcinga2(
+          session,
+          delivery(
+            set: {
+              'last_state_change': timeText(changed),
+              'notification_time': timeText(changed),
+            },
+          ),
+          now,
+        );
+        await process();
+        final result = await processedEvent(session);
+        final expected = DateTime.utc(2026, 11, 10, 12, 5);
+        expect(result.stored, expected);
+        expect(result.effective, expected);
+        expect(result.outcome['clamped'], 1);
+        expect(result.outcome['applied'], 1);
+        expect(result.time, startsWith('2026-11-10T15:00:00'));
+        expect(await count(session, 'alerts'), 1);
+      });
+
+      test('source_time_within_the_skew_allowance', () async {
+        final session = builder.build();
+        await seedFiringAt(session, '2026-11-10T12:02:00Z');
+        await process();
+        final result = await processedEvent(session);
+        final expected = DateTime.utc(2026, 11, 10, 12, 2);
+        expect(result.stored, expected);
+        expect(result.effective, expected);
+        expect(result.outcome['clamped'], 0);
+        expect(result.time, startsWith('2026-11-10T12:02:00'));
       });
 
       test('processing_budget_exhaustion', () async {

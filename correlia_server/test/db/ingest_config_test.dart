@@ -126,6 +126,34 @@ Map<String, Object?> cutoverV2(int revision) => {
   ],
 };
 
+Map<String, Object?> kindConfig(
+  int revision,
+  String? kind, {
+  String id = sourceId,
+}) => {
+  'format_version': 2,
+  'revision': revision,
+  'outputs': <Object?>[],
+  'sources': [
+    if (kind != null)
+      {
+        'id': id,
+        'kind': kind,
+        'enabled': true,
+        'credentials': [
+          {'ref': 'source-token', 'type': 'bearer'},
+        ],
+        'output_ids': <Object?>[],
+      },
+  ],
+};
+
+Matcher kindChanged(String field) => throwsA(
+  isA<BootstrapError>()
+      .having((e) => e.field, 'field', field)
+      .having((e) => e.code, 'code', 'kind_changed'),
+);
+
 Future<int> _sendBearer(Session session, IngestBootstrap config) async {
   final pod = session.serverpod;
   final ingress = IngressSubsystem(
@@ -202,6 +230,107 @@ void main() {
         ''')).single.toList();
         expect(counts, [2, 2, 1]);
         expect(await _sendBearer(session, next), 202);
+      });
+      test('kind_change_refused', () async {
+        final session = builder.build();
+        final repository = IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        );
+        final secrets = <String, Object?>{'source-token': token(1)};
+        final first = await repository.publishConfig(
+          kindConfig(1, 'alertmanager'),
+          secrets,
+          runMode: 'test',
+        );
+        await expectLater(
+          repository.publishConfig(
+            kindConfig(2, 'icinga2'),
+            secrets,
+            runMode: 'test',
+          ),
+          kindChanged('sources[0].kind'),
+        );
+        expect(
+          (await repository.activeSnapshot())!['snapshotId'],
+          first.snapshotId,
+        );
+        expect(
+          (await session.db.unsafeQuery(
+            'SELECT kind FROM ingest_source',
+          )).single[0],
+          'alertmanager',
+        );
+      });
+      test('icinga2_source_declares_excluded_identity_labels', () async {
+        // The higher revision is refused at the field, and the snapshot that
+        // was active before stays active with its source unchanged.
+        final session = builder.build();
+        final repository = IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        );
+        final secrets = <String, Object?>{'source-token': token(1)};
+        final first = await repository.publishConfig(
+          kindConfig(1, 'icinga2'),
+          secrets,
+          runMode: 'test',
+        );
+        final excluded = kindConfig(2, 'icinga2');
+        ((excluded['sources']! as List<Object?>).single!
+            as Map<String, Object?>)['excluded_identity_labels'] = [
+          'service',
+        ];
+        await expectLater(
+          repository.publishConfig(excluded, secrets, runMode: 'test'),
+          throwsA(
+            isA<BootstrapError>().having(
+              (e) => e.field,
+              'field',
+              'sources[0].excluded_identity_labels',
+            ),
+          ),
+        );
+        expect(
+          (await repository.activeSnapshot())!['snapshotId'],
+          first.snapshotId,
+        );
+        expect(
+          (await session.db.unsafeQuery(
+            'SELECT count(*) FROM ingest_config_snapshot',
+          )).single[0],
+          1,
+        );
+      });
+      test('disabled_source_keeps_its_kind', () async {
+        final session = builder.build();
+        final repository = IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        );
+        final secrets = <String, Object?>{'source-token': token(1)};
+        await repository.publishConfig(
+          kindConfig(1, 'alertmanager'),
+          secrets,
+          runMode: 'test',
+        );
+        final removed = await repository.publishConfig(
+          kindConfig(2, null),
+          secrets,
+          runMode: 'test',
+        );
+        await expectLater(
+          repository.publishConfig(
+            kindConfig(3, 'icinga2'),
+            secrets,
+            runMode: 'test',
+          ),
+          kindChanged('sources[0].kind'),
+        );
+        expect(
+          (await repository.activeSnapshot())!['snapshotId'],
+          removed.snapshotId,
+        );
       });
       test('bootstrap_publication_and_rotation', () async {
         final session = builder.build();

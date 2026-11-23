@@ -11,6 +11,7 @@ final class TestModeSwitches {
     this.rootLockTimeout,
     this.stopProbe = false,
     this.stopGate,
+    this.schemaLockTimeout,
   });
 
   /// Reads the switches from [environment] if [runMode] is `test`.
@@ -22,7 +23,13 @@ final class TestModeSwitches {
     final timeoutSeconds = int.tryParse(
       environment['CORRELIA_TEST_ROOT_LOCK_TIMEOUT'] ?? '',
     );
+    final lockTimeoutMs = int.tryParse(
+      environment['CORRELIA_TEST_SCHEMA_LOCK_TIMEOUT_MS'] ?? '',
+    );
     return TestModeSwitches._(
+      schemaLockTimeout: lockTimeoutMs == null
+          ? null
+          : Duration(milliseconds: lockTimeoutMs),
       consoleDir: environment['CORRELIA_TEST_CONSOLE_DIR'],
       exitOnStdinClose: environment['CORRELIA_EXIT_ON_STDIN_CLOSE'] == '1',
       rootLock: environment['CORRELIA_TEST_ROOT_LOCK'],
@@ -49,6 +56,9 @@ final class TestModeSwitches {
 
   /// `CORRELIA_TEST_STOP_PROBE=1`: on stop, run a database query and log it.
   final bool stopProbe;
+
+  /// `CORRELIA_TEST_SCHEMA_LOCK_TIMEOUT_MS`: a short schema `lock_timeout`.
+  final Duration? schemaLockTimeout;
 
   /// `CORRELIA_TEST_STOP_GATE`: a file whose exclusive lock, held by the
   /// test, keeps the server in shutdown until the test releases it.

@@ -29,21 +29,26 @@ simulator, and failures are visible and replayable. M2 retires the risk that rea
    - display-field truncation that leaves identity untouched (ID-3);
    - encrypted plugin config secrets, never returned or logged (SEC-3).
 2. `icinga2-ingest`:
-   - the Icinga2 webhook (notification command) and the Event Streams API consumer (`CheckResult`,
-     `StateChange`, acknowledgements, downtimes, flapping);
-   - state sync on startup; the soft/hard state policy per source; a WARNING to CRITICAL change updates
-     one alert's severity (ID-7 a);
-   - captured golden fixtures for both paths; skew clamp and late-event fence (ORD-4, ORD-6, ORD-7).
+   - the Icinga2 webhook (shipped notification command) with acknowledgements, downtimes and flapping;
+   - SOFT states as information; a WARNING to CRITICAL change updates one alert's severity (ID-7 a);
+   - captured golden webhook fixtures; skew clamp and late-event fence (ORD-4, ORD-6, ORD-7).
 
    Needs 1.
-3. `thanos-and-generic-webhook`:
+3. `icinga2-event-streams` (split from change 2 by the owner, 2026-11-19, after three design-review rounds):
+   - the Event Streams API consumer (`CheckResult`, `StateChange`, acknowledgements, downtimes, flapping)
+     with a per-source lease and bounded backpressure into Icinga 2;
+   - state sync on connect and its reconciliation ordering; the soft/hard state policy per source;
+   - captured golden Event Streams fixtures.
+
+   Needs 2.
+4. `thanos-and-generic-webhook`:
    - Thanos Ruler through the Alertmanager decoder, tenant headers and a documented setup, with captured
      fixtures;
    - the generic webhook with a versioned declarative mapping document and a preview against a sample;
      activation rejects a mapping with neither an observation id nor a source time (RUL-8).
 
    Needs 1.
-4. `matcher-rules-and-versions`:
+5. `matcher-rules-and-versions`:
    - matcher rules (ADR 0008): labels and tags, severity mapping, owner/team, links, hostname/CIDR tables,
      regex extraction with timeouts (RUL-3); a rule that times out on every event is skipped, counted
      and self-alerted (RUL-7);
@@ -52,20 +57,20 @@ simulator, and failures are visible and replayable. M2 retires the risk that rea
    - parameterized rule filters only (SEC-2); activation rejects unknown outputs (DUR-5).
 
    Needs 1.
-5. `rule-simulator-and-query-enricher`:
+6. `rule-simulator-and-query-enricher`:
    - the rule simulator API over a sample or a stored event, against the active or a draft rule set
      (RUL-1, RUL-2);
    - the Prometheus/Thanos query enricher with per-rule deadlines;
    - event classification (kind and noise class hints).
 
-   Needs 4.
-6. `dead-letters-backpressure-and-retention`:
+   Needs 5.
+7. `dead-letters-backpressure-and-retention`:
    - the dead-letter list and replay API, in bulk by filter, replaying with the configuration active at
      replay time (DUR-4, DUR-13);
    - inbox lag bounds with 429/503 and `Retry-After` (DUR-9); output storage budgets (DUR-11);
    - raw inbox and event partitioning, drop by age, expiry to `discarded` (DUR-10, DUR-12).
 
-   Needs 3.
+   Needs 4.
 
 ## Next: M3 - Correlation and incidents
 

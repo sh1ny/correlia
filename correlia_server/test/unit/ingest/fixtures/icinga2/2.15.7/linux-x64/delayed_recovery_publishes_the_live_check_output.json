@@ -1,0 +1,336 @@
+{
+  "scenario": "delayed_recovery_publishes_the_live_check_output",
+  "release": "2.15.7",
+  "architecture": "linux-x64",
+  "sender_sha256": "b73c59c0d38600cfe5980094a5d140818e37b2d01e715427cc367039a4c87aa3",
+  "contrib_sha256": {
+    "correlia-commands.conf": "3b439bd4b7975cb733aee755bf50fe8e76e225388f0a0b2acb275b2e51ee458d",
+    "correlia-functions.conf": "a30f9c9a5de0441765ebbc9e4d12b9324d3d743aaa335ec568078471faf78034",
+    "correlia.conf": "ba23a7c8031d5783137222c1188fe47674cce50bd19f467742a6e25961efd78e"
+  },
+  "records": [
+    {
+      "kind": "result",
+      "id": "r1",
+      "object_type": "service",
+      "cap_id": "gated",
+      "exit_status": 2,
+      "output_bytes": 19,
+      "output": "CRITICAL: disk full",
+      "execution_end": "1795393651.100001",
+      "accepted_us": 1795393651276827
+    },
+    {
+      "kind": "admitted",
+      "id": "d2",
+      "auth": "bearer",
+      "request": {
+        "path": "/hooks/icinga2/33333333-3333-4333-8333-333333333333",
+        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"gated\",\"state\":\"CRITICAL\",\"state_type\":\"HARD\",\"last_state_change\":\"1795393651.100001\",\"output\":\"CRITICAL: disk full\",\"notification_type\":\"PROBLEM\",\"notification_time\":\"1795393651.233393\"}",
+        "body_sha256": "124d2495b506db8b83bbbe17385d7e1ff486b1f51c2300e8dc31621797ea542b",
+        "body_size": 267
+      },
+      "response_status": 202,
+      "raw": {
+        "id": "b6df3b80-4408-4f62-9669-4fd11514e529",
+        "body_sha256": "124d2495b506db8b83bbbe17385d7e1ff486b1f51c2300e8dc31621797ea542b",
+        "status": "done",
+        "outcome": {
+          "upstream_omitted": 0,
+          "unknown_top_level_fields": [],
+          "unknown_top_level_overflow": 0,
+          "committed": 1,
+          "unrouted": 0,
+          "duplicate_observation": 0,
+          "future_dated": 0,
+          "duplicate_quarantine": 0,
+          "late": 0,
+          "applied": 1,
+          "stale": 0,
+          "clamped": 0
+        },
+        "failure": null
+      },
+      "events": [
+        {
+          "disposition": "ready",
+          "state_outcome": "applied",
+          "source_time": "2026-11-23T00:27:31.100001Z",
+          "cloud_event": {
+            "specversion": "1.0",
+            "id": "77307e49-1d00-53c3-be31-309ec98f96a3",
+            "source": "urn:correlia:source:33333333-3333-4333-8333-333333333333",
+            "type": "io.correlia.alert.v1",
+            "datacontenttype": "application/json",
+            "dataschema": "urn:correlia:schema:event:1.0",
+            "subject": "62ec955c5aa843eb2bda699d5f01ce5a757cf9a11f124be148710b23fa7b64f3",
+            "partitionkey": "62ec955c5aa843eb2bda699d5f01ce5a757cf9a11f124be148710b23fa7b64f3",
+            "correliatenant": "default",
+            "time": "2026-11-23T00:27:31.100001Z",
+            "data": {
+              "event_id": "77307e49-1d00-53c3-be31-309ec98f96a3",
+              "fingerprint": "62ec955c5aa843eb2bda699d5f01ce5a757cf9a11f124be148710b23fa7b64f3",
+              "tenant": "default",
+              "namespace": "33333333-3333-4333-8333-333333333333",
+              "kind": "EVENT_KIND_ALERT",
+              "status": "EVENT_STATUS_FIRING",
+              "severity": "EVENT_SEVERITY_CRITICAL",
+              "severity_original": "CRITICAL",
+              "summary": "lab!gated CRITICAL",
+              "description": "CRITICAL: disk full",
+              "resource": {},
+              "observer": {
+                "source_instance": "33333333-3333-4333-8333-333333333333",
+                "source_kind": "icinga2"
+              },
+              "labels": {},
+              "labels_origin": {},
+              "annotations": {
+                "icinga2.notification_type": "PROBLEM"
+              },
+              "source_time": "2026-11-23T00:27:31.100001Z",
+              "reported_source_time": "2026-11-23T00:27:31.100001Z",
+              "observed_at": "2026-11-23T00:27:31.238513Z",
+              "processed_at": "2026-11-23T00:27:31.314450Z",
+              "raw": {
+                "ref": "raw:2026-11-23T00:27:31.238513Z/b6df3b80-4408-4f62-9669-4fd11514e529",
+                "sha256": "124d2495b506db8b83bbbe17385d7e1ff486b1f51c2300e8dc31621797ea542b",
+                "size": 267
+              },
+              "pipeline": {
+                "version": "95a155a55fbbae9e2f6171d9396165f138a6a5e9b1708360ca70de53a44b9ca1",
+                "generation": 0
+              },
+              "extensions": {},
+              "identity_fields": {
+                "host": {
+                  "raw": "lab"
+                },
+                "service": {
+                  "raw": "gated"
+                }
+              },
+              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAADsAWyJpY2luZ2EyLm5vdGlmeS52MSIsIkNSSVRJQ0FMIiwiSEFSRCIsIjE3OTUzOTM2NTExMDAwMDEiXQ=="
+            }
+          },
+          "outbox": [
+            {
+              "output_id": "44444444-4444-4444-8444-444444444444",
+              "kind": "webhook"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "state",
+      "after": "d2",
+      "object": {
+        "host": "lab",
+        "service": "gated"
+      },
+      "alert": {
+        "status": "firing",
+        "severity": "critical",
+        "version": 1,
+        "fence_event_id": "77307e49-1d00-53c3-be31-309ec98f96a3",
+        "fence_effective_seconds": 1795393651,
+        "fence_effective_nanos": 100001000,
+        "summary": "lab!gated CRITICAL"
+      },
+      "events": {
+        "total": 1,
+        "by_disposition": {
+          "ready": 1
+        },
+        "by_status": {
+          "firing": 1
+        }
+      }
+    },
+    {
+      "kind": "result",
+      "id": "r3",
+      "object_type": "service",
+      "cap_id": "gated",
+      "exit_status": 0,
+      "output_bytes": 18,
+      "output": "OK: disk recovered",
+      "execution_end": "1795393651.300002",
+      "accepted_us": 1795393651440872
+    },
+    {
+      "kind": "result",
+      "id": "r4",
+      "object_type": "service",
+      "cap_id": "gated",
+      "exit_status": 2,
+      "output_bytes": 19,
+      "output": "CRITICAL: disk full",
+      "execution_end": "1795393651.500003",
+      "accepted_us": 1795393651492734,
+      "label": "refire"
+    },
+    {
+      "kind": "admitted",
+      "id": "d5",
+      "auth": "bearer",
+      "request": {
+        "path": "/hooks/icinga2/33333333-3333-4333-8333-333333333333",
+        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"gated\",\"state\":\"CRITICAL\",\"state_type\":\"HARD\",\"last_state_change\":\"1795393651.500003\",\"output\":\"CRITICAL: disk full\",\"notification_type\":\"RECOVERY\",\"notification_time\":\"1795393651.498368\"}",
+        "body_sha256": "1acbbb4a71969864ecaf78dce7a208ff4dce5d558bb5fb0c91d9a61cdf800925",
+        "body_size": 268
+      },
+      "response_status": 202,
+      "raw": {
+        "id": "2149803c-be52-4d0b-a306-6c9a5a8fe03f",
+        "body_sha256": "1acbbb4a71969864ecaf78dce7a208ff4dce5d558bb5fb0c91d9a61cdf800925",
+        "status": "done",
+        "outcome": {
+          "upstream_omitted": 0,
+          "unknown_top_level_fields": [],
+          "unknown_top_level_overflow": 0,
+          "committed": 1,
+          "unrouted": 0,
+          "duplicate_observation": 0,
+          "future_dated": 0,
+          "duplicate_quarantine": 0,
+          "late": 0,
+          "applied": 1,
+          "stale": 0,
+          "clamped": 0
+        },
+        "failure": null
+      },
+      "events": [
+        {
+          "disposition": "ready",
+          "state_outcome": "applied",
+          "source_time": "2026-11-23T00:27:31.500003Z",
+          "cloud_event": {
+            "specversion": "1.0",
+            "id": "03513035-53f9-5a45-864b-d69567dcde20",
+            "source": "urn:correlia:source:33333333-3333-4333-8333-333333333333",
+            "type": "io.correlia.alert.v1",
+            "datacontenttype": "application/json",
+            "dataschema": "urn:correlia:schema:event:1.0",
+            "subject": "62ec955c5aa843eb2bda699d5f01ce5a757cf9a11f124be148710b23fa7b64f3",
+            "partitionkey": "62ec955c5aa843eb2bda699d5f01ce5a757cf9a11f124be148710b23fa7b64f3",
+            "correliatenant": "default",
+            "time": "2026-11-23T00:27:31.500003Z",
+            "data": {
+              "event_id": "03513035-53f9-5a45-864b-d69567dcde20",
+              "fingerprint": "62ec955c5aa843eb2bda699d5f01ce5a757cf9a11f124be148710b23fa7b64f3",
+              "tenant": "default",
+              "namespace": "33333333-3333-4333-8333-333333333333",
+              "kind": "EVENT_KIND_ALERT",
+              "status": "EVENT_STATUS_FIRING",
+              "severity": "EVENT_SEVERITY_CRITICAL",
+              "severity_original": "CRITICAL",
+              "summary": "lab!gated CRITICAL",
+              "description": "CRITICAL: disk full",
+              "resource": {},
+              "observer": {
+                "source_instance": "33333333-3333-4333-8333-333333333333",
+                "source_kind": "icinga2"
+              },
+              "labels": {},
+              "labels_origin": {},
+              "annotations": {
+                "icinga2.notification_type": "RECOVERY"
+              },
+              "source_time": "2026-11-23T00:27:31.500003Z",
+              "reported_source_time": "2026-11-23T00:27:31.500003Z",
+              "observed_at": "2026-11-23T00:27:31.503447Z",
+              "processed_at": "2026-11-23T00:27:31.575925Z",
+              "raw": {
+                "ref": "raw:2026-11-23T00:27:31.503447Z/2149803c-be52-4d0b-a306-6c9a5a8fe03f",
+                "sha256": "1acbbb4a71969864ecaf78dce7a208ff4dce5d558bb5fb0c91d9a61cdf800925",
+                "size": 268
+              },
+              "pipeline": {
+                "version": "95a155a55fbbae9e2f6171d9396165f138a6a5e9b1708360ca70de53a44b9ca1",
+                "generation": 0
+              },
+              "extensions": {},
+              "identity_fields": {
+                "host": {
+                  "raw": "lab"
+                },
+                "service": {
+                  "raw": "gated"
+                }
+              },
+              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAADsAWyJpY2luZ2EyLm5vdGlmeS52MSIsIkNSSVRJQ0FMIiwiSEFSRCIsIjE3OTUzOTM2NTE1MDAwMDMiXQ=="
+            }
+          },
+          "outbox": [
+            {
+              "output_id": "44444444-4444-4444-8444-444444444444",
+              "kind": "webhook"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "admitted",
+      "id": "d6",
+      "auth": "bearer",
+      "request": {
+        "path": "/hooks/icinga2/33333333-3333-4333-8333-333333333333",
+        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"gated\",\"state\":\"CRITICAL\",\"state_type\":\"HARD\",\"last_state_change\":\"1795393651.500003\",\"output\":\"CRITICAL: disk full\",\"notification_type\":\"PROBLEM\",\"notification_time\":\"1795393651.498770\"}",
+        "body_sha256": "5103ac099f22026bb53fc08776083d42acb036a1d42bc011f4d43f8a78b78c86",
+        "body_size": 267
+      },
+      "response_status": 202,
+      "raw": {
+        "id": "250d1c81-c70b-4b97-9cfb-0fd1caf0cd45",
+        "body_sha256": "5103ac099f22026bb53fc08776083d42acb036a1d42bc011f4d43f8a78b78c86",
+        "status": "done",
+        "outcome": {
+          "upstream_omitted": 0,
+          "unknown_top_level_fields": [],
+          "unknown_top_level_overflow": 0,
+          "committed": 0,
+          "unrouted": 0,
+          "duplicate_observation": 1,
+          "future_dated": 0,
+          "duplicate_quarantine": 0,
+          "late": 0,
+          "applied": 0,
+          "stale": 0,
+          "clamped": 0
+        },
+        "failure": null
+      },
+      "events": []
+    },
+    {
+      "kind": "state",
+      "after": "end",
+      "object": {
+        "host": "lab",
+        "service": "gated"
+      },
+      "alert": {
+        "status": "firing",
+        "severity": "critical",
+        "version": 1,
+        "fence_event_id": "03513035-53f9-5a45-864b-d69567dcde20",
+        "fence_effective_seconds": 1795393651,
+        "fence_effective_nanos": 500003000,
+        "summary": "lab!gated CRITICAL"
+      },
+      "events": {
+        "total": 2,
+        "by_disposition": {
+          "ready": 2
+        },
+        "by_status": {
+          "firing": 2
+        }
+      }
+    }
+  ]
+}

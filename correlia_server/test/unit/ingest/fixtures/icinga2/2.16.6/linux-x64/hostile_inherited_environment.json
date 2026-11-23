@@ -1,0 +1,182 @@
+{
+  "scenario": "hostile_inherited_environment",
+  "release": "2.16.6",
+  "architecture": "linux-x64",
+  "sender_sha256": "b73c59c0d38600cfe5980094a5d140818e37b2d01e715427cc367039a4c87aa3",
+  "contrib_sha256": {
+    "correlia-commands.conf": "3b439bd4b7975cb733aee755bf50fe8e76e225388f0a0b2acb275b2e51ee458d",
+    "correlia-functions.conf": "a30f9c9a5de0441765ebbc9e4d12b9324d3d743aaa335ec568078471faf78034",
+    "correlia.conf": "ba23a7c8031d5783137222c1188fe47674cce50bd19f467742a6e25961efd78e"
+  },
+  "records": [
+    {
+      "kind": "case",
+      "label": "loopback_http"
+    },
+    {
+      "kind": "result",
+      "id": "r1",
+      "object_type": "service",
+      "cap_id": "hostile1",
+      "exit_status": 2,
+      "output_bytes": 17,
+      "output": "CRITICAL: hostile",
+      "execution_end": "1795394628.461628",
+      "accepted_us": 1795394628508643
+    },
+    {
+      "kind": "admitted",
+      "id": "d2",
+      "auth": "bearer",
+      "request": {
+        "path": "/hooks/icinga2/33333333-3333-4333-8333-333333333333",
+        "body": "{\"format\":\"correlia.icinga2.v1\",\"object_type\":\"service\",\"host\":\"lab\",\"service\":\"hostile1\",\"state\":\"CRITICAL\",\"state_type\":\"HARD\",\"last_state_change\":\"1795394628.461628\",\"output\":\"CRITICAL: hostile\",\"notification_type\":\"PROBLEM\",\"notification_time\":\"1795394628.467681\"}",
+        "body_sha256": "d2e1bd25a688eaffd304dbdfd0126076556720d06ed6880d838492b6dc66217f",
+        "body_size": 268
+      },
+      "response_status": 202,
+      "raw": {
+        "id": "cd3beb2b-918c-4994-b801-e46fb3838b1d",
+        "body_sha256": "d2e1bd25a688eaffd304dbdfd0126076556720d06ed6880d838492b6dc66217f",
+        "status": "done",
+        "outcome": {
+          "upstream_omitted": 0,
+          "unknown_top_level_fields": [],
+          "unknown_top_level_overflow": 0,
+          "committed": 1,
+          "unrouted": 0,
+          "duplicate_observation": 0,
+          "future_dated": 0,
+          "duplicate_quarantine": 0,
+          "late": 0,
+          "applied": 1,
+          "stale": 0,
+          "clamped": 0
+        },
+        "failure": null
+      },
+      "events": [
+        {
+          "disposition": "ready",
+          "state_outcome": "applied",
+          "source_time": "2026-11-23T00:43:48.461628Z",
+          "cloud_event": {
+            "specversion": "1.0",
+            "id": "ca3035be-4815-5d43-a5ac-c78d5847a4b5",
+            "source": "urn:correlia:source:33333333-3333-4333-8333-333333333333",
+            "type": "io.correlia.alert.v1",
+            "datacontenttype": "application/json",
+            "dataschema": "urn:correlia:schema:event:1.0",
+            "subject": "0f0b43949cbc775f693c5997028d4de0ade17344f7d6fee42aabddb7c25a4642",
+            "partitionkey": "0f0b43949cbc775f693c5997028d4de0ade17344f7d6fee42aabddb7c25a4642",
+            "correliatenant": "default",
+            "time": "2026-11-23T00:43:48.461628Z",
+            "data": {
+              "event_id": "ca3035be-4815-5d43-a5ac-c78d5847a4b5",
+              "fingerprint": "0f0b43949cbc775f693c5997028d4de0ade17344f7d6fee42aabddb7c25a4642",
+              "tenant": "default",
+              "namespace": "33333333-3333-4333-8333-333333333333",
+              "kind": "EVENT_KIND_ALERT",
+              "status": "EVENT_STATUS_FIRING",
+              "severity": "EVENT_SEVERITY_CRITICAL",
+              "severity_original": "CRITICAL",
+              "summary": "lab!hostile1 CRITICAL",
+              "description": "CRITICAL: hostile",
+              "resource": {},
+              "observer": {
+                "source_instance": "33333333-3333-4333-8333-333333333333",
+                "source_kind": "icinga2"
+              },
+              "labels": {},
+              "labels_origin": {},
+              "annotations": {
+                "icinga2.notification_type": "PROBLEM"
+              },
+              "source_time": "2026-11-23T00:43:48.461628Z",
+              "reported_source_time": "2026-11-23T00:43:48.461628Z",
+              "observed_at": "2026-11-23T00:43:48.473059Z",
+              "processed_at": "2026-11-23T00:43:48.524108Z",
+              "raw": {
+                "ref": "raw:2026-11-23T00:43:48.473059Z/cd3beb2b-918c-4994-b801-e46fb3838b1d",
+                "sha256": "d2e1bd25a688eaffd304dbdfd0126076556720d06ed6880d838492b6dc66217f",
+                "size": 268
+              },
+              "pipeline": {
+                "version": "435b23a193af0e653008d8dd1ccc287b857e252c9dd09fe24249752bc1994956",
+                "generation": 0
+              },
+              "extensions": {},
+              "identity_fields": {
+                "host": {
+                  "raw": "lab"
+                },
+                "service": {
+                  "raw": "hostile1"
+                }
+              },
+              "observation_key": "AAAAAgAAAAZkb21haW4AAAASY29ycmVsaWEubmF0aXZlLnYxAAAAA2tleQAAADsAWyJpY2luZ2EyLm5vdGlmeS52MSIsIkNSSVRJQ0FMIiwiSEFSRCIsIjE3OTUzOTQ2Mjg0NjE2MjgiXQ=="
+            }
+          },
+          "outbox": [
+            {
+              "output_id": "44444444-4444-4444-8444-444444444444",
+              "kind": "webhook"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "state",
+      "after": "d2",
+      "object": {
+        "host": "lab",
+        "service": "hostile1"
+      },
+      "alert": {
+        "status": "firing",
+        "severity": "critical",
+        "version": 1,
+        "fence_event_id": "ca3035be-4815-5d43-a5ac-c78d5847a4b5",
+        "fence_effective_seconds": 1795394628,
+        "fence_effective_nanos": 461628000,
+        "summary": "lab!hostile1 CRITICAL"
+      },
+      "events": {
+        "total": 1,
+        "by_disposition": {
+          "ready": 1
+        },
+        "by_status": {
+          "firing": 1
+        }
+      }
+    },
+    {
+      "kind": "case",
+      "label": "https_endpoint"
+    },
+    {
+      "kind": "command_failure",
+      "id": "f3",
+      "exit_code": 3,
+      "detail": "tls\\n",
+      "log": "[2026-11-23 00:43:53 +0000] warning/PluginNotificationTask: Notification command for object 'lab!hostile2' (PID: 12956, arguments: '/usr/bin/env' '-i' '/usr/local/bin/correlia-icinga2-notify' '--base-url' '\"https://127.0.0.1:41165\"' '--host' '\"lab\"' '--notification-author' '\"operator\"' '--notification-comment' '\"probe\"' '--notification-time' '\"1795394633.014609\"' '--notification-type' '\"CUSTOM\"' '--object-type' '\"service\"' '--output' '\"\"' '--service' '\"hostile2\"' '--source' '\"33333333-3333-4333-8333-333333333333\"' '--state' '\"UNKNOWN\"' '--state-type' '\"SOFT\"' '--token-file' '\"/etc/icinga2/correlia/token\"') terminated with exit code 3, output: 'tls\\n'"
+    },
+    {
+      "kind": "info",
+      "name": "recording_listener_connections",
+      "value": 0
+    },
+    {
+      "kind": "info",
+      "name": "https_endpoint_requests",
+      "value": 0
+    },
+    {
+      "kind": "info",
+      "name": "key_log_file_exists",
+      "value": false
+    }
+  ]
+}

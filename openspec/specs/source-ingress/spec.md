@@ -118,8 +118,12 @@ The bootstrap configuration SHALL accept format version 2, where each source dec
 - **THEN** activation succeeds, the source keeps its UUID and namespace, and its existing token is accepted
 
 #### Scenario: Unsupported kind or field
-- **WHEN** a version 2 source declares kind `icinga2` before that kind is supported, or carries an undeclared field
+- **WHEN** a version 2 source declares kind `zabbix`, which is not supported, or carries an undeclared field
 - **THEN** activation fails with a field error naming `sources[i].kind` or the field path, and the prior snapshot stays active
+
+#### Scenario: Supported kinds
+- **WHEN** a version 2 file declares one source of kind `alertmanager` and one of kind `icinga2`
+- **THEN** activation succeeds and each source accepts deliveries only under its own kind's route
 
 ### Requirement: Credential rotation with overlap
 
@@ -134,7 +138,7 @@ A source SHALL hold 1 to 4 credentials, each with a distinct secret reference an
 - **THEN** the response is 401 with no raw row, and the source's rejection count increases
 
 #### Scenario: Rotation during a body read
-- **WHEN** a request authenticates with a credential under revision B, and revision C removing that credential (or disabling the source, changing its kind or disabling path tokens) commits while the request body is still being read
+- **WHEN** a request authenticates with a credential under revision B, and revision C removing that credential (or disabling the source or disabling path tokens) commits while the request body is still being read
 - **THEN** the request receives 401 and no raw row or transport key is committed; a request whose credential is still valid at its receipt instant and still present at commit is admitted
 
 #### Scenario: Activation without a usable credential
@@ -192,3 +196,47 @@ A source's alert namespace SHALL default to its own instance UUID. A source MAY 
 #### Scenario: Undeclared or UUID shaped namespace
 - **WHEN** a source names a namespace absent from `namespaces`, or `namespaces` declares a UUID-shaped name
 - **THEN** activation fails with a field error naming the path and the prior snapshot stays active
+
+### Requirement: A source's kind never changes
+
+A source UUID SHALL keep the kind it was first published with. A configuration that gives an existing source
+UUID another kind SHALL fail activation with `kind_changed`, so a raw row whose pinned snapshot configures its
+source decodes with the kind it was admitted under, also on replay.
+
+#### Scenario: Kind change refused
+- **WHEN** a source published as `alertmanager` is republished with the same UUID and kind `icinga2`
+- **THEN** activation fails with a field error naming `sources[i].kind` and code `kind_changed`, and the prior snapshot stays active
+
+#### Scenario: Disabled source keeps its kind
+- **WHEN** a source is removed from the configuration and later published again with the same UUID and another kind
+- **THEN** activation fails with `kind_changed`
+
+#### Scenario: Admitted row decodes with its kind
+- **WHEN** an Alertmanager delivery is accepted with 202, then a configuration revision that keeps the source is published, and then the pipeline claims the row
+- **THEN** the row decodes as Alertmanager
+
+#### Scenario: Source disabled before the first claim
+- **WHEN** a delivery is accepted with 202, then a revision that disables its source is published, and then the pipeline claims the row
+- **THEN** the row fails with `source_not_configured`, as for every kind, and no decoder runs
+
+### Requirement: Path tokens stay Alertmanager-only
+
+`path_token_enabled` SHALL be accepted only on `alertmanager` sources. A credential in the URL path of any other
+kind's route SHALL be refused.
+
+#### Scenario: Icinga2 source declares a path token
+- **WHEN** an `icinga2` source declares `path_token_enabled: true`
+- **THEN** activation fails with a field error naming `sources[i].path_token_enabled`
+
+#### Scenario: Path-token request on the Icinga2 route
+- **WHEN** a request is sent to `/hooks/icinga2/<id>/<credential>`
+- **THEN** Correlia answers 401 and no raw row is inserted
+
+### Requirement: Identity label exclusion stays Alertmanager-only
+
+`excluded_identity_labels` SHALL be accepted only on `alertmanager` sources, because an Icinga2 fingerprint is
+built from host and service, not labels.
+
+#### Scenario: Icinga2 source declares excluded identity labels
+- **WHEN** an `icinga2` source declares `excluded_identity_labels: ["service"]`
+- **THEN** activation fails with a field error naming `sources[i].excluded_identity_labels`, and the prior snapshot stays active

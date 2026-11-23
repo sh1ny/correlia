@@ -8,6 +8,18 @@ Start the server from `correlia_server`, with its `schema/` directory deployed a
 
 The database test helper `test/support/ingest_schema.dart` must receive a non-rollback session and run after managed migrations. Do not change generated test tools or hand-edit generated migration definitions. Failure of a schema step rolls back that step and prevents subsystem startup; fix the underlying problem and restart. The reported error names the step without exposing database details.
 
+## Schema step 4 and the offline upgrade
+
+Step 4 (`schema/0004_icinga2.sql`) adds a nullable `events.effective_source_time timestamptz` and the SQL function `events_effective_source_time(events)`. The column has no default and no backfill, so PostgreSQL changes only the catalog: no event row is rewritten, no extra disk is needed on a populated table, and the step holds its exclusive lock on `events` only briefly.
+
+Every row this release writes sets the column to the effective time, which the pipeline computes with the same ordering-key function that fences alert state: the source time, capped at the observed time plus the five minute skew allowance. The value is stored whether or not it was capped, with microsecond precision like `source_time`; it serves queries and stored ordering evidence, while exact ordering still uses the canonical evidence's nanosecond times. The event's published `source_time` always stays as the source reported it. The raw outcome JSON of the row gains a `clamped` count of the events whose effective time was capped. Expiry, correlation windows and reminders use observed time, not this value.
+
+A null column marks a row written before step 4. Read the effective time of any row through `events_effective_source_time(events)` and never read the column alone: for a null column the function returns `LEAST(source_time, observed_at + interval '5 minutes')`, which is the cap the alert state service already applied to those rows without recording it. For example, `SELECT events_effective_source_time(e) FROM events e`.
+
+Every schema transaction starts with `SET LOCAL lock_timeout`, before it requests the schema advisory lock (30 seconds in production). Waiting behind another starter, or step 4's `ALTER TABLE` waiting for a lock on `events` (for example a long reader or an open transaction), therefore ends in a failure and not in a hang. The startup error names the step and a sanitized failure class: `lock_timeout` (SQLSTATE 55P03) or `failed`, for example `Schema step 4 failed: lock_timeout`. The process exits non-zero, the transaction rolled back and no version was recorded. Step `0` is the version table itself, which is where a wait on the advisory lock ends. Once the blocking session ends, start the process again; the next start applies the step.
+
+The upgrade is offline. Stop every older process of every role (`api`, `worker`, `all`) before any process of this release starts, and do not restart an older one afterwards. Any role of this release applies step 4 at startup, while an older process decodes every row as Alertmanager, writes no effective time and publishes configuration with a publisher that overwrites a source's kind. Rows admitted before the stop stay `pending` in `raw_inbox` and are claimed and processed by the upgraded workers, so nothing admitted is lost. No mixed-version mechanism exists, because the cutover happens once.
+
 ## Repair migrations
 
 Serverpod's repair diff sees SQL-owned tables as extraneous and may propose destructive changes. Before applying any generated repair, inspect its entire SQL against the current schema and **remove all operations that drop or alter** `raw_inbox`, `events`, `outbox`, `activity`, `correlia_schema_versions`, their indexes, constraints and time-qualified references. Review related cascades as well. Preserve data and the version table; never force a destructive repair merely to silence drift. Inspect any other unmanaged exceptions individually. If the desired SQL-owned schema itself needs correction, write a new forward schema step, not an edit to an applied step or a generated definition. Review the resulting repair and schema step together on a populated copy before production use.
@@ -81,6 +93,17 @@ V2 supports one to four distinct `bearer` or `hmac` credential references. Optio
 credential must be unexpired when published. Rotate by adding the replacement reference, updating the
 sender, then removing the old credential at a higher revision. V2 rate limits are per authenticated source
 per API process: `per_second` 1–1000, `burst` 1–10000, default 20/40. Replicas multiply the effective budget.
+
+A v2 source's `kind` is `alertmanager` or `icinga2`; any other value fails activation with a field error at
+`sources[i].kind`. Each source accepts deliveries only on its own kind's route, `/hooks/alertmanager/<source-uuid>`
+or `/hooks/icinga2/<source-uuid>`. `path_token_enabled` and `excluded_identity_labels` are Alertmanager-only
+options: an `icinga2` source that declares either fails activation with a field error naming
+`sources[i].path_token_enabled` or `sources[i].excluded_identity_labels` (code `alertmanager_only`), and a request
+with a credential in the path of the Icinga 2 route (`/hooks/icinga2/<source-uuid>/<credential>`) is answered 401
+with nothing stored. A source UUID keeps the kind it was first published with, so a pinned raw row always decodes
+with the kind it was admitted under. Publishing the same UUID with another kind fails with code `kind_changed` at
+`sources[i].kind`, also when the source was removed or disabled in between; the prior snapshot stays active. To
+change a source's kind, give it a new UUID.
 
 V1 accepts `token_ref` instead of `kind`, `credentials`, and `rate_limit`; it maps to one Alertmanager bearer
 credential and keeps any existing namespace. For an M1 upgrade supply the key file and original import
@@ -211,13 +234,303 @@ GROUP BY source_id, names, overflow;
 
 See [the compatibility runbook](runbooks/alertmanager-compatibility.md) for capture regeneration and real-Alertmanager verification.
 
+## Icinga2 webhook document and mapping
+
+An `icinga2` source accepts one JSON object per delivery on `/hooks/icinga2/<source-uuid>`, in Correlia's own
+document format `correlia.icinga2.v1`. Icinga 2 has no webhook; the document is built by the notification command
+Correlia ships (see [Icinga2 sender setup](#icinga2-sender-setup)). Every delivery is one command execution and
+decodes to exactly one canonical event. A `202` only acknowledges that the delivery was stored; whether that event
+is committed is decided later. A document that fails validation is recorded as a pipeline failure and stores no
+event, and a repeat of an observation already stored (a reminder, or a retried delivery) completes as a
+`duplicate_observation` without storing another. An accepted delivery with no new event is therefore not data
+loss: its raw row's outcome says what happened to it.
+
+### Document v1
+
+| Field | Type | Rule |
+|---|---|---|
+| `format` | string | Required, exactly `correlia.icinga2.v1` |
+| `object_type` | string | Required, `host` or `service` |
+| `host` | string | Required, never empty, no control character (U+0000-U+001F, U+007F) |
+| `service` | string | Required for a service object, same rule as `host`; a host object must not carry it |
+| `state` | string | Required. Host: `UP`, `DOWN`, `UNREACHABLE`. Service: `OK`, `WARNING`, `CRITICAL`, `UNKNOWN` |
+| `state_type` | string | Required, `HARD` or `SOFT` |
+| `last_state_change` | string | Time, see below. Required for `PROBLEM` and `RECOVERY`; optional for every other type, validated when present and unused by its key and source time. The shipped command sends it only for `PROBLEM` and `RECOVERY` |
+| `output` | string | Optional check output (every line); no U+0000 |
+| `notification_type` | string | Required, Icinga 2's own type: `PROBLEM`, `RECOVERY`, `ACKNOWLEDGEMENT`, `DOWNTIMESTART`, `DOWNTIMEEND`, `DOWNTIMECANCELLED`, `FLAPPINGSTART`, `FLAPPINGEND`, `CUSTOM` |
+| `notification_author` | string | Optional; no U+0000 |
+| `notification_comment` | string | Optional; no U+0000 |
+| `notification_time` | string | Required time, see below |
+
+Any other key fails the delivery. The body is checked against the Alertmanager decoder's nesting bound (32)
+before it is parsed, and a body of any length within the source's body limit decodes.
+
+**Time form.** Both times are JSON strings of Unix seconds with exactly six fraction digits,
+`^[1-9][0-9]{0,11}\.[0-9]{6}$`, with a value below 253402300800 (before year 10000). The two digit groups are
+converted to integer microseconds by integer arithmetic, never through a floating-point number, so distinct texts
+are distinct instants over the whole range (`"8589934592.000001"` and `"8589934592.000002"` are two observations).
+A JSON number, a sign, an exponent, a leading zero and zero itself are all rejected.
+
+**Error codes.** A failed delivery fails its raw row once, with a code and a bounded path; it is a validation
+outcome, not an internal retry, and nothing commits. Paths name only the fields above; an unknown key is reported as
+the single structural segment `*`, never by its name, so sender-chosen text (a dotted name such as `state.state_type`
+included) never reaches a stored failure or a log.
+
+| Code | Path | Cause |
+|---|---|---|
+| `invalid_json` | `body` | Not UTF-8 JSON |
+| `invalid_type` | `body` or the field | The body is not an object, or a field has the wrong JSON type (a time given as a number, a state given as `2`) |
+| `depth_bound` | `body` | Nesting deeper than 32 |
+| `missing_field` | the field | A required field is absent |
+| `unsupported_version` | `format` | Any other format string |
+| `unknown_field` | `*` | A key outside the table |
+| `duplicate_field` | the field, or `*` | A member name given twice in the object, escapes decoded (`"state"` and `"st\u0061te"`); the path is `*` unless the name is a field above |
+| `invalid_object_type` | `object_type` | Neither `host` nor `service` |
+| `unexpected_field` | `service` | A host object carrying `service` |
+| `invalid_state` | `state` | A name not valid for the object type (`DEGRADED`, or `CRITICAL` on a host) |
+| `invalid_state_type` | `state_type` | Neither `HARD` nor `SOFT` |
+| `unsupported_type` | `notification_type` | A type outside the list (`ESCALATION`) |
+| `invalid_time` | the time field | A string not in the fixed form (`"1.5"`, `"1e9"`, `"0.000000"`) |
+| `out_of_range` | the time field | 253402300800 seconds or more |
+| `invalid_text` | the field | An empty or control-character name, U+0000 in a text, or an unpaired surrogate |
+
+### Mapping
+
+State and state type decide status and severity; `notification_type` only selects the kind of event and is never
+read for status. Only `PROBLEM` and `RECOVERY` are state observations. Every other type is informational whatever
+state it carries.
+
+| Delivery | Kind | Status | Severity |
+|---|---|---|---|
+| `PROBLEM` or `RECOVERY`, host `UP` or service `OK` (any state type) | `alert` | `resolved` | `info` |
+| `PROBLEM` or `RECOVERY`, HARD `DOWN` or `UNREACHABLE` or `CRITICAL` | `alert` | `firing` | `critical` |
+| `PROBLEM` or `RECOVERY`, HARD `WARNING` | `alert` | `firing` | `warning` |
+| `PROBLEM` or `RECOVERY`, HARD `UNKNOWN` | `alert` | `firing` | `unknown` |
+| `PROBLEM` or `RECOVERY`, SOFT non-OK state | `state` | `info` | `info` |
+| `ACKNOWLEDGEMENT` | `ack` | `info` | `info` |
+| `DOWNTIMESTART`, `DOWNTIMEEND`, `DOWNTIMECANCELLED` | `downtime` | `info` | `info` |
+| `FLAPPINGSTART`, `FLAPPINGEND` | `state` | `info` | `info` |
+| `CUSTOM` | `comment` | `info` | `info` |
+
+Icinga 2 sends no notification for a SOFT transition, so a SOFT problem cannot be followed by a recovery
+notification and does not create an alert; a recovery reported SOFT still resolves. UNREACHABLE is `critical`,
+like DOWN, and keeps its own name. The delivered state name is `severity_original`. Informational events do not
+change alert state, and a state observation from a delayed command reports the object's state when the command
+ran, which can differ from the transition that queued it.
+
+| Event field | Value |
+|---|---|
+| Identity | Source namespace, kind `icinga2`, `host`, and `service` for a service object. State, severity, output, times and acknowledgement or downtime flags are never identity inputs; identity uses the complete names |
+| Summary | `<host> <STATE>` or `<host>!<service> <STATE>`, UNREACHABLE shown as DOWN, truncated with the marker at 256 characters; no `starts_at`, no generator link |
+| Description | State events: `output`, absent when it is absent or empty (4096 characters with the marker). Other events: the comment, with the same bound and rule |
+| Annotations | `icinga2.notification_type` always; `icinga2.notification_author` (1024 characters with the marker) when the author is present and not empty |
+| Source time | `last_state_change` for a state observation, `notification_time` for every other event |
+
+Because the summary comes from the object and its state only, a new observation of an unchanged state from the same
+source records no visible alert change: the fence advances, the version and activity stay.
+
+### Observation keys
+
+The observation key is `ObservationKey.native` over a canonical JSON array of strings (no whitespace; times as
+decimal integer microseconds). A state notification is
+`["icinga2.notify.v1", state, state_type, last_state_change_us]`: re-notifications and reminders of one state are one
+observation, and SOFT and HARD of one change are two. Every other notification is one command execution,
+`["icinga2.notify.<TYPE>.v1", "<TYPE>", notification_time_us, author]` (author `""` when absent), with `<TYPE>` the
+notification type as delivered. The key uses the delivered author in full, which the shipped command has already
+cut to 1 KiB, so two authors equal in that cut and notified in the same microsecond are one event; executions in the
+same microsecond coalesce. The domain names are versioned. Committed vectors in
+`test/unit/ingest/fixtures/icinga2/key_vectors/` and `icinga2_keys_test.dart` pin the key string, key bytes and
+event id of one delivery of each kind, so a change that would alter a published event id fails a test.
+
+### Convergence contract
+
+A webhook-fed alert ends in the state of its highest-ranked committed, eligible, state-bearing observation after
+event-id deduplication, in any processing order. That is the object's latest state only when the latest state was
+delivered, committed as such, and outranks the rest: coherent, eligible (not late, not future-dated) and unclamped
+deliveries whose change times strictly increase. Otherwise the alert can stay stale until a later eligible
+observation with a new event id outranks its fence. Tests assert these stale outcomes, not convergence:
+
+- A command that runs late reads the live object, so a delayed `RECOVERY` after a refire reports the refire
+  (`CRITICAL`, the refire's time); the refire's own `PROBLEM` is then a `duplicate_observation`.
+- The state, state type and change time are read together but not atomically. A torn delivery that arrives after the
+  coherent one ties on source time and wins by its later receipt.
+- A recovery that is never delivered leaves the alert firing. Icinga 2 does not retry a failed command.
+- A passive result whose execution end regresses or repeats yields change times that go backwards or tie: the older
+  one is stale, and equal times collapse deliveries of one state into one observation carried by whichever row is
+  processed first.
+- A first delivery of a problem older than seven days is stored `late` and creates no alert.
+- Source times more than five minutes after receipt are clamped for ordering, so two deliveries received in reverse
+  order can swap (the clamp is stored in `events.effective_source_time`).
+- A late redelivery of a ready observation is a duplicate that leaves `lastObservedAt` alone. If the late one is
+  processed first, it is stored `late`, the prompt delivery becomes the duplicate and no alert exists.
+
+Event Streams with state sync (`icinga2-event-streams`) is the path that reconciles these cases.
+
+## Icinga2 sender setup
+
+Icinga 2 reaches Correlia through a compiled sender, `correlia-icinga2-notify`, and the command definitions in
+`contrib/icinga2/`. Each notification runs the sender once; it builds one `correlia.icinga2.v1` document from its
+arguments and POSTs it to `<base url>/hooks/icinga2/<source>`.
+
+### Installation
+
+1. In a checkout with the pinned toolchain (`mise install`), initialise the pinned Flutter SDK
+   (`mise exec -- flutter --version`, which writes the SDK version file the workspace resolution needs), then
+   resolve the workspace once with network access: `mise exec -- dart pub get`. The release build then resolves the sender offline from that cache, against the
+   committed `pubspec.lock`, so it builds the locked dependencies and nothing newer. Run
+   `mise run release:icinga2-notify` and install `build/icinga2-notify/release/linux-x64/correlia-icinga2-notify`
+   as `/usr/local/bin/correlia-icinga2-notify` (owned by root, mode 0755). The release task publishes only the
+   bundle (sender and definitions) that every listed capture of the architecture ran, so only the release directory
+   is qualified. The plain build output under `build/icinga2-notify/<architecture>/` and the `contrib/icinga2/`
+   sources are unchecked: they are for development and captures, not for installation. Today only linux-x64 is
+   published; the linux-arm64 build has no captured release.
+2. Copy the three files of `build/icinga2-notify/release/icinga2/` together into `/etc/icinga2/correlia/` and add one line to
+   `/etc/icinga2/icinga2.conf`: `include "correlia/correlia.conf"`. Do not copy them into `conf.d`: Icinga 2 loads
+   that directory in file-name order, and the commands need the constants and helper functions loaded first.
+3. Edit the constants in `correlia.conf`: the sender path, the base URL (scheme and authority only, with an
+   explicit port, if any, in 1-65535), the source UUID, exactly one of the token file or the HMAC key file, and
+   optionally a CA file. The sender path and every file path must be absolute, and the sender path must not
+   contain `=` (`env` would take it as a variable assignment). Only file paths are arguments,
+   never a credential. Every value is used as written: a dollar sign in the sender path or a file path is an
+   ordinary character, not a macro.
+4. Apply the `correlia-host` and `correlia-service` commands to one dedicated user (the commented example in
+   `correlia.conf`). Icinga 2 runs a command once per recipient, so each extra user is an extra delivery.
+   Deliveries of one state notification (same state, state type and change time) are the same observation:
+   the copies are stored as duplicates and publish nothing. A non-state notification (acknowledgement,
+   downtime, flapping, custom) has no such key, so each extra copy can publish an extra event.
+5. Run `icinga2 daemon -C` and reload Icinga 2.
+
+The commands launch the sender through `/usr/bin/env -i` with Icinga 2's `timeout = 15`. The sender takes every
+input from its arguments, refuses a non-empty environment (`environment`), and has its own 10-second deadline.
+Exit status 0 means Correlia answered 202; 1 is any other HTTP status, 2 a configuration or argument error, and
+3 a connection, TLS or deadline failure.
+
+### Host requirements
+
+- **Loader variables.** Icinga 2's service environment must not set dynamic loader variables (`LD_PRELOAD`,
+  `LD_LIBRARY_PATH` or any other `LD_*`). `/usr/bin/env` itself starts with Icinga 2's environment, so the loader
+  acts on them before `env -i` clears them.
+- **Argument budget.** The sender's arguments take at most 256 KiB (texts cut at 8 KiB, the author at 1 KiB).
+  Icinga 2's service environment plus 256 KiB must fit the kernel's `ARG_MAX` (2 MiB with the usual 8 MiB stack).
+  A launch that does not fit fails, and Icinga 2 logs it like any failed command.
+- **Credential and CA files.** Every component of each credential and CA file's resolved path, symbolic link
+  targets included, must be writable only by root or the Icinga 2 user, and the files owned by one of them. The
+  token and key files must be readable only by the Icinga 2 user (any group or other bit exits 2 with
+  `credential_mode`); a CA file writable by group or others exits 2 with `ca_mode`. The token and key files are at
+  most 4 KiB and the CA file at most 1 MiB. A file the sender may not open or read exits 2 with `unreadable`
+  and the argument's name. The HMAC key file holds Correlia's 43-character unpadded base64url key.
+- **Transport.** The base URL must be `https://`, or `http://` only to a literal loopback address (`127.0.0.0/8`
+  or `::1`, not `localhost`). Proxies and redirects are never followed, and trust is exactly the CA file when one
+  is set, otherwise the distribution's bundle; no environment variable changes either.
+- **Names and settings.** A host or service name that is empty, holds a control character (U+0000-U+001F,
+  U+007F) or a byte that is not valid UTF-8, or is longer than 1024 bytes is not delivered: the command exits 2
+  with `invalid_name` in Icinga 2's log. A setting that cannot be passed exactly (a base URL over 4 KiB, a file
+  path with a NUL or invalid UTF-8) or a relative file path exits 2 naming its argument. Neither is retried.
+  A token, key or CA setting that does not start with `/` is never passed: the command gets `""` in its place, so
+  a credential pasted where its file path belongs does not appear in the command line or in Icinga 2's log. A
+  sender path that is relative, longer than 4 KiB, holds a NUL or holds `=` runs nothing: the command fails
+  with exit 127 from `env`, whatever file the bare name, the part before the NUL or the path itself names.
+
+### Text exposure
+
+Host and service names, check output, the author and the comment are sender arguments, so they appear in:
+
+- the process list, for as long as the sender runs;
+- Icinga 2's log line for a failed command, which holds the complete command line: the texts, the base URL, the
+  source UUID and the credential file paths;
+- with Notice logging enabled, Icinga 2's launch log, which records the command line of every notification it
+  starts, successful ones included.
+
+The token, the HMAC key and the signature are never arguments or output, so none of these holds a credential.
+The sender's stderr line holds only the status or the error class, never Correlia's response body.
+
+### Delivery limits
+
+- **No retry.** Icinga 2 does not retry a failed notification command. A notification that is not delivered
+  (Correlia down, a non-202 answer, a deadline) is lost; reminders repeat only open problems.
+- **No SOFT states, and suppression.** Icinga 2 sends no notification for SOFT states, nor while downtime,
+  acknowledgement, dependencies or flapping suppress it. Correlia sees only what Icinga 2 sends; the
+  [convergence contract](#convergence-contract) lists the cases where an alert stays stale.
+- **Concurrency cap.** Ingress admits at most two signed requests per source and eight signed requests overall,
+  within sixteen request slots, and answers 503 beyond them. A notification answered 503 is lost like any other
+  failed one, so an HMAC source with bursts of concurrent notifications loses some. Use bearer mode for such
+  sources.
+- **Downtime removal.** Supported releases send both the expiry and the manual removal of a triggered downtime as
+  `DOWNTIMEEND`, so Correlia cannot tell a cancelled downtime from an expired one. Removing a downtime that
+  never triggered sends no notification.
+
+### State change time
+
+The shipped formatter turns Icinga 2 times into microsecond text only for `1 <= seconds < 2^32`, so the
+commands never send a time after 2106; a time outside that range is not delivered (exit 2 naming
+`--last-state-change` or `--notification-time`).
+
+`PROBLEM` and `RECOVERY` carry the object's state change time: `last_state_change` once the object has had a
+real state value change, otherwise, in a HARD state, `last_hard_state_change`. Icinga 2's initial values are
+never sent. So the first problem of a new object still in its initial state value, whether loaded at startup or
+created through the API, carries the execution end of its first HARD result; a later HARD check and every reminder
+carry the same time and are duplicates of it. A new object whose state value already changed (a service going from
+its initial UNKNOWN to SOFT CRITICAL, then HARD CRITICAL) carries that change's `last_state_change`, the SOFT
+result's time. A first problem still in a SOFT state has no state change time and is not sent (Icinga 2 sends
+none for SOFT anyway). Other notification types never carry the field.
+
+A `volatile` object with no state value change yet moves `last_hard_state_change` on every HARD check. Correlia
+publishes one event per distinct, eligible HARD time that a command samples, not one per check: two checks that
+complete before either command runs give one event, and a reminder with no check in between is a duplicate. The
+alert stays one alert.
+
+### Upgrade order
+
+The upgrade is offline. Every older Correlia process, of every role (`api`, `worker` and `all`), stops before
+any process of this release starts, and none is restarted afterwards: an older worker decodes every row as
+Alertmanager, and an older process overwrites a source's kind when it publishes configuration at startup. Rows
+admitted meanwhile wait `pending` and are processed by the upgraded workers.
+
+### Supported Icinga 2 releases
+
+The sender and the shipped definitions are supported on the Icinga 2 minor releases and architectures below, and on
+no other. A pair is listed only when the committed captures of a real Icinga 2 pass the six gates (same-second
+service and host state, same-second notification time, the production notification clock, downtime removal and the
+first problem of a new object), every captured scenario left its file and passes its own check, and that
+architecture's exact artifact delivers one real notification with `202` and an event the pipeline decodes. The
+scenario checks are one list that `icinga2_versions_test.dart` and the release publisher both run.
+`tool/icinga2_capture.sh <release>` makes the captures under
+`correlia_server/test/unit/ingest/fixtures/icinga2/<release>/<architecture>/`, and `icinga2_versions_test.dart`
+re-evaluates every listed pair on them. Adding a pair means capturing it, committing the capture and listing it
+here; a pair that fails a gate is not listed. Each row names a minor release by the patch release that was captured.
+
+`mise run release:icinga2-notify` (`tool/release_icinga2_notify.sh`) first removes the earlier publication, so a
+failed build or publisher run leaves none at the installation path. It then builds the sender for linux-x64 and
+linux-arm64 and publishes into
+`build/icinga2-notify/release/` only the architectures whose listed pairs all pass every check and all ran one
+bundle: the same sender SHA-256 and the same `contrib/icinga2/` file hashes, as their manifests record. It publishes
+an architecture's sender, and the definitions into `release/icinga2/`, only when the build and the definitions are
+exactly that bundle; recapturing one listed release with a new sender or changed definitions refuses the
+architecture until every listed release of it is recaptured. With no qualified pair it publishes nothing and fails. linux-arm64 has no captured pair yet, so its build is not
+published.
+
+The build (`tool/build_icinga2_notify.sh`) compiles a copy of the sender package at the fixed path
+`/tmp/correlia-icinga2-notify-build`, resolved offline against the workspace lock file, because `dart compile exe`
+embeds the absolute path of its entry point. A checkout at any path therefore builds the same bytes, and the release
+task can match them against the captures. One build runs at a time; an interrupted one leaves that directory, which
+the next build names and refuses until it is removed.
+
+<!-- icinga2-supported-releases:begin -->
+| Release | Architecture |
+|---|---|
+| 2.13.14 | linux-x64 |
+| 2.14.10 | linux-x64 |
+| 2.15.7 | linux-x64 |
+| 2.16.6 | linux-x64 |
+<!-- icinga2-supported-releases:end -->
+
 ## Durable processing and failure inspection
 
 A worker first commits the active immutable configuration pin, then decodes and processes under a separate raw-row lock. A killed worker retains the pin; replacements never substitute the current configuration. If that first-pinned snapshot omits/disables the source, the raw row fails as `source_not_configured`, retaining its bytes.
 
 Processing validates the complete batch before effects, folds repeated observations and inserts observation keys in stable event-id order. It then locks distinct alert fingerprints in ascending order before evaluating state, and finally writes event evidence and unique routed output intents in event-id order. Keys, alert state, activity, output intents and raw completion commit together. Invalid siblings or fanout beyond 16 MiB—including every event and intent payload copy—produce a failed raw delivery without partial effects.
 
-The authoritative alert row is keyed by tenant and fingerprint. Its fence compares effective source time, receipt time and event id at canonical nanosecond precision; effective time is capped at receipt plus five minutes. An observation at or below the fence is stale and cannot change state. Applied observations advance the fence; only visible changes increment the version and append activity. `lastObservedAt` advances monotonically for applied or stale observations and duplicates of originally ready observations, without changing the version or writing activity.
+The authoritative alert row is keyed by tenant and fingerprint. Its fence compares effective source time, receipt time and event id at canonical nanosecond precision; effective time is capped at receipt plus five minutes. An observation at or below the fence is stale and cannot change state. Applied observations advance the fence; only visible changes increment the version and append activity. `lastObservedAt` advances monotonically for applied or stale observations and by ready duplicates of originally ready observations (a late or future-dated redelivery of a ready observation does not refresh it), without changing the version or writing activity.
 
 Future-dated evidence (more than 24 hours ahead) has no observation key, state or output. Identical quarantined evidence at equal observed time collapses on the events key and increments `duplicate_quarantine`, not the error budget. Late evidence (older than seven days) retains a key and event but changes no state or output, including on duplicate delivery. Eligible duplicates preserve first evidence and produce no additional event/output effects. Empty routes record an unrouted event with no intent. Raw outcome JSON records committed, applied, stale, unrouted, upstream-omitted, duplicate-observation, future, duplicate-quarantine and late counts.
 

@@ -1,6 +1,9 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:correlia_server/src/schema/schema_steps.dart';
+import 'package:correlia_server/src/ingest/config_repository.dart';
+import 'package:correlia_server/src/pipeline/pipeline.dart';
 import 'package:correlia_server/src/runtime/process_options.dart';
 import 'package:correlia_server/src/runtime/role_runtime.dart';
 import 'package:correlia_server/src/runtime/serverpod_adapter.dart';
@@ -12,6 +15,10 @@ import 'package:test/test.dart';
 import '../integration/test_tools/serverpod_test_tools.dart';
 import '../support/ingest_schema.dart';
 import '../support/pod_fixture.dart';
+import '../support/secret_fixture.dart';
+import '../unit/ingest/alertmanager_decoder_test.dart' as payload;
+import 'ingest_config_test.dart' as config_fixture;
+import 'pipeline_test.dart' as pipeline_fixture;
 
 final class _SchemaPort implements ServerpodPort {
   _SchemaPort(this.session);
@@ -169,6 +176,32 @@ WHERE n.nspname = current_schema() AND t.relname = 'events' AND c.contype = 'c'
       allOf(contains('state_outcome'), contains('applied'), contains('stale')),
     ),
   );
+}
+
+Future<void> insertEvent(
+  Session session,
+  String id,
+  String sourceTime, {
+  String? effective,
+}) => session.db.unsafeSimpleExecute('''
+INSERT INTO events
+  (observed_at, event_id, disposition, raw_observed_at, raw_id, source_id,
+   config_snapshot_id, source_time, payload${effective == null ? '' : ', effective_source_time'})
+VALUES
+  ('2026-01-01 12:00:00 UTC', '$id', 'ready', '2026-01-01 12:00:00 UTC',
+   '00000000-0000-0000-0000-000000000001',
+   '00000000-0000-0000-0000-000000000002', 'snapshot',
+   '$sourceTime', decode('01', 'hex')${effective == null ? '' : ", '$effective'"});
+''');
+
+Future<Map<String, DateTime>> effectiveTimes(Session session) async {
+  final rows = await session.db.unsafeQuery(
+    'SELECT event_id::text, events_effective_source_time(e) '
+    'FROM events e',
+  );
+  return {
+    for (final row in rows) row[0]! as String: row[1]! as DateTime,
+  };
 }
 
 void main() {
@@ -339,7 +372,139 @@ VALUES
         final versions = await session.db.unsafeQuery(
           'SELECT version FROM correlia_schema_versions ORDER BY version',
         );
-        expect(versions.map((row) => row.toColumnMap()['version']), [1, 2, 3]);
+        expect(versions.map((row) => row.toColumnMap()['version']), [
+          1,
+          2,
+          3,
+          4,
+        ]);
+      });
+    },
+    rollbackDatabase: RollbackDatabase.disabled,
+    testGroupTagsOverride: ['db'],
+  );
+  withServerpod(
+    'Schema step 4',
+    (sessionBuilder, _) {
+      test('events_stored_before_the_upgrade', () async {
+        final session = sessionBuilder.build();
+        await applySchemaSteps(session, schemaSteps.take(3).toList());
+        const id = '00000000-0000-0000-0000-0000000000a1';
+        await insertEvent(session, id, '2026-01-01 15:00:00 UTC');
+        Future<Object?> fileNode() async => (await session.db.unsafeQuery(
+          "SELECT relfilenode::text FROM pg_class WHERE oid = 'events'::regclass",
+        )).single[0];
+        final before = await fileNode();
+        await applySchemaSteps(session, schemaSteps);
+        expect(await fileNode(), before, reason: 'step 4 rewrote events');
+        final stored = await session.db.unsafeQuery(
+          'SELECT effective_source_time FROM events',
+        );
+        expect(stored.single[0], isNull);
+        expect(await effectiveTimes(session), {
+          id: DateTime.utc(2026, 1, 1, 12, 5),
+        });
+        final versions = await session.db.unsafeQuery(
+          'SELECT version FROM correlia_schema_versions WHERE version = 4',
+        );
+        expect(versions, hasLength(1));
+      });
+    },
+    rollbackDatabase: RollbackDatabase.disabled,
+    testGroupTagsOverride: ['db'],
+  );
+  withServerpod(
+    'Schema step 4 sub-microsecond evidence',
+    (sessionBuilder, _) {
+      test('sub_microsecond_evidence', () async {
+        final session = sessionBuilder.build();
+        await initializeIngestSchema(session);
+        for (final table in [
+          'activity',
+          'alerts',
+          'pipeline_failures',
+          'observation_keys',
+          'outbox',
+          'events',
+          'raw_inbox',
+          'ingest_active_config',
+          'ingest_source',
+          'ingest_config_snapshot',
+          'ingest_secret_commitment',
+          'secret_record',
+          'ingest_source_credential',
+        ]) {
+          await session.db.unsafeSimpleExecute('DELETE FROM "$table"');
+        }
+        await IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        ).publish(config_fixture.input(1));
+        final repo = PipelineRepository(
+          sessionBuilder.build(),
+          clock: () => pipeline_fixture.now,
+        );
+        var observed = pipeline_fixture.now;
+        Future<Map<String, Object?>> observe(String name, int nanos) async {
+          observed = observed.add(const Duration(seconds: 1));
+          await pipeline_fixture.seed(session, [
+            payload.alert(
+              startsAt:
+                  '2026-11-10T11:59:00.000000${nanos.toString().padLeft(3, '0')}Z',
+              labels: {'alertname': name, 'severity': 'warning'},
+            ),
+          ], observed: observed);
+          await repo.pinOne();
+          await repo.processOne();
+          final outcome = (await session.db.unsafeQuery(
+            'SELECT outcome_json FROM raw_inbox ORDER BY observed_at DESC '
+            'LIMIT 1',
+          )).single[0];
+          return jsonDecode(outcome! as String) as Map<String, Object?>;
+        }
+
+        Future<List<Object?>> fence() async => (await session.db.unsafeQuery(
+          'SELECT "fenceEffectiveSeconds", "fenceEffectiveNanos", '
+          '"fenceEventId" FROM alerts',
+        )).single.toList();
+
+        // Before the upgrade: the fence of an alert at t + 900 ns, and its
+        // event row as the previous release stored it, without the column
+        // step 4 adds. The release before step 4 is rebuilt around them.
+        expect((await observe('Reversed', 900))['applied'], 1);
+        await session.db.unsafeSimpleExecute('''
+DROP FUNCTION events_effective_source_time(events);
+ALTER TABLE events DROP COLUMN effective_source_time;
+DELETE FROM correlia_schema_versions WHERE version = 4;
+''');
+        final before = await fence();
+        expect(before[1], 900);
+        await applySchemaSteps(session, schemaSteps);
+        expect(await fence(), before, reason: 'step 4 changed the fence');
+
+        // After the upgrade: t + 800 ns, received later, is decided against
+        // that same fence and is stale.
+        final reversed = await observe('Reversed', 800);
+        expect((reversed['applied'], reversed['stale']), (0, 1));
+        expect(await fence(), before);
+        // t + 800 ns first: t + 900 ns is newer, so applied.
+        expect((await observe('InOrder', 800))['applied'], 1);
+        final inOrder = await observe('InOrder', 900);
+        expect((inOrder['applied'], inOrder['stale']), (1, 0));
+
+        // Every effective time reads as t truncated to the microsecond: the
+        // pre-upgrade row through the step's expression, the others from the
+        // column.
+        final t = DateTime.utc(2026, 11, 10, 11, 59);
+        final times = await session.db.unsafeQuery(
+          'SELECT event_id::text, effective_source_time, '
+          'events_effective_source_time(e) FROM events e',
+        );
+        expect(times, hasLength(4));
+        for (final row in times) {
+          final upgraded = row[0] == before[2];
+          expect([row[1], row[2]], [upgraded ? null : t, t]);
+        }
       });
     },
     rollbackDatabase: RollbackDatabase.disabled,
