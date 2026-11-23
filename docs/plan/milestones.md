@@ -12,6 +12,15 @@ Related: [integrations](integrations.md) · [acceptance scenarios](acceptance-sc
 Each milestone ends with something demoable. Exit criteria are marked **[agent]** (checked by tests or
 commands) or **[user]** (the owner checks).
 
+**Owner cuts, 2026-11-22.** Four decisions changed this plan:
+1. The M8 integration wave and the Go and Python SDKs move after 1.0, into 1.x
+   ([below](#1x-integration-wave-and-plugin-sdks)). The number M8 is retired, not reused: M9 and M10 keep
+   their names, so references to them in ADRs and archived changes stay right.
+2. Pre-ship review is capped at 4 rounds per change; after round 4 the owner decides whether to continue,
+   ship or rework (`review.preship_max_rounds` in `openspec/specwright.yaml`).
+3. A minimal container image and a compose file move from M10 to the end of M3 (open decision D32).
+4. M3 gets a read-only incident list in the console, so the M3 replay check is done in the UI (D34).
+
 ---
 
 ## M1: Walking skeleton
@@ -154,11 +163,20 @@ proven fixed.
 - **Manual operations:** merge incidents, split an alert out, link incidents, set owner, add a note. These go
   through the API; the UI comes in M4.
 - **Topology-free grouping helpers:** same host, same service across hosts, same label set.
+- **Console incident list (owner, 2026-11-22):** a read-only list of incidents in the console, beside the
+  M1 alert list, with no actions and no auth (dev mode, bound to localhost, as in M1). What it shows is
+  open decision D34. M4 extends it into the full incident views.
+- **Minimal packaging (owner, 2026-11-22), the last change of M3:** a minimal container image and a compose
+  file that run Correlia against a real Postgres, pulled forward from M10. What "minimal" includes is open
+  decision D32. M10 hardens both for production.
 - **Scenarios:** ID-1, COR-1..7.
 
 **Exit criteria:**
 - [agent] All correlation scenarios pass, including the 10k/60s hot-group correctness run.
-- [user] Replaying a recorded day of the owner's traffic gives incidents the owner agrees with.
+- [agent] The compose file starts Correlia from the minimal image, and an Alertmanager webhook sent to it
+  shows up as an incident in the console's incident list.
+- [user] Replaying a recorded day of the owner's traffic gives incidents the owner agrees with, checked in
+  the console's incident list.
 
 ---
 
@@ -174,7 +192,7 @@ proven fixed.
   - team-scoped permissions;
   - API keys with scopes;
   - an audit of every action with the actor (SEC-4).
-- **Incident views:**
+- **Incident views** (extending M3's read-only incident list):
   - a dense, live incident list (filters, saved views, grouping, sorting, keyboard navigation);
   - incident detail (timeline from the activity ledger, member alerts, current vs peak severity, links,
     raw payload viewer, related incidents);
@@ -285,27 +303,11 @@ state.
 
 ---
 
-## M8: Integration wave and plugin SDKs
+## M8: Moved after 1.0
 
-**Outcome:** The P1 monitoring sources work, and third parties can write plugins in Go or Python.
-
-**Features:**
-- **P1 sources:** Grafana, Zabbix, Nagios, Checkmk, Uptime Kuma, VictoriaMetrics, Datadog, Elastic/Kibana,
-  Loki, Sentry, CloudWatch, Azure Monitor, GCP Monitoring, Kubernetes events, syslog, SNMP traps, IMAP
-  email-in.
-- **Event bus:** Kafka output and consume; NATS consume.
-- **Plugin SDKs:**
-  - Go (stock go-plugin) and Python, with docs, templates and a conformance test suite that every plugin
-    must pass;
-  - a plugin lockfile with checksums;
-  - a signed-manifest option;
-  - a plugin install directory layout.
-- **Plugin catalog page:** installed plugins, capabilities, versions and docs links.
-
-**Exit criteria:**
-- [agent] Each integration meets the definition of done in `integrations.md`; the conformance suite passes
-  for all first-party external plugins.
-- [user] The owner writes or reviews a toy Python plugin from the SDK docs.
+The owner moved this milestone, the integration wave and the plugin SDKs, after 1.0 on 2026-11-22. Its
+features are in [1.x: integration wave and plugin SDKs](#1x-integration-wave-and-plugin-sdks). The number is
+retired so that M9 and M10 keep their names.
 
 ---
 
@@ -346,8 +348,8 @@ state.
   containers (Entra ID best-effort); session hardening; API key rotation.
 - **Observability:** OpenTelemetry traces and metrics for the pipeline, relays and plugins; Prometheus
   metrics endpoint; structured logs; Correlia monitors itself (heartbeat alerts).
-- **Packaging:** container image; docker compose; systemd unit for a single binary; Helm chart (D12);
-  versioned releases with changelogs.
+- **Packaging:** the production container image and docker compose, hardening M3's minimal ones; systemd
+  unit for a single binary; Helm chart (D12); versioned releases with changelogs.
 - **Security:**
   - security review;
   - dependency audit;
@@ -375,11 +377,37 @@ state.
 - every acceptance scenario green;
 - documented upgrade and restore.
 
-P1 integrations and the plugin SDKs are not 1.0 blockers. Each ships when it meets the definition of done
-in `integrations.md`, in the milestones above or in 1.x point releases after 1.0.
+P1 integrations and the plugin SDKs are not 1.0 blockers. The P1 integrations planned in M6, M7 and M9 ship
+there or in 1.x point releases; the rest, and the SDKs, ship in 1.x (owner, 2026-11-22). Each ships when it
+meets the definition of done in `integrations.md`.
 
 From 1.0 on, breaking changes to `correlia.event.v1`, `correlia.plugin.v1` or `/api/v1/` need a new major
 version.
+
+## 1.x: integration wave and plugin SDKs
+
+Moved from M8 by the owner on 2026-11-22. Planned after 1.0, in 1.x point releases. Which of the plugin
+items below stay in M10 instead is open decision D33.
+
+**Outcome:** The P1 monitoring sources work, and third parties can write plugins in Go or Python.
+
+**Features:**
+- **P1 sources:** Grafana, Zabbix, Nagios, Checkmk, Uptime Kuma, VictoriaMetrics, Datadog, Elastic/Kibana,
+  Loki, Sentry, CloudWatch, Azure Monitor, GCP Monitoring, Kubernetes events, syslog, SNMP traps, IMAP
+  email-in.
+- **Event bus:** Kafka output and consume; NATS consume.
+- **Plugin SDKs:**
+  - Go (stock go-plugin) and Python, with docs, templates and a conformance test suite that every plugin
+    must pass;
+  - a plugin lockfile with checksums;
+  - a signed-manifest option;
+  - a plugin install directory layout.
+- **Plugin catalog page:** installed plugins, capabilities, versions and docs links.
+
+**Exit criteria:**
+- [agent] Each integration meets the definition of done in `integrations.md`; the conformance suite passes
+  for all first-party external plugins.
+- [user] The owner writes or reviews a toy Python plugin from the SDK docs.
 
 ## After 1.0 (not planned in detail)
 

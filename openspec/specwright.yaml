@@ -60,6 +60,13 @@ review:
   # true = review the finished change before its first PR or a local merge;
   # ship and the local merge wait for a pass. false = no pre-ship review.
   preship: true
+  # Pre-ship fix rounds (Preship-Round: trailers) the agent makes without
+  # asking. When the review of the last allowed round's head still has an
+  # unwaived P0/P1, the agent stops and the owner decides: continue, ship
+  # (waive) or rework. Owner, 2026-11-22: capped at 4 rounds per change.
+  # Specwright 0.19.0 has no such key (its skill hard-codes 2); this repo's
+  # patched specwright-review skill reads it (AGENTS.md, Specwright notes).
+  preship_max_rounds: 4
 
 # Commits during apply (specwright-commit):
 #   task  - one commit per task (the default)
