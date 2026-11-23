@@ -130,6 +130,9 @@ final class SyncReader {
         SyncResponse? response;
         try {
           response = await _whileOpen(_open(projection));
+        } on TimeoutException {
+          _end(SyncReadProblem.timeout);
+          break;
         } on Object {
           _end(SyncReadProblem.httpStatus);
           break;

@@ -5,7 +5,8 @@
 ### Requirement: Event Streams consumers run in background roles
 
 Event Streams consumers SHALL run only in the `worker` and `all` roles, start after the pipeline and stop
-before it, so a consumer never admits rows while no pipeline in its process can claim them on shutdown.
+before it. The pipeline and its database pool SHALL remain available throughout consumer shutdown so
+the pipeline can still claim admitted rows.
 
 #### Scenario: api role
 - **WHEN** a server in role `api` starts with a stream source configured

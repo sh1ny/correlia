@@ -58,11 +58,13 @@ final class StreamDatabaseEndpoint {
   }
 
   /// Opens an independent connection the caller may force-close on shutdown.
-  Future<pg.Connection> open() async {
+  Future<pg.Connection> open({
+    Duration timeout = const Duration(seconds: 1),
+  }) async {
     final connection = await pg.Connection.open(
       _endpoint,
       settings: pg.ConnectionSettings(
-        connectTimeout: const Duration(seconds: 1),
+        connectTimeout: timeout,
         queryTimeout: const Duration(seconds: 2),
         timeZone: 'UTC',
         sslMode: _sslMode,
@@ -95,11 +97,12 @@ Future<pg.Connection> openStreamDatabase(Serverpod pod) async =>
 /// Runs one fenced write with short PostgreSQL statement and lock timeouts.
 Future<T> runStreamWrite<T>(
   pg.Connection connection,
-  Future<T> Function(pg.TxSession) apply,
-) => connection.runTx((tx) async {
+  Future<T> Function(pg.TxSession) apply, {
+  Duration timeout = const Duration(seconds: 2),
+}) => connection.runTx((tx) async {
   await tx.execute('''
-    SET LOCAL statement_timeout='2s';
-    SET LOCAL lock_timeout='2s';
+    SET LOCAL statement_timeout='${timeout.inMilliseconds}ms';
+    SET LOCAL lock_timeout='${timeout.inMilliseconds}ms';
     SET LOCAL idle_in_transaction_session_timeout='5s';
   ''', queryMode: pg.QueryMode.simple);
   return apply(tx);

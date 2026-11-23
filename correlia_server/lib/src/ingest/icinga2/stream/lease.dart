@@ -89,6 +89,13 @@ class StreamLeaseStore {
           parameters: {'source': sourceId, 'holder': holder},
         );
         if (rows.isEmpty) return null;
+        await tx.execute(
+          Sql.named('''
+          UPDATE icinga2_stream_status SET state='connecting'
+          WHERE "sourceId"=@source:uuid
+        '''),
+          parameters: {'source': sourceId},
+        );
         return StreamLease(
           sourceId: sourceId,
           holder: holder,
@@ -129,11 +136,14 @@ class StreamLeaseStore {
       });
 
   /// Runs [work] under the lease's shared lock, or returns null if refused.
-  Future<T?> fenced<T>(StreamLease lease, Future<T> Function(TxSession) work) =>
-      runStreamWrite(connection, (tx) async {
-        if (!await lockStreamLease(tx, lease)) return null;
-        return work(tx);
-      });
+  Future<T?> fenced<T>(
+    StreamLease lease,
+    Future<T> Function(TxSession) work, {
+    Duration timeout = const Duration(seconds: 2),
+  }) => runStreamWrite(connection, (tx) async {
+    if (!await lockStreamLease(tx, lease)) return null;
+    return work(tx);
+  }, timeout: timeout);
 }
 
 void Function() _scheduleTimer(Duration delay, void Function() callback) {

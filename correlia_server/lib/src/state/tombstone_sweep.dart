@@ -1,41 +1,52 @@
-import 'package:serverpod/serverpod.dart';
+import 'dart:async';
+
+import 'package:postgres/postgres.dart' as pg;
 
 /// Reclaims only silent tombstones with no retained or potentially ready evidence.
 final class TombstoneSweep {
-  /// The caller owns the session and closes its connection on shutdown.
-  const TombstoneSweep(this.session, {this.clock});
+  /// Uses a dedicated connection owned by the caller.
+  const TombstoneSweep(this.connection, {this.clock, this.beforeCommit});
 
-  final Session session;
+  final pg.Connection connection;
   final DateTime Function()? clock;
+  final Future<void> Function(pg.TxSession)? beforeCommit;
 
   /// Returns rows deleted by an acknowledged transaction, at most 500.
   Future<int> runOnce() async {
     final watch = Stopwatch()..start();
     try {
-      return await session.db.transaction((tx) async {
+      return await connection.runTx((tx) async {
+        Duration remaining() {
+          final duration = const Duration(seconds: 1) - watch.elapsed;
+          if (duration <= Duration.zero) throw const _SweepDeadline();
+          return duration;
+        }
+
         Future<void> bound() async {
-          final remaining = 1000 - watch.elapsedMilliseconds;
-          if (remaining <= 0) throw const _SweepDeadline();
-          await session.db.unsafeSimpleExecute(
-            "SET LOCAL lock_timeout='${remaining}ms'; SET LOCAL statement_timeout='${remaining}ms'",
-            transaction: tx,
+          final duration = remaining();
+          final milliseconds = duration.inMilliseconds;
+          if (milliseconds <= 0) throw const _SweepDeadline();
+          await tx.execute(
+            "SET LOCAL lock_timeout='${milliseconds}ms'; SET LOCAL statement_timeout='${milliseconds}ms'",
+            queryMode: pg.QueryMode.simple,
+            timeout: duration,
           );
         }
 
         await bound();
-        final state = (await session.db.unsafeQuery(
-          '''
+        final state = (await tx.execute(
+          pg.Sql.named('''
           UPDATE raw_admission_cutoff
           SET cutoff=GREATEST(cutoff, COALESCE(CAST(@now AS timestamptz),clock_timestamp()) - interval '1 hour')
           WHERE singleton=1 RETURNING cursor_seconds,cursor_nanos,cursor_id
-        ''',
-          parameters: QueryParameters.named({'now': clock?.call()}),
-          transaction: tx,
+        '''),
+          parameters: {'now': clock?.call()},
+          timeout: remaining(),
         )).single;
         await bound();
         // A distinct statement obtains a fresh snapshot after the cutoff lock.
-        final candidates = await session.db.unsafeQuery(
-          '''
+        final candidates = await tx.execute(
+          pg.Sql.named('''
           WITH horizon AS (
             SELECT LEAST(cutoff,(SELECT min(observed_at) FROM raw_inbox WHERE status='pending'))
               - interval '7 days' AS boundary FROM raw_admission_cutoff WHERE singleton=1
@@ -48,33 +59,33 @@ final class TombstoneSweep {
               mod(extract(epoch FROM h.boundary),1)*1000000000
             )
           ORDER BY a."fenceEffectiveSeconds",a."fenceEffectiveNanos",a.id LIMIT 500
-        ''',
-          parameters: QueryParameters.named({
+        '''),
+          parameters: {
             'seconds': state[0],
             'nanos': state[1],
             'id': state[2],
-          }),
-          transaction: tx,
+          },
+          timeout: remaining(),
         );
         var deleted = 0;
         if (candidates.isNotEmpty) {
           await bound();
-          final locked = await session.db.unsafeQuery(
-            '''
+          final locked = await tx.execute(
+            pg.Sql.named('''
             SELECT id FROM alerts WHERE id=ANY(CAST(@ids AS bigint[])) AND silent_tombstone
             ORDER BY tenant,fingerprint FOR UPDATE SKIP LOCKED
-          ''',
-            parameters: QueryParameters.named({
+          '''),
+            parameters: {
               'ids': [for (final row in candidates) row[0]! as int],
-            }),
-            transaction: tx,
+            },
+            timeout: remaining(),
           );
           if (locked.isNotEmpty) {
             await bound();
             // The non-locking indexed probes see commits from previous holders
             // but never wait for a provisional observation reservation.
-            final removed = await session.db.unsafeQuery(
-              '''
+            final removed = await tx.execute(
+              pg.Sql.named('''
               WITH horizon AS (
                 SELECT LEAST(cutoff,(SELECT min(observed_at) FROM raw_inbox WHERE status='pending'))
                   - interval '7 days' AS boundary FROM raw_admission_cutoff WHERE singleton=1
@@ -89,34 +100,46 @@ final class TombstoneSweep {
                 AND NOT EXISTS (SELECT 1 FROM observation_keys k WHERE k.fingerprint=a.fingerprint)
                 AND NOT EXISTS (SELECT 1 FROM events e WHERE correlia_event_subject(e.payload)=a.fingerprint)
               RETURNING a.id
-            ''',
-              parameters: QueryParameters.named({
+            '''),
+              parameters: {
                 'ids': [for (final row in locked) row[0]! as int],
-              }),
-              transaction: tx,
+              },
+              timeout: remaining(),
             );
             deleted = removed.length;
           }
         }
         final last = candidates.length == 500 ? candidates.last : null;
         await bound();
-        await session.db.unsafeExecute(
-          '''UPDATE raw_admission_cutoff
-          SET cursor_seconds=@seconds,cursor_nanos=@nanos,cursor_id=@id WHERE singleton=1''',
-          parameters: QueryParameters.named({
+        await tx.execute(
+          pg.Sql.named('''UPDATE raw_admission_cutoff
+          SET cursor_seconds=@seconds,cursor_nanos=@nanos,cursor_id=@id WHERE singleton=1'''),
+          parameters: {
             'seconds': last?[1] ?? 0,
             'nanos': last?[2] ?? 0,
             'id': last?[0] ?? 0,
-          }),
-          transaction: tx,
+          },
+          timeout: remaining(),
         );
+        if (beforeCommit != null) await beforeCommit!(tx);
         await bound();
+        remaining();
         return deleted;
+      }).timeout(const Duration(seconds: 1), onTimeout: () {
+        unawaited(connection.close(force: true));
+        return 0;
       });
     } on _SweepDeadline {
+      unawaited(connection.close(force: true));
       return 0;
-    } on DatabaseQueryException catch (error) {
-      if (error.code == '55P03' || error.code == '57014') return 0;
+    } on TimeoutException {
+      unawaited(connection.close(force: true));
+      return 0;
+    } on pg.ServerException catch (error) {
+      if (error.code == '55P03' || error.code == '57014') {
+        unawaited(connection.close(force: true));
+        return 0;
+      }
       rethrow;
     }
   }

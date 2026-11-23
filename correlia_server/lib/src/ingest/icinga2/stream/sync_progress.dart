@@ -190,8 +190,9 @@ class SyncProgressStore {
   Future<bool> finish(
     StreamLease lease,
     String syncId,
-    SyncReadReport report,
-  ) async {
+    SyncReadReport report, {
+    Duration timeout = const Duration(seconds: 2),
+  }) async {
     return await _leases.fenced<bool>(lease, (tx) async {
           // Match start's status-before-progress lock order.
           await tx.execute(
@@ -245,7 +246,7 @@ class SyncProgressStore {
             },
           );
           return true;
-        }) ??
+        }, timeout: timeout) ??
         false;
   }
 

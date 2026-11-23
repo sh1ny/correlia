@@ -256,6 +256,68 @@ void main() {
         expect(persisted.oversizeLines, 2);
         expect(persisted.gapCount, 0);
       });
+
+      test('late_sync_status_cannot_replace_successor_state', () async {
+        final lease = await acquire('same-holder');
+        expect(await statuses.startConnection(lease, 'old'), 1);
+        expect(
+          await statuses.setState(
+            lease,
+            StreamConsumerState.syncing,
+            connectionId: 'old',
+          ),
+          isTrue,
+        );
+        expect(await statuses.startConnection(lease, 'new'), 2);
+        expect(
+          await statuses.setState(
+            lease,
+            StreamConsumerState.backoff,
+            connectionId: 'new',
+          ),
+          isTrue,
+        );
+        expect(
+          await statuses.setState(
+            lease,
+            StreamConsumerState.connected,
+            connectionId: 'old',
+          ),
+          isFalse,
+        );
+        final current = (await statuses.read(icinga2DbSourceId))!;
+        expect(current.state, StreamConsumerState.backoff);
+        expect(current.connectionId, 'new');
+        expect(current.gapCount, 1);
+      });
+
+      test(
+        'numbering_rechecks_current_config_before_credential_handoff',
+        () async {
+          final first =
+              (await IngestConfigRepository(
+                    session,
+                  ).activeSnapshot())!['snapshotId']!
+                  as String;
+          final lease = await acquire('same-holder');
+          final second = await publishStreamDb(
+            session,
+            revision: 2,
+            apiUrl: 'https://changed.example:5665',
+          );
+          await expectLater(
+            statuses.startConnection(lease, 'wrong', snapshotId: first),
+            throwsA(isA<StreamTargetChanged>()),
+          );
+          expect(
+            await statuses.startConnection(lease, 'right', snapshotId: second),
+            1,
+          );
+          final current = (await statuses.read(icinga2DbSourceId))!;
+          expect(current.connectionId, 'right');
+          expect(current.gapCount, 0);
+        },
+      );
     },
     rollbackDatabase: RollbackDatabase.disabled,
     testGroupTagsOverride: ['db'],

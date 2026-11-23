@@ -36,6 +36,7 @@ final class StreamReader {
     required this._connectionId,
     required this._admit,
     required this._onOversize,
+    this._onObservation,
     DateTime Function()? receiptClock,
     Duration Function()? monotonic,
     ReaderScheduler? schedule,
@@ -71,6 +72,7 @@ final class StreamReader {
   final String _connectionId;
   final Future<StreamAdmissionResult> Function(StreamRawBatch) _admit;
   final Future<void> Function() _onOversize;
+  final void Function(DateTime, Duration?)? _onObservation;
   final DateTime Function() _receiptClock;
   final Duration Function() _monotonic;
   final ReaderScheduler _schedule;
@@ -218,6 +220,7 @@ final class StreamReader {
             ),
           ),
         );
+        _onObservation?.call(receipt, _health.lag);
         canonicalBytes = switch (result) {
           IcingaStreamEvent(:final event) => CloudEvent(
             event: event,

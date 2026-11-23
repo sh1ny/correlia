@@ -35,8 +35,9 @@ optional `state_type_policy` and `max_pending_rows` (100 to 10000, default 1000)
 
 The consumer SHALL connect only over TLS 1.2 or newer, trusting only the certificates in the source's CA
 secret and requiring the certificate to match the configured host, with no system roots, no proxy and no
-redirects. It SHALL send the password only as HTTP basic authentication after that check. No environment
-variable SHALL change trust, proxy or key logging.
+redirects. It SHALL send the password only as HTTP basic authentication after that check. Environment
+variables including `SSL_CERT_FILE`, `https_proxy` and `SSLKEYLOGFILE` SHALL NOT change trust or routing,
+or enable TLS key logging.
 
 #### Scenario: Server signed by the configured CA
 - **WHEN** Icinga 2 presents a certificate for the configured host signed by the CA in `ca_ref`
@@ -866,7 +867,8 @@ change SHALL be logged.
 After TLS verification, the holder SHALL record the next connection number before sending its subscription.
 Failed DNS, TCP or TLS attempts SHALL log the error and back off without numbering a connection. A numbered
 connection's gap SHALL count only if its number exceeds the last one counted, even if no subscription was sent.
-Before numbering a new connection, the holder SHALL count its own or its predecessor's last gap.
+Before numbering a new connection, the holder SHALL count its own or its predecessor's last gap
+in the same transaction that assigns the new number.
 
 #### Scenario: Gap recorded by the next holder
 - **WHEN** a holder dies while `connected`, and another worker takes over

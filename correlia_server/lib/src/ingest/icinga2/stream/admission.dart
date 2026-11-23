@@ -114,12 +114,19 @@ enum StreamAdmissionResult {
 
 /// Admits stream or sync rows, without webhook transport reservations.
 final class ConsumerAdmission {
-  const ConsumerAdmission(this.connection, {this.afterFence});
+  const ConsumerAdmission(
+    this.connection, {
+    this.afterFence,
+    this.beforeCommit,
+  });
 
   final pg.Connection connection;
 
   /// Tests can hold an admitted generation open before it writes any rows.
   final Future<void> Function()? afterFence;
+
+  /// A test can hold the real admission transaction just before commit.
+  final Future<void> Function(pg.TxSession)? beforeCommit;
 
   /// The retained-work lookup used for both monitoring and admitting a batch.
   static const retainedCountSql = '''SELECT count(*) FROM (
@@ -208,6 +215,7 @@ final class ConsumerAdmission {
           );
           if (updated.isEmpty) throw StateError('Icinga2 sync is not reading');
         }
+        await beforeCommit?.call(tx);
         return StreamAdmissionResult.committed;
       });
     } on pg.ServerException catch (error) {

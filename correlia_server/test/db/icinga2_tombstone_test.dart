@@ -1,7 +1,9 @@
 import 'dart:async';
 
+import 'package:correlia_server/src/ingest/icinga2/stream/database.dart';
 import 'package:correlia_server/src/pipeline/pipeline.dart';
 import 'package:correlia_server/src/state/tombstone_sweep.dart';
+import 'package:postgres/postgres.dart' as pg;
 import 'package:serverpod/serverpod.dart';
 import 'package:test/test.dart';
 
@@ -16,6 +18,7 @@ void main() {
     'stream tombstone reclamation',
     (builder, _) {
       late Session session;
+      late pg.Connection sweepConnection;
       final boundary = streamDbNow;
       final fence = boundary.subtract(const Duration(days: 7));
 
@@ -23,6 +26,13 @@ void main() {
         session = builder.build();
         await initializeIngestSchema(session);
         await clearPipelineTables(session);
+        sweepConnection = await openStreamDatabase(session.serverpod);
+      });
+
+      tearDown(() async {
+        if (sweepConnection.isOpen) {
+          await sweepConnection.close(force: true);
+        }
       });
 
       Future<void> mark(
@@ -48,7 +58,7 @@ void main() {
       );
 
       Future<int> sweep() => TombstoneSweep(
-        session,
+        sweepConnection,
         clock: () => boundary.add(const Duration(hours: 1)),
       ).runOnce();
 
@@ -354,7 +364,6 @@ void main() {
 
       test('admission_and_reclamation_fence_both_orders', () async {
         final writer = builder.build();
-        final sweepSession = builder.build();
         final oldReceipt = fence.add(const Duration(seconds: 1));
         await mark(1, fence.subtract(const Duration(seconds: 1)));
         final inserted = Completer<int>();
@@ -384,7 +393,7 @@ void main() {
 
         final writerPid = await inserted.future;
         final scanner = TombstoneSweep(
-          sweepSession,
+          sweepConnection,
           clock: () => boundary.add(const Duration(hours: 1)),
         );
         final waiting = scanner.runOnce();
