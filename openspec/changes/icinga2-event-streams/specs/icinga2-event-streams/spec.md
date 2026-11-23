@@ -106,10 +106,11 @@ lease check before expiry MAY commit after it, but no write SHALL commit after a
 
 ### Requirement: A holder closes its connection before its lease can expire
 
-A running holder SHALL close its Icinga 2 connections 20 seconds, by its own monotonic clock, after it sent the
-acquisition or renewal whose success it last received. A success received after that deadline SHALL NOT reopen
-a connection: the holder acquires the lease again first. A frozen process can keep its socket open until it
-resumes; it SHALL then close it without writing.
+The holder SHALL close its connections 20 seconds after the monotonic send time of its last
+acknowledged lease acquisition or renewal, including the first acquisition. A late success SHALL
+NOT revive it; reconnect only with a newer generation. An expired lease SHALL NOT be renewed.
+Writes authorized under lock MAY commit past expiry, but not after a new generation is granted.
+A frozen holder SHALL close without writing when it resumes past its deadline.
 
 #### Scenario: Holder frozen past expiry
 - **WHEN** the holder's process is frozen for longer than 30 seconds and another worker takes the lease
@@ -143,9 +144,11 @@ the consumer holds the lease generation with an unexpired lease.
 
 ### Requirement: Admission is idempotent by batch id
 
-Each consumer batch SHALL carry a consumer-generated batch id, unique per source; an admission whose batch id
-has already committed SHALL insert nothing and report the batch as committed, by a lookup made before the cap,
-revision and lease checks of new inserts. Batch ids SHALL be removed one hour after admission.
+Each consumer batch SHALL carry a consumer-generated ID unique per source. On retry, look up that
+ID before the cap, revision, lease and raw admission cutoff checks. A committed ID SHALL report
+success without inserting new rows. Unknown acknowledgements are retried with the same ID within
+seconds. The supervisor SHALL remove batch IDs one hour after admission for held and retired
+sources alike.
 
 #### Scenario: Lost acknowledgement of a stream batch
 - **WHEN** a stream batch holding one invalid line commits, its acknowledgement is lost, and the consumer retries it
@@ -169,10 +172,11 @@ revision and lease checks of new inserts. Batch ids SHALL be removed one hour af
 
 ### Requirement: Failed consumer rows find their admission record
 
-Consumer admission SHALL record each raw row's origin and sync id by raw row id in the insert transaction.
-Failing a consumer row on any path, refusal before decoding and retry exhaustion included, SHALL read that
-record, never the body or the pinned source: a failed sync row SHALL count on its sync and raise no sync
-request; a failed stream row SHALL raise the sync request.
+Consumer admission SHALL record each raw row's origin and sync ID by raw ID in its insert transaction.
+Every consumer failure path, including pre-decode refusal and retry exhaustion, SHALL take origin and
+sync ID only from that trusted admission record, never from the body or pinned source. In the failing
+transaction a sync row SHALL count on its sync without raising a sync request, and a stream row SHALL
+raise the source's sync request.
 
 #### Scenario: Sync row whose source was removed
 - **WHEN** a sync row is admitted and a revision removing its source is active at first claim

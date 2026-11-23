@@ -928,6 +928,15 @@ VALUES (@observed,CAST(@raw AS uuid),@pin,@code,@path,@now)''',
       parameters: QueryParameters.named({'raw': raw.id}),
       transaction: tx,
     );
+    await _limits(tx, deadline);
+    await session.db.unsafeExecute(
+      '''INSERT INTO icinga2_stream_resync ("sourceId","requestSeq")
+      SELECT CAST(@source AS uuid),1 FROM icinga2_raw_origin
+      WHERE raw_id=CAST(@raw AS uuid) AND origin='stream'
+      ON CONFLICT ("sourceId") DO UPDATE SET "requestSeq"=icinga2_stream_resync."requestSeq"+1''',
+      parameters: QueryParameters.named({'raw': raw.id, 'source': raw.source}),
+      transaction: tx,
+    );
     deadline.check();
   }
 

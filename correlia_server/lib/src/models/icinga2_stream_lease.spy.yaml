@@ -1,0 +1,8 @@
+class: Icinga2StreamLeaseRow
+table: icinga2_stream_lease
+serverOnly: true
+fields:
+  sourceId: UuidValue, unique
+  holder: String
+  generation: int
+  expiresAt: DateTime

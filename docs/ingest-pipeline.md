@@ -43,6 +43,11 @@ an index on the CloudEvent subject in historical event payloads. Budget upgrade 
 space on a populated database. Preserve the two tables, the marker, the cutoff trigger, and
 their supporting indexes and functions in repairs.
 
+Step 8 adds a partial index on `raw_inbox(source_id)` for `pending` and `failed` rows.
+The consumer checks this bound before a new batch; a retry of an already committed batch does
+not take another slot. The lease, status, resync sequence, and batch receipt tables are managed
+by the Serverpod migration, not by schema step 8.
+
 ## Repair migrations
 
 Serverpod's repair diff sees SQL-owned tables as extraneous and may propose destructive changes. Before applying any generated repair, inspect its entire SQL against the current schema and **remove all operations that drop or alter** `raw_inbox`, `events`, `outbox`, `activity`, `correlia_schema_versions`, their indexes, constraints and time-qualified references. Review related cascades as well. Preserve data and the version table; never force a destructive repair merely to silence drift. Inspect any other unmanaged exceptions individually. If the desired SQL-owned schema itself needs correction, write a new forward schema step, not an edit to an applied step or a generated definition. Review the resulting repair and schema step together on a populated copy before production use.

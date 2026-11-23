@@ -21,6 +21,10 @@ import 'delivery_attempt.dart' as _ihd6gt0n;
 import 'feed_entry.dart' as _iywqxrq6;
 import 'feed_page.dart' as _ijrqdfur;
 import 'feed_wake_up.dart' as _ivrec9rl;
+import 'icinga2_admitted_batch.dart' as _iyvfq7h8;
+import 'icinga2_stream_lease.dart' as _iwydjvnk;
+import 'icinga2_stream_resync.dart' as _i6orwhmp;
+import 'icinga2_stream_status.dart' as _iph5wq9a;
 import 'ingest_active_config.dart' as _ibsgqcqa;
 import 'ingest_config_snapshot.dart' as _iwupdujg;
 import 'ingest_secret_commitment.dart' as _iupiayjd;
@@ -41,6 +45,10 @@ export 'delivery_attempt.dart';
 export 'feed_entry.dart';
 export 'feed_page.dart';
 export 'feed_wake_up.dart';
+export 'icinga2_admitted_batch.dart';
+export 'icinga2_stream_lease.dart';
+export 'icinga2_stream_resync.dart';
+export 'icinga2_stream_status.dart';
 export 'ingest_active_config.dart';
 export 'ingest_config_snapshot.dart';
 export 'ingest_secret_commitment.dart';
@@ -75,6 +83,10 @@ class Protocol extends _is.DatabaseSerializationManager
           _is.getType<_iywqxrq6.FeedEntry>,
           _is.getType<_ijrqdfur.FeedPage>,
           _is.getType<_ivrec9rl.FeedWakeUp>,
+          _is.getType<_iyvfq7h8.Icinga2AdmittedBatch>,
+          _is.getType<_iwydjvnk.Icinga2StreamLeaseRow>,
+          _is.getType<_i6orwhmp.Icinga2StreamResyncRow>,
+          _is.getType<_iph5wq9a.Icinga2StreamStatusRow>,
           _is.getType<_ibsgqcqa.IngestActiveConfig>,
           _is.getType<_iwupdujg.IngestConfigSnapshot>,
           _is.getType<_iupiayjd.IngestSecretCommitment>,
@@ -95,6 +107,10 @@ class Protocol extends _is.DatabaseSerializationManager
           _is.getType<_iywqxrq6.FeedEntry?>,
           _is.getType<_ijrqdfur.FeedPage?>,
           _is.getType<_ivrec9rl.FeedWakeUp?>,
+          _is.getType<_iyvfq7h8.Icinga2AdmittedBatch?>,
+          _is.getType<_iwydjvnk.Icinga2StreamLeaseRow?>,
+          _is.getType<_i6orwhmp.Icinga2StreamResyncRow?>,
+          _is.getType<_iph5wq9a.Icinga2StreamStatusRow?>,
           _is.getType<_ibsgqcqa.IngestActiveConfig?>,
           _is.getType<_iwupdujg.IngestConfigSnapshot?>,
           _is.getType<_iupiayjd.IngestSecretCommitment?>,
@@ -120,6 +136,10 @@ class Protocol extends _is.DatabaseSerializationManager
           'FeedEntry',
           'FeedPage',
           'FeedWakeUp',
+          'Icinga2AdmittedBatch',
+          'Icinga2StreamLeaseRow',
+          'Icinga2StreamResyncRow',
+          'Icinga2StreamStatusRow',
           'IngestActiveConfig',
           'IngestConfigSnapshot',
           'IngestSecretCommitment',
@@ -353,6 +373,308 @@ class Protocol extends _is.DatabaseSerializationManager
             _isp.IndexElementDefinition(
               type: _isp.IndexElementDefinitionType.column,
               definition: 'attemptNumber',
+            ),
+          ],
+          type: 'btree',
+          isUnique: true,
+          isPrimary: false,
+        ),
+      ],
+      managed: true,
+    ),
+    _isp.TableDefinition(
+      name: 'icinga2_admitted_batch',
+      dartName: 'Icinga2AdmittedBatch',
+      schema: 'public',
+      module: 'correlia',
+      columns: [
+        _isp.ColumnDefinition(
+          name: 'id',
+          columnType: _isp.ColumnType.bigint,
+          isNullable: false,
+          dartType: 'int?',
+          columnDefault: 'serial',
+        ),
+        _isp.ColumnDefinition(
+          name: 'sourceId',
+          columnType: _isp.ColumnType.uuid,
+          isNullable: false,
+          dartType: 'UuidValue',
+        ),
+        _isp.ColumnDefinition(
+          name: 'batchId',
+          columnType: _isp.ColumnType.uuid,
+          isNullable: false,
+          dartType: 'UuidValue',
+        ),
+        _isp.ColumnDefinition(
+          name: 'admittedAt',
+          columnType: _isp.ColumnType.timestampWithoutTimeZone,
+          isNullable: false,
+          dartType: 'DateTime',
+        ),
+      ],
+      foreignKeys: [],
+      indexes: [
+        _isp.IndexDefinition(
+          indexName: 'icinga2_admitted_batch_source_id_idx',
+          tableSpace: null,
+          elements: [
+            _isp.IndexElementDefinition(
+              type: _isp.IndexElementDefinitionType.column,
+              definition: 'sourceId',
+            ),
+            _isp.IndexElementDefinition(
+              type: _isp.IndexElementDefinitionType.column,
+              definition: 'batchId',
+            ),
+          ],
+          type: 'btree',
+          isUnique: true,
+          isPrimary: false,
+        ),
+        _isp.IndexDefinition(
+          indexName: 'icinga2_admitted_batch_expiry_idx',
+          tableSpace: null,
+          elements: [
+            _isp.IndexElementDefinition(
+              type: _isp.IndexElementDefinitionType.column,
+              definition: 'admittedAt',
+            ),
+          ],
+          type: 'btree',
+          isUnique: false,
+          isPrimary: false,
+        ),
+      ],
+      managed: true,
+    ),
+    _isp.TableDefinition(
+      name: 'icinga2_stream_lease',
+      dartName: 'Icinga2StreamLeaseRow',
+      schema: 'public',
+      module: 'correlia',
+      columns: [
+        _isp.ColumnDefinition(
+          name: 'id',
+          columnType: _isp.ColumnType.bigint,
+          isNullable: false,
+          dartType: 'int?',
+          columnDefault: 'serial',
+        ),
+        _isp.ColumnDefinition(
+          name: 'sourceId',
+          columnType: _isp.ColumnType.uuid,
+          isNullable: false,
+          dartType: 'UuidValue',
+        ),
+        _isp.ColumnDefinition(
+          name: 'holder',
+          columnType: _isp.ColumnType.text,
+          isNullable: false,
+          dartType: 'String',
+        ),
+        _isp.ColumnDefinition(
+          name: 'generation',
+          columnType: _isp.ColumnType.bigint,
+          isNullable: false,
+          dartType: 'int',
+        ),
+        _isp.ColumnDefinition(
+          name: 'expiresAt',
+          columnType: _isp.ColumnType.timestampWithoutTimeZone,
+          isNullable: false,
+          dartType: 'DateTime',
+        ),
+      ],
+      foreignKeys: [],
+      indexes: [
+        _isp.IndexDefinition(
+          indexName: 'icinga2_stream_lease__sourceId__unique_idx',
+          tableSpace: null,
+          elements: [
+            _isp.IndexElementDefinition(
+              type: _isp.IndexElementDefinitionType.column,
+              definition: 'sourceId',
+            ),
+          ],
+          type: 'btree',
+          isUnique: true,
+          isPrimary: false,
+        ),
+      ],
+      managed: true,
+    ),
+    _isp.TableDefinition(
+      name: 'icinga2_stream_resync',
+      dartName: 'Icinga2StreamResyncRow',
+      schema: 'public',
+      module: 'correlia',
+      columns: [
+        _isp.ColumnDefinition(
+          name: 'id',
+          columnType: _isp.ColumnType.bigint,
+          isNullable: false,
+          dartType: 'int?',
+          columnDefault: 'serial',
+        ),
+        _isp.ColumnDefinition(
+          name: 'sourceId',
+          columnType: _isp.ColumnType.uuid,
+          isNullable: false,
+          dartType: 'UuidValue',
+        ),
+        _isp.ColumnDefinition(
+          name: 'requestSeq',
+          columnType: _isp.ColumnType.bigint,
+          isNullable: false,
+          dartType: 'int',
+          columnDefault: '0',
+        ),
+      ],
+      foreignKeys: [],
+      indexes: [
+        _isp.IndexDefinition(
+          indexName: 'icinga2_stream_resync__sourceId__unique_idx',
+          tableSpace: null,
+          elements: [
+            _isp.IndexElementDefinition(
+              type: _isp.IndexElementDefinitionType.column,
+              definition: 'sourceId',
+            ),
+          ],
+          type: 'btree',
+          isUnique: true,
+          isPrimary: false,
+        ),
+      ],
+      managed: true,
+    ),
+    _isp.TableDefinition(
+      name: 'icinga2_stream_status',
+      dartName: 'Icinga2StreamStatusRow',
+      schema: 'public',
+      module: 'correlia',
+      columns: [
+        _isp.ColumnDefinition(
+          name: 'id',
+          columnType: _isp.ColumnType.bigint,
+          isNullable: false,
+          dartType: 'int?',
+          columnDefault: 'serial',
+        ),
+        _isp.ColumnDefinition(
+          name: 'sourceId',
+          columnType: _isp.ColumnType.uuid,
+          isNullable: false,
+          dartType: 'UuidValue',
+        ),
+        _isp.ColumnDefinition(
+          name: 'state',
+          columnType: _isp.ColumnType.text,
+          isNullable: false,
+          dartType: 'String',
+        ),
+        _isp.ColumnDefinition(
+          name: 'connectionId',
+          columnType: _isp.ColumnType.text,
+          isNullable: true,
+          dartType: 'String?',
+        ),
+        _isp.ColumnDefinition(
+          name: 'connectionSeq',
+          columnType: _isp.ColumnType.bigint,
+          isNullable: false,
+          dartType: 'int',
+          columnDefault: '0',
+        ),
+        _isp.ColumnDefinition(
+          name: 'connectedAt',
+          columnType: _isp.ColumnType.timestampWithoutTimeZone,
+          isNullable: true,
+          dartType: 'DateTime?',
+        ),
+        _isp.ColumnDefinition(
+          name: 'lastEventAt',
+          columnType: _isp.ColumnType.timestampWithoutTimeZone,
+          isNullable: true,
+          dartType: 'DateTime?',
+        ),
+        _isp.ColumnDefinition(
+          name: 'gapCount',
+          columnType: _isp.ColumnType.bigint,
+          isNullable: false,
+          dartType: 'int',
+          columnDefault: '0',
+        ),
+        _isp.ColumnDefinition(
+          name: 'lastGapSeq',
+          columnType: _isp.ColumnType.bigint,
+          isNullable: false,
+          dartType: 'int',
+          columnDefault: '0',
+        ),
+        _isp.ColumnDefinition(
+          name: 'lastGapAt',
+          columnType: _isp.ColumnType.timestampWithoutTimeZone,
+          isNullable: true,
+          dartType: 'DateTime?',
+        ),
+        _isp.ColumnDefinition(
+          name: 'oversizeLines',
+          columnType: _isp.ColumnType.bigint,
+          isNullable: false,
+          dartType: 'int',
+          columnDefault: '0',
+        ),
+        _isp.ColumnDefinition(
+          name: 'lagMs',
+          columnType: _isp.ColumnType.bigint,
+          isNullable: true,
+          dartType: 'int?',
+        ),
+        _isp.ColumnDefinition(
+          name: 'lastErrorClass',
+          columnType: _isp.ColumnType.text,
+          isNullable: true,
+          dartType: 'String?',
+        ),
+        _isp.ColumnDefinition(
+          name: 'servedResyncSeq',
+          columnType: _isp.ColumnType.bigint,
+          isNullable: false,
+          dartType: 'int',
+          columnDefault: '0',
+        ),
+        _isp.ColumnDefinition(
+          name: 'syncTimeoutsInARow',
+          columnType: _isp.ColumnType.bigint,
+          isNullable: false,
+          dartType: 'int',
+          columnDefault: '0',
+        ),
+        _isp.ColumnDefinition(
+          name: 'currentSyncId',
+          columnType: _isp.ColumnType.uuid,
+          isNullable: true,
+          dartType: 'UuidValue?',
+        ),
+        _isp.ColumnDefinition(
+          name: 'lastSyncId',
+          columnType: _isp.ColumnType.uuid,
+          isNullable: true,
+          dartType: 'UuidValue?',
+        ),
+      ],
+      foreignKeys: [],
+      indexes: [
+        _isp.IndexDefinition(
+          indexName: 'icinga2_stream_status__sourceId__unique_idx',
+          tableSpace: null,
+          elements: [
+            _isp.IndexElementDefinition(
+              type: _isp.IndexElementDefinitionType.column,
+              definition: 'sourceId',
             ),
           ],
           type: 'btree',
@@ -1180,6 +1502,18 @@ class Protocol extends _is.DatabaseSerializationManager
     if (t == _ivrec9rl.FeedWakeUp) {
       return _ivrec9rl.FeedWakeUp.fromJson(data) as T;
     }
+    if (t == _iyvfq7h8.Icinga2AdmittedBatch) {
+      return _iyvfq7h8.Icinga2AdmittedBatch.fromJson(data) as T;
+    }
+    if (t == _iwydjvnk.Icinga2StreamLeaseRow) {
+      return _iwydjvnk.Icinga2StreamLeaseRow.fromJson(data) as T;
+    }
+    if (t == _i6orwhmp.Icinga2StreamResyncRow) {
+      return _i6orwhmp.Icinga2StreamResyncRow.fromJson(data) as T;
+    }
+    if (t == _iph5wq9a.Icinga2StreamStatusRow) {
+      return _iph5wq9a.Icinga2StreamStatusRow.fromJson(data) as T;
+    }
     if (t == _ibsgqcqa.IngestActiveConfig) {
       return _ibsgqcqa.IngestActiveConfig.fromJson(data) as T;
     }
@@ -1244,6 +1578,30 @@ class Protocol extends _is.DatabaseSerializationManager
     }
     if (t == _is.getType<_ivrec9rl.FeedWakeUp?>()) {
       return (data != null ? _ivrec9rl.FeedWakeUp.fromJson(data) : null) as T;
+    }
+    if (t == _is.getType<_iyvfq7h8.Icinga2AdmittedBatch?>()) {
+      return (data != null
+              ? _iyvfq7h8.Icinga2AdmittedBatch.fromJson(data)
+              : null)
+          as T;
+    }
+    if (t == _is.getType<_iwydjvnk.Icinga2StreamLeaseRow?>()) {
+      return (data != null
+              ? _iwydjvnk.Icinga2StreamLeaseRow.fromJson(data)
+              : null)
+          as T;
+    }
+    if (t == _is.getType<_i6orwhmp.Icinga2StreamResyncRow?>()) {
+      return (data != null
+              ? _i6orwhmp.Icinga2StreamResyncRow.fromJson(data)
+              : null)
+          as T;
+    }
+    if (t == _is.getType<_iph5wq9a.Icinga2StreamStatusRow?>()) {
+      return (data != null
+              ? _iph5wq9a.Icinga2StreamStatusRow.fromJson(data)
+              : null)
+          as T;
     }
     if (t == _is.getType<_ibsgqcqa.IngestActiveConfig?>()) {
       return (data != null ? _ibsgqcqa.IngestActiveConfig.fromJson(data) : null)
@@ -1338,6 +1696,10 @@ class Protocol extends _is.DatabaseSerializationManager
       _iywqxrq6.FeedEntry => 'FeedEntry',
       _ijrqdfur.FeedPage => 'FeedPage',
       _ivrec9rl.FeedWakeUp => 'FeedWakeUp',
+      _iyvfq7h8.Icinga2AdmittedBatch => 'Icinga2AdmittedBatch',
+      _iwydjvnk.Icinga2StreamLeaseRow => 'Icinga2StreamLeaseRow',
+      _i6orwhmp.Icinga2StreamResyncRow => 'Icinga2StreamResyncRow',
+      _iph5wq9a.Icinga2StreamStatusRow => 'Icinga2StreamStatusRow',
       _ibsgqcqa.IngestActiveConfig => 'IngestActiveConfig',
       _iwupdujg.IngestConfigSnapshot => 'IngestConfigSnapshot',
       _iupiayjd.IngestSecretCommitment => 'IngestSecretCommitment',
@@ -1380,6 +1742,14 @@ class Protocol extends _is.DatabaseSerializationManager
         return 'FeedPage';
       case _ivrec9rl.FeedWakeUp():
         return 'FeedWakeUp';
+      case _iyvfq7h8.Icinga2AdmittedBatch():
+        return 'Icinga2AdmittedBatch';
+      case _iwydjvnk.Icinga2StreamLeaseRow():
+        return 'Icinga2StreamLeaseRow';
+      case _i6orwhmp.Icinga2StreamResyncRow():
+        return 'Icinga2StreamResyncRow';
+      case _iph5wq9a.Icinga2StreamStatusRow():
+        return 'Icinga2StreamStatusRow';
       case _ibsgqcqa.IngestActiveConfig():
         return 'IngestActiveConfig';
       case _iwupdujg.IngestConfigSnapshot():
@@ -1442,6 +1812,18 @@ class Protocol extends _is.DatabaseSerializationManager
     if (dataClassName == 'FeedWakeUp') {
       return deserialize<_ivrec9rl.FeedWakeUp>(data['data']);
     }
+    if (dataClassName == 'Icinga2AdmittedBatch') {
+      return deserialize<_iyvfq7h8.Icinga2AdmittedBatch>(data['data']);
+    }
+    if (dataClassName == 'Icinga2StreamLeaseRow') {
+      return deserialize<_iwydjvnk.Icinga2StreamLeaseRow>(data['data']);
+    }
+    if (dataClassName == 'Icinga2StreamResyncRow') {
+      return deserialize<_i6orwhmp.Icinga2StreamResyncRow>(data['data']);
+    }
+    if (dataClassName == 'Icinga2StreamStatusRow') {
+      return deserialize<_iph5wq9a.Icinga2StreamStatusRow>(data['data']);
+    }
     if (dataClassName == 'IngestActiveConfig') {
       return deserialize<_ibsgqcqa.IngestActiveConfig>(data['data']);
     }
@@ -1500,6 +1882,14 @@ class Protocol extends _is.DatabaseSerializationManager
         return _iqmz6gj4.AlertRow.t;
       case _ihd6gt0n.DeliveryAttempt:
         return _ihd6gt0n.DeliveryAttempt.t;
+      case _iyvfq7h8.Icinga2AdmittedBatch:
+        return _iyvfq7h8.Icinga2AdmittedBatch.t;
+      case _iwydjvnk.Icinga2StreamLeaseRow:
+        return _iwydjvnk.Icinga2StreamLeaseRow.t;
+      case _i6orwhmp.Icinga2StreamResyncRow:
+        return _i6orwhmp.Icinga2StreamResyncRow.t;
+      case _iph5wq9a.Icinga2StreamStatusRow:
+        return _iph5wq9a.Icinga2StreamStatusRow.t;
       case _ibsgqcqa.IngestActiveConfig:
         return _ibsgqcqa.IngestActiveConfig.t;
       case _iwupdujg.IngestConfigSnapshot:

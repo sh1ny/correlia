@@ -17,10 +17,13 @@ Future<String> publishStreamDb(
   int revision = 1,
   String policy = 'soft_and_hard',
   bool shared = false,
+  bool routed = true,
+  String apiUrl = 'https://icinga.example:5665',
 }) async {
   final source = streamSource(icinga2DbSourceId)
     ..['state_type_policy'] = policy
-    ..['output_ids'] = [icinga2DbOutputIds.first];
+    ..['output_ids'] = routed ? [icinga2DbOutputIds.first] : <String>[];
+  (source['api']! as Map<String, Object?>)['url'] = apiUrl;
   if (shared) source['namespace'] = icinga2SharedNamespace;
   final config = streamBootstrap(revision, [
     source,

@@ -1,0 +1,393 @@
+{
+  "__className__": "serverpod.DatabaseMigration",
+  "actions": [
+    {
+      "__className__": "serverpod.DatabaseMigrationAction",
+      "type": "createTable",
+      "createTable": {
+        "__className__": "serverpod.TableDefinition",
+        "name": "icinga2_admitted_batch",
+        "dartName": "Icinga2AdmittedBatch",
+        "module": "correlia",
+        "schema": "public",
+        "columns": [
+          {
+            "__className__": "serverpod.ColumnDefinition",
+            "name": "id",
+            "fieldName": "id",
+            "columnType": 6,
+            "isNullable": false,
+            "columnDefault": "serial",
+            "dartType": "int?"
+          },
+          {
+            "__className__": "serverpod.ColumnDefinition",
+            "name": "sourceId",
+            "fieldName": "sourceId",
+            "columnType": 7,
+            "isNullable": false,
+            "dartType": "UuidValue"
+          },
+          {
+            "__className__": "serverpod.ColumnDefinition",
+            "name": "batchId",
+            "fieldName": "batchId",
+            "columnType": 7,
+            "isNullable": false,
+            "dartType": "UuidValue"
+          },
+          {
+            "__className__": "serverpod.ColumnDefinition",
+            "name": "admittedAt",
+            "fieldName": "admittedAt",
+            "columnType": 4,
+            "isNullable": false,
+            "dartType": "DateTime"
+          }
+        ],
+        "foreignKeys": [],
+        "indexes": [
+          {
+            "__className__": "serverpod.IndexDefinition",
+            "indexName": "icinga2_admitted_batch_source_id_idx",
+            "elements": [
+              {
+                "__className__": "serverpod.IndexElementDefinition",
+                "type": 0,
+                "definition": "sourceId"
+              },
+              {
+                "__className__": "serverpod.IndexElementDefinition",
+                "type": 0,
+                "definition": "batchId"
+              }
+            ],
+            "type": "btree",
+            "isUnique": true,
+            "isPrimary": false
+          },
+          {
+            "__className__": "serverpod.IndexDefinition",
+            "indexName": "icinga2_admitted_batch_expiry_idx",
+            "elements": [
+              {
+                "__className__": "serverpod.IndexElementDefinition",
+                "type": 0,
+                "definition": "admittedAt"
+              }
+            ],
+            "type": "btree",
+            "isUnique": false,
+            "isPrimary": false
+          }
+        ],
+        "managed": true
+      }
+    },
+    {
+      "__className__": "serverpod.DatabaseMigrationAction",
+      "type": "createTable",
+      "createTable": {
+        "__className__": "serverpod.TableDefinition",
+        "name": "icinga2_stream_lease",
+        "dartName": "Icinga2StreamLeaseRow",
+        "module": "correlia",
+        "schema": "public",
+        "columns": [
+          {
+            "__className__": "serverpod.ColumnDefinition",
+            "name": "id",
+            "fieldName": "id",
+            "columnType": 6,
+            "isNullable": false,
+            "columnDefault": "serial",
+            "dartType": "int?"
+          },
+          {
+            "__className__": "serverpod.ColumnDefinition",
+            "name": "sourceId",
+            "fieldName": "sourceId",
+            "columnType": 7,
+            "isNullable": false,
+            "dartType": "UuidValue"
+          },
+          {
+            "__className__": "serverpod.ColumnDefinition",
+            "name": "holder",
+            "fieldName": "holder",
+            "columnType": 0,
+            "isNullable": false,
+            "dartType": "String"
+          },
+          {
+            "__className__": "serverpod.ColumnDefinition",
+            "name": "generation",
+            "fieldName": "generation",
+            "columnType": 6,
+            "isNullable": false,
+            "dartType": "int"
+          },
+          {
+            "__className__": "serverpod.ColumnDefinition",
+            "name": "expiresAt",
+            "fieldName": "expiresAt",
+            "columnType": 4,
+            "isNullable": false,
+            "dartType": "DateTime"
+          }
+        ],
+        "foreignKeys": [],
+        "indexes": [
+          {
+            "__className__": "serverpod.IndexDefinition",
+            "indexName": "icinga2_stream_lease__sourceId__unique_idx",
+            "elements": [
+              {
+                "__className__": "serverpod.IndexElementDefinition",
+                "type": 0,
+                "definition": "sourceId"
+              }
+            ],
+            "type": "btree",
+            "isUnique": true,
+            "isPrimary": false
+          }
+        ],
+        "managed": true
+      }
+    },
+    {
+      "__className__": "serverpod.DatabaseMigrationAction",
+      "type": "createTable",
+      "createTable": {
+        "__className__": "serverpod.TableDefinition",
+        "name": "icinga2_stream_resync",
+        "dartName": "Icinga2StreamResyncRow",
+        "module": "correlia",
+        "schema": "public",
+        "columns": [
+          {
+            "__className__": "serverpod.ColumnDefinition",
+            "name": "id",
+            "fieldName": "id",
+            "columnType": 6,
+            "isNullable": false,
+            "columnDefault": "serial",
+            "dartType": "int?"
+          },
+          {
+            "__className__": "serverpod.ColumnDefinition",
+            "name": "sourceId",
+            "fieldName": "sourceId",
+            "columnType": 7,
+            "isNullable": false,
+            "dartType": "UuidValue"
+          },
+          {
+            "__className__": "serverpod.ColumnDefinition",
+            "name": "requestSeq",
+            "fieldName": "requestSeq",
+            "columnType": 6,
+            "isNullable": false,
+            "columnDefault": "0",
+            "dartType": "int"
+          }
+        ],
+        "foreignKeys": [],
+        "indexes": [
+          {
+            "__className__": "serverpod.IndexDefinition",
+            "indexName": "icinga2_stream_resync__sourceId__unique_idx",
+            "elements": [
+              {
+                "__className__": "serverpod.IndexElementDefinition",
+                "type": 0,
+                "definition": "sourceId"
+              }
+            ],
+            "type": "btree",
+            "isUnique": true,
+            "isPrimary": false
+          }
+        ],
+        "managed": true
+      }
+    },
+    {
+      "__className__": "serverpod.DatabaseMigrationAction",
+      "type": "createTable",
+      "createTable": {
+        "__className__": "serverpod.TableDefinition",
+        "name": "icinga2_stream_status",
+        "dartName": "Icinga2StreamStatusRow",
+        "module": "correlia",
+        "schema": "public",
+        "columns": [
+          {
+            "__className__": "serverpod.ColumnDefinition",
+            "name": "id",
+            "fieldName": "id",
+            "columnType": 6,
+            "isNullable": false,
+            "columnDefault": "serial",
+            "dartType": "int?"
+          },
+          {
+            "__className__": "serverpod.ColumnDefinition",
+            "name": "sourceId",
+            "fieldName": "sourceId",
+            "columnType": 7,
+            "isNullable": false,
+            "dartType": "UuidValue"
+          },
+          {
+            "__className__": "serverpod.ColumnDefinition",
+            "name": "state",
+            "fieldName": "state",
+            "columnType": 0,
+            "isNullable": false,
+            "dartType": "String"
+          },
+          {
+            "__className__": "serverpod.ColumnDefinition",
+            "name": "connectionId",
+            "fieldName": "connectionId",
+            "columnType": 0,
+            "isNullable": true,
+            "dartType": "String?"
+          },
+          {
+            "__className__": "serverpod.ColumnDefinition",
+            "name": "connectionSeq",
+            "fieldName": "connectionSeq",
+            "columnType": 6,
+            "isNullable": false,
+            "columnDefault": "0",
+            "dartType": "int"
+          },
+          {
+            "__className__": "serverpod.ColumnDefinition",
+            "name": "connectedAt",
+            "fieldName": "connectedAt",
+            "columnType": 4,
+            "isNullable": true,
+            "dartType": "DateTime?"
+          },
+          {
+            "__className__": "serverpod.ColumnDefinition",
+            "name": "lastEventAt",
+            "fieldName": "lastEventAt",
+            "columnType": 4,
+            "isNullable": true,
+            "dartType": "DateTime?"
+          },
+          {
+            "__className__": "serverpod.ColumnDefinition",
+            "name": "gapCount",
+            "fieldName": "gapCount",
+            "columnType": 6,
+            "isNullable": false,
+            "columnDefault": "0",
+            "dartType": "int"
+          },
+          {
+            "__className__": "serverpod.ColumnDefinition",
+            "name": "lastGapSeq",
+            "fieldName": "lastGapSeq",
+            "columnType": 6,
+            "isNullable": false,
+            "columnDefault": "0",
+            "dartType": "int"
+          },
+          {
+            "__className__": "serverpod.ColumnDefinition",
+            "name": "lastGapAt",
+            "fieldName": "lastGapAt",
+            "columnType": 4,
+            "isNullable": true,
+            "dartType": "DateTime?"
+          },
+          {
+            "__className__": "serverpod.ColumnDefinition",
+            "name": "oversizeLines",
+            "fieldName": "oversizeLines",
+            "columnType": 6,
+            "isNullable": false,
+            "columnDefault": "0",
+            "dartType": "int"
+          },
+          {
+            "__className__": "serverpod.ColumnDefinition",
+            "name": "lagMs",
+            "fieldName": "lagMs",
+            "columnType": 6,
+            "isNullable": true,
+            "dartType": "int?"
+          },
+          {
+            "__className__": "serverpod.ColumnDefinition",
+            "name": "lastErrorClass",
+            "fieldName": "lastErrorClass",
+            "columnType": 0,
+            "isNullable": true,
+            "dartType": "String?"
+          },
+          {
+            "__className__": "serverpod.ColumnDefinition",
+            "name": "servedResyncSeq",
+            "fieldName": "servedResyncSeq",
+            "columnType": 6,
+            "isNullable": false,
+            "columnDefault": "0",
+            "dartType": "int"
+          },
+          {
+            "__className__": "serverpod.ColumnDefinition",
+            "name": "syncTimeoutsInARow",
+            "fieldName": "syncTimeoutsInARow",
+            "columnType": 6,
+            "isNullable": false,
+            "columnDefault": "0",
+            "dartType": "int"
+          },
+          {
+            "__className__": "serverpod.ColumnDefinition",
+            "name": "currentSyncId",
+            "fieldName": "currentSyncId",
+            "columnType": 7,
+            "isNullable": true,
+            "dartType": "UuidValue?"
+          },
+          {
+            "__className__": "serverpod.ColumnDefinition",
+            "name": "lastSyncId",
+            "fieldName": "lastSyncId",
+            "columnType": 7,
+            "isNullable": true,
+            "dartType": "UuidValue?"
+          }
+        ],
+        "foreignKeys": [],
+        "indexes": [
+          {
+            "__className__": "serverpod.IndexDefinition",
+            "indexName": "icinga2_stream_status__sourceId__unique_idx",
+            "elements": [
+              {
+                "__className__": "serverpod.IndexElementDefinition",
+                "type": 0,
+                "definition": "sourceId"
+              }
+            ],
+            "type": "btree",
+            "isUnique": true,
+            "isPrimary": false
+          }
+        ],
+        "managed": true
+      }
+    }
+  ],
+  "warnings": [],
+  "migrationApiVersion": 1
+}

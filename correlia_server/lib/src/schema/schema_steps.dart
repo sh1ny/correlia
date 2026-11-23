@@ -77,6 +77,10 @@ List<SchemaStep> get schemaSteps => [
   _secretReuseCutover,
   SchemaStep(6, File('schema/0006_icinga2_raw_origin.sql').readAsStringSync()),
   SchemaStep(7, File('schema/0007_icinga2_reconcile.sql').readAsStringSync()),
+  SchemaStep(
+    8,
+    File('schema/0008_icinga2_retained_work.sql').readAsStringSync(),
+  ),
 ];
 
 /// Installs the publisher-version trigger and backfill boundaries in one
