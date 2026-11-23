@@ -18,3 +18,20 @@ executable.
 
 See `docs/event-contract-tooling.md` for the canonical event generation,
 compatibility policy and first-run dependency behavior.
+
+## Icinga 2 Event Streams captures
+
+Run the upstream-only scenario against the official Linux x64 images:
+
+```sh
+mise exec -- tool/icinga2_capture.sh --stream 2.13.14 2.14.10 2.15.7 2.16.6
+```
+
+This mode needs Docker but does not build the webhook sender or start
+Correlia. It drives passive results and operator actions, writes the six
+subscribed event types and both object projections to
+`correlia_server/test/unit/ingest/fixtures/icinga2/<release>/stream/`,
+and records the image and the result of omitting each required grant.
+Treat these as wire captures, not proof that the Correlia consumer works.
+The separate real-consumer run record is checked by the version matrix
+alongside the captures.
