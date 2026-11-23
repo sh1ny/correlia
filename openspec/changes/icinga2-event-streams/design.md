@@ -386,8 +386,29 @@ Scope decisions S1-S5 are in `proposal.md`.
   - `findProxy = 'DIRECT'`, `followRedirects = false` and no `keyLog`;
   - a `SecurityContext(withTrustedRoots: false)` loaded with the CA bytes via `setTrustedCertificatesBytes`,
     TLS 1.2 or newer, and the default host name check;
-  - a `connectionFactory` that sets `SO_KEEPALIVE`, a 60 s keepalive idle time, 10 s probe intervals and 6
-    probes (A3);
+  - a `connectionFactory` that sets `SO_KEEPALIVE`, 60 s idle, 10 s probe intervals and 6 probes
+    on a retained `RawSocket`, then verifies TLS through `RawSecureSocket.secure`. The factory returns
+    a `Socket` adapter backed by the secure raw socket; Dart `HttpClient` retains HTTP/1.1 framing.
+    The owner selected this over a separate HTTP parser after the A3 follow-up probe showed
+    `SecureSocket.secure` detaches the only cancellable handle. Important: yes. Chosen by: user.
+    One attempt owns the TCP connection task, retained raw socket, pending TLS and handed-off
+    adapter. On stop, lease loss or header timeout cancel the dial, close a raw socket received
+    after cancellation, or close the handshake socket or installed adapter as appropriate.
+    The common header deadline starts before the dial. An idempotent terminal abort settles the
+    factory socket future, discards queued output, and force-closes the retained raw transport;
+    `RawSecureSocket.close()` alone may wait for queued output. D13 invokes that abort directly
+    even before `HttpClient` has registered the factory task. Check the monotonic lease at handoff
+    and before every raw write, including writable callbacks resuming partial writes after a pause.
+    Detach continuation references to the attempt, HTTP client, request, credentials and waiters
+    on abort. A late continuation needs only enough state to close a late result or consume an
+    error. Peer closure and bounded retained resources matter as well as bounded registry size.
+    The TLS call itself receives the configured URI host and exclusive TLS 1.2+ context.
+    The adapter must propagate input pause to socket reads and keep unwritten bytes until accepted
+    without unbounded buffering. Prove this on the pinned SDK using partial writes, sustained input
+    with a paused subscriber (measure queued bytes), both response framing modes, zero-byte writes
+    and flush settlement on abort. Exercise stalled TCP/TLS/headers for subscriptions and sync,
+    including combined TLS and header waits that exceed the single 10 s budget. Check timeout
+    classification and backoff, peer closure, settled waits and no post-cancellation credentials.
   - basic authentication sent only after the TLS handshake to the configured host.
 
   Tests cover a public-CA certificate, a configured-CA certificate for another host, a redirect, and hostile
@@ -1010,9 +1031,11 @@ Scope decisions S1-S5 are in `proposal.md`.
   (PostgreSQL 17) is not available. Not checked in tracked files: the local data directories report 16, but they
   are generated and ignored. Depends on it: D13; if production runs 17 or newer, D13 still holds and
   `transaction_timeout` can be added as a second bound.
-- **A3:** Dart's `HttpClient.connectionFactory` lets the client set TCP keepalive options on the socket through
-  `RawSocketOption`. Not checked against the SDK yet. Depends on it: D8; if not, the client opens the
-  `SecureSocket` itself and writes the request.
+- **A3:** Verified on Dart 3.13.7: the factory controls TCP keepalive and Dart can frame HTTP over its
+  returned TLS socket. The follow-up disproved cancellation through a detached `Socket`; retain and
+  close the `RawSocket` during the handshake (D8). The application cancellation cannot depend on the
+  SDK's handshake future settling. The production adapter still requires its integration proof
+  in 10.3. See `evidence/icinga2-stream-implementation-notes.md`.
 
 ## Carried constraints
 
