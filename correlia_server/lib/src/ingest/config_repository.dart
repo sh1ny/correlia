@@ -6,6 +6,7 @@ import 'package:serverpod/serverpod.dart';
 import '../secrets/commitments.dart';
 import '../secrets/secret_store.dart';
 import 'bootstrap.dart';
+import 'secret_reuse.dart';
 
 /// A rejected activation containing only public snapshot identities and revisions.
 final class SnapshotActivationError implements Exception {
@@ -72,13 +73,15 @@ final class IngestConfigRepository {
             transaction: tx,
           ),
         );
-        return IngestBootstrap.parseResolved(
+        final parsed = IngestBootstrap.parseResolved(
           config,
           material,
           runMode: runMode,
           pluginCommitment: store.commitments.plugin,
           clock: clock,
         );
+        parsed.validateStreamImportEncoding(secretInput);
+        return parsed;
       },
       imported,
       requireLiveSecrets: requireLiveSecrets,
@@ -132,6 +135,10 @@ final class IngestConfigRepository {
           "SET LOCAL lock_timeout = '5s'",
           transaction: transaction,
         );
+        await session.db.unsafeSimpleExecute(
+          "SET LOCAL correlia.publisher_version = '1'",
+          transaction: transaction,
+        );
         await _store.checkKey(session, transaction);
         final input = await prepare(transaction);
         final active = await activeSnapshot(transaction: transaction);
@@ -152,16 +159,12 @@ final class IngestConfigRepository {
           }
         }
         await _refuseSourceChanges(input, transaction);
-        if (input.sources.any(
-          (source) => source.mode == SourceMode.eventStreams,
-        )) {
-          // No stream password can be activated before the secure publication cutover.
-          throw const BootstrapError(
-            'config',
-            'sources',
-            'reuse_inventory_pending',
-          );
-        }
+        await recordPublicationReuse(
+          session,
+          transaction,
+          input,
+          _store.commitments,
+        );
         await _validateCommitments(imported, transaction);
         await _importSecrets(input, imported, transaction);
         if (requireLiveSecrets) {
@@ -221,12 +224,13 @@ final class IngestConfigRepository {
         );
         for (final source in input.sources) {
           await session.db.unsafeExecute(
-            '''INSERT INTO ingest_source ("sourceId",kind,enabled,"allowPathToken")
-            VALUES (@id::uuid,@kind,@enabled,@path) ON CONFLICT ("sourceId") DO UPDATE
+            '''INSERT INTO ingest_source ("sourceId",kind,mode,enabled,"allowPathToken")
+            VALUES (@id::uuid,@kind,@mode,@enabled,@path) ON CONFLICT ("sourceId") DO UPDATE
             SET enabled=EXCLUDED.enabled,"allowPathToken"=EXCLUDED."allowPathToken"''',
             parameters: QueryParameters.named({
               'id': source.id,
               'kind': source.kind.name,
+              'mode': source.mode.wire,
               'enabled': source.enabled,
               'path': source.pathTokenEnabled,
             }),
@@ -344,6 +348,11 @@ final class IngestConfigRepository {
       for (final output in input.outputs)
         if (output is PluginIngestOutput)
           for (final ref in output.secretRefs.values) ref.reference: true,
+      for (final source in input.sources)
+        if (source.stream case final stream?) ...{
+          stream.passwordRef: true,
+          stream.caRef: true,
+        },
     };
     if (imported.isNotEmpty) {
       final rows = await session.db.unsafeQuery(

@@ -15,6 +15,7 @@ import '../integration/test_tools/serverpod_test_tools.dart';
 import '../support/icinga2_delivery.dart';
 import '../support/icinga2_pipeline.dart' show timeText;
 import '../support/ingest_schema.dart';
+import '../support/icinga2_stream_fixture.dart';
 import '../support/secret_fixture.dart';
 import 'ingest_config_test.dart' show token;
 
@@ -49,7 +50,10 @@ void main() {
       late HttpClient client;
       late WebServer web;
 
-      Future<IngestBootstrap> publish({required bool both}) =>
+      Future<IngestBootstrap> publish({
+        required bool both,
+        bool stream = false,
+      }) =>
           IngestConfigRepository(
             session,
             secretStore: testSecretStore,
@@ -61,10 +65,12 @@ void main() {
               'sources': [
                 if (both) _source(_alertmanagerId, 'alertmanager', 1),
                 _source(_icinga2Id, 'icinga2', 2),
+                if (stream) streamSource(_streamId),
               ],
             },
             <String, Object?>{
               for (var i = 1; i <= 2; i++) 'test-key-$i': token(i),
+              if (stream) ...streamMaterial(),
             },
             runMode: 'test',
             clock: () => _now,
@@ -173,11 +179,7 @@ void main() {
       });
 
       test('webhook_source_unaffected', () async {
-        final input = await publish(both: false);
-        await session.db.unsafeSimpleExecute('''
-          INSERT INTO ingest_source ("sourceId",kind,mode,enabled,"allowPathToken")
-          VALUES ('$_streamId','icinga2','event_streams',true,false)
-        ''');
+        final input = await publish(both: false, stream: true);
         await start(input);
         expect(await post('/hooks/icinga2/$_icinga2Id', bearer: 2), 202);
         expect(await rawCount(), 1);

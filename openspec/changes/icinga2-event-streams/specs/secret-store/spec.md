@@ -39,10 +39,10 @@ the consumer that uses them and by publication's reuse check.
 
 ### Requirement: Passwords never share bytes with a bare commitment
 
-A publication SHALL fail with `password_reuse` when the bytes of a stream password equal the bytes of any secret
-whose commitment is a bare SHA-256 (source credentials, webhook signing keys, historical M1 pins), under any
-reference, whichever was published first, also when the earlier one was since removed or rotated, and also
-within one publication.
+A publication SHALL fail with `password_reuse` when a stream password equals any secret with a bare SHA-256
+commitment, including source credentials, webhook signing keys, and historical M1 pins. The check applies
+under any reference, whichever value was published first, and within one publication. Removing or rotating
+either secret SHALL NOT permit reuse of its prior bytes.
 
 #### Scenario: Password equals a signing key
 - **WHEN** a stream password reference holds the same 32 bytes as an existing webhook signing key reference
@@ -128,10 +128,10 @@ append-only set included in reuse checks. Passwords SHALL fail `reuse_inventory_
 
 ### Requirement: Only this release or newer publishes after the upgrade
 
-Once this release's schema step has run, the database SHALL refuse a configuration publication from a process
-that does not declare this release's publisher version or newer, so no process of an older release, of any role,
-can publish a bare commitment after a password is accepted. The schema step SHALL record the backfill boundaries
-and install this refusal in one transaction holding the publication lock.
+After this release's schema step, the database SHALL refuse publication by an older release of any role.
+A publisher must declare this release's publisher version or newer. The schema step SHALL record the
+backfill boundaries and install the publisher-version trigger in one transaction holding the publication
+lock.
 
 #### Scenario: Publication in flight at the cutover
 - **WHEN** an older process holds the publication lock with its snapshot inserted but not committed as this release's schema step starts

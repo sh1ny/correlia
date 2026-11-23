@@ -178,13 +178,29 @@ final class IngestBootstrap {
     String Function(String reference, List<int> bytes)? pluginCommitment,
     DateTime Function()? clock,
   }) {
-    return parseResolved(
+    final parsed = parseResolved(
       config,
       decodeBootstrapSecrets(secretInput),
       runMode: runMode,
       pluginCommitment: pluginCommitment,
       clock: clock,
     );
+    parsed.validateStreamImportEncoding(secretInput);
+    return parsed;
+  }
+
+  /// Requires byte-object syntax for stream material supplied by this import.
+  /// References absent from the import have already been resolved from storage.
+  void validateStreamImportEncoding(Object? secretInput) {
+    final imports = _map(secretInput, 'secrets', r'$');
+    for (final source in sources) {
+      if (source.stream case final stream?) {
+        if (imports[stream.passwordRef] is String ||
+            imports[stream.caRef] is String) {
+          _bad('secrets', 'value', 'credential_encoding');
+        }
+      }
+    }
   }
 
   /// Parses a publication using material already decoded or read from the store.

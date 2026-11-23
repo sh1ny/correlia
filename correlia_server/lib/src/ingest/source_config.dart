@@ -414,6 +414,20 @@ IngestSource _parseSource(
       }
     }
     stream = _streamOptions(row, field);
+    final password = secrets[stream.passwordRef];
+    if (password == null) {
+      _bad('config', '$field.api.password_ref', 'missing_secret');
+    }
+    if (password.isEmpty || password.length > 1024) {
+      _bad('secrets', 'value', 'bound');
+    }
+    final ca = secrets[stream.caRef];
+    if (ca == null) {
+      _bad('config', '$field.api.ca_ref', 'missing_secret');
+    }
+    if (ca.isEmpty || ca.length > 16384) {
+      _bad('secrets', 'value', 'bound');
+    }
   } else {
     for (final option in const [
       'api',

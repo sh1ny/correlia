@@ -20,6 +20,19 @@ Every schema transaction starts with `SET LOCAL lock_timeout`, before it request
 
 The upgrade is offline. Stop every older process of every role (`api`, `worker`, `all`) before any process of this release starts, and do not restart an older one afterwards. Any role of this release applies step 4 at startup, while an older process decodes every row as Alertmanager, writes no effective time and publishes configuration with a publisher that overwrites a source's kind. Rows admitted before the stop stay `pending` in `raw_inbox` and are claimed and processed by the upgraded workers, so nothing admitted is lost. No mixed-version mechanism exists, because the cutover happens once.
 
+## Schema step 5 and stream credential cutover
+
+Step 5 records the historical secret-inventory boundaries and installs the publisher-version
+fence in the same transaction under the publication lock. Upgrade every role before publishing
+an Icinga 2 stream source. An older process cannot publish after step 5, and older workers must
+not run against a database that has accepted a stream source.
+
+Startup inventories historical bare commitments in batches and resumes from the last committed
+batch after interruption. A stream password cannot be published until that scan finishes. Use
+new references when rotating credentials: removing a password or a webhook key does not remove
+its reuse protection. Preserve `secret_reuse_digest`, `secret_reuse_retired_credential` and
+`secret_reuse_backfill`, plus the two publication fences, when preparing a Serverpod repair.
+
 ## Repair migrations
 
 Serverpod's repair diff sees SQL-owned tables as extraneous and may propose destructive changes. Before applying any generated repair, inspect its entire SQL against the current schema and **remove all operations that drop or alter** `raw_inbox`, `events`, `outbox`, `activity`, `correlia_schema_versions`, their indexes, constraints and time-qualified references. Review related cascades as well. Preserve data and the version table; never force a destructive repair merely to silence drift. Inspect any other unmanaged exceptions individually. If the desired SQL-owned schema itself needs correction, write a new forward schema step, not an edit to an applied step or a generated definition. Review the resulting repair and schema step together on a populated copy before production use.

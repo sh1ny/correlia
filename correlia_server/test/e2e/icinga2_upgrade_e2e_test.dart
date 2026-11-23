@@ -139,9 +139,20 @@ final class _Upgrade {
     await connection.execute(
       'ALTER TABLE events DROP COLUMN effective_source_time',
     );
-    await connection.execute(
-      'DELETE FROM correlia_schema_versions WHERE version = 4',
-    );
+    await connection.runTx((tx) async {
+      await tx.execute(
+        'DROP FUNCTION correlia_require_publisher_version() CASCADE',
+      );
+      await tx.execute(
+        'DROP FUNCTION correlia_keep_retired_credential_digest() CASCADE',
+      );
+      await tx.execute(
+        'DROP TABLE secret_reuse_digest,secret_reuse_backfill,secret_reuse_retired_credential',
+      );
+      await tx.execute(
+        'DELETE FROM correlia_schema_versions WHERE version IN (4,5)',
+      );
+    });
     return connection;
   }
 
@@ -232,7 +243,7 @@ void main() {
         await blocker.execute('ROLLBACK');
         final restarted = await upgrade.start();
         await restarted.waitUntilReady();
-        expect(await _versions(connection), [1, 2, 3, 4]);
+        expect(await _versions(connection), [1, 2, 3, 4, 5]);
       } finally {
         await upgrade.dispose();
       }
@@ -260,7 +271,7 @@ void main() {
         await other.execute('ROLLBACK');
         final restarted = await upgrade.start();
         await restarted.waitUntilReady();
-        expect(await _versions(connection), [1, 2, 3, 4]);
+        expect(await _versions(connection), [1, 2, 3, 4, 5]);
       } finally {
         await upgrade.dispose();
       }
@@ -314,7 +325,7 @@ void main() {
         final upgraded = await upgrade.start();
         await upgraded.waitUntilReady();
         await upgrade.deliveries(2);
-        expect(await _versions(connection), [1, 2, 3, 4]);
+        expect(await _versions(connection), [1, 2, 3, 4, 5]);
         final raws = await connection.execute(
           'SELECT status FROM raw_inbox',
         );

@@ -241,6 +241,29 @@ void main() {
         );
       });
 
+      test('new_source_for_the_stream_is_published', () async {
+        const streamId = '33333333-3333-4333-8333-333333333333';
+        final repository = IngestConfigRepository(
+          builder.build(),
+          secretStore: testSecretStore,
+        );
+        final webhook =
+            (kindConfig(1, 'icinga2')['sources']! as List<Object?>).single;
+        final result = await repository.publishConfig(
+          streamBootstrap(1, [webhook, streamSource(streamId)]),
+          {'source-token': token(1), ...streamMaterial()},
+          runMode: 'test',
+        );
+        expect(
+          result.sources.map((source) => source.id),
+          unorderedEquals([sourceId, streamId]),
+        );
+        expect(
+          (await repository.activeSnapshot())!['snapshotId'],
+          result.snapshotId,
+        );
+      });
+
       test('v2_publication_cutover', () async {
         final session = builder.build();
         final repository = IngestConfigRepository(

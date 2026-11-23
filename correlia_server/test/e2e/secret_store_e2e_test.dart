@@ -159,6 +159,27 @@ Future<void> _bootstrapSchema(_Fixture fixture) async {
   expect(await unconfigured.closeStdin(), 0);
 }
 
+Future<void> _seedHistoricalSnapshot(
+  Connection db,
+  String snapshot,
+  String legacy,
+) => db.runTx((tx) async {
+  // This fixture seeds an earlier public format after schema initialization.
+  await tx.execute("SET LOCAL correlia.publisher_version = '1'");
+  await tx.execute(
+    Sql.named(
+      'INSERT INTO ingest_config_snapshot ("snapshotId",revision,"publicJson") VALUES (@id,1,@json)',
+    ),
+    parameters: {'id': snapshot, 'json': legacy},
+  );
+  await tx.execute(
+    Sql.named(
+      'INSERT INTO ingest_active_config (singleton,"snapshotId") VALUES (1,@id)',
+    ),
+    parameters: {'id': snapshot},
+  );
+});
+
 void main() {
   test(
     'key_file_accepted',
@@ -207,18 +228,7 @@ void main() {
         'outputs': <Object?>[],
       });
       final snapshot = sha256.convert(utf8.encode(legacy)).toString();
-      await db.execute(
-        Sql.named(
-          'INSERT INTO ingest_config_snapshot ("snapshotId",revision,"publicJson") VALUES (@id,1,@json)',
-        ),
-        parameters: {'id': snapshot, 'json': legacy},
-      );
-      await db.execute(
-        Sql.named(
-          'INSERT INTO ingest_active_config (singleton,"snapshotId") VALUES (1,@id)',
-        ),
-        parameters: {'id': snapshot},
-      );
+      await _seedHistoricalSnapshot(db, snapshot, legacy);
       final rejected = await fixture.start();
       expect(await rejected.exitCode.timeout(_awaitEvent), 1);
       expect(rejected.output, contains('activation_conflict'));
@@ -292,18 +302,7 @@ void main() {
           },
         );
         final snapshot = sha256.convert(utf8.encode(legacy)).toString();
-        await db.execute(
-          Sql.named(
-            'INSERT INTO ingest_config_snapshot ("snapshotId",revision,"publicJson") VALUES (@id,1,@json)',
-          ),
-          parameters: {'id': snapshot, 'json': legacy},
-        );
-        await db.execute(
-          Sql.named(
-            'INSERT INTO ingest_active_config (singleton,"snapshotId") VALUES (1,@id)',
-          ),
-          parameters: {'id': snapshot},
-        );
+        await _seedHistoricalSnapshot(db, snapshot, legacy);
         final observed = DateTime.now().toUtc();
         final body = utf8.encode(
           jsonEncode({

@@ -195,14 +195,21 @@ VALUES (@time,CAST(@id AS uuid),CAST(@source AS uuid),@body,@digest,'application
         json['revision'] = (json['revision']! as int) + 100;
         final text = jsonEncode(json);
         final id = sha256.convert(utf8.encode(text)).toString();
-        await session.db.unsafeExecute(
-          'INSERT INTO ingest_config_snapshot ("snapshotId",revision,"publicJson") VALUES (@id,@revision,@json)',
-          parameters: QueryParameters.named({
-            'id': id,
-            'revision': json['revision'],
-            'json': text,
-          }),
-        );
+        await session.db.transaction((tx) async {
+          await session.db.unsafeSimpleExecute(
+            "SET LOCAL correlia.publisher_version = '1'",
+            transaction: tx,
+          );
+          await session.db.unsafeExecute(
+            'INSERT INTO ingest_config_snapshot ("snapshotId",revision,"publicJson") VALUES (@id,@revision,@json)',
+            parameters: QueryParameters.named({
+              'id': id,
+              'revision': json['revision'],
+              'json': text,
+            }),
+            transaction: tx,
+          );
+        });
         return id;
       }
 
