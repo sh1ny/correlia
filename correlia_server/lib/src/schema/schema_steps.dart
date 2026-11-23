@@ -81,6 +81,10 @@ List<SchemaStep> get schemaSteps => [
     8,
     File('schema/0008_icinga2_retained_work.sql').readAsStringSync(),
   ),
+  SchemaStep(
+    9,
+    File('schema/0009_icinga2_sync_finalization.sql').readAsStringSync(),
+  ),
 ];
 
 /// Installs the publisher-version trigger and backfill boundaries in one

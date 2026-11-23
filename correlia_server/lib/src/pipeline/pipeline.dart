@@ -753,6 +753,7 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
             transaction: tx,
           );
           if (updated != 1) throw StateError('Missing Icinga sync progress');
+          await _finalizeSync(tx, deadline, syncId);
           if (committed == 0) {
             await _limits(tx, deadline);
             await session.db.unsafeExecute(
@@ -922,22 +923,38 @@ VALUES (@observed,CAST(@raw AS uuid),@pin,@code,@path,@now)''',
       timeoutInSeconds: 5,
     );
     await _limits(tx, deadline);
-    await session.db.unsafeExecute(
-      '''UPDATE icinga2_sync_progress AS p SET rows_failed=rows_failed+1
-      FROM icinga2_raw_origin AS o WHERE o.raw_id=CAST(@raw AS uuid) AND p.sync_id=o.sync_id''',
-      parameters: QueryParameters.named({'raw': raw.id}),
-      transaction: tx,
-    );
-    await _limits(tx, deadline);
-    await session.db.unsafeExecute(
-      '''INSERT INTO icinga2_stream_resync ("sourceId","requestSeq")
-      SELECT CAST(@source AS uuid),1 FROM icinga2_raw_origin
-      WHERE raw_id=CAST(@raw AS uuid) AND origin='stream'
-      ON CONFLICT ("sourceId") DO UPDATE SET "requestSeq"=icinga2_stream_resync."requestSeq"+1''',
+    final failedSync = await session.db.unsafeQuery(
+      '''WITH admission AS MATERIALIZED (
+          SELECT origin,sync_id FROM icinga2_raw_origin WHERE raw_id=CAST(@raw AS uuid)
+        ), failed_sync AS (
+          UPDATE icinga2_sync_progress AS p SET rows_failed=rows_failed+1
+          FROM admission a WHERE a.origin='sync' AND p.sync_id=a.sync_id
+          RETURNING p.sync_id::text AS sync_id
+        ), request_sync AS (
+          INSERT INTO icinga2_stream_resync ("sourceId","requestSeq")
+          SELECT CAST(@source AS uuid),1 FROM admission WHERE origin='stream'
+          ON CONFLICT ("sourceId") DO UPDATE SET "requestSeq"=icinga2_stream_resync."requestSeq"+1
+        ) SELECT sync_id FROM failed_sync''',
       parameters: QueryParameters.named({'raw': raw.id, 'source': raw.source}),
       transaction: tx,
     );
+    if (failedSync.isNotEmpty) {
+      await _finalizeSync(tx, deadline, failedSync.single[0]! as String);
+    }
     deadline.check();
+  }
+
+  Future<void> _finalizeSync(
+    Transaction tx,
+    _Deadline deadline,
+    String syncId,
+  ) async {
+    await _limits(tx, deadline);
+    await session.db.unsafeQuery(
+      'SELECT icinga2_finalize_sync(CAST(@sync AS uuid), false)',
+      parameters: QueryParameters.named({'sync': syncId}),
+      transaction: tx,
+    );
   }
 
   Future<void> _recordError(_Raw raw, Object error) async {

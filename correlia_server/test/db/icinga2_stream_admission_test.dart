@@ -452,7 +452,7 @@ void main() {
           original,
         );
       });
-      test('removed_sync_source_still_counts_its_failed_row', () async {
+      test('sync_row_whose_source_was_removed', () async {
         await startSync();
         expect(
           await admit(
@@ -467,9 +467,9 @@ void main() {
         expect(
           (await queryRows(
             session,
-            'SELECT rows_failed FROM icinga2_sync_progress',
-          )).single['rows_failed'],
-          1,
+            'SELECT rows_failed,phase,reason FROM icinga2_sync_progress',
+          )).single,
+          {'rows_failed': 1, 'phase': 'failed', 'reason': 'row_failed'},
         );
         expect(
           (await queryRows(

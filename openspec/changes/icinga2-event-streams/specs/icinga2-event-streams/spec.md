@@ -468,11 +468,10 @@ source in the same namespace shares only the fingerprint.
 
 ### Requirement: A bad sync object does not hide the objects after it
 
-A sync object that fails validation, reports an error, or exceeds 1 MiB SHALL NOT be admitted.
-If its framing closes intact, count it (`invalid_object`, `object_error`, `object_too_large`), log and keep
-the names and codes of the first 20, continue reading, and end the sync `failed`. Broken framing takes
-precedence: end the read with `invalid_framing` instead of counting the element as oversized.
-A bad object SHALL NOT request a sync.
+An invalid, error-bearing, or oversized sync object SHALL NOT be admitted, consume retained-work
+capacity, or request a sync. If fully framed, count it (`invalid_object`, `object_error`, or
+`object_too_large`), log and sample the first 20, continue reading, and end the sync `failed`.
+If framing fails, report `invalid_framing` instead of counting the object as oversized.
 
 #### Scenario: Persistent bad object before a missed recovery
 - **WHEN** every sync's response holds an invalid object followed by a service whose missed recovery is eligible, and three syncs run
@@ -571,9 +570,10 @@ applying 15 minutes after its reading ended SHALL be `stalled`, until that step 
 ### Requirement: An interrupted sync is closed before the next one
 
 When a sync's reading is cancelled (reconnect, lag, backpressure, stop, lease loss), the consumer SHALL record
-the end of its reading with problem `interrupted`, fenced and only if its reading has not ended. Before starting
-a sync, a holder SHALL first close this way every sync of the source whose reading has not ended, whatever its
-phase.
+the end of its reading with problem `interrupted`, fenced and only if `readEndAt IS NULL`. Before
+starting its next sync, a holder SHALL close any earlier sync whose `readEndAt IS NULL`, using
+`holder_lost` for a previous generation. Phase SHALL NOT be used for this check: a row can fail the
+sync while reading is still open.
 
 #### Scenario: Reconnect during a sync, same generation
 - **WHEN** the connection closes with `lag` while a sync is reading, and the same holder reconnects
@@ -611,8 +611,9 @@ the reading of its open syncs with problem `source_retired`, record its pending 
 
 ### Requirement: Sync counts survive late rows
 
-A row processed after its sync ended SHALL still add its counts to the sync. A sync's record SHALL be kept while
-any of its rows is pending, and for 30 days after it ended.
+A row processed after its sync ended SHALL still add its counts to that sync. A progress record
+SHALL NOT be pruned while any row is pending, regardless of age, and SHALL be kept for at least
+30 days after the sync ended.
 
 #### Scenario: Rows removed before the outcome is read
 - **WHEN** the sync's done rows are deleted before the holder reads its outcome
@@ -893,10 +894,10 @@ connection.
 
 ### Requirement: A failed stream row requests a sync
 
-When a stream row of a stream source fails in the pipeline, the pipeline SHALL raise the source's sync request
-number in the same transaction, creating the request record if none exists, without a lease. A failed sync row
-SHALL fail its sync and leave the repair to the next periodic sync, so a repeating failure cannot start syncs
-in a loop. The consumer SHALL start a sync as "One sync at a time" states.
+Of failed pipeline rows, only a stream row SHALL increment the source's sync request number. The
+pipeline SHALL do so in the same transaction, without a lease, creating the request record if needed.
+A failed sync row SHALL fail its own sync without raising that number, preventing repeated failures
+from starting more syncs. The consumer SHALL serve requests as "One sync at a time" states.
 
 #### Scenario: Stream row exhausts its retries
 - **WHEN** a valid stream row fails after its internal retry budget while the connection stays healthy
