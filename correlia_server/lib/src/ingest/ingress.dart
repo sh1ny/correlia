@@ -396,16 +396,22 @@ final class _IngressRoute extends Route {
       final retry = owner._limiter.take(source, revision, rate, owner._clock());
       if (retry != null) return _Result(429, retryAfter: retry);
     }
-    final outcome = await IngestAdmission(session).admit(
-      sourceId: source,
-      kind: kind,
-      credential: matched!,
-      pathToken: pathToken,
-      body: body,
-      contentType: 'application/json',
-      observedAt: observedAt,
-      idempotencyKey: idempotencyKey,
-    );
+    final AdmissionOutcome outcome;
+    try {
+      outcome = await IngestAdmission(session).admit(
+        sourceId: source,
+        kind: kind,
+        credential: matched!,
+        pathToken: pathToken,
+        body: body,
+        contentType: 'application/json',
+        observedAt: observedAt,
+        idempotencyKey: idempotencyKey,
+      );
+    } on DatabaseQueryException catch (error) {
+      if (error.code == 'CR001') return const _Result(503);
+      rethrow;
+    }
     return _Result(switch (outcome) {
       AdmissionOutcome.accepted || AdmissionOutcome.duplicate => 202,
       AdmissionOutcome.conflict => 409,

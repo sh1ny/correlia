@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -83,7 +84,8 @@ void main() {
           '''TRUNCATE activity,alerts,pipeline_failures,observation_keys,outbox,
         events,raw_inbox,transport_keys,
         ingest_active_config,ingest_source_credential,ingest_source,
-        ingest_config_snapshot,ingest_secret_commitment,secret_record CASCADE''',
+        ingest_config_snapshot,ingest_secret_commitment,secret_record,icinga2_raw_origin CASCADE;
+        UPDATE raw_admission_cutoff SET cutoff='-infinity', cursor_seconds=0, cursor_nanos=0, cursor_id=0''',
         );
         client = HttpClient();
       });
@@ -91,6 +93,7 @@ void main() {
       Future<void> start(
         IngestBootstrap input, {
         Future<void> Function()? beforeBody,
+        DateTime Function()? clock,
       }) async {
         web = WebServer(serverpod: session.serverpod);
         ingress = IngressSubsystem(
@@ -98,7 +101,7 @@ void main() {
           bootstrap: () => input,
           ready: () => true,
           log: (_) {},
-          clock: () => _now,
+          clock: clock ?? () => _now,
           beforeBody: beforeBody,
         );
         ingress.mountRoutes(_Routes(web));
@@ -111,9 +114,15 @@ void main() {
         });
       }
 
-      Future<int> post(String path, {int? bearer, String text = '{}'}) async {
+      Future<int> post(
+        String path, {
+        int? bearer,
+        String text = '{}',
+        String? key,
+      }) async {
         final request = await client.post('127.0.0.1', web.port!, path);
         request.headers.contentType = ContentType.json;
+        if (key != null) request.headers.set('idempotency-key', key);
         if (bearer != null) {
           request.headers.set('authorization', 'Bearer ${token(bearer)}');
         }
@@ -128,6 +137,76 @@ void main() {
                 'SELECT count(*) FROM raw_inbox',
               )).single[0]!
               as int;
+
+      Future<void> setCutoff(DateTime value) => session.db.unsafeExecute(
+        'UPDATE raw_admission_cutoff SET cutoff=@time WHERE singleton=1',
+        parameters: QueryParameters.named({'time': value}),
+      );
+
+      test('webhook_behind_cutoff_can_retry', () async {
+        final input = await publish(both: false);
+        final reading = Completer<void>();
+        final release = Completer<void>();
+        var clock = _now;
+        await start(
+          input,
+          clock: () => clock,
+          beforeBody: () {
+            if (!reading.isCompleted) reading.complete();
+            return release.future;
+          },
+        );
+        final request = post(
+          '/hooks/icinga2/$_icinga2Id',
+          bearer: 2,
+          key: 'cutoff-retry',
+        );
+        try {
+          await reading.future;
+          clock = _now.add(const Duration(seconds: 1));
+          await setCutoff(clock);
+        } finally {
+          release.complete();
+        }
+        expect(await request, 503);
+        expect(await rawCount(), 0);
+        expect(
+          (await session.db.unsafeQuery(
+            'SELECT count(*) FROM transport_keys',
+          )).single[0],
+          0,
+        );
+        // A receipt exactly at the cutoff is a valid new admission.
+        expect(
+          await post(
+            '/hooks/icinga2/$_icinga2Id',
+            bearer: 2,
+            key: 'cutoff-retry',
+          ),
+          202,
+        );
+        expect(await rawCount(), 1);
+      });
+
+      test('cutoff_keeps_webhook_dedup_window', () async {
+        final input = await publish(both: false);
+        await start(input);
+        const path = '/hooks/icinga2/$_icinga2Id';
+        const key = 'cutoff-window';
+        expect(await post(path, bearer: 2, key: key), 202);
+        await setCutoff(_now.add(const Duration(seconds: 1)));
+        expect(await post(path, bearer: 2, key: key), 202);
+        expect(
+          await post(path, bearer: 2, key: key, text: '{"different":true}'),
+          409,
+        );
+        await session.db.unsafeExecute(
+          'UPDATE transport_keys SET "expiresAt"=@now',
+          parameters: QueryParameters.named({'now': _now}),
+        );
+        expect(await post(path, bearer: 2, key: key), 503);
+        expect(await rawCount(), 1);
+      });
 
       test('delivery_to_a_stream_source', () async {
         final input = await publish(both: false);

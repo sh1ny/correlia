@@ -768,9 +768,9 @@ key that could prevent a later copy admitted under `soft_and_hard` from firing.
 
 ### Requirement: Late and future stream items are counted, not stored
 
-An item of a stream or sync row whose source time is beyond the lateness horizon or the future limit SHALL be
-counted on its row and SHALL store no event and no observation key, so a late copy never takes the event id of a
-prompt copy of the same result.
+The pipeline SHALL classify a late or future-dated stream or sync item before any key lookup.
+It SHALL count the item on its row without storing an event or an observation key, even if a
+key already exists. An ineligible copy therefore cannot reserve the event ID of a prompt copy.
 
 #### Scenario: Late copy processed before the prompt copy
 - **WHEN** a firing alert's recovery is admitted promptly, a copy of the same result received more than 7 days after its start is processed first, and then the prompt copy is processed

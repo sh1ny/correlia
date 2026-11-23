@@ -143,7 +143,10 @@ Serialization, deadlock, lock-timeout and connection-unavailable errors SHALL re
 
 ### Requirement: Observation keys are reserved before alert locks
 
-Every state observation, reconcile ones included, SHALL reserve its observation key before it locks its alert. A reconcile observation that stores no event (a confirm, tombstone or stale item) SHALL remove its reserved key in the same transaction, so stream and sync rows carrying one result never wait on each other in opposite orders.
+Eligible state observations, including reconcile observations, SHALL reserve keys in event-ID order
+before any alert locks are acquired. All alert locks SHALL then be acquired in fingerprint order.
+A reconcile reservation SHALL either key a stored event or be deleted in that same transaction,
+including when the observation confirms, creates a silent tombstone, or is stale.
 
 #### Scenario: Stream and sync copies of one result at once
 - **WHEN** a stream row and a sync row carrying the same result of one service are processed concurrently on independent connections, the sync copy repairing the alert
@@ -206,8 +209,9 @@ sync, not of a row, and overlaps the row counters.
 
 ### Requirement: Stale stream observations are stored, not routed
 
-A stale observation of an Icinga2 stream row SHALL be stored with its `stale` outcome and SHALL create no output
-intent. Stale observations of webhook rows SHALL be stored and routed as before.
+A stale observation from an Icinga2 stream row SHALL be stored with the `stale` outcome and SHALL
+never be routed. This keeps outputs from seeing a stale problem the alert did not take. Stale
+observations of webhook rows SHALL still be stored and routed.
 
 #### Scenario: Older stream problem after a tombstone
 - **WHEN** a sync OK leaves a silent tombstone, and a stream CRITICAL with an older start is then processed

@@ -191,7 +191,7 @@ VALUES
   ('2026-01-01 12:00:00 UTC', '$id', 'ready', '2026-01-01 12:00:00 UTC',
    '00000000-0000-0000-0000-000000000001',
    '00000000-0000-0000-0000-000000000002', 'snapshot',
-   '$sourceTime', decode('01', 'hex')${effective == null ? '' : ", '$effective'"});
+   '$sourceTime', convert_to('{"subject":"upgrade-fixture"}', 'UTF8')${effective == null ? '' : ", '$effective'"});
 ''');
 
 Future<Map<String, DateTime>> effectiveTimes(Session session) async {
@@ -345,7 +345,7 @@ VALUES
   ('2026-01-01 UTC', '00000000-0000-0000-0000-000000000003', 'ready',
    '2026-01-01 UTC', '00000000-0000-0000-0000-000000000001',
    '00000000-0000-0000-0000-000000000002', 'snapshot',
-   '2026-01-01 UTC', decode('01', 'hex'));
+   '2026-01-01 UTC', convert_to('{"subject":"upgrade-fixture"}', 'UTF8'));
 ''');
         await applySchemaSteps(session, schemaSteps);
         await _expectActivityCatalog(session);
@@ -379,6 +379,7 @@ VALUES
           4,
           5,
           6,
+          7,
         ]);
       });
     },

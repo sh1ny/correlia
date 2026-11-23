@@ -37,6 +37,12 @@ Step 6 adds `icinga2_raw_origin`, the admission record for stream and sync rows.
 snapshot determines state policy; the snapshot pinned at first claim still determines source
 lookup, identity namespace, and routing. Preserve the table and its snapshot reference in repairs.
 
+Step 7 adds `icinga2_sync_progress`, the durable `raw_admission_cutoff`, and the silent-tombstone
+marker on `alerts`. It also builds indexes for pending receipts and retained evidence, including
+an index on the CloudEvent subject in historical event payloads. Budget upgrade time and index
+space on a populated database. Preserve the two tables, the marker, the cutoff trigger, and
+their supporting indexes and functions in repairs.
+
 ## Repair migrations
 
 Serverpod's repair diff sees SQL-owned tables as extraneous and may propose destructive changes. Before applying any generated repair, inspect its entire SQL against the current schema and **remove all operations that drop or alter** `raw_inbox`, `events`, `outbox`, `activity`, `correlia_schema_versions`, their indexes, constraints and time-qualified references. Review related cascades as well. Preserve data and the version table; never force a destructive repair merely to silence drift. Inspect any other unmanaged exceptions individually. If the desired SQL-owned schema itself needs correction, write a new forward schema step, not an edit to an applied step or a generated definition. Review the resulting repair and schema step together on a populated copy before production use.
@@ -382,6 +388,18 @@ observation with a new event id outranks its fence. Tests assert these stale out
   processed first, it is stored `late`, the prompt delivery becomes the duplicate and no alert exists.
 
 Event Streams with state sync (`icinga2-event-streams`) is the path that reconciles these cases.
+
+With Event Streams in `hard_only` mode, a sync can repair a missed HARD recovery only while the
+current check result still represents that recovery. If a later SOFT problem superseded it, sync
+counts the SOFT result without changing the alert; the alert can remain firing until a newer
+eligible result arrives. Shorter disconnects reduce this risk but do not eliminate it.
+
+Two check starts in the same microsecond are ordered by receipt time, then event ID. Different
+results with equal starts can leave the alert disagreeing with Icinga 2. Beyond the clock skew
+allowance, a stale stream copy keeps its observation key and can block a sync copy from repairing
+the alert. A sync counts those disagreements as `diverged`. In a shared namespace, a silent
+confirmation keeps the alert's displayed source, which can depend on whether the webhook or the
+sync wrote the alert first.
 
 ## Icinga2 sender setup
 

@@ -25,6 +25,7 @@ import '../runtime/process_options.dart';
 import '../runtime/subsystem.dart';
 import '../state/alert_state_service.dart';
 import '../state/ordering_key.dart';
+import '../state/transition.dart';
 
 const _transactionLimit = Duration(seconds: 10);
 const _fanoutLimit = 16 * 1024 * 1024;
@@ -223,6 +224,7 @@ final class PipelineRepository {
     DateTime Function()? clock,
     this.afterPin,
     this.afterClaim,
+    this.afterAlertInsertConflict,
     Map<String, int>? retryCounts,
     this.retryDelay,
     PipelineCounters? counters,
@@ -240,6 +242,7 @@ final class PipelineRepository {
   /// Runs inside [processOne]'s transaction right after it claimed a row,
   /// before anything else; tests use it to hold that transaction open.
   final Future<void> Function()? afterClaim;
+  final Future<void> Function()? afterAlertInsertConflict;
   final Map<String, int> _retryCounts;
   final Duration Function(int)? retryDelay;
   final PipelineCounters counters;
@@ -395,6 +398,7 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
             kind is Icinga2SourceKind &&
             source['mode'] == SourceMode.eventStreams.wire;
         late final DecodedBatch batch;
+        String? syncId;
         final prepared = <_Prepared>[];
         try {
           final request = DecodeRequest(
@@ -410,9 +414,13 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
             processedAt: _timestamp(clock()),
             configVersion: raw.pin,
           );
-          batch = stream
-              ? await _decodeStream(request, raw, tx)
-              : decoder(request);
+          if (stream) {
+            final decoded = await _decodeStream(request, raw, tx);
+            batch = decoded.batch;
+            syncId = decoded.syncId;
+          } else {
+            batch = decoder(request);
+          }
           deadline.check();
           for (final event in batch.events) {
             deadline.check();
@@ -449,6 +457,8 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
             applied = 0,
             stale = 0,
             clamped = 0;
+        var confirmed = 0, repaired = 0, tombstoned = 0, diverged = 0;
+        final reconcile = syncId != null;
         var aggregate = 0;
         final seen = <String>{};
         final savepoint = await tx.createSavepoint();
@@ -458,11 +468,39 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
           for (final item in prepared) {
             deadline.check();
             final event = item.event;
+            final eligibility = switch (item.disposition) {
+              EvidenceDisposition.ready => StreamEligibility.ready,
+              EvidenceDisposition.late => StreamEligibility.late,
+              EvidenceDisposition.futureDated => StreamEligibility.futureDated,
+            };
+            if (stream && eligibility != StreamEligibility.ready) {
+              if (eligibility == StreamEligibility.late) {
+                late++;
+              } else {
+                quarantines++;
+              }
+              if (reconcile) {
+                stateInputs.add(
+                  StateInput(
+                    event,
+                    duplicate: false,
+                    reconcile: true,
+                    eligibility: eligibility,
+                  ),
+                );
+              }
+              continue;
+            }
             if (!seen.add(event.eventId)) {
               if (item.disposition == EvidenceDisposition.futureDated) {
                 duplicateQuarantine++;
               } else {
                 duplicates++;
+                if (reconcile) {
+                  stateInputs.add(
+                    StateInput(event, duplicate: true, reconcile: true),
+                  );
+                }
               }
               continue;
             }
@@ -482,7 +520,7 @@ ON CONFLICT ("eventId") DO NOTHING RETURNING "eventId"''',
                   'event': event.eventId,
                   'fingerprint': event.fingerprint,
                   'sourceTime': _date(event.sourceTime!),
-                  'observed': raw.observed,
+                  'observed': stream ? _date(event.observedAt) : raw.observed,
                   'disposition': disposition,
                 }),
                 transaction: tx,
@@ -502,14 +540,21 @@ ON CONFLICT ("eventId") DO NOTHING RETURNING "eventId"''',
                 // ready observation says nothing about the object's freshness.
                 if (original.single[0] == 'ready' &&
                     item.disposition == EvidenceDisposition.ready) {
-                  stateInputs.add(StateInput(event, duplicate: true));
+                  stateInputs.add(
+                    StateInput(event, duplicate: true, reconcile: reconcile),
+                  );
                 }
                 continue;
               }
             }
-            if (item.disposition == EvidenceDisposition.ready) {
-              stateInputs.add(StateInput(event, duplicate: false));
-            }
+            stateInputs.add(
+              StateInput(
+                event,
+                duplicate: false,
+                reconcile: reconcile,
+                eligibility: eligibility,
+              ),
+            );
             effects.add(item);
           }
 
@@ -517,9 +562,25 @@ ON CONFLICT ("eventId") DO NOTHING RETURNING "eventId"''',
             session,
             skewAllowance: stateSkewAllowance,
             beforeQuery: () => _limits(tx, deadline),
+            afterInsertConflict: afterAlertInsertConflict,
           ).apply(tx, stateInputs, rawId: raw.id, now: clock().toUtc());
-          applied = stateOutcomes.values.where((v) => v == 'applied').length;
-          stale = stateOutcomes.values.where((v) => v == 'stale').length;
+          for (final decision in stateOutcomes.values) {
+            if (decision.diverged) diverged++;
+            switch (decision.outcome) {
+              case StreamOutcome.applied:
+                applied++;
+              case StreamOutcome.stale:
+                stale++;
+              case StreamOutcome.confirmed:
+                confirmed++;
+              case StreamOutcome.repaired:
+                repaired++;
+              case StreamOutcome.tombstoned:
+                tombstoned++;
+              default:
+                break;
+            }
+          }
 
           for (final item in effects) {
             deadline.check();
@@ -538,14 +599,29 @@ ON CONFLICT ("eventId") DO NOTHING RETURNING "eventId"''',
             );
             final isClamped =
                 compareTimestamps(event.sourceTime!, effective.effectiveAt) > 0;
+            final decision = stateOutcomes[event];
+            if (reconcile && decision != null && !decision.keepsEvent) {
+              if (isClamped) clamped++;
+              await _limits(tx, deadline);
+              await session.db.unsafeExecute(
+                'DELETE FROM observation_keys WHERE "eventId"=CAST(@event AS uuid)',
+                parameters: QueryParameters.named({'event': event.eventId}),
+                transaction: tx,
+              );
+              continue;
+            }
+            final observed = stream ? _date(event.observedAt) : raw.observed;
+            final routes =
+                !(stream && decision?.outcome == StreamOutcome.stale);
             await _limits(tx, deadline);
             final inserted = await session.db.unsafeQuery(
               '''INSERT INTO events
 (observed_at,event_id,disposition,raw_observed_at,raw_id,source_id,config_snapshot_id,source_time,payload,state_outcome,effective_source_time)
-VALUES (@observed,CAST(@event AS uuid),@disposition,@observed,CAST(@raw AS uuid),CAST(@source AS uuid),@pin,@sourceTime,@payload,@stateOutcome,@effective)
+VALUES (@observed,CAST(@event AS uuid),@disposition,@rawObserved,CAST(@raw AS uuid),CAST(@source AS uuid),@pin,@sourceTime,@payload,@stateOutcome,@effective)
 ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
               parameters: QueryParameters.named({
-                'observed': raw.observed,
+                'observed': observed,
+                'rawObserved': raw.observed,
                 'event': event.eventId,
                 'disposition': disposition,
                 'raw': raw.id,
@@ -553,7 +629,11 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
                 'pin': raw.pin,
                 'sourceTime': _date(event.sourceTime!),
                 'payload': item.payload,
-                'stateOutcome': stateOutcomes[event.eventId],
+                'stateOutcome': switch (decision?.outcome) {
+                  StreamOutcome.applied || StreamOutcome.repaired => 'applied',
+                  StreamOutcome.stale => 'stale',
+                  _ => null,
+                },
                 'effective': _date(effective.effectiveAt),
               }),
               transaction: tx,
@@ -564,7 +644,7 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
               aggregate +=
                   item.payload.length *
                   (1 +
-                      (item.disposition == EvidenceDisposition.ready
+                      (item.disposition == EvidenceDisposition.ready && routes
                           ? outputs.length
                           : 0));
               if (aggregate > _fanoutLimit) {
@@ -587,6 +667,7 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
               continue;
             }
             committed++;
+            if (!routes) continue;
             if (outputs.isEmpty) {
               unrouted++;
             }
@@ -600,7 +681,7 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
                 parameters: QueryParameters.named({
                   'created': created,
                   'delivery': const Uuid().v4(),
-                  'observed': raw.observed,
+                  'observed': observed,
                   'event': event.eventId,
                   'disposition': disposition,
                   'output': output.id,
@@ -644,6 +725,54 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
           return true;
         }
         await savepoint.release();
+        if (syncId != null) {
+          final counts = {
+            'applied': applied,
+            'confirmed': confirmed,
+            'repaired': repaired,
+            'tombstoned': tombstoned,
+            'duplicate_observation': duplicates,
+            'late': late,
+            'future_dated': quarantines,
+            'stale': stale,
+            'soft_info': batch.softInfo,
+            'clamped': clamped,
+            'diverged': diverged,
+          };
+          await _limits(tx, deadline);
+          final updated = await session.db.unsafeExecute(
+            '''UPDATE icinga2_sync_progress AS p
+              SET rows_done=rows_done+1, counts=p.counts || (
+                SELECT jsonb_object_agg(k, coalesce((p.counts->>k)::bigint,0) + v::bigint)
+                FROM jsonb_each_text(CAST(@counts AS jsonb)) AS e(k,v))
+              WHERE sync_id=CAST(@sync AS uuid)''',
+            parameters: QueryParameters.named({
+              'sync': syncId,
+              'counts': jsonEncode(counts),
+            }),
+            transaction: tx,
+          );
+          if (updated != 1) throw StateError('Missing Icinga sync progress');
+          if (committed == 0) {
+            await _limits(tx, deadline);
+            await session.db.unsafeExecute(
+              'DELETE FROM icinga2_raw_origin WHERE raw_id=CAST(@raw AS uuid)',
+              parameters: QueryParameters.named({'raw': raw.id}),
+              transaction: tx,
+            );
+            await _limits(tx, deadline);
+            await session.db.unsafeExecute(
+              'DELETE FROM raw_inbox WHERE observed_at=@observed AND raw_id=CAST(@raw AS uuid)',
+              parameters: QueryParameters.named({
+                'raw': raw.id,
+                'observed': raw.observed,
+              }),
+              transaction: tx,
+            );
+            deadline.check();
+            return true;
+          }
+        }
         await _limits(tx, deadline);
         await session.db.unsafeExecute(
           'UPDATE raw_inbox SET status=\'done\',next_attempt_at=NULL,outcome_json=@outcome WHERE observed_at=@observed AND raw_id=CAST(@raw AS uuid)',
@@ -664,6 +793,9 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
               'stale': stale,
               'clamped': clamped,
               if (stream) 'soft_info': batch.softInfo,
+              if (stream) 'confirmed': confirmed,
+              if (stream) 'repaired': repaired,
+              if (stream) 'tombstoned': tombstoned,
             }),
           }),
           transaction: tx,
@@ -719,14 +851,14 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
     };
   }
 
-  Future<DecodedBatch> _decodeStream(
+  Future<({DecodedBatch batch, String? syncId})> _decodeStream(
     DecodeRequest request,
     _Raw raw,
     Transaction tx,
   ) async {
     final envelope = IcingaStreamRow.parse(request.bytes);
     final admitted = await session.db.unsafeQuery(
-      '''SELECT o.origin, source->>'state_type_policy'
+      '''SELECT o.origin, source->>'state_type_policy', o.sync_id::text
         FROM icinga2_raw_origin o
         JOIN ingest_config_snapshot c ON c."snapshotId"=o.admission_snapshot_id
         CROSS JOIN LATERAL jsonb_array_elements(c."publicJson"::jsonb->'sources') source
@@ -750,7 +882,10 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
     final origin = metadata[0] == 'sync'
         ? IcingaStreamOrigin.sync
         : IcingaStreamOrigin.stream;
-    return envelope.decode(request, origin, policy);
+    return (
+      batch: envelope.decode(request, origin, policy),
+      syncId: metadata[2] as String?,
+    );
   }
 
   Future<void> _fail(
@@ -785,6 +920,13 @@ VALUES (@observed,CAST(@raw AS uuid),@pin,@code,@path,@now)''',
       }),
       transaction: tx,
       timeoutInSeconds: 5,
+    );
+    await _limits(tx, deadline);
+    await session.db.unsafeExecute(
+      '''UPDATE icinga2_sync_progress AS p SET rows_failed=rows_failed+1
+      FROM icinga2_raw_origin AS o WHERE o.raw_id=CAST(@raw AS uuid) AND p.sync_id=o.sync_id''',
+      parameters: QueryParameters.named({'raw': raw.id}),
+      transaction: tx,
     );
     deadline.check();
   }

@@ -495,6 +495,9 @@ Scope decisions S1-S5 are in `proposal.md`.
     sets `rowsAdmitted` with each batch, in the admission transaction. The pipeline, in the transaction that
     processes a sync row, increments `rowsDone` or `rowsFailed` and adds its counts. The pipeline needs no lease
     for this: it only counts rows it owns.
+    Implement the table and transaction-owned counters with the pipeline in 6.4: deleting an eventless sync
+    row before persisting its counts loses the only durable evidence. The reader and guarded phase finalization
+    remain in 9.2. Important: yes. Chosen by: user (apply, bring forward transactional sync accounting).
   - **Finalization:** one guarded step decides the phase, under `SELECT … FOR UPDATE` on the progress row. It
     runs in the consumer's transaction that records the end of reading (`readEndAt`, `readProblem`), in every
     sync row's processing transaction, and in the holder's 30 s check. Rules, in order:
@@ -887,9 +890,14 @@ Scope decisions S1-S5 are in `proposal.md`.
     order, skipping locked rows, then recheck marker, horizon and retained evidence. Indexed existence probes
     use `activity(entity_kind, entity_id)`, `observation_keys(fingerprint)` and the canonical CloudEvent
     subject projection of `events`. The schema step indexes the immutable UTF-8 subject projection, including
-    historical events. Fingerprint evidence writers lock the existing alert in the same order before writing
-    evidence, including late or future-dated observations that cannot apply. The sweep never takes a source,
-    lease or raw-row lock.
+    historical events. Keep key-before-alert order: a reservation is provisional until the writer locks or
+    reacquires the alert and decides whether to retain evidence. The sweep checks committed evidence under
+    the alert lock; it does not wait for provisional reservations. Probe evidence in separate, non-locking
+    READ COMMITTED statements after acquiring alert locks. Reserve all keys in event-ID order, then
+    acquire all alert locks in one fingerprint-ordered pass, including late and future-dated webhook
+    evidence. If the sweep deletes first, a ready problem reacquires or creates the alert; late webhook
+    evidence does not recreate it. The sweep never takes a source, lease or raw-row lock.
+    Important: yes. Chosen by: user (apply, preserve key-before-alert order).
   - The sweep uses a short-lived supervisor-owned connection. Each pass has a one-second local budget from
     transaction begin through commit, with statement and lock timeouts bounded by its remaining time. On
     timeout or stop, close the connection and do not report success without commit acknowledgement. Stop

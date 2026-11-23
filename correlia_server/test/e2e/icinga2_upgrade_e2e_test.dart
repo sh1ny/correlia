@@ -140,6 +140,15 @@ final class _Upgrade {
       'ALTER TABLE events DROP COLUMN effective_source_time',
     );
     await connection.runTx((tx) async {
+      await tx.execute('DROP FUNCTION correlia_event_subject(bytea) CASCADE');
+      await tx.execute(
+        'DROP FUNCTION correlia_enforce_raw_admission_cutoff() CASCADE',
+      );
+      await tx.execute('DROP TABLE icinga2_sync_progress,raw_admission_cutoff');
+      await tx.execute('ALTER TABLE alerts DROP COLUMN silent_tombstone');
+      await tx.execute(
+        'DROP INDEX raw_pending_receipt_idx,activity_entity_idx,observation_keys_fingerprint_idx',
+      );
       await tx.execute(
         'DROP FUNCTION correlia_require_publisher_version() CASCADE',
       );
@@ -150,7 +159,7 @@ final class _Upgrade {
         'DROP TABLE secret_reuse_digest,secret_reuse_backfill,secret_reuse_retired_credential,icinga2_raw_origin',
       );
       await tx.execute(
-        'DELETE FROM correlia_schema_versions WHERE version IN (4,5,6)',
+        'DELETE FROM correlia_schema_versions WHERE version IN (4,5,6,7)',
       );
     });
     return connection;
@@ -243,7 +252,7 @@ void main() {
         await blocker.execute('ROLLBACK');
         final restarted = await upgrade.start();
         await restarted.waitUntilReady();
-        expect(await _versions(connection), [1, 2, 3, 4, 5, 6]);
+        expect(await _versions(connection), [1, 2, 3, 4, 5, 6, 7]);
       } finally {
         await upgrade.dispose();
       }
@@ -271,7 +280,7 @@ void main() {
         await other.execute('ROLLBACK');
         final restarted = await upgrade.start();
         await restarted.waitUntilReady();
-        expect(await _versions(connection), [1, 2, 3, 4, 5, 6]);
+        expect(await _versions(connection), [1, 2, 3, 4, 5, 6, 7]);
       } finally {
         await upgrade.dispose();
       }
@@ -325,7 +334,7 @@ void main() {
         final upgraded = await upgrade.start();
         await upgraded.waitUntilReady();
         await upgrade.deliveries(2);
-        expect(await _versions(connection), [1, 2, 3, 4, 5, 6]);
+        expect(await _versions(connection), [1, 2, 3, 4, 5, 6, 7]);
         final raws = await connection.execute(
           'SELECT status FROM raw_inbox',
         );

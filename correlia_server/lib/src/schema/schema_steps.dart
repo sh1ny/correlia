@@ -76,6 +76,7 @@ List<SchemaStep> get schemaSteps => [
   SchemaStep(4, File('schema/0004_icinga2.sql').readAsStringSync()),
   _secretReuseCutover,
   SchemaStep(6, File('schema/0006_icinga2_raw_origin.sql').readAsStringSync()),
+  SchemaStep(7, File('schema/0007_icinga2_reconcile.sql').readAsStringSync()),
 ];
 
 /// Installs the publisher-version trigger and backfill boundaries in one

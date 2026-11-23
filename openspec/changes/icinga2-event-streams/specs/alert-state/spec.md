@@ -107,11 +107,11 @@ Deliveries with the same event ID are one observation, whose evidence comes from
 
 ### Requirement: Reconcile observations confirm or repair
 
-A reconcile observation (a state sync object) SHALL pass the same fence as any observation. If it passes and
-its status and severity equal the alert's, it SHALL only advance the fence and `last_observed_at`, with no
-event, version change, activity or output intent. If it passes and differs, it SHALL apply and be published.
-A resolved reconcile observation for a fingerprint with no alert SHALL create a resolved alert row (a
-tombstone) holding its fence, with no event, activity or output intent.
+A reconcile observation SHALL use the ordinary ordering fence and SHALL create an event only if it
+creates a firing alert or changes an existing alert's status or severity. After passing the fence,
+an observation that agrees in status and severity SHALL update only the fence and `last_observed_at`;
+one that disagrees SHALL apply and be published. A resolved reconcile observation with no alert
+SHALL create a resolved tombstone holding its fence, with no event, activity or output intent.
 
 #### Scenario: Sync agrees with the alert
 - **WHEN** a firing CRITICAL alert receives a newer reconcile observation reporting CRITICAL
@@ -139,10 +139,11 @@ tombstone) holding its fence, with no event, activity or output intent.
 
 ### Requirement: Silent confirms keep no key
 
-A silent reconcile observation SHALL keep no observation key, so a later copy of the same Icinga2 result is a
-first delivery; within the clock skew, its state and fence source time SHALL then match every other order and
-only the fence's observed time MAY differ. Beyond the skew, a stale stream copy keeps its key and MAY prevent its
-sync copy from repairing the alert; the documentation SHALL state it.
+A silent reconcile observation SHALL leave no observation key, so a later copy of the same Icinga2
+result is a first delivery. Within the clock skew, processing these copies in different orders SHALL
+converge on the same alert state and effective fence source time; only the fence receipt time MAY
+differ. Beyond the skew, a keyed stale stream copy MAY block its sync copy from repairing the alert;
+the documentation SHALL state this.
 
 #### Scenario: Stale stream copy beyond the skew
 - **WHEN** a firing alert is fenced at 10:06, and a recovery starting at 10:30 arrives on the stream at 10:00 (clamped to 10:05) and in a sync at 10:02 (clamped to 10:07), in both orders
@@ -154,9 +155,10 @@ sync copy from repairing the alert; the documentation SHALL state it.
 
 ### Requirement: Displayed source in a shared namespace
 
-When observations from more than one source write one alert, its status, severity and fence SHALL converge as
-for one source, but the source instance it displays MAY depend on processing order: a silent confirm keeps the
-displayed source. The documentation SHALL state this.
+In a shared namespace, the same ordering fence SHALL govern writes from every source. The displayed
+source is guaranteed to converge only when one source writes the alert: a silent confirmation
+preserves the displayed source, so the order in which different sources write MAY affect it. The
+documentation SHALL state this.
 
 #### Scenario: Webhook and sync in both orders
 - **WHEN** an older HARD CRITICAL from a webhook source and a newer HARD CRITICAL from a stream source's sync, with different starts, are processed for one service in a shared namespace in both orders
@@ -164,10 +166,10 @@ displayed source. The documentation SHALL state this.
 
 ### Requirement: Tombstones are reclaimed after the lateness horizon
 
-Only a marked silent tombstone without retained events, activity or keys SHALL be reclaimable. Under the alert
-lock, its fence SHALL be strictly older than the lateness horizon measured from both the durable admission
-cutoff and the oldest pending receipt across all sources, if any. Queued items SHALL still use their original
-receipt for lateness.
+Only a marked silent tombstone without retained events, activity or keys SHALL be reclaimable. Under
+the alert lock, its fence SHALL predate the lateness horizon relative to both the durable admission
+cutoff and every pending receipt, including those from other sources. Equality is not eligible.
+Queued items SHALL still use their original receipt for lateness.
 
 #### Scenario: Objects deleted upstream
 - **WHEN** 100,000 objects are synced OK, deleted in Icinga 2, and 100,000 other objects are synced OK
