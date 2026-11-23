@@ -42,7 +42,7 @@ in its manifest, and each capability has its own config schema, required secrets
 ## Tiers
 
 - **P0:** needed for the owner's real traffic. Delivered in M1-M3.
-- **P1:** planned for M6, M7 and M9, and for the 1.x integration wave that the owner moved out of M8 on
+- **P1:** planned for M2 (the basic Prometheus/Thanos query enricher), M6, M7 and M9, and for the 1.x integration wave that the owner moved out of M8 on
   2026-11-22. Not a 1.0 blocker: each ships when it meets the definition of done, in its milestone or in a
   1.x point release (owner, 2026-11-03, D27).
 - **P2:** after 1.0, on demand. The plugin SDK makes them community-buildable.

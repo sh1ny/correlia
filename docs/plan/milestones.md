@@ -382,13 +382,14 @@ retired so that M9 and M10 keep their names.
 1.0 means (owner, 2026-11-03, D27):
 - every P0 integration;
 - a public API, canonical event and plugin protocol declared stable under semver; for the plugin protocol
-  that is the output service and the shared handshake, configuration and health calls; the other plugin
-  kinds join `correlia.plugin.v1` as additive minor versions in 1.x (D36);
+  that is the subprocess handshake, `PluginService` (`GetMetadata`, `Configure`, `CheckHealth`) and
+  `OutputService` (`Deliver`); the other plugin kinds join `correlia.plugin.v1` as additive minor versions in 1.x (D36);
 - every acceptance scenario green;
 - documented upgrade and restore.
 
-P1 integrations and the plugin SDKs are not 1.0 blockers. The P1 integrations planned in M6, M7 and M9 ship
-there or in 1.x point releases; the rest, and the SDKs, ship in 1.x (owner, 2026-11-22). Each ships when it
+P1 integrations and the plugin SDKs are not 1.0 blockers. The P1 integrations planned in M2, M6, M7 and M9
+ship there or in 1.x point releases (M2's is the basic Prometheus/Thanos query enricher); the former M8 wave
+and the SDKs ship in 1.x (owner, 2026-11-22). Each ships when it
 meets the definition of done in `integrations.md`.
 
 From 1.0 on, breaking changes to `correlia.event.v1`, `correlia.plugin.v1` or `/api/v1/` need a new major

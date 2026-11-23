@@ -119,15 +119,16 @@ Two owner cuts of 2026-11-22 add to M3:
   - a security review, docs and the licence.
 - 1.0 - Stable release (owner, 2026-11-03, D27): the P0 integrations; event format, plugin protocol and
   `/api/v1/` declared stable under semver; every acceptance scenario green; documented upgrade and restore.
-  The P1 integrations planned in M6, M7 and M9 ship there or in 1.x point releases; the rest ship in 1.x.
+  The P1 integrations planned in M2, M6, M7 and M9 ship there or in 1.x point releases (M2's is the basic
+  Prometheus/Thanos query enricher); the former M8 wave ships in 1.x.
 - 1.x - Integration wave and plugin SDKs (moved from M8 by the owner, 2026-11-22):
   - the P1 monitoring sources;
   - Kafka;
   - NATS consume;
   - Go and Python SDKs with a conformance suite;
   - the signed-manifest option and the plugin catalog page (D33).
-  At 1.0 only the output service of `correlia.plugin.v1` and its shared handshake, configuration and health
-  calls are frozen; the other plugin kinds join it as additive minor versions in 1.x (D36).
+  At 1.0 only part of `correlia.plugin.v1` is frozen: the subprocess handshake, `PluginService`
+  (`GetMetadata`, `Configure`, `CheckHealth`) and `OutputService` (`Deliver`); the other plugin kinds join it as additive minor versions in 1.x (D36).
 
 ## Done
 - M1 - Walking skeleton (2026-11-18): Alertmanager to canonical event to NATS and the live console, on
