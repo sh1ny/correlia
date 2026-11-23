@@ -64,8 +64,9 @@ review:
   # asking. When the review of the last allowed round's head still has an
   # unwaived P0/P1, the agent stops and the owner decides: continue, ship
   # (waive) or rework. Owner, 2026-11-22: capped at 4 rounds per change.
-  # Specwright 0.19.0 has no such key (its skill hard-codes 2); this repo's
-  # patched specwright-review skill reads it (AGENTS.md, Specwright notes).
+  # Specwright (checked at 0.39.1) has no such key: its skill hard-codes 2.
+  # This repo's patched specwright-review skill reads it (AGENTS.md,
+  # Specwright notes).
   preship_max_rounds: 4
 
 # Commits during apply (specwright-commit):

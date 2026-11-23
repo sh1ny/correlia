@@ -18,8 +18,10 @@ commands) or **[user]** (the owner checks).
    their names, so references to them in ADRs and archived changes stay right.
 2. Pre-ship review is capped at 4 rounds per change; after round 4 the owner decides whether to continue,
    ship or rework (`review.preship_max_rounds` in `openspec/specwright.yaml`).
-3. A minimal container image and a compose file move from M10 to the end of M3 (open decision D32).
+3. A minimal container image and a compose file move from M10 to the end of M3 (decision D32).
 4. M3 gets a read-only incident list in the console, so the M3 replay check is done in the UI (D34).
+
+The owner accepted the follow-up decisions D32-D36 on 2026-11-23 (`open-decisions.md`).
 
 ---
 
@@ -165,9 +167,9 @@ proven fixed.
 - **Topology-free grouping helpers:** same host, same service across hosts, same label set.
 - **Console incident list (owner, 2026-11-22):** a read-only list of incidents in the console, beside the
   M1 alert list, with no actions and no auth (dev mode, bound to localhost, as in M1). What it shows is
-  open decision D34. M4 extends it into the full incident views.
+  decision D34. M4 extends it into the full incident views.
 - **Minimal packaging (owner, 2026-11-22), the last change of M3:** a minimal container image and a compose
-  file that run Correlia against a real Postgres, pulled forward from M10. What "minimal" includes is open
+  file that run Correlia against a real Postgres, pulled forward from M10. What "minimal" includes is
   decision D32. M10 hardens both for production.
 - **Scenarios:** ID-1, COR-1..7.
 
@@ -352,6 +354,8 @@ retired so that M9 and M10 keep their names.
   metrics endpoint; structured logs; Correlia monitors itself (heartbeat alerts).
 - **Packaging:** the production container image and docker compose, hardening M3's minimal ones; systemd
   unit for a single binary; Helm chart (D12); versioned releases with changelogs.
+- **Plugins** (kept from M8, D33): the plugin install directory layout; a plugin lockfile with checksums;
+  a protocol conformance suite that the first-party external plugins (`output-nats`) pass.
 - **Security:**
   - security review;
   - dependency audit;
@@ -366,6 +370,7 @@ retired so that M9 and M10 keep their names.
 **Exit criteria:**
 - [agent] Load, soak, upgrade and restore runs pass and are recorded.
 - [agent] Every scenario in `acceptance-scenarios.md` passes.
+- [agent] The protocol conformance suite passes for every first-party external plugin.
 - [user] The owner runs a release candidate on real traffic for two weeks without a data-loss or
   wrong-state bug.
 
@@ -375,7 +380,9 @@ retired so that M9 and M10 keep their names.
 
 1.0 means (owner, 2026-11-03, D27):
 - every P0 integration;
-- a public API, canonical event and plugin protocol declared stable under semver;
+- a public API, canonical event and plugin protocol declared stable under semver; for the plugin protocol
+  that is the output service only, and the other plugin kinds join `correlia.plugin.v1` as additive minor
+  versions in 1.x (D36);
 - every acceptance scenario green;
 - documented upgrade and restore.
 
@@ -388,8 +395,9 @@ version.
 
 ## 1.x: integration wave and plugin SDKs
 
-Moved from M8 by the owner on 2026-11-22. Planned after 1.0, in 1.x point releases. Which of the plugin
-items below stay in M10 instead is open decision D33.
+Moved from M8 by the owner on 2026-11-22. Planned after 1.0, in 1.x point releases. The plugin install
+layout, the lockfile and a protocol conformance suite stay in M10 (D33).
+The source, decoder and enricher services join `correlia.plugin.v1` here, as additive minor versions (D36).
 
 **Outcome:** The P1 monitoring sources work, and third parties can write plugins in Go or Python.
 
@@ -400,10 +408,8 @@ items below stay in M10 instead is open decision D33.
 - **Event bus:** Kafka output and consume; NATS consume.
 - **Plugin SDKs:**
   - Go (stock go-plugin) and Python, with docs, templates and a conformance test suite that every plugin
-    must pass;
-  - a plugin lockfile with checksums;
-  - a signed-manifest option;
-  - a plugin install directory layout.
+    must pass, extending M10's protocol conformance suite;
+  - a signed-manifest option.
 - **Plugin catalog page:** installed plugins, capabilities, versions and docs links.
 
 **Exit criteria:**

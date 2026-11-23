@@ -114,6 +114,8 @@ Two owner cuts of 2026-11-22 add to M3:
   - multi-instance; load and soak qualification; partition maintenance;
   - backup and restore; OIDC; OpenTelemetry;
   - packaging: the production image and compose (hardening M3's minimal ones), systemd and Helm;
+  - the plugin install layout, a plugin lockfile with checksums and a protocol conformance suite for the
+    first-party external plugins (kept from M8, D33);
   - a security review, docs and the licence.
 - 1.0 - Stable release (owner, 2026-11-03, D27): the P0 integrations; event format, plugin protocol and
   `/api/v1/` declared stable under semver; every acceptance scenario green; documented upgrade and restore.
@@ -123,8 +125,9 @@ Two owner cuts of 2026-11-22 add to M3:
   - Kafka;
   - NATS consume;
   - Go and Python SDKs with a conformance suite;
-  - the plugin lockfile (whether it, the install layout and a protocol conformance suite stay in M10 is
-    open: D33).
+  - the signed-manifest option and the plugin catalog page (D33).
+  At 1.0 only the output service of `correlia.plugin.v1` is frozen; the other plugin kinds join it as
+  additive minor versions in 1.x (D36).
 
 ## Done
 - M1 - Walking skeleton (2026-11-18): Alertmanager to canonical event to NATS and the live console, on
