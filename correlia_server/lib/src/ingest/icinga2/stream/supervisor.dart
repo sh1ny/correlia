@@ -250,7 +250,7 @@ final class Icinga2StreamSupervisor {
       db,
       (tx) => tx.execute('''
       DELETE FROM icinga2_sync_progress
-      WHERE read_end_at IS NOT NULL AND ended_at<=clock_timestamp()-interval '30 days'
+      WHERE read_end_at IS NOT NULL AND ended_at<=clock_timestamp()-interval '$streamSyncRetentionDays days'
         AND rows_done+rows_failed=rows_admitted
     '''),
     );

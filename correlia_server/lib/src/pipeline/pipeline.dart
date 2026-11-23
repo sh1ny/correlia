@@ -27,11 +27,15 @@ import '../state/alert_state_service.dart';
 import '../state/ordering_key.dart';
 import '../state/transition.dart';
 
-const _transactionLimit = Duration(seconds: 10);
+/// Monotonic processing budget for a claimed raw row.
+const pipelineRowDeadline = Duration(seconds: 10);
 const _fanoutLimit = 16 * 1024 * 1024;
 
 /// The maximum source clock lead used by alert-state ordering.
 const skewAllowance = Duration(minutes: 5);
+
+/// Evidence older than this relative to receipt is not applied.
+const evidenceLatenessHorizon = Duration(days: 7);
 
 /// The disposition of source evidence before observation deduplication.
 enum EvidenceDisposition { ready, late, futureDated }
@@ -46,7 +50,7 @@ EvidenceDisposition classifyEvidence(EventTimestamp source, DateTime observed) {
     return EvidenceDisposition.futureDated;
   }
   // The skew cap is later than observed time, so it cannot make evidence late.
-  if (sourceMicros < observedMicros - const Duration(days: 7).inMicroseconds) {
+  if (sourceMicros < observedMicros - evidenceLatenessHorizon.inMicroseconds) {
     return EvidenceDisposition.late;
   }
   return EvidenceDisposition.ready;
@@ -195,14 +199,14 @@ final class _Deadline {
   _Deadline() : stopwatch = Stopwatch()..start();
   final Stopwatch stopwatch;
   void check() {
-    if (stopwatch.elapsed >= _transactionLimit) {
+    if (stopwatch.elapsed >= pipelineRowDeadline) {
       throw TimeoutException('pipeline transaction deadline');
     }
   }
 
   int get remainingMillis {
     check();
-    final left = (_transactionLimit - stopwatch.elapsed).inMilliseconds;
+    final left = (pipelineRowDeadline - stopwatch.elapsed).inMilliseconds;
     return left < 5000 ? left.clamp(1, 5000) : 5000;
   }
 }

@@ -14,6 +14,8 @@ import 'dart:async' as _ida;
 import 'package:correlia_client/src/protocol/alert_snapshot.dart' as _iwtce40m;
 import 'package:correlia_client/src/protocol/feed_page.dart' as _ic2oo2k5;
 import 'package:correlia_client/src/protocol/feed_wake_up.dart' as _in8k0z4e;
+import 'package:correlia_client/src/protocol/icinga2_consumer_status.dart'
+    as _ipqy5wv2;
 import 'package:http/http.dart' as _i85jenna;
 import 'package:serverpod_client/serverpod_client.dart' as _isc;
 import 'protocol.dart' as _il2as5qe;
@@ -60,6 +62,24 @@ class EndpointAlertConsole extends _isc.EndpointRef {
       );
 }
 
+/// Local operator status for Icinga2 Event Streams.
+/// {@category Endpoint}
+class EndpointIcinga2Stream extends _isc.EndpointRef {
+  EndpointIcinga2Stream(_isc.EndpointCaller caller) : super(caller);
+
+  @override
+  String get name => 'icinga2Stream';
+
+  /// Reads one source without renewing its lease or changing any counters.
+  _ida.Future<_ipqy5wv2.Icinga2ConsumerStatus?> status(
+    _isc.UuidValue sourceId,
+  ) => caller.callServerEndpoint<_ipqy5wv2.Icinga2ConsumerStatus?>(
+    'icinga2Stream',
+    'status',
+    {'sourceId': sourceId},
+  );
+}
+
 class Client extends _isc.ServerpodClientShared {
   Client(
     String host, {
@@ -88,13 +108,17 @@ class Client extends _isc.ServerpodClientShared {
          httpClientOverride: httpClientOverride,
        ) {
     alertConsole = EndpointAlertConsole(this);
+    icinga2Stream = EndpointIcinga2Stream(this);
   }
 
   late final EndpointAlertConsole alertConsole;
 
+  late final EndpointIcinga2Stream icinga2Stream;
+
   @override
   Map<String, _isc.EndpointRef> get endpointRefLookup => {
     'alertConsole': alertConsole,
+    'icinga2Stream': icinga2Stream,
   };
 
   @override

@@ -18,6 +18,8 @@ import 'console_access_denied_exception.dart' as _i25sduw2;
 import 'feed_entry.dart' as _iywqxrq6;
 import 'feed_page.dart' as _ijrqdfur;
 import 'feed_wake_up.dart' as _ivrec9rl;
+import 'icinga2_consumer_status.dart' as _i0zg1hdn;
+import 'icinga2_consumer_sync.dart' as _id40rhfu;
 import 'invalid_cursor_exception.dart' as _iil3cq3h;
 export 'alert_snapshot.dart';
 export 'alert_view.dart';
@@ -25,6 +27,8 @@ export 'console_access_denied_exception.dart';
 export 'feed_entry.dart';
 export 'feed_page.dart';
 export 'feed_wake_up.dart';
+export 'icinga2_consumer_status.dart';
+export 'icinga2_consumer_sync.dart';
 export 'invalid_cursor_exception.dart';
 export 'client.dart';
 
@@ -47,6 +51,8 @@ class Protocol extends _isc.SerializationManager
           _isc.getType<_iywqxrq6.FeedEntry>,
           _isc.getType<_ijrqdfur.FeedPage>,
           _isc.getType<_ivrec9rl.FeedWakeUp>,
+          _isc.getType<_i0zg1hdn.Icinga2ConsumerStatus>,
+          _isc.getType<_id40rhfu.Icinga2ConsumerSync>,
           _isc.getType<_iil3cq3h.InvalidCursorException>,
           _isc.getType<_iz3t21fy.AlertSnapshot?>,
           _isc.getType<_i897ft9c.AlertView?>,
@@ -54,9 +60,12 @@ class Protocol extends _isc.SerializationManager
           _isc.getType<_iywqxrq6.FeedEntry?>,
           _isc.getType<_ijrqdfur.FeedPage?>,
           _isc.getType<_ivrec9rl.FeedWakeUp?>,
+          _isc.getType<_i0zg1hdn.Icinga2ConsumerStatus?>,
+          _isc.getType<_id40rhfu.Icinga2ConsumerSync?>,
           _isc.getType<_iil3cq3h.InvalidCursorException?>,
           _isc.getType<List<_i897ft9c.AlertView>>,
           _isc.getType<List<_iywqxrq6.FeedEntry>>,
+          _isc.getType<Map<String, int>>,
         ],
         modules: const [],
         classNames: const [
@@ -66,6 +75,8 @@ class Protocol extends _isc.SerializationManager
           'FeedEntry',
           'FeedPage',
           'FeedWakeUp',
+          'Icinga2ConsumerStatus',
+          'Icinga2ConsumerSync',
           'InvalidCursorException',
         ],
       );
@@ -112,6 +123,12 @@ class Protocol extends _isc.SerializationManager
     if (t == _ivrec9rl.FeedWakeUp) {
       return _ivrec9rl.FeedWakeUp.fromJson(data) as T;
     }
+    if (t == _i0zg1hdn.Icinga2ConsumerStatus) {
+      return _i0zg1hdn.Icinga2ConsumerStatus.fromJson(data) as T;
+    }
+    if (t == _id40rhfu.Icinga2ConsumerSync) {
+      return _id40rhfu.Icinga2ConsumerSync.fromJson(data) as T;
+    }
     if (t == _iil3cq3h.InvalidCursorException) {
       return _iil3cq3h.InvalidCursorException.fromJson(data) as T;
     }
@@ -137,6 +154,18 @@ class Protocol extends _isc.SerializationManager
     if (t == _isc.getType<_ivrec9rl.FeedWakeUp?>()) {
       return (data != null ? _ivrec9rl.FeedWakeUp.fromJson(data) : null) as T;
     }
+    if (t == _isc.getType<_i0zg1hdn.Icinga2ConsumerStatus?>()) {
+      return (data != null
+              ? _i0zg1hdn.Icinga2ConsumerStatus.fromJson(data)
+              : null)
+          as T;
+    }
+    if (t == _isc.getType<_id40rhfu.Icinga2ConsumerSync?>()) {
+      return (data != null
+              ? _id40rhfu.Icinga2ConsumerSync.fromJson(data)
+              : null)
+          as T;
+    }
     if (t == _isc.getType<_iil3cq3h.InvalidCursorException?>()) {
       return (data != null
               ? _iil3cq3h.InvalidCursorException.fromJson(data)
@@ -155,6 +184,12 @@ class Protocol extends _isc.SerializationManager
               .toList()
           as T;
     }
+    if (t == Map<String, int>) {
+      return (data as Map).map(
+            (k, v) => MapEntry(deserialize<String>(k), deserialize<int>(v)),
+          )
+          as T;
+    }
     return super.deserialize<T>(data, t);
   }
 
@@ -166,6 +201,8 @@ class Protocol extends _isc.SerializationManager
       _iywqxrq6.FeedEntry => 'FeedEntry',
       _ijrqdfur.FeedPage => 'FeedPage',
       _ivrec9rl.FeedWakeUp => 'FeedWakeUp',
+      _i0zg1hdn.Icinga2ConsumerStatus => 'Icinga2ConsumerStatus',
+      _id40rhfu.Icinga2ConsumerSync => 'Icinga2ConsumerSync',
       _iil3cq3h.InvalidCursorException => 'InvalidCursorException',
       _ => null,
     };
@@ -193,6 +230,10 @@ class Protocol extends _isc.SerializationManager
         return 'FeedPage';
       case _ivrec9rl.FeedWakeUp():
         return 'FeedWakeUp';
+      case _i0zg1hdn.Icinga2ConsumerStatus():
+        return 'Icinga2ConsumerStatus';
+      case _id40rhfu.Icinga2ConsumerSync():
+        return 'Icinga2ConsumerSync';
       case _iil3cq3h.InvalidCursorException():
         return 'InvalidCursorException';
     }
@@ -222,6 +263,12 @@ class Protocol extends _isc.SerializationManager
     }
     if (dataClassName == 'FeedWakeUp') {
       return deserialize<_ivrec9rl.FeedWakeUp>(data['data']);
+    }
+    if (dataClassName == 'Icinga2ConsumerStatus') {
+      return deserialize<_i0zg1hdn.Icinga2ConsumerStatus>(data['data']);
+    }
+    if (dataClassName == 'Icinga2ConsumerSync') {
+      return deserialize<_id40rhfu.Icinga2ConsumerSync>(data['data']);
     }
     if (dataClassName == 'InvalidCursorException') {
       return deserialize<_iil3cq3h.InvalidCursorException>(data['data']);

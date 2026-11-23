@@ -2,9 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:correlia_server/src/ingest/bootstrap.dart';
+import 'package:correlia_server/src/ingest/config_repository.dart';
 import 'package:correlia_server/src/ingest/icinga2/stream/database.dart';
 import 'package:correlia_server/src/ingest/icinga2/stream/status.dart';
 import 'package:correlia_server/src/ingest/icinga2/stream/supervisor.dart';
+import 'package:correlia_server/src/ingest/icinga2/stream/targets.dart';
 import 'package:postgres/postgres.dart' as pg;
 import 'package:serverpod/serverpod.dart';
 import 'package:test/test.dart';
@@ -12,7 +14,9 @@ import 'package:test/test.dart';
 import '../integration/test_tools/serverpod_test_tools.dart';
 import '../support/icinga2_consumer_loopback.dart';
 import '../support/icinga2_pipeline.dart';
+import '../support/icinga2_stream_fixture.dart';
 import '../support/icinga2_stream_pipeline.dart';
+import '../support/secret_fixture.dart';
 import '../support/stream_reader_clock.dart';
 
 void main() {
@@ -68,6 +72,8 @@ void main() {
         Future<void> Function()? beforeNumberCommit,
         Duration? headerDeadline,
         void Function(String message)? onLog,
+        Future<pg.Connection> Function(Duration)? openDatabase,
+        Future<List<StreamTarget>> Function()? loadTargets,
         Duration revisionInterval = const Duration(hours: 1),
       }) {
         final clock = StreamReaderClock();
@@ -75,8 +81,8 @@ void main() {
         final connected = Completer<void>();
         final database = Completer<pg.Connection>();
         final supervisor = Icinga2StreamSupervisor(
-          loadTargets: () async => [target],
-          openDatabase: (_) => endpoint.open(),
+          loadTargets: loadTargets ?? () async => [target],
+          openDatabase: openDatabase ?? (_) => endpoint.open(),
           holder: name,
           log: (message) {
             onLog?.call(message);
@@ -426,6 +432,105 @@ void main() {
         expect(await countRows(session, 'raw_inbox'), 0);
         await worker.supervisor.stop();
       });
+
+      for (final remove in [false, true]) {
+        test(
+          remove
+              ? 'source_removed_during_a_database_outage'
+              : 'status_write_during_a_database_outage',
+          () async {
+            var offline = false;
+            final leaseLeftToExpire = Completer<void>();
+            final reading = Completer<void>();
+            final release = Completer<void>();
+            addTearDown(() {
+              if (!release.isCompleted) release.complete();
+            });
+            if (remove) {
+              http.serveServices = (response) async {
+                response.bufferOutput = false;
+                response.write('{"results":[');
+                await response.flush();
+                reading.complete();
+                await release.future;
+                await response.close();
+              };
+            }
+            final targets = StreamTargetLoader(
+              session.serverpod,
+              testSecretResolver(session),
+            );
+            final worker = start(
+              'database-outage',
+              revisionInterval: const Duration(milliseconds: 25),
+              loadTargets: () => offline
+                  ? Future.error(StateError('consumer database unavailable'))
+                  : targets.load(),
+              openDatabase: (_) => offline
+                  ? Future.error(StateError('consumer database unavailable'))
+                  : endpoint.open(),
+              onLog: (message) {
+                if (message.endsWith(' lease expires') &&
+                    !leaseLeftToExpire.isCompleted) {
+                  leaseLeftToExpire.complete();
+                }
+              },
+            );
+            if (remove) {
+              await reading.future.timeout(const Duration(seconds: 5));
+              expect((await status()).state, StreamConsumerState.syncing);
+            } else {
+              await worker.ready();
+            }
+            offline = true;
+            await (await worker.database.future).close(force: true);
+            await http.subscriptions.single.close();
+            await http.disconnected.future.timeout(const Duration(seconds: 5));
+            await leaseLeftToExpire.future.timeout(const Duration(seconds: 5));
+            expect((await status()).gapCount, 0);
+            if (remove) {
+              await IngestConfigRepository(
+                session,
+                secretStore: testSecretStore,
+              ).publishConfig(
+                streamBootstrap(2, []),
+                <String, Object?>{},
+                runMode: 'test',
+              );
+            }
+            await expire();
+            if (!remove) await ageSync();
+            offline = false;
+            final expected = remove
+                ? StreamConsumerState.retired
+                : StreamConsumerState.connected;
+            final deadline = Stopwatch()..start();
+            StreamStatus current;
+            do {
+              current = await status();
+              if (deadline.elapsed > const Duration(seconds: 8)) {
+                fail(
+                  'Recovery did not reach ${expected.name}: ${current.state.name}',
+                );
+              }
+            } while (current.state != expected);
+            expect(current.gapCount, 1);
+            expect(current.lastGapSeq, 1);
+            if (remove) {
+              expect(current.connectionSeq, 1);
+              expect(http.subscriptionsReady, 1);
+              final ended = (await observer.execute('''
+              SELECT phase, read_problem, read_end_at IS NOT NULL
+              FROM icinga2_sync_progress
+            ''')).single;
+              expect(ended.toList(), ['failed', 'source_retired', true]);
+            } else {
+              expect(current.connectionSeq, 2);
+              expect(http.subscriptionsReady, 2);
+            }
+          },
+        );
+      }
     },
     rollbackDatabase: RollbackDatabase.disabled,
     testGroupTagsOverride: ['db'],

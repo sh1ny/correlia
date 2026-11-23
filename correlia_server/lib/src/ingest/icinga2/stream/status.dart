@@ -275,14 +275,19 @@ class StreamStatusStore {
         return true;
       }, timeout: const Duration(seconds: 1));
 
+  /// Effective state for a status row `s` with an optional lease row `l`.
+  static const effectiveStateSql = '''
+    CASE WHEN s.state IN ('connecting', 'syncing', 'connected', 'backoff', 'paused')
+      AND (l."sourceId" IS NULL OR l."expiresAt" <= clock_timestamp())
+      THEN 'stale' ELSE s.state END
+  ''';
+
   /// Reads status without modifying it, deriving stale from database lease time.
   Future<StreamStatus?> read(String sourceId) async {
     final rows = await _connection.execute(
       Sql.named('''
         SELECT s."sourceId"::text,
-          CASE WHEN s.state IN ('connecting', 'syncing', 'connected', 'backoff', 'paused')
-            AND (l."sourceId" IS NULL OR l."expiresAt" <= clock_timestamp())
-            THEN 'stale' ELSE s.state END,
+          $effectiveStateSql,
           s."connectionId", s."connectionSeq", s."connectedAt", s."lastEventAt",
           s."gapCount", s."lastGapSeq", s."lastGapAt", s."oversizeLines", s."lagMs",
           s."lastErrorClass", s."servedResyncSeq", s."syncTimeoutsInARow",

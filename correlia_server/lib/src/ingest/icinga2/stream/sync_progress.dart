@@ -9,8 +9,12 @@ import 'sync_result.dart';
 const _interrupted = 'interrupted';
 const _holderLost = 'holder_lost';
 const _sourceRetired = 'source_retired';
-const _syncSpacingSeconds = 60;
-const _retentionDays = 30;
+
+/// Minimum seconds between consecutive sync starts.
+const streamSyncSpacingSeconds = 60;
+
+/// Minimum days before completed, fully accounted sync progress is pruned.
+const streamSyncRetentionDays = 30;
 
 /// The durable phase of a sync and its admitted work.
 enum SyncPhase { reading, applying, complete, failed, stalled }
@@ -132,7 +136,7 @@ class SyncProgressStore {
       '''),
             parameters: {
               'source': lease.sourceId,
-              'spacing': _syncSpacingSeconds,
+              'spacing': streamSyncSpacingSeconds,
             },
           );
           if (spacing.isNotEmpty && (spacing.single[0]! as int) > 0) {
@@ -326,7 +330,7 @@ class SyncProgressStore {
         AND ended_at<=clock_timestamp()-@days:int4 * interval '1 day'
         AND rows_done+rows_failed=rows_admitted
     '''),
-      parameters: {'source': sourceId, 'days': _retentionDays},
+      parameters: {'source': sourceId, 'days': streamSyncRetentionDays},
     );
     return result.affectedRows;
   });

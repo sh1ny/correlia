@@ -61,10 +61,10 @@ or enable TLS key logging.
 
 ### Requirement: Fixed state-bearing subscription
 
-The consumer SHALL subscribe with `POST /v1/events`, a `queue` named for the source, no filter, and exactly
-the types `StateChange`, `AcknowledgementSet`, `AcknowledgementCleared`, `DowntimeStarted`,
-`DowntimeRemoved` and `Flapping`. Response headers SHALL arrive within 10 seconds and the TCP connect within
-10 seconds, or the attempt fails. HTTP 403 SHALL fail as `forbidden`, and HTTP 404 as `http_status`.
+`POST /v1/events` SHALL use the source UUID as `queue`, no filter, and exactly `StateChange`,
+`AcknowledgementSet`, `AcknowledgementCleared`, `DowntimeStarted`, `DowntimeRemoved` and `Flapping`.
+Subscription and object query requests SHALL send `Accept: application/json`. TCP, TLS and response
+headers SHALL share a 10-second deadline. Subscription HTTP 403 SHALL be `forbidden`, and 404 `http_status`.
 
 #### Scenario: Subscription accepted
 - **WHEN** Icinga 2 answers the subscription with 200 within the deadline
@@ -1010,9 +1010,11 @@ The docs SHALL warn that an ambiguous object-query 404 fails the sync even for a
 
 ### Requirement: Event Streams limits documentation
 
-The documentation SHALL state every limit in this capability, the clock and lateness limits of ordering, that a
-gap can lose acknowledgement, downtime and flapping events and intermediate states while sync repairs only
-current state, and that an object removed from Icinga 2 keeps its alert.
+The documentation SHALL state every limit in this capability and the clock and lateness limits of ordering.
+It SHALL state that a gap can lose acknowledgement, downtime and flapping events and intermediate states
+while sync repairs only current state, and that deleting an Icinga 2 object does not resolve its alert.
+Distinct results with equal execution starts need not converge, and Correlia does not bound Icinga 2's own
+per-client queue memory.
 
 #### Scenario: Limits match the code
 - **WHEN** a test reads the limits table of the setup section

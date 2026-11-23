@@ -3,9 +3,15 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/args.dart';
+import 'package:correlia_server/src/ingest/bootstrap.dart';
+import 'package:correlia_server/src/ingest/icinga2/stream/decoder.dart';
+
+import '../../test/support/icinga2_stream_decode_fixture.dart'
+    show streamDecodeRequest;
 
 import 'lab.dart';
 import 'staging.dart';
+import 'stream_consumer.dart';
 
 const _types = [
   'StateChange',
@@ -40,8 +46,10 @@ Future<void> main(List<String> arguments) async {
     parser.addOption(name, mandatory: true);
   }
   parser.addOption('digest', defaultsTo: '');
+  parser.addOption('consumer');
   final args = parser.parse(arguments);
   final release = args.option('release')!;
+  final executable = args.option('consumer');
   final target = Directory('${args.option('out')}/$release/stream');
   final lock = lockPair(target);
   if (lock == null) throw StateError('Another capture holds ${target.path}');
@@ -53,7 +61,7 @@ Future<void> main(List<String> arguments) async {
   final staging = openStaging(target, keep: false);
   try {
     await lab.create();
-    await _configure(lab);
+    await _configure(lab, verifyConsumer: executable != null);
     await lab.start();
     final version = await lab.version();
     final architecture = (await lab.exec(['uname', '-m'])).out.trim();
@@ -70,6 +78,17 @@ Future<void> main(List<String> arguments) async {
       'grants': _grants,
       ...capture,
     };
+    if (executable != null) {
+      final run = await captureBuiltConsumer(
+        lab: lab,
+        executable: executable,
+        grants: _grants,
+        upstreamDenials: capture['permission_denials']! as Map<String, Object?>,
+      );
+      File('${staging.path}/consumer-run.json').writeAsStringSync(
+        '${const JsonEncoder.withIndent('  ').convert({...run, 'decoded': _decodeCapture(staging)})}\n',
+      );
+    }
     File('${staging.path}/manifest.json').writeAsStringSync(
       '${const JsonEncoder.withIndent('  ').convert(manifest)}\n',
     );
@@ -80,10 +99,64 @@ Future<void> main(List<String> arguments) async {
     lock.closeSync();
     if (staging.existsSync()) staging.deleteSync(recursive: true);
   }
+  if (executable != null) {
+    // The embedded test cluster deliberately survives the capture, as in
+    // the notification driver. All owned children and databases are closed.
+    await stdout.flush();
+    exit(0);
+  }
 }
 
-Future<void> _configure(IcingaLab lab) async {
-  await lab.exec(['icinga2', 'api', 'setup'], user: 'icinga');
+Map<String, Object?> _decodeCapture(Directory data) {
+  Map<String, Object?> decode(String line, IcingaStreamOrigin origin) {
+    final request = streamDecodeRequest(line);
+    final result = decodeIcingaStreamLine(
+      line,
+      request: request,
+      receivedAt: request.observedAt,
+      policy: StreamStateTypePolicy.softAndHard,
+      origin: origin,
+    );
+    if (result is! IcingaStreamEvent)
+      throw StateError('The populated capture produced no decoded event');
+    final event = result.event;
+    final source = jsonDecode(line) as Map<String, Object?>;
+    return {
+      'type': source['type'],
+      'kind': event.kind.name,
+      'key_b64': base64Encode(event.observationKey.bytes),
+      'fingerprint': event.fingerprint,
+      'event_id': event.eventId,
+    };
+  }
+
+  List<Map<String, Object?>> sync(String collection) {
+    final input =
+        jsonDecode(File('${data.path}/$collection.json').readAsStringSync())
+            as Map<String, Object?>;
+    return [
+      for (final object in input['results']! as List<Object?>)
+        decode(jsonEncode(object), IcingaStreamOrigin.sync),
+    ];
+  }
+
+  return {
+    'events': [
+      for (final line in File('${data.path}/events.ndjson').readAsLinesSync())
+        decode(line, IcingaStreamOrigin.stream),
+    ],
+    'hosts': sync('hosts'),
+    'services': sync('services'),
+  };
+}
+
+Future<void> _configure(IcingaLab lab, {required bool verifyConsumer}) async {
+  await lab.exec([
+    'icinga2',
+    'api',
+    'setup',
+    if (verifyConsumer) ...['--cn', 'localhost'],
+  ], user: 'icinga');
   await lab.exec([
     'sh',
     '-c',
@@ -124,6 +197,15 @@ object ApiUser "$name" {
         user('omit-$i', [..._grants.take(i), ..._grants.skip(i + 1)]),
     ].join(),
   );
+  if (verifyConsumer) {
+    final example = File(
+      '../contrib/icinga2/correlia-stream-api-user.conf',
+    ).readAsStringSync();
+    await write(
+      'conf.d/correlia-stream-api-user.conf',
+      'const CorreliaStreamApiPassword = ${dslString(lab.apiPassword)}\n$example',
+    );
+  }
   await lab.writeCaptureConfig('''
 object Host "$_host" {
   check_command = "dummy"

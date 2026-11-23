@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:correlia_server/event.dart' show ObservationKey;
 import 'package:test/test.dart';
 
 const _releases = ['2.13.14', '2.14.10', '2.15.7', '2.16.6'];
@@ -85,26 +86,49 @@ void main() {
             _ => throw StateError('unknown captured type'),
           };
           expect(decodedLine['kind'], expectedKind);
-          final key =
-              jsonDecode(decodedLine['key']! as String) as List<Object?>;
-          final timestamp = expectedKind == 'alert'
-              ? (event['check_result']!
-                    as Map<String, Object?>)['execution_start']
-              : event['timestamp'];
-          expect(
-            key[expectedKind == 'alert' ? 3 : 2],
-            (timestamp! as num).toDouble().toString(),
-          );
-          if (expectedKind == 'alert') {
-            final check = event['check_result']! as Map<String, Object?>;
+          final type = event['type']! as String;
+          final List<Object?> key;
+          if (type == 'StateChange') {
+            key = _checkKey(
+              event['check_result']! as Map<String, Object?>,
+              host: event['service'] == null,
+            );
+          } else {
+            key = [
+              'icinga2.stream.${type.toLowerCase()}.v1',
+              type,
+              _timeText(event['timestamp']),
+              switch (type) {
+                'AcknowledgementSet' ||
+                'AcknowledgementCleared' => event['author'],
+                'DowntimeStarted' || 'DowntimeRemoved' =>
+                  (event['downtime']! as Map<String, Object?>)['name'],
+                'Flapping' => event['is_flapping'],
+                _ => fail('unknown captured type $type'),
+              },
+            ];
+          }
+          expect(decodedLine['key_b64'], _base64Key(key));
+        }
+        for (final (collection, objects) in [
+          ('hosts', capture.hosts),
+          ('services', capture.services),
+        ]) {
+          final mapped = decoded[collection]! as List<Object?>;
+          expect(mapped, hasLength(objects.length));
+          for (final (i, value) in objects.indexed) {
+            final object = value! as Map<String, Object?>;
+            final attrs = object['attrs']! as Map<String, Object?>;
+            final check = attrs['last_check_result']! as Map<String, Object?>;
+            final proof = mapped[i]! as Map<String, Object?>;
+            expect(proof['type'], object['type']);
+            expect(proof['kind'], 'alert');
             expect(
-              key[4],
-              (check['execution_end']! as num).toDouble().toString(),
+              proof['key_b64'],
+              _base64Key(_checkKey(check, host: collection == 'hosts')),
             );
           }
         }
-        expect(decoded['hosts'], hasLength(capture.hosts.length));
-        expect(decoded['services'], hasLength(capture.services.length));
       });
 
       test('listed_release_that_fails', () {
@@ -176,6 +200,31 @@ void main() {
       });
     });
   }
+}
+
+String _timeText(Object? value) => (value! as num).toDouble().toString();
+
+String _base64Key(List<Object?> fields) =>
+    base64Encode(ObservationKey.native(jsonEncode(fields)).bytes);
+
+List<Object?> _checkKey(Map<String, Object?> check, {required bool host}) {
+  final after = check['vars_after']! as Map<String, Object?>;
+  final state = switch ((host, after['state'])) {
+    (true, 0 || 1) => 'UP',
+    (true, 2 || 3) => after['reachable'] == true ? 'DOWN' : 'UNREACHABLE',
+    (false, 0) => 'OK',
+    (false, 1) => 'WARNING',
+    (false, 2) => 'CRITICAL',
+    (false, 3) => 'UNKNOWN',
+    _ => fail('invalid captured check state'),
+  };
+  return [
+    'icinga2.check.v1',
+    state,
+    after['state_type'] == 0 ? 'SOFT' : 'HARD',
+    _timeText(check['execution_start']),
+    _timeText(check['execution_end']),
+  ];
 }
 
 Map<String, Object?> _object(String json) =>

@@ -112,6 +112,16 @@ final class IcingaStreamOptions {
     required this.maxPendingRows,
   });
 
+  /// Operator-facing default, minimum and maximum interval in seconds.
+  static const syncIntervalSeconds = (
+    standard: 3600,
+    minimum: 300,
+    maximum: 86400,
+  );
+
+  /// Operator-facing default, minimum and maximum retained rows per source.
+  static const pendingRows = (standard: 1000, minimum: 100, maximum: 10000);
+
   final Uri url;
   final String username;
   final String passwordRef;
@@ -343,8 +353,11 @@ IcingaStreamOptions _streamOptions(Map<String, Object?> row, String field) {
       url.hasFragment) {
     _bad('config', '$path.url', 'invalid_url');
   }
-  final interval = api['sync_interval_seconds'] ?? 3600;
-  if (interval is! int || interval < 300 || interval > 86400) {
+  const intervals = IcingaStreamOptions.syncIntervalSeconds;
+  final interval = api['sync_interval_seconds'] ?? intervals.standard;
+  if (interval is! int ||
+      interval < intervals.minimum ||
+      interval > intervals.maximum) {
     _bad('config', '$path.sync_interval_seconds', 'out_of_range');
   }
   return IcingaStreamOptions(
@@ -359,9 +372,9 @@ IcingaStreamOptions _streamOptions(Map<String, Object?> row, String field) {
       _ => _bad('config', '$field.state_type_policy', 'state_type_policy'),
     },
     maxPendingRows: _integer(
-      row['max_pending_rows'] ?? 1000,
-      100,
-      10000,
+      row['max_pending_rows'] ?? IcingaStreamOptions.pendingRows.standard,
+      IcingaStreamOptions.pendingRows.minimum,
+      IcingaStreamOptions.pendingRows.maximum,
       '$field.max_pending_rows',
     ),
   );

@@ -19,6 +19,9 @@ import 'redaction.dart';
 import 'stream_reader.dart' show ReaderScheduler;
 import 'sync_result.dart';
 
+/// The whole-sync reading deadline, across both object queries.
+const streamSyncReadDeadline = Duration(minutes: 15);
+
 /// A separately projected Icinga object collection.
 enum SyncProjection {
   hosts,
@@ -120,8 +123,8 @@ final class SyncReader {
   Future<SyncReadReport> run() async {
     if (_started) throw StateError('A sync reader runs only once');
     _started = true;
-    _deadline = _monotonic() + const Duration(minutes: 15);
-    final cancelDeadline = _schedule(const Duration(minutes: 15), () {
+    _deadline = _monotonic() + streamSyncReadDeadline;
+    final cancelDeadline = _schedule(streamSyncReadDeadline, () {
       _end(SyncReadProblem.timeout);
     });
     try {

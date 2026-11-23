@@ -1,12 +1,15 @@
 @Tags(['e2e'])
 library;
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:postgres/postgres.dart';
 import 'package:test/test.dart';
 
 import '../support/child_server.dart';
+import '../support/icinga2_stream_child.dart';
 import '../support/shared_cluster.dart';
 
 void main() {
@@ -66,4 +69,127 @@ void main() {
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );
+
+  for (final condition in ['free', 'locked', 'unreachable']) {
+    test(
+      'SIGTERM with live Event Streams and $condition lease database',
+      () async {
+        final fixture = await Icinga2StreamChild.create();
+        final child = await fixture.start(role: 'worker', revision: 1);
+        await fixture.waitState('connected');
+        final db = fixture.db;
+        final leaseExpiry = (await db.execute(
+          'SELECT "expiresAt" FROM icinga2_stream_lease',
+        )).single.single;
+        final locked = Completer<void>();
+        final unlock = Completer<void>();
+        final lock = condition == 'locked'
+            ? db.runTx((tx) async {
+                await tx.execute(
+                  'SELECT 1 FROM icinga2_stream_lease FOR UPDATE',
+                );
+                locked.complete();
+                await unlock.future;
+              })
+            : null;
+        Connection? control;
+        Connection? observer;
+        try {
+          if (lock != null) await locked.future;
+          if (condition == 'unreachable') {
+            final owned = fixture.cluster;
+            expect(owned.name, matches(RegExp(r'^[a-z0-9_]+$')));
+            final socket = socketHostFor(
+              owned.socketPath,
+              workingDirectory: Directory.current.path,
+            );
+            control = await Connection.open(
+              Endpoint(
+                host: socket,
+                port: owned.port,
+                database: 'postgres',
+                username: 'postgres',
+                isUnixSocket: true,
+              ),
+              settings: const ConnectionSettings(sslMode: SslMode.disable),
+            );
+            await control.execute(
+              'ALTER DATABASE "${owned.name}" WITH ALLOW_CONNECTIONS false',
+            );
+            // Disconnect only Correlia's owned per-test database, never other sessions.
+            await control.execute(
+              Sql.named('''
+            SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname=@owned
+          '''),
+              parameters: {'owned': owned.name},
+            );
+          }
+          expect(
+            await child.stop(deadline: const Duration(seconds: 15)),
+            condition == 'unreachable' ? 1 : 0,
+            reason: child.output,
+          );
+          await fixture.upstream.disconnected.future.timeout(
+            const Duration(seconds: 2),
+          );
+          final output = child.output;
+          final stopped = output.indexOf(
+            condition == 'free' ? ' stopped' : ' lease expires',
+            output.indexOf('icinga2-stream source='),
+          );
+          final workers = output.indexOf(
+            condition == 'unreachable'
+                ? 'Failed to stop ingest-workers'
+                : 'Stopped ingest-workers',
+          );
+          expect(stopped, isNonNegative, reason: output);
+          expect(workers, greaterThan(stopped), reason: output);
+          expect(
+            output.indexOf('SERVERPOD shutdown completed'),
+            greaterThan(workers),
+            reason: output,
+          );
+        } finally {
+          unlock.complete();
+          await lock;
+          if (control != null) {
+            final owned = fixture.cluster;
+            try {
+              await control.execute(
+                'ALTER DATABASE "${owned.name}" WITH ALLOW_CONNECTIONS true',
+              );
+              observer = await Connection.open(
+                Endpoint(
+                  host: socketHostFor(
+                    owned.socketPath,
+                    workingDirectory: Directory.current.path,
+                  ),
+                  port: owned.port,
+                  database: owned.name,
+                  username: 'postgres',
+                  isUnixSocket: true,
+                ),
+                settings: const ConnectionSettings(sslMode: SslMode.disable),
+              );
+              addTearDown(observer.close);
+            } finally {
+              await control.close();
+            }
+          }
+        }
+        final row = (await (observer ?? db).execute('''
+        SELECT s.state, l."expiresAt", l."expiresAt" <= clock_timestamp()
+        FROM icinga2_stream_status s JOIN icinga2_stream_lease l USING ("sourceId")
+      ''')).single;
+        if (condition == 'free') {
+          expect(row[0], 'stopped');
+          expect(row[2], isTrue);
+        } else {
+          expect(row[0], 'connected');
+          expect(row[1], leaseExpiry);
+        }
+      },
+      timeout: const Timeout(Duration(minutes: 3)),
+    );
+  }
 }

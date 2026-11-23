@@ -140,6 +140,7 @@ final class IcingaStreamHttpClient {
     if (!_live) throw const StreamHttpFailure('interrupted');
     request.followRedirects = false;
     request.headers.contentType = ContentType.json;
+    request.headers.set(HttpHeaders.acceptHeader, ContentType.json.mimeType);
     request.headers.set(
       HttpHeaders.authorizationHeader,
       'Basic ${base64.encode([...utf8.encode('$username:'), ..._password])}',

@@ -11,6 +11,8 @@ import 'package:correlia_server/src/ingest/icinga2/stream/sync_reader.dart';
 import 'package:correlia_server/src/ingest/icinga2/stream/tls_socket.dart';
 import 'package:test/test.dart';
 
+import '../support/icinga2_consumer_loopback.dart';
+
 const _fixtures = '../correlia_icinga2_notify/test/fixtures';
 const _password = 'stream-password';
 const _user = 'stream-user';
@@ -340,6 +342,22 @@ void main() {
     ]);
     expect(build.exitCode, 0, reason: '${build.stdout}\n${build.stderr}');
   });
+  test('negotiates_json_for_subscription_and_object_queries', () async {
+    final peer = await IcingaConsumerLoopback.start();
+    addTearDown(peer.close);
+    final client = IcingaStreamHttpClient(
+      endpoint: peer.url,
+      username: _user,
+      password: utf8.encode(_password),
+      ca: peer.ca,
+    );
+    addTearDown(client.close);
+    expect((await client.subscribe('queue')).statusCode, HttpStatus.ok);
+    final sync = await client.query(SyncProjection.hosts);
+    expect(sync.statusCode, HttpStatus.ok);
+    expect(await utf8.decoder.bind(sync.body).join(), '{"results":[]}');
+  }, timeout: const Timeout(Duration(seconds: 12)));
+
   test('adapter_retries_zero_and_partial_writes', () async {
     final secure = _ControlledSecureSocket()..limits.addAll([0, 2, 100]);
     final raw = _ControlledRawSocket();

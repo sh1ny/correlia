@@ -15,6 +15,9 @@ final class IcingaConsumerLoopback {
   List<Object?> hosts = const [];
   List<Object?> services = const [];
   int reads = 0;
+  final eventRequests = <(String, String)>[];
+  int? subscriptionStatus = HttpStatus.ok;
+  bool chunked = false;
   String? expectedAuthorization;
   int hostsStatus = HttpStatus.ok;
   int servicesStatus = HttpStatus.ok;
@@ -50,15 +53,34 @@ final class IcingaConsumerLoopback {
   }
 
   Future<void> _serve(HttpRequest request) async {
-    await request.drain<void>();
+    if (request.uri.path == '/v1/events') {
+      eventRequests.add((
+        request.method,
+        await utf8.decoder.bind(request).join(),
+      ));
+    } else {
+      await request.drain<void>();
+    }
     final response = request.response;
     response.headers.contentType = ContentType.json;
+    if (request.headers.value(HttpHeaders.acceptHeader) !=
+        ContentType.json.mimeType) {
+      response.statusCode = HttpStatus.badRequest;
+      await response.close();
+      return;
+    }
     switch (request.uri.path) {
       case '/v1/events':
         if (expectedAuthorization case final expected?
             when request.headers.value(HttpHeaders.authorizationHeader) !=
                 expected) {
           response.statusCode = HttpStatus.unauthorized;
+          await response.close();
+          return;
+        }
+        if (subscriptionStatus case final status?
+            when status != HttpStatus.ok) {
+          response.statusCode = status;
           await response.close();
           return;
         }
@@ -77,9 +99,11 @@ final class IcingaConsumerLoopback {
         unawaited(
           socket.done.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
         );
-        // Close-delimited NDJSON headers, without a fake heartbeat or a blank line.
+        if (subscriptionStatus == null) return;
         socket.write(
-          'HTTP/1.0 200 OK\r\nContent-Type: application/json\r\n\r\n',
+          chunked
+              ? 'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n'
+              : 'HTTP/1.0 200 OK\r\nContent-Type: application/json\r\n\r\n',
         );
         try {
           await socket.flush();
@@ -108,10 +132,19 @@ final class IcingaConsumerLoopback {
     }
   }
 
-  Future<void> send(Object? value) async {
+  Future<void> send(Object? value) => sendLine(jsonEncode(value));
+
+  Future<void> sendLine(String line) async {
     await firstSubscription.future.timeout(const Duration(seconds: 10));
     final response = subscriptions.last;
-    response.writeln(jsonEncode(value));
+    if (chunked) {
+      final body = utf8.encode('$line\n');
+      response.write('${body.length.toRadixString(16)}\r\n');
+      response.add(body);
+      response.write('\r\n');
+    } else {
+      response.writeln(line);
+    }
     await response.flush();
   }
 

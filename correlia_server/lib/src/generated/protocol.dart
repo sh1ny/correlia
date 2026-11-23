@@ -22,6 +22,8 @@ import 'feed_entry.dart' as _iywqxrq6;
 import 'feed_page.dart' as _ijrqdfur;
 import 'feed_wake_up.dart' as _ivrec9rl;
 import 'icinga2_admitted_batch.dart' as _iyvfq7h8;
+import 'icinga2_consumer_status.dart' as _i0zg1hdn;
+import 'icinga2_consumer_sync.dart' as _id40rhfu;
 import 'icinga2_stream_lease.dart' as _iwydjvnk;
 import 'icinga2_stream_resync.dart' as _i6orwhmp;
 import 'icinga2_stream_status.dart' as _iph5wq9a;
@@ -46,6 +48,8 @@ export 'feed_entry.dart';
 export 'feed_page.dart';
 export 'feed_wake_up.dart';
 export 'icinga2_admitted_batch.dart';
+export 'icinga2_consumer_status.dart';
+export 'icinga2_consumer_sync.dart';
 export 'icinga2_stream_lease.dart';
 export 'icinga2_stream_resync.dart';
 export 'icinga2_stream_status.dart';
@@ -84,6 +88,8 @@ class Protocol extends _is.DatabaseSerializationManager
           _is.getType<_ijrqdfur.FeedPage>,
           _is.getType<_ivrec9rl.FeedWakeUp>,
           _is.getType<_iyvfq7h8.Icinga2AdmittedBatch>,
+          _is.getType<_i0zg1hdn.Icinga2ConsumerStatus>,
+          _is.getType<_id40rhfu.Icinga2ConsumerSync>,
           _is.getType<_iwydjvnk.Icinga2StreamLeaseRow>,
           _is.getType<_i6orwhmp.Icinga2StreamResyncRow>,
           _is.getType<_iph5wq9a.Icinga2StreamStatusRow>,
@@ -108,6 +114,8 @@ class Protocol extends _is.DatabaseSerializationManager
           _is.getType<_ijrqdfur.FeedPage?>,
           _is.getType<_ivrec9rl.FeedWakeUp?>,
           _is.getType<_iyvfq7h8.Icinga2AdmittedBatch?>,
+          _is.getType<_i0zg1hdn.Icinga2ConsumerStatus?>,
+          _is.getType<_id40rhfu.Icinga2ConsumerSync?>,
           _is.getType<_iwydjvnk.Icinga2StreamLeaseRow?>,
           _is.getType<_i6orwhmp.Icinga2StreamResyncRow?>,
           _is.getType<_iph5wq9a.Icinga2StreamStatusRow?>,
@@ -125,6 +133,7 @@ class Protocol extends _is.DatabaseSerializationManager
           _is.getType<_ix76ovok.TransportKey?>,
           _is.getType<List<_i897ft9c.AlertView>>,
           _is.getType<List<_iywqxrq6.FeedEntry>>,
+          _is.getType<Map<String, int>>,
         ],
         modules: const [_isp.Protocol.new],
         classNames: const [
@@ -137,6 +146,8 @@ class Protocol extends _is.DatabaseSerializationManager
           'FeedPage',
           'FeedWakeUp',
           'Icinga2AdmittedBatch',
+          'Icinga2ConsumerStatus',
+          'Icinga2ConsumerSync',
           'Icinga2StreamLeaseRow',
           'Icinga2StreamResyncRow',
           'Icinga2StreamStatusRow',
@@ -1505,6 +1516,12 @@ class Protocol extends _is.DatabaseSerializationManager
     if (t == _iyvfq7h8.Icinga2AdmittedBatch) {
       return _iyvfq7h8.Icinga2AdmittedBatch.fromJson(data) as T;
     }
+    if (t == _i0zg1hdn.Icinga2ConsumerStatus) {
+      return _i0zg1hdn.Icinga2ConsumerStatus.fromJson(data) as T;
+    }
+    if (t == _id40rhfu.Icinga2ConsumerSync) {
+      return _id40rhfu.Icinga2ConsumerSync.fromJson(data) as T;
+    }
     if (t == _iwydjvnk.Icinga2StreamLeaseRow) {
       return _iwydjvnk.Icinga2StreamLeaseRow.fromJson(data) as T;
     }
@@ -1582,6 +1599,18 @@ class Protocol extends _is.DatabaseSerializationManager
     if (t == _is.getType<_iyvfq7h8.Icinga2AdmittedBatch?>()) {
       return (data != null
               ? _iyvfq7h8.Icinga2AdmittedBatch.fromJson(data)
+              : null)
+          as T;
+    }
+    if (t == _is.getType<_i0zg1hdn.Icinga2ConsumerStatus?>()) {
+      return (data != null
+              ? _i0zg1hdn.Icinga2ConsumerStatus.fromJson(data)
+              : null)
+          as T;
+    }
+    if (t == _is.getType<_id40rhfu.Icinga2ConsumerSync?>()) {
+      return (data != null
+              ? _id40rhfu.Icinga2ConsumerSync.fromJson(data)
               : null)
           as T;
     }
@@ -1673,6 +1702,12 @@ class Protocol extends _is.DatabaseSerializationManager
               .toList()
           as T;
     }
+    if (t == Map<String, int>) {
+      return (data as Map).map(
+            (k, v) => MapEntry(deserialize<String>(k), deserialize<int>(v)),
+          )
+          as T;
+    }
     final modules = deserializationMetadata.modulesForDeserialization(
       t,
       className: rawDataClassName,
@@ -1697,6 +1732,8 @@ class Protocol extends _is.DatabaseSerializationManager
       _ijrqdfur.FeedPage => 'FeedPage',
       _ivrec9rl.FeedWakeUp => 'FeedWakeUp',
       _iyvfq7h8.Icinga2AdmittedBatch => 'Icinga2AdmittedBatch',
+      _i0zg1hdn.Icinga2ConsumerStatus => 'Icinga2ConsumerStatus',
+      _id40rhfu.Icinga2ConsumerSync => 'Icinga2ConsumerSync',
       _iwydjvnk.Icinga2StreamLeaseRow => 'Icinga2StreamLeaseRow',
       _i6orwhmp.Icinga2StreamResyncRow => 'Icinga2StreamResyncRow',
       _iph5wq9a.Icinga2StreamStatusRow => 'Icinga2StreamStatusRow',
@@ -1744,6 +1781,10 @@ class Protocol extends _is.DatabaseSerializationManager
         return 'FeedWakeUp';
       case _iyvfq7h8.Icinga2AdmittedBatch():
         return 'Icinga2AdmittedBatch';
+      case _i0zg1hdn.Icinga2ConsumerStatus():
+        return 'Icinga2ConsumerStatus';
+      case _id40rhfu.Icinga2ConsumerSync():
+        return 'Icinga2ConsumerSync';
       case _iwydjvnk.Icinga2StreamLeaseRow():
         return 'Icinga2StreamLeaseRow';
       case _i6orwhmp.Icinga2StreamResyncRow():
@@ -1814,6 +1855,12 @@ class Protocol extends _is.DatabaseSerializationManager
     }
     if (dataClassName == 'Icinga2AdmittedBatch') {
       return deserialize<_iyvfq7h8.Icinga2AdmittedBatch>(data['data']);
+    }
+    if (dataClassName == 'Icinga2ConsumerStatus') {
+      return deserialize<_i0zg1hdn.Icinga2ConsumerStatus>(data['data']);
+    }
+    if (dataClassName == 'Icinga2ConsumerSync') {
+      return deserialize<_id40rhfu.Icinga2ConsumerSync>(data['data']);
     }
     if (dataClassName == 'Icinga2StreamLeaseRow') {
       return deserialize<_iwydjvnk.Icinga2StreamLeaseRow>(data['data']);

@@ -53,6 +53,138 @@ decides a sync's phase under its progress-row lock. Both the consumer and the pi
 in the transaction that records their part of the work. Preserve the function and the partial
 index on open syncs when preparing a repair.
 
+## Icinga 2 Event Streams setup
+
+Upgrade **every process of every role** (`api`, `worker`, `all`) before publishing
+the first stream source or password. Do not restart older releases on that
+database. An older worker sends `correlia.icinga2.stream.v1` rows to the webhook
+decoder and cannot process them. An older publisher omits the password reuse
+check; the upgraded database refuses that publisher. To roll back to an older
+release, restore a pre-cutover database and its matching secret key.
+
+Configure one Icinga 2 instance per stream source. If that instance already sends
+webhooks, use a **new source UUID** for the stream; source mode is immutable.
+Only `worker` and `all` connect; one worker holds the lease per source. Each
+checks for a new revision every 30 seconds and also on a refused batch. Rotate
+the API password or CA by publishing a new secret reference, not by overwriting
+the old reference.
+
+Install [`correlia-stream-api-user.conf`](../contrib/icinga2/correlia-stream-api-user.conf)
+on the Icinga 2 instance. Define `CorreliaStreamApiPassword` in a protected Icinga
+configuration fragment, run `icinga2 daemon -C`, then reload Icinga 2. Use only
+these grants; no event filter or wildcard is needed:
+
+| Purpose | ApiUser permissions |
+|---|---|
+| Subscription | `events/StateChange`, `events/AcknowledgementSet`, `events/AcknowledgementCleared`, `events/DowntimeStarted`, `events/DowntimeRemoved`, `events/Flapping` |
+| State sync | `objects/query/Host`, `objects/query/Service` |
+
+Publish the source in a `format_version: 2` configuration using
+`kind: "icinga2"`, `mode: "event_streams"`, and `enabled: true`. Set `api.url`
+to the HTTPS origin (for example `https://icinga.example.net:5665`, with no
+trailing slash, path, query or fragment), `api.username` to `correlia-stream`,
+and `api.password_ref` and `api.ca_ref` to the imported password and CA bundle.
+The secret file entries are objects with one `bytes` property: unpadded
+base64url of the UTF-8 password or the PEM bundle bytes. Use the CA that signed
+the endpoint certificate and a hostname matching the certificate. The client
+uses only this CA bundle, TLS 1.2 or newer, no proxy, and no redirects. Do not
+set webhook `credentials` on the stream source.
+`state_type_policy` defaults to `hard_only`; use `soft_and_hard` to apply SOFT
+problems as well as HARD problems. Confirm that the expected check state is
+current before migrating a notification-only source.
+
+First sync reads projected host and service results. A 403 indicates a refused
+request; a 404 is ambiguous and fails sync even for an empty collection. Populate
+the instance and verify both object query grants rather than treating 404 as an
+empty successful sync. Local development/test status uses the same policy as
+the console; production operators can read database status and state-change logs.
+
+The verified Event Streams releases are 2.13.14, 2.14.10, 2.15.7 and 2.16.6
+on Linux x64. Older releases and unlisted releases are not covered by the
+capture matrix. Versions 2.13–2.15 can use close-delimited event responses;
+2.16 uses chunked responses. Both carry newline-delimited JSON.
+
+## Icinga 2 Event Streams limits
+
+| Limit | Value |
+|---|---|
+| Configured sources | Up to 64 total; at most one dedicated PostgreSQL session per held stream lease |
+| API password and CA bundle | Password 1–1,024 bytes, PEM CA bundle at most 16 KiB |
+| Input line limit | 1 MiB; larger lines are skipped, counted and request a sync |
+| Encoded row budget | 256 KiB; one larger item may occupy a row by itself |
+| Items per row | 100 |
+| Batch fanout budget | 8 MiB, counting one canonical event and up to 8 copies to outputs; pipeline hard limit 16 MiB |
+| Pipeline row deadline | 10 seconds for a claimed raw row |
+| Flush interval | 1 second from the first item; one batch per consumer in flight |
+| `max_pending_rows` | 1,000 by default, 100–10,000; includes failed rows and can overshoot by one in-flight batch |
+| Reader stall | 30 seconds, including pauses at the cap or an unavailable insert slot; silence when reading is healthy |
+| Excess read lag | More than 60 seconds over that connection's lowest lag, sustained for 120 seconds |
+| TCP connect through response headers | 10 seconds total, including TLS; separate for each subscription or query |
+| TCP keepalive | 60 seconds idle, then six probes at 10-second intervals |
+| Reconnect backoff | 1 to 60 seconds, doubles with ±20% jitter; resets after 5 minutes connected |
+| Config adoption | Check every 30 seconds and on refused batches |
+| Lease | Renew every 10 seconds; expires after 30 seconds by database time; close locally after 20 seconds from sending the last acknowledged acquire or renewal |
+| Dedicated PostgreSQL connection | 1-second connect and client-connection check; normal 2-second statement, query and lock budgets; 5-second idle transaction limit |
+| PostgreSQL TCP (not Unix sockets) | Keepalive idle/interval/count 5 s/1 s/3, unacknowledged data timeout 10 s |
+| Local consumer shutdown | 10 seconds; force-close the dedicated session by 4 seconds; final release has its own 1-second connection and 1-second transaction budgets |
+| Admitted batch receipt retention | 1 hour, including for removed sources |
+| `sync_interval_seconds` | 3,600 by default; 300–86,400 seconds |
+| Sync start spacing | 60 seconds between starts, including across reconnect and takeover; one active sync per source |
+| Unserved sync request | Start within 5 minutes while connected and not paused (from the request or the end of current reading, whichever is later) |
+| Sync reading deadline | 15 minutes total and 60 seconds of body silence; both close the subscription |
+| Sync framing and diagnostics | Up to 1 MiB per object and 1,048,576 open containers; at most 20 bad-object samples of 600 bytes each plus one log summary. Unreadable names or names over 255 bytes are reported by position |
+| Sync progress stall | Applying for 15 minutes after reading; late rows may still complete it |
+| Sync progress retention | 30 days after completion or failure and only after every admitted row is done or failed |
+| Clock skew allowance | Effective source time is capped at receipt plus 5 minutes; source time more than 24 hours ahead is counted as future-dated, not stored |
+| Lateness horizon | 7 days from receipt, inclusive; older stream results are counted, not stored |
+
+Correlia does not bound the memory used by Icinga 2's per-client queue. Below
+the stall and lag thresholds, a consumer can remain behind when input matches
+drain. Disconnecting drops that upstream queue. A gap can lose acknowledgement,
+downtime and flapping events and intermediate states; sync repairs current
+state only. Distinct results with equal execution starts need not converge.
+An object removed from Icinga 2 keeps its alert; absence from sync does not
+resolve it. Retained rows grow until pruned or handled; failed rows consume
+the same admission budget as pending rows.
+
+The manual full-input test (`mise run test -- --tags load`) measured
+**335.65 events/s** committed over the final 5 minutes of a 10-minute run.
+It used one stream source, no output routes, and embedded PostgreSQL on
+Linux x64 with six logical CPUs. This is a measured drain rate, not a
+capacity guarantee for a different workload or host.
+
+The shutdown limit covers the worker's own sockets. PostgreSQL releases locks
+when it can process the closed connection; no lock-release deadline is promised
+for every backend state and network topology. A release that does not commit
+leaves the lease to expire.
+
+The reclamation cutoff can pass the receipt time of a buffered batch. The
+consumer rejects it without a raw row or reservation, reconnects, and syncs
+current state. A webhook rejected at this boundary returns `503`; retry the
+delivery so it gets a fresh receipt. An already committed reservation still
+deduplicates within its retention window. Reclaiming a silent tombstone ends
+its unpublished lifecycle: a later problem can create a new alert.
+
+### Read Icinga 2 Event Streams status
+
+From a local development or test `api` or `all` process, call
+`icinga2Stream.status(sourceId)`. The endpoint is read-only and uses the same
+console access policy as the alert console. For production, use the
+`icinga2-stream` state-change logs or run this read-only query in PostgreSQL:
+
+```sql
+SELECT s."sourceId",
+       CASE WHEN s.state IN ('connecting', 'syncing', 'connected', 'backoff', 'paused')
+              AND (l."sourceId" IS NULL OR l."expiresAt" <= clock_timestamp())
+            THEN 'stale' ELSE s.state END AS state,
+       s."connectionSeq", s."gapCount", s."oversizeLines", s."lastErrorClass"
+FROM icinga2_stream_status s
+LEFT JOIN icinga2_stream_lease l USING ("sourceId");
+```
+
+Do not read the stored `state` alone: an expired lease can leave a `connected`
+row even though the worker is gone. The query reports `stale` without rewriting it.
+
 ## Repair migrations
 
 Serverpod's repair diff sees SQL-owned tables as extraneous and may propose destructive changes. Before applying any generated repair, inspect its entire SQL against the current schema and **remove all operations that drop or alter** `raw_inbox`, `events`, `outbox`, `activity`, `correlia_schema_versions`, their indexes, constraints and time-qualified references. Review related cascades as well. Preserve data and the version table; never force a destructive repair merely to silence drift. Inspect any other unmanaged exceptions individually. If the desired SQL-owned schema itself needs correction, write a new forward schema step, not an edit to an applied step or a generated definition. Review the resulting repair and schema step together on a populated copy before production use.

@@ -30,6 +30,7 @@ final class ChildServer {
   ChildServer._({
     required this._serverDir,
     required List<String> args,
+    required String? executable,
     required List<String> vmArgs,
     required Map<String, String> environment,
     required Duration readyTimeout,
@@ -37,6 +38,7 @@ final class ChildServer {
     required this._logDirectory,
     required this._deleteLogDirectory,
   }) : _args = List.of(args),
+       _executable = executable,
        _vmArgs = List.of(vmArgs),
        _environment = Map.of(environment),
        _readyTimeout = readyTimeout,
@@ -88,10 +90,12 @@ final class ChildServer {
   /// Tests budget at least `n × (readiness deadline + 30 s shutdown) + 60 s`
   /// for sequential children; children started together count once.
   /// An optional [logs] directory is kept for full-output assertions.
+  /// Pass [executable] to run a built server instead of the Dart entry point.
   static Future<ChildServer> startOnSharedCluster({
     required Directory serverDir,
     required SharedClusterDatabase database,
     List<String> args = const ['--mode', 'test', '--apply-migrations'],
+    String? executable,
     Map<String, String> environment = const {},
     List<String> vmArgs = const [],
     Duration readyTimeout = const Duration(seconds: 60),
@@ -100,6 +104,7 @@ final class ChildServer {
   }) => _spawn(
     serverDir: serverDir,
     args: args,
+    executable: executable,
     vmArgs: vmArgs,
     readyTimeout: readyTimeout,
     portPicker: portPicker,
@@ -117,6 +122,7 @@ final class ChildServer {
     required Directory serverDir,
     required List<String> args,
     required List<String> vmArgs,
+    String? executable,
     required Duration readyTimeout,
     required Map<String, String> environment,
     Future<int> Function()? portPicker,
@@ -127,6 +133,7 @@ final class ChildServer {
     final child = ChildServer._(
       serverDir: serverDir,
       args: args,
+      executable: executable,
       vmArgs: vmArgs,
       environment: environment,
       readyTimeout: readyTimeout,
@@ -162,8 +169,15 @@ final class ChildServer {
         '-c',
         // exec keeps the process id equal to the server VM's.
         r'log=$1; shift; exec "$@" >"$log" 2>&1',
-        'sh', log.path, Platform.resolvedExecutable, ..._vmArgs,
-        p.join('bin', 'main.dart'), ..._args,
+        'sh', log.path,
+        if (_executable case final executable?)
+          executable
+        else ...[
+          Platform.resolvedExecutable,
+          ..._vmArgs,
+          p.join('bin', 'main.dart'),
+        ],
+        ..._args,
       ],
       workingDirectory: _serverDir.path,
       environment: {
@@ -244,6 +258,7 @@ final class ChildServer {
 
   final Directory _serverDir;
   final List<String> _args;
+  final String? _executable;
   final List<String> _vmArgs;
   final Map<String, String> _environment;
   final Duration _readyTimeout;

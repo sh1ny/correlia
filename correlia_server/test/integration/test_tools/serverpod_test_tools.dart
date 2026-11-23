@@ -16,6 +16,8 @@ import 'dart:io' as _idi;
 import 'package:correlia_server/src/generated/alert_snapshot.dart' as _idgsfjfz;
 import 'package:correlia_server/src/generated/feed_page.dart' as _iz0uuwqz;
 import 'package:correlia_server/src/generated/feed_wake_up.dart' as _iusodja6;
+import 'package:correlia_server/src/generated/icinga2_consumer_status.dart'
+    as _i12hxr9i;
 import 'package:serverpod/serverpod.dart' as _is;
 import 'package:serverpod_test/serverpod_test.dart' as _ist;
 import 'package:correlia_server/src/generated/protocol.dart';
@@ -152,6 +154,8 @@ void withServerpod(
 
 class TestEndpoints {
   late final _AlertConsoleEndpoint alertConsole;
+
+  late final _Icinga2StreamEndpoint icinga2Stream;
 }
 
 class _InternalTestEndpoints extends TestEndpoints
@@ -162,6 +166,10 @@ class _InternalTestEndpoints extends TestEndpoints
     _is.EndpointDispatch endpoints,
   ) {
     alertConsole = _AlertConsoleEndpoint(
+      endpoints,
+      serializationManager,
+    );
+    icinga2Stream = _Icinga2StreamEndpoint(
       endpoints,
       serializationManager,
     );
@@ -273,5 +281,47 @@ class _AlertConsoleEndpoint {
       _localTestStreamManager.outputStreamController,
     );
     return _localTestStreamManager.outputStreamController.stream;
+  }
+}
+
+class _Icinga2StreamEndpoint {
+  _Icinga2StreamEndpoint(
+    this._endpointDispatch,
+    this._serializationManager,
+  );
+
+  final _is.EndpointDispatch _endpointDispatch;
+
+  final _is.SerializationManager _serializationManager;
+
+  _ida.Future<_i12hxr9i.Icinga2ConsumerStatus?> status(
+    _ist.TestSessionBuilder sessionBuilder,
+    _is.UuidValue sourceId,
+  ) async {
+    return _ist.callAwaitableFunctionAndHandleExceptions(() async {
+      var _localUniqueSession =
+          (sessionBuilder as _ist.InternalTestSessionBuilder).internalBuild(
+            endpoint: 'icinga2Stream',
+            method: 'status',
+          );
+      try {
+        var _localCallContext = await _endpointDispatch.getMethodCallContext(
+          createSessionCallback: (_) => _localUniqueSession,
+          endpointPath: 'icinga2Stream',
+          methodName: 'status',
+          parameters: _ist.testObjectToJson({'sourceId': sourceId}),
+          serializationManager: _serializationManager,
+        );
+        var _localReturnValue =
+            await (_localCallContext.method.call(
+                  _localUniqueSession,
+                  _localCallContext.arguments,
+                )
+                as _ida.Future<_i12hxr9i.Icinga2ConsumerStatus?>);
+        return _localReturnValue;
+      } finally {
+        await _localUniqueSession.close();
+      }
+    });
   }
 }
