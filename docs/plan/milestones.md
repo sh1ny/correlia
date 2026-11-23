@@ -174,8 +174,8 @@ proven fixed.
 **Exit criteria:**
 - [agent] All correlation scenarios pass, including the 10k/60s hot-group correctness run.
 - [agent] The compose file starts Correlia from the minimal image, and an Alertmanager webhook sent to it
-  shows up as an incident in the console's incident list; the console and the API refuse connections on
-  a non-loopback address.
+  shows up as an incident in the console's incident list; every listener the image enables (API, web
+  server and console, Insights) is unreachable on the host's non-loopback IPv4 and IPv6 addresses.
 - [user] Replaying a recorded day of the owner's traffic gives incidents the owner agrees with, checked in
   the console's incident list.
 
