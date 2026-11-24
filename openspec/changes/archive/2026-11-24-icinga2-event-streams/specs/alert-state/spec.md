@@ -57,11 +57,10 @@ Only the state mutation service SHALL write alert state. It SHALL run inside the
 ### Requirement: Resolved alert fences late evidence after its events expire
 
 A resolved alert's row SHALL keep its fence after its events and keys are gone, except for eligible silent
-tombstones under reclamation. An observation older than the lateness horizon SHALL change no alert.
-When its observation key does not exist (never written, or removed with the alert's events), it SHALL be stored
-as `late`; when its key still exists, it SHALL take the duplicate path instead: it is a `duplicate_observation`
-and no new event is stored. An item of an Icinga2 stream or sync row is the exception: it is counted `late` and
-never stored.
+tombstones under reclamation. An observation older than the lateness horizon SHALL change no alert. Without
+its observation key (never written, or removed with the alert's events) it SHALL be stored as `late`; with the
+key it SHALL be a `duplicate_observation` and store no event. Icinga2 stream or sync row items are counted
+`late`, never stored.
 
 #### Scenario: ORD-6 late firing after resolution and expiry
 - **WHEN** an Icinga2 service alert resolves, its event rows and observation keys are removed, and a firing observation of it whose source time is 8 days old arrives
