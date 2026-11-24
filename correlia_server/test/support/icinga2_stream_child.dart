@@ -200,6 +200,11 @@ final class Icinga2StreamChild {
           SELECT count(*) FROM events e
           WHERE (e.raw_observed_at, e.raw_id, e.source_id) =
             (r.observed_at, r.raw_id, r.source_id)
+        ), (
+          SELECT concat_ws(':', f."errorClass", f."fieldPath")
+          FROM pipeline_failures f
+          WHERE (f."rawObservedAt", f."rawId") = (r.observed_at, r.raw_id)
+          ORDER BY f.id DESC LIMIT 1
         )
         FROM raw_inbox r
         WHERE r.source_id = @source:uuid
@@ -215,7 +220,7 @@ final class Icinga2StreamChild {
       );
       final row = rows.single;
       if (row[0] != 'done' && row[0] != 'failed') return false;
-      final reason = 'source $source raw ${row[2]}: ${row[1]}';
+      final reason = 'source $source raw ${row[2]}: ${row[4] ?? row[1]}';
       expect(row[0], 'done', reason: reason);
       expect(row[3], 1, reason: reason);
       return true;

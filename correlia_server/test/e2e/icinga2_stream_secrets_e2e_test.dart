@@ -237,6 +237,12 @@ final class _Fixture {
       absent(jsonEncode(snapshot.toJson()), 'snapshot');
       final page = await api.alertConsole.feed(initialCursor, 100);
       absent(jsonEncode(page.toJson()), 'feed');
+      // Serverpod test mode does not persist fast, successful sessions.
+      // Explicitly exercise the failed-session log instead of relying on slowness.
+      await expectLater(
+        api.alertConsole.feed('invalid-fixture-cursor', 100),
+        throwsA(isA<InvalidCursorException>()),
+      );
     } finally {
       api.close();
     }
@@ -268,19 +274,19 @@ final class _Fixture {
     final console = await child.fetch('/', web: true, requestTimeout: null);
     expect(console?.status, anyOf(200, 503));
     absent(console!.body, 'console');
+    const failedFeedSession = '''
+      SELECT 1 FROM serverpod_session_log
+      WHERE endpoint = 'alertConsole' AND method = 'feed'
+        AND error IS NOT NULL AND "isOpen" = false
+    ''';
     await until(
-      () async => (await connection.execute(
-        'SELECT 1 FROM serverpod_session_log',
-      )).isNotEmpty,
+      () async => (await connection.execute(failedFeedSession)).isNotEmpty,
     );
     expect(await child.closeStdin(deadline: null), 0);
     for (final delivery in deliveries) {
       absent(delivery, 'webhook delivery');
     }
-    expect(
-      await connection.execute('SELECT 1 FROM serverpod_session_log'),
-      isNotEmpty,
-    );
+    expect(await connection.execute(failedFeedSession), isNotEmpty);
     final tables = await connection.execute(
       "SELECT format('%I.%I',schemaname,tablename) FROM pg_tables WHERE schemaname='public'",
     );
@@ -386,7 +392,7 @@ Future<void> _withFixture(Future<void> Function(_Fixture) run) async {
       'CREATE TRIGGER secret_test_status AFTER INSERT OR UPDATE ON icinga2_stream_status FOR EACH ROW EXECUTE FUNCTION secret_test_notify()',
     );
     await connection.execute(
-      'CREATE TRIGGER secret_test_log AFTER INSERT ON serverpod_session_log FOR EACH ROW EXECUTE FUNCTION secret_test_notify()',
+      'CREATE TRIGGER secret_test_log AFTER INSERT OR UPDATE ON serverpod_session_log FOR EACH ROW EXECUTE FUNCTION secret_test_notify()',
     );
     await connection.execute('LISTEN secret_test_change');
     changes = StreamIterator<Object?>(

@@ -378,14 +378,20 @@ void main() {
         request.headers.contentType = ContentType.json;
         request.headers.set('Authorization', 'Bearer $credential');
         request.headers.set('Idempotency-Key', webhookKey);
-        final seconds = DateTime.now().microsecondsSinceEpoch / 1000000;
+        // The wire format requires six digits even at a millisecond boundary.
+        final timestamp = timeText(
+          DateTime.fromMillisecondsSinceEpoch(
+            DateTime.now().millisecondsSinceEpoch,
+            isUtc: true,
+          ),
+        );
         request.write(
           jsonEncode(
             delivery(
               set: {
                 'host': webhookHost,
-                'last_state_change': '$seconds',
-                'notification_time': '$seconds',
+                'last_state_change': timestamp,
+                'notification_time': timestamp,
               },
             ),
           ),
