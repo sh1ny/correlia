@@ -79,6 +79,13 @@ void main() {
     expect(() => parse(fields: {'foreign': true}), field('sources[0].foreign'));
   });
 
+  test('thanos_source_kind', () {
+    expect(
+      () => parse(fields: {'kind': 'thanos'}),
+      field('sources[0].kind'),
+    );
+  });
+
   test('icinga2_source_declares_a_path_token', () {
     expect(
       parse(fields: {'kind': 'icinga2'}).sources.single.toJson()['kind'],
