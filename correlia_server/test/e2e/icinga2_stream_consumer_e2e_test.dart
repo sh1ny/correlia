@@ -18,6 +18,7 @@ import '../support/icinga2_stream_pipeline.dart';
 
 const _source = icinga2DbSourceId;
 const _timeout = Timeout(Duration(minutes: 4));
+final _connectedLine = RegExp('icinga2-stream source=$_source connected');
 
 void main() {
   late Icinga2StreamChild scenario;
@@ -48,10 +49,7 @@ void main() {
         ));
         await scenario.upstream.send(streamDbCheck(DateTime.now().toUtc()));
         await scenario.until(() async => await scenario.count('events') == 1);
-        expect(
-          child.output,
-          contains('icinga2-stream source=$_source connected'),
-        );
+        await child.waitForOutput(_connectedLine);
       },
       timeout: _timeout,
     );
@@ -67,7 +65,7 @@ void main() {
     final publisher = await scenario.start(role: 'api', revision: 2);
     await scenario.waitState('connected');
     expect(scenario.upstream.subscriptionsReady, 1);
-    expect(worker.output, contains('icinga2-stream source=$_source connected'));
+    await worker.waitForOutput(_connectedLine);
     expect(publisher.output, isNot(contains('icinga2-stream source=')));
   }, timeout: _timeout);
 
@@ -119,7 +117,7 @@ void main() {
     final (code, body) = await _status(child);
     expect(code, isNot(HttpStatus.ok));
     expect(body, contains('Console access denied'));
-    expect(child.output, contains('icinga2-stream source=$_source connected'));
+    await child.waitForOutput(_connectedLine);
   }, timeout: _timeout);
 
   test('holder_died_with_no_replacement', () async {

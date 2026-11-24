@@ -242,7 +242,7 @@ void main() {
         await processIcinga2(session, now);
         expect(await outcomeOf(session, raw), {
           'upstream_omitted': 0,
-          'unknown_top_level_fields': [],
+          'unknown_top_level_fields': const <String>[],
           'unknown_top_level_overflow': 0,
           'committed': 1,
           'unrouted': 0,

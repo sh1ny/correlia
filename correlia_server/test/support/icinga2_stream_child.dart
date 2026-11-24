@@ -87,8 +87,9 @@ final class Icinga2StreamChild {
     children.add(child);
     if (mode != 'test') {
       addTearDown(() async {
-        if (!child.hasExited)
+        if (!child.hasExited) {
           expect(await child.stop(), 0, reason: child.output);
+        }
       });
     }
     await child.waitUntilReady();

@@ -16,13 +16,13 @@ import 'package:test/test.dart';
 String _section(String headingPattern) {
   final lines = File('../docs/ingest-pipeline.md').readAsLinesSync();
   final heading = RegExp(
-    r'^(#{2,6})\s+.*(?:' + headingPattern + ')',
+    '^(#{2,6})\\s+.*(?:$headingPattern)',
     caseSensitive: false,
   );
   final start = lines.indexWhere((line) => heading.hasMatch(line));
   expect(start, isNonNegative, reason: 'Missing section: $headingPattern');
   final level = heading.firstMatch(lines[start])!.group(1)!.length;
-  final nextHeading = RegExp(r'^#{1,' + '$level' + r'}\s+');
+  final nextHeading = RegExp('^#{1,$level}\\s+');
   return lines
       .skip(start + 1)
       .takeWhile((line) => !nextHeading.hasMatch(line))
@@ -122,7 +122,7 @@ void main() {
       expect(setup, contains(grant), reason: 'Object query grant');
     }
     final example = File(
-      '../contrib/icinga2/correlia-stream-api-user.conf',
+      '../contrib/icinga2/event-streams/correlia-stream-api-user.conf',
     ).readAsStringSync();
     final permissions = RegExp(
       r'permissions\s*=\s*\[([^\]]*)\]',

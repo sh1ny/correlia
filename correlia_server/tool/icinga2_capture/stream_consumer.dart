@@ -160,8 +160,9 @@ Future<void> _submit(IcingaLab lab, int state, String output) async {
       'execution_end': at,
     },
   );
-  if (result['code'] != 200)
+  if (result['code'] != 200) {
     throw StateError('Icinga did not apply the matrix check');
+  }
 }
 
 Future<_ObservedCheck> _event(

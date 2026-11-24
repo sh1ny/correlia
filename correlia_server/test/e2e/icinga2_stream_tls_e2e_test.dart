@@ -1,4 +1,5 @@
 @Tags(['e2e'])
+@Timeout(Duration(minutes: 2))
 library;
 
 import 'dart:async';

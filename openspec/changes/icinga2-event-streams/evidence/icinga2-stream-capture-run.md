@@ -1,6 +1,6 @@
 # Icinga2 Event Streams compiled-consumer capture
 
-Linux x86_64; Dart 3.13.7 and Serverpod 4.1.0. The Correlia server was built with `dart build cli` and started as a real worker on an isolated PostgreSQL test database for each positive and omitted-grant case. The worker verified the disposable Icinga instance's generated CA and `localhost` certificate. The positive runs used the shipped `contrib/icinga2/correlia-stream-api-user.conf`.
+Linux x86_64; Dart 3.13.7 and Serverpod 4.1.0. The Correlia server was built with `dart build cli` and started as a real worker on an isolated PostgreSQL test database for each positive and omitted-grant case. The worker verified the disposable Icinga instance's generated CA and `localhost` certificate. The positive runs used the shipped `contrib/icinga2/event-streams/correlia-stream-api-user.conf`, kept outside the qualified webhook bundle.
 
 Reproduce from the repository root:
 

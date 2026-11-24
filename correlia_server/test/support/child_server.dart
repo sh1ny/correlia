@@ -30,7 +30,7 @@ final class ChildServer {
   ChildServer._({
     required this._serverDir,
     required List<String> args,
-    required String? executable,
+    required this._executable,
     required List<String> vmArgs,
     required Map<String, String> environment,
     required Duration readyTimeout,
@@ -38,7 +38,6 @@ final class ChildServer {
     required this._logDirectory,
     required this._deleteLogDirectory,
   }) : _args = List.of(args),
-       _executable = executable,
        _vmArgs = List.of(vmArgs),
        _environment = Map.of(environment),
        _readyTimeout = readyTimeout,

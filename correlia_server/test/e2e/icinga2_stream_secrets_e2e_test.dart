@@ -73,9 +73,9 @@ final class _Upstream {
       }
       final socket = await request.response.detachSocket(writeHeaders: false);
       sockets.add(socket);
-      socket.listen((_) {}, onError: (Object _, StackTrace __) {});
+      socket.listen((_) {}, onError: (Object _, StackTrace _) {});
       unawaited(
-        socket.done.then<void>((_) {}, onError: (Object _, StackTrace __) {}),
+        socket.done.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
       );
       socket.write('HTTP/1.0 200 OK\r\nContent-Type: application/json\r\n\r\n');
       await socket.flush();
@@ -184,8 +184,9 @@ final class _Fixture {
   Future<void> until(Future<bool> Function() condition) async {
     await (() async {
       while (!await condition()) {
-        if (!await nextChange)
+        if (!await nextChange) {
           throw StateError('database notifications closed');
+        }
         nextChange = changes.moveNext();
       }
     })().timeout(_deadline);

@@ -146,7 +146,7 @@ their group re-runs that test. Every other row starts `red` and turns green when
 | icinga2-event-streams → Bounded batches | Large valid line | `correlia_server/test/unit/ingest/icinga2_stream_batcher_test.dart` | `large_valid_line` | green |
 | icinga2-event-streams → Bounded batches | Single slow event | `correlia_server/test/unit/ingest/icinga2_stream_batcher_test.dart` | `single_slow_event` | green |
 | icinga2-event-streams → Batches fit the pipeline's fanout limit | Fanout cut before the encoded cut | `correlia_server/test/unit/ingest/icinga2_stream_batcher_test.dart` | `fanout_cut_before_the_encoded_cut` | green |
-| icinga2-event-streams → Batches fit the pipeline's fanout limit | Worst-case fanout | `correlia_server/test/load/icinga2_stream_load_test.dart` | `worst_case_fanout` | red |
+| icinga2-event-streams → Batches fit the pipeline's fanout limit | Worst-case fanout | `correlia_server/test/load/icinga2_stream_load_test.dart` | `worst_case_fanout` | green |
 | icinga2-event-streams → Retained work is bounded | Pipeline briefly behind | `correlia_server/test/unit/ingest/icinga2_stream_backpressure_test.dart` | `pipeline_briefly_behind` | green |
 | icinga2-event-streams → Retained work is bounded | Pipeline stopped | `correlia_server/test/unit/ingest/icinga2_stream_backpressure_test.dart` + `correlia_server/test/db/icinga2_stream_live_backpressure_test.dart` | `pipeline_stopped` | green |
 | icinga2-event-streams → Retained work is bounded | Failures accumulate | `correlia_server/test/db/icinga2_stream_backpressure_test.dart` | `failures_accumulate` | green |
@@ -425,8 +425,8 @@ their group re-runs that test. Every other row starts `red` and turns green when
 
 ## 12. Load and integration
 
-- [ ] 12.1 [evidence] Run the manual load tier (`mise run test -- --tags load`): D6's worst-case batch within the row deadline, and a 10-minute run at full input with the drain rate measured over its last 5 minutes → evidence/icinga2-stream-load.md. Verify: the worst-case batch finishes within the row deadline and the measured drain rate is recorded in the docs' limits section.
-- [ ] 12.2 Run `mise run test:all` and `mise run check`. Verify: both pass and every test-map row reads `green`.
+- [x] 12.1 [evidence] Run the manual load tier (`mise run test -- --tags load`): D6's worst-case batch within the row deadline, and a 10-minute run at full input with the drain rate measured over its last 5 minutes → evidence/icinga2-stream-load.md. Verify: the worst-case batch finishes within the row deadline and the measured drain rate is recorded in the docs' limits section.
+- [x] 12.2 Run `mise run test:all` and `mise run check`. Verify: both pass and every test-map row reads `green`.
 
 ## Workflow follow-up
 

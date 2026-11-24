@@ -69,7 +69,7 @@ checks for a new revision every 30 seconds and also on a refused batch. Rotate
 the API password or CA by publishing a new secret reference, not by overwriting
 the old reference.
 
-Install [`correlia-stream-api-user.conf`](../contrib/icinga2/correlia-stream-api-user.conf)
+Install [`correlia-stream-api-user.conf`](../contrib/icinga2/event-streams/correlia-stream-api-user.conf)
 on the Icinga 2 instance. Define `CorreliaStreamApiPassword` in a protected Icinga
 configuration fragment, run `icinga2 daemon -C`, then reload Icinga 2. Use only
 these grants; no event filter or wildcard is needed:

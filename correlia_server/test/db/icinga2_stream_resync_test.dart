@@ -469,8 +469,9 @@ void main() {
         ], observed: now);
         final queued = Completer<void>();
         clock.onSchedule = (delay) {
-          if (delay == const Duration(seconds: 1) && !queued.isCompleted)
+          if (delay == const Duration(seconds: 1) && !queued.isCompleted) {
             queued.complete();
+          }
         };
         await server.send(streamDbCheck(now.add(const Duration(seconds: 1))));
         await queued.future.timeout(const Duration(seconds: 2));

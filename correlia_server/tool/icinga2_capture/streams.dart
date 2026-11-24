@@ -117,8 +117,9 @@ Map<String, Object?> _decodeCapture(Directory data) {
       policy: StreamStateTypePolicy.softAndHard,
       origin: origin,
     );
-    if (result is! IcingaStreamEvent)
+    if (result is! IcingaStreamEvent) {
       throw StateError('The populated capture produced no decoded event');
+    }
     final event = result.event;
     final source = jsonDecode(line) as Map<String, Object?>;
     return {
@@ -199,7 +200,7 @@ object ApiUser "$name" {
   );
   if (verifyConsumer) {
     final example = File(
-      '../contrib/icinga2/correlia-stream-api-user.conf',
+      '../contrib/icinga2/event-streams/correlia-stream-api-user.conf',
     ).readAsStringSync();
     await write(
       'conf.d/correlia-stream-api-user.conf',

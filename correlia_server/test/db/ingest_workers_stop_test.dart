@@ -112,6 +112,7 @@ void main() {
               final later = workers.stop().then((_) => laterFinished = true);
               final laterResult = expectLater(later, completes);
               expect(laterFinished, isFalse);
+              expect(calls['icinga2-event-streams'], 1);
               expect(calls['supervisor'], isNull);
               release.complete();
               await firstResult;
@@ -121,7 +122,12 @@ void main() {
               await firstResult;
               await workers.stop();
             }
-            expect(calls, {'relay': 1, 'pipeline': 1, 'supervisor': 1});
+            expect(calls, {
+              'relay': 1,
+              'icinga2-event-streams': 1,
+              'pipeline': 1,
+              'supervisor': 1,
+            });
           } finally {
             if (!release.isCompleted) release.complete();
             // Every first stop attempts every real component, including on a hook error.
