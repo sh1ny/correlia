@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:correlia_server/src/ingest/bootstrap.dart';
 import 'package:test/test.dart';
 
+import '../../support/generic_webhook_fixture.dart';
+
 void main() {
   late Directory root;
   late File config;
@@ -82,6 +84,31 @@ void main() {
       );
     },
   );
+  test('mappings_over_the_file_cap', () async {
+    await config.writeAsString(
+      jsonEncode({
+        'format_version': 2,
+        'revision': 1,
+        'sources': <Object?>[],
+        'outputs': <Object?>[],
+        'mappings': [
+          for (var i = 0; i < 20; i++)
+            {
+              ...checkMapping(name: 'mapping-$i'),
+              'description': {'constant': 'x' * 4096},
+            },
+        ],
+      }),
+    );
+    await expectLater(
+      IngestBootstrap.load(environment(), runMode: 'test'),
+      throwsA(
+        isA<BootstrapError>()
+            .having((e) => e.fileKind, 'file kind', 'config')
+            .having((e) => e.code, 'code', 'bound'),
+      ),
+    );
+  });
   test('sanitizes malformed secret JSON and URI parser errors', () async {
     await secrets.writeAsString('{"private":"canary-secret",');
     await expectLater(

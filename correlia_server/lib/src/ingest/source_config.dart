@@ -57,6 +57,9 @@ sealed class SourceKind {
   /// The Icinga 2 notification-command kind.
   static const SourceKind icinga2 = Icinga2SourceKind._();
 
+  /// The declaratively mapped webhook kind.
+  static const SourceKind generic = GenericSourceKind._();
+
   /// The configuration and route name of this kind.
   final String name;
 
@@ -64,6 +67,7 @@ sealed class SourceKind {
   static SourceKind? named(Object? value) => switch (value) {
     'alertmanager' => alertmanager,
     'icinga2' => icinga2,
+    'generic' => generic,
     _ => null,
   };
 }
@@ -76,6 +80,11 @@ final class AlertmanagerSourceKind extends SourceKind {
 /// See [SourceKind.icinga2].
 final class Icinga2SourceKind extends SourceKind {
   const Icinga2SourceKind._() : super._('icinga2');
+}
+
+/// See [SourceKind.generic].
+final class GenericSourceKind extends SourceKind {
+  const GenericSourceKind._() : super._('generic');
 }
 
 /// Whether Icinga 2 state comes from a webhook or a leased stream.
@@ -154,6 +163,7 @@ final class IngestSource {
     required this.rateLimit,
     required Set<String> excludedIdentityLabels,
     this.stream,
+    this.mapping,
     required List<String> outputIds,
   }) : credentials = List.unmodifiable(credentials),
        excludedIdentityLabels = Set.unmodifiable(excludedIdentityLabels),
@@ -174,6 +184,9 @@ final class IngestSource {
 
   /// The connection settings of a stream source, absent for webhooks.
   final IcingaStreamOptions? stream;
+
+  /// The mapping name, present only for [SourceKind.generic].
+  final String? mapping;
 
   /// The source's immutable admission mode.
   SourceMode get mode =>
@@ -198,6 +211,7 @@ final class IngestSource {
       'body_limit_bytes': bodyLimitBytes,
       'rate_limit': rateLimit!.toJson(),
     },
+    'mapping': ?mapping,
     'excluded_identity_labels': excludedIdentityLabels.toList()..sort(),
     'output_ids': outputIds,
   };
@@ -386,6 +400,7 @@ IngestSource _parseSource(
   String field,
   int version,
   Set<String> namespaces,
+  Map<String, GenericMapping> mappings,
   Set<String> outputs,
   Map<String, Uint8List> secrets,
   DateTime now,
@@ -408,6 +423,7 @@ IngestSource _parseSource(
       'api',
       'state_type_policy',
       'max_pending_rows',
+      'mapping',
     },
   }, field);
   final id = _uuid(row['id'], '$field.id');
@@ -463,6 +479,17 @@ IngestSource _parseSource(
         _bad('config', '$field.$option', 'alertmanager_only');
       }
     }
+  }
+  final String? mapping;
+  if (kind is GenericSourceKind) {
+    mapping = _mappingName(row['mapping'], '$field.mapping');
+    if (!mappings.containsKey(mapping)) {
+      _bad('config', '$field.mapping', 'unknown_mapping');
+    }
+  } else {
+    if (row.containsKey('mapping'))
+      _bad('config', '$field.mapping', 'generic_only');
+    mapping = null;
   }
   final namespace = row['namespace'] == null
       ? id
@@ -554,6 +581,7 @@ IngestSource _parseSource(
     rateLimit: rate,
     excludedIdentityLabels: exclusions,
     stream: stream,
+    mapping: mapping,
     outputIds: routes,
   );
 }

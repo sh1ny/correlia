@@ -13,6 +13,7 @@ import '../event/validation.dart';
 import '../ingest/bootstrap.dart'
     show
         AlertmanagerSourceKind,
+        GenericSourceKind,
         Icinga2SourceKind,
         SourceKind,
         SourceMode,
@@ -144,6 +145,7 @@ String safeFailurePath(String path, SourceKind kind) {
       RegExp(r'^alerts\[[0-9]{1,4}\]$'),
     ),
     Icinga2SourceKind() => (_icinga2PathFields, null),
+    GenericSourceKind() => (const {'event'}, null),
   };
   final safe = path
       .split('.')
@@ -864,7 +866,7 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
   /// The decoder of [kind], or `null` when there is no kind.
   KindDecoder? _decoderFor(SourceKind? kind) {
     return switch (kind) {
-      null => null,
+      null || GenericSourceKind() => null,
       AlertmanagerSourceKind() => decodeAlertmanagerRequest,
       Icinga2SourceKind() => icinga2Decoder,
     };
