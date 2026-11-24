@@ -35,12 +35,25 @@ void main() {
       late List<String> logs;
       late IcingaTestDbChanges changes;
       late Completer<void> backoffScheduled;
+      late Completer<void> backoffLogged;
 
       setUp(() async {
         session = builder.build();
         await clearPipelineTables(session);
         await session.db.unsafeSimpleExecute(
           'TRUNCATE icinga2_stream_lease,icinga2_stream_status,icinga2_admitted_batch,icinga2_stream_resync',
+        );
+        await session.db.unsafeSimpleExecute('''
+          CREATE SCHEMA backpressure_clock;
+          CREATE TABLE backpressure_clock.instant AS SELECT clock_timestamp() AS value;
+          CREATE FUNCTION backpressure_clock.clock_timestamp()
+          RETURNS timestamptz VOLATILE LANGUAGE sql
+          AS 'SELECT value FROM backpressure_clock.instant';
+        ''');
+        addTearDown(
+          () => session.db.unsafeSimpleExecute(
+            'DROP SCHEMA backpressure_clock CASCADE',
+          ),
         );
         server = await IcingaConsumerLoopback.start();
         changes = await IcingaTestDbChanges.start(session.serverpod, [
@@ -55,6 +68,7 @@ void main() {
         );
         clock = StreamReaderClock();
         logs = [];
+        backoffLogged = Completer<void>();
         backoff = StreamReaderClock();
         backoffDelays = [];
         backoffScheduled = Completer<void>();
@@ -74,15 +88,28 @@ void main() {
         final endpoint = await StreamDatabaseEndpoint.resolve(
           session.serverpod,
         );
-        final probe = await endpoint.open();
+        Future<pg.Connection> open() async {
+          final connection = beforeWrite == null
+              ? await endpoint.open()
+              : await endpoint.open(queryTimeout: const Duration(minutes: 5));
+          try {
+            await connection.execute(
+              'SET search_path=backpressure_clock,pg_catalog,public',
+            );
+            return connection;
+          } catch (_) {
+            await connection.close(force: true);
+            rethrow;
+          }
+        }
+
+        final probe = await open();
         addTearDown(probe.close);
         status = StreamStatusStore(probe);
         final leaseClock = StreamReaderClock();
         final supervisor = Icinga2StreamSupervisor(
           holder: 'live-backpressure-tests',
-          openDatabase: (_) => beforeWrite == null
-              ? endpoint.open()
-              : endpoint.open(queryTimeout: const Duration(minutes: 5)),
+          openDatabase: (_) => open(),
           revisionInterval: const Duration(milliseconds: 25),
           runMode: 'test',
           readerClockForTest: () => clock.elapsed,
@@ -94,7 +121,12 @@ void main() {
           beforeRawWriteForTest: beforeWrite,
           rawWriteErrorForTest: writeError,
           beforeAdmissionCommit: beforeCommit,
-          log: logs.add,
+          log: (line) {
+            logs.add(line);
+            if (line.contains(' backoff ') && !backoffLogged.isCompleted) {
+              backoffLogged.complete();
+            }
+          },
           loadTargets: () async => [
             StreamTarget(
               sourceId: icinga2DbSourceId,
@@ -147,6 +179,7 @@ void main() {
         final value = (await status.read(icinga2DbSourceId))!;
         expect(value.gapCount, 1);
         expect(value.lastGapSeq, 1);
+        await backoffLogged.future;
         expect(
           logs.where((line) => line.endsWith('backoff $reason')),
           hasLength(1),
@@ -198,9 +231,6 @@ void main() {
           },
           writeError: (batch, error) =>
               attempts.add((batch.id, error.code, error.message)),
-        );
-        await session.db.unsafeSimpleExecute(
-          "UPDATE icinga2_stream_lease SET \"expiresAt\"='infinity'",
         );
         final lockConnection = await openStreamDatabase(session.serverpod);
         addTearDown(lockConnection.close);

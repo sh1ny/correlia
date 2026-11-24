@@ -81,8 +81,9 @@ void main() {
     test(name, () async {
       scenario.upstream.subscriptionStatus = response;
       await scenario.start(revision: 1);
-      final backoff = await scenario.firstBackoff();
-      expect(backoff[0], error);
+      final outcome = await scenario.firstAttemptOutcome();
+      expect(outcome[0], 'backoff');
+      expect(outcome[1], error);
       if (response != null) expect(scenario.upstream.eventRequests, isNotEmpty);
       expect(scenario.upstream.reads, 0);
       expect(await scenario.count('icinga2_sync_progress'), 0);
@@ -284,13 +285,17 @@ void main() {
     await scenario.start(role: 'worker', revision: 1);
     await scenario.waitState('connected');
     await scenario.ageSync();
+    final cursor = await scenario.journalCursor();
     await scenario.db.execute(
       "UPDATE raw_admission_cutoff SET cutoff = 'infinity'",
     );
     await scenario.upstream.send(streamDbCheck(DateTime.now().toUtc()));
     await scenario.upstream.waitForDisconnects(1);
-    final backoff = await scenario.firstBackoff();
-    expect(backoff.toList(), ['receipt_behind_cutoff', 1, 1]);
+    final outcome = await scenario.firstAttemptOutcome(
+      after: cursor,
+      from: 'connected',
+    );
+    expect(outcome.toList(), ['backoff', 'receipt_behind_cutoff', 1, 1]);
     expect(await scenario.count('raw_inbox'), 0);
     expect(await scenario.count('icinga2_raw_origin'), 0);
     expect(await scenario.count('icinga2_admitted_batch'), 0);

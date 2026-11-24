@@ -162,24 +162,40 @@ final class Icinga2StreamChild {
     ]);
   }
 
-  /// Reads the first committed backoff for the fresh source.
-  Future<ResultRow> firstBackoff() async {
-    late ResultRow backoff;
+  /// Marks the committed transitions preceding a new fixture action.
+  Future<int> journalCursor() async =>
+      (await db.execute(
+            Sql.named('''
+      SELECT coalesce(max(seq), 0) FROM icinga2_test_transitions
+      WHERE source_id = @source:uuid
+    '''),
+            parameters: {'source': _source},
+          )).single.single!
+          as int;
+
+  /// Reads the first change of state after [after], excluding [from] and
+  /// connecting. A gap-count update can leave the current state unchanged.
+  Future<ResultRow> firstAttemptOutcome({
+    int after = 0,
+    String from = 'connecting',
+  }) async {
+    late ResultRow outcome;
     await until(() async {
       final rows = await db.execute(
         Sql.named('''
-        SELECT error_class, connection_seq, gap_count
+        SELECT state, error_class, connection_seq, gap_count
         FROM icinga2_test_transitions
-        WHERE source_id = @source:uuid AND state = 'backoff'
+        WHERE source_id = @source:uuid AND seq > @after:int8
+          AND state NOT IN ('connecting', @from:text)
         ORDER BY seq LIMIT 1
       '''),
-        parameters: {'source': _source},
+        parameters: {'source': _source, 'after': after, 'from': from},
       );
       if (rows.isEmpty) return false;
-      backoff = rows.single;
+      outcome = rows.single;
       return true;
     });
-    return backoff;
+    return outcome;
   }
 
   /// Checks the exact source and raw key, failing on a terminal row without an event.
