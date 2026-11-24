@@ -31,7 +31,9 @@ final class _StreamHolder {
   Future<void> run() async {
     try {
       if (!_live) return;
-      final db = await owner.openDatabase(_dbDeadline);
+      final opening = owner.openDatabase(_dbDeadline);
+      owner._onConsumerOpen?.call(lease.sourceId, opening);
+      final db = await opening;
       if (!_live) {
         await _forceClose(db);
         return;

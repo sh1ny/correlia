@@ -98,6 +98,8 @@ final class Icinga2StreamSupervisor {
     Future<void> Function()? afterRenewCommitForTest,
     Future<void> Function()? beforeAdmitForTest,
     Future<void> Function()? beforeNumberCommitForTest,
+    void Function(String, Future<pg.Connection>)? onConsumerOpenForTest,
+    void Function(int)? afterAcquisitionScanForTest,
     Duration? headerDeadlineForTest,
   }) : _beforeAdmissionCommit = runMode == 'test'
            ? beforeAdmissionCommit
@@ -114,6 +116,10 @@ final class Icinga2StreamSupervisor {
        _beforeAdmit = runMode == 'test' ? beforeAdmitForTest : null,
        _beforeNumberCommit = runMode == 'test'
            ? beforeNumberCommitForTest
+           : null,
+       _onConsumerOpen = runMode == 'test' ? onConsumerOpenForTest : null,
+       _afterAcquisitionScan = runMode == 'test'
+           ? afterAcquisitionScanForTest
            : null,
        _headerDeadline =
            (runMode == 'test' ? headerDeadlineForTest : null) ??
@@ -136,6 +142,8 @@ final class Icinga2StreamSupervisor {
   final Future<void> Function()? _afterRenewCommit;
   final Future<void> Function()? _beforeAdmit;
   final Future<void> Function()? _beforeNumberCommit;
+  final void Function(String, Future<pg.Connection>)? _onConsumerOpen;
+  final void Function(int)? _afterAcquisitionScan;
   final Duration _headerDeadline;
   Duration _leaseNow() => _leaseClock?.call() ?? _watch.elapsed;
   final _watch = Stopwatch()..start();
@@ -193,6 +201,7 @@ final class Icinga2StreamSupervisor {
           _active[id] = worker;
           unawaited(worker.run().whenComplete(() => _active.remove(id)));
         }
+        _afterAcquisitionScan?.call(targets.length);
         if (_stopping) return;
         await _prune(db);
         if (!_stopping && db.isOpen) {

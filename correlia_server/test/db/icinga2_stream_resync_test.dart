@@ -1,3 +1,6 @@
+@Timeout(Duration(minutes: 5))
+library;
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -14,12 +17,25 @@ import '../integration/test_tools/serverpod_test_tools.dart';
 import '../support/icinga2_consumer_loopback.dart';
 import '../support/icinga2_pipeline.dart';
 import '../support/icinga2_stream_pipeline.dart';
+import '../support/icinga2_test_db_changes.dart';
 import '../support/stream_reader_clock.dart';
 
-Future<void> _until(Future<bool> Function() condition, String cause) async {
-  final clock = Stopwatch()..start();
-  while (!await condition()) {
-    if (clock.elapsed > const Duration(seconds: 5)) fail(cause);
+final class _Backoffs {
+  var _next = Completer<void Function()>();
+
+  void Function() schedule(Duration _, void Function() fire) {
+    var cancelled = false;
+    _next.complete(() {
+      if (!cancelled) fire();
+    });
+    return () => cancelled = true;
+  }
+
+  Future<void> retry([Future<void> Function()? prepare]) async {
+    final fire = await _next.future;
+    _next = Completer<void Function()>();
+    await prepare?.call();
+    fire();
   }
 }
 
@@ -31,11 +47,9 @@ void main() {
       late IcingaConsumerLoopback server;
       late String snapshot;
       late DateTime now;
-
-      final messages = <String>[];
+      late IcingaTestDbChanges changes;
 
       setUp(() async {
-        messages.clear();
         session = builder.build();
         await clearPipelineTables(session);
         await session.db.unsafeSimpleExecute(
@@ -48,12 +62,18 @@ void main() {
           apiUrl: server.url.toString(),
         );
         now = DateTime.now().toUtc();
+        changes = await IcingaTestDbChanges.start(session.serverpod, [
+          'icinga2_stream_status',
+          'icinga2_sync_progress',
+          'raw_inbox',
+        ]);
+        addTearDown(changes.close);
       });
 
       Future<StreamStatusStore> start({
         Duration? interval,
         StreamReaderClock? clock,
-        bool immediateBackoff = false,
+        _Backoffs? backoffs,
       }) async {
         final endpoint = await StreamDatabaseEndpoint.resolve(
           session.serverpod,
@@ -67,10 +87,8 @@ void main() {
           runMode: 'test',
           readerClockForTest: clock == null ? null : () => clock.elapsed,
           readerScheduleForTest: clock?.schedule,
-          backoffScheduleForTest: immediateBackoff
-              ? (delay, callback) => Timer(Duration.zero, callback).cancel
-              : null,
-          log: messages.add,
+          backoffScheduleForTest: backoffs?.schedule,
+          log: (_) {},
           loadTargets: () async => [
             StreamTarget(
               sourceId: icinga2DbSourceId,
@@ -92,18 +110,16 @@ void main() {
         );
         addTearDown(supervisor.stop);
         supervisor.start();
-        await server.firstSubscription.future.timeout(
-          const Duration(seconds: 5),
-        );
+        await server.waitForSubscriptions(1);
         return StreamStatusStore(probe);
       }
 
-      Future<void> ready(StreamStatusStore status) => _until(
-        () async =>
-            (await status.read(icinga2DbSourceId))?.state ==
-            StreamConsumerState.connected,
-        'Initial sync did not connect',
-      );
+      Future<void> ready(StreamStatusStore status, {int sequence = 1}) =>
+          changes.until(() async {
+            final current = await status.read(icinga2DbSourceId);
+            return current?.connectionSeq == sequence &&
+                current?.state == StreamConsumerState.connected;
+          });
 
       Future<void> expireSpacing() => session.db.unsafeExecute(
         "UPDATE icinga2_sync_progress SET started_at=started_at-interval '61 seconds'",
@@ -116,7 +132,7 @@ void main() {
           retryDelay: (_) => Duration.zero,
           afterClaim: () => throw StateError('injected processing failure'),
         );
-        await _until(worker.pinOne, 'No admitted row reached the pipeline');
+        await changes.until(worker.pinOne);
         for (var attempt = 0; attempt < 5; attempt++) {
           expect(await worker.processOne(), isTrue);
         }
@@ -144,12 +160,12 @@ void main() {
         await expireSpacing();
         await server.send(streamDbCheck(recovery, state: 0));
         await exhaustPending();
-        await secondSync.timeout(const Duration(seconds: 5));
+        await secondSync;
         final worker = PipelineRepository(
           session,
           clock: () => now.add(const Duration(seconds: 1)),
         );
-        await _until(worker.pinOne, 'No repair admitted');
+        await changes.until(worker.pinOne);
         expect(await worker.processOne(), isTrue);
         expect((await theAlert(session))['status'], 'resolved');
         expect((await status.read(icinga2DbSourceId))!.servedResyncSeq, 1);
@@ -188,7 +204,7 @@ void main() {
           (n) => n == 2,
         );
         await expireSpacing();
-        await secondSync.timeout(const Duration(seconds: 5));
+        await secondSync;
         expect(await countRows(session, 'icinga2_stream_resync'), 0);
         expect((await status.read(icinga2DbSourceId))!.servedResyncSeq, 0);
       });
@@ -215,12 +231,7 @@ void main() {
           server.services = [streamDbCheck(fresh, state: 0, sync: true)];
           await expireSpacing();
           await server.subscriptions.single.close();
-          await _until(
-            () async =>
-                (await status.read(icinga2DbSourceId))!.connectionSeq >= 2,
-            'Consumer did not reconnect after EOF',
-          );
-          await ready(status);
+          await ready(status, sequence: 2);
           await processIcinga2(session, now);
           expect((await theAlert(session))['status'], 'resolved');
           expect(await countRows(session, 'events'), 2);
@@ -235,11 +246,12 @@ void main() {
       ]) {
         test(name, () async {
           server.hostsStatus = code;
-          final status = await start();
-          await _until(() async {
+          final backoffs = _Backoffs();
+          final status = await start(backoffs: backoffs);
+          await changes.until(() async {
             final row = await status.read(icinga2DbSourceId);
             return row?.lastErrorClass == error && row?.gapCount == 1;
-          }, 'Fatal sync did not persist status and exactly one gap');
+          });
           expect(
             await queryRows(
               session,
@@ -251,13 +263,8 @@ void main() {
           );
           expect(await countRows(session, 'raw_inbox'), 0);
           server.hostsStatus = 200;
-          await expireSpacing();
-          await _until(
-            () async =>
-                (await status.read(icinga2DbSourceId))!.connectionSeq == 2,
-            'No retry after a fatal sync',
-          );
-          await ready(status);
+          await backoffs.retry(expireSpacing);
+          await ready(status, sequence: 2);
           expect((await status.read(icinga2DbSourceId))!.gapCount, 1);
         });
       }
@@ -283,11 +290,12 @@ void main() {
           );
           server.servicesBody =
               '{"results":[${List.filled(prefix, projected).join(',')}$broken';
-          final status = await start();
-          await _until(() async {
+          final backoffs = _Backoffs();
+          final status = await start(backoffs: backoffs);
+          await changes.until(() async {
             final row = await status.read(icinga2DbSourceId);
             return row?.lastErrorClass == error && row?.gapCount == 1;
-          }, 'Broken framing did not close and record the gap');
+          });
           expect(
             await queryRows(
               session,
@@ -303,8 +311,8 @@ void main() {
           }
           expect(await countRows(session, 'events'), 1);
           server.servicesBody = null;
-          await expireSpacing();
-          await ready(status);
+          await backoffs.retry(expireSpacing);
+          await ready(status, sequence: 2);
           expect((await status.read(icinga2DbSourceId))!.connectionSeq, 2);
         });
       }
@@ -324,7 +332,8 @@ void main() {
           responses.add(response);
           headers.add(response);
         };
-        final status = await start(clock: clock);
+        final backoffs = _Backoffs();
+        final status = await start(clock: clock, backoffs: backoffs);
         for (var attempt = 1; attempt <= 3; attempt++) {
           if (responses.length < attempt) await headers.stream.first;
           final response = responses[attempt - 1];
@@ -338,17 +347,17 @@ void main() {
           // The server had only sent the envelope, so this is the first frame.
           response.write('$object,');
           await response.flush();
-          await consumed.future.timeout(const Duration(seconds: 2));
+          await consumed.future;
           clock.onSchedule = null;
           clock.elapsed += const Duration(minutes: 15);
           response.write(' ');
           await response.flush();
-          await _until(() async {
+          await changes.until(() async {
             final row = await status.read(icinga2DbSourceId);
-            return row!.syncTimeoutsInARow == attempt &&
-                row.lastErrorClass == 'timeout';
-          }, 'Whole sync deadline did not persist timeout $attempt');
-          await expireSpacing();
+            return row?.syncTimeoutsInARow == attempt &&
+                row?.lastErrorClass == 'timeout';
+          });
+          if (attempt < 3) await backoffs.retry(expireSpacing);
         }
         final failures = await queryRows(
           session,
@@ -371,14 +380,13 @@ void main() {
           UPDATE icinga2_sync_progress SET read_end_at=clock_timestamp()-interval '16 minutes'
           WHERE phase='applying'
         ''');
-        await _until(
+        await changes.until(
           () async =>
               (await queryRows(
                 session,
                 'SELECT phase FROM icinga2_sync_progress',
               )).single['phase'] ==
               'stalled',
-          'Periodic holder pass did not mark applying progress stalled',
         );
         await processIcinga2(session, now);
         expect(
@@ -418,7 +426,7 @@ void main() {
             ], observed: now);
           }
           final status = await start();
-          await reading.future.timeout(const Duration(seconds: 5));
+          await reading.future;
           expect((await status.read(icinga2DbSourceId))!.servedResyncSeq, 0);
           if (name == 'request_during_a_sync') {
             await server.send(streamDbCheck(now));
@@ -428,19 +436,17 @@ void main() {
           expect(await countRows(session, 'icinga2_sync_progress'), 1);
           await expireSpacing();
           finish.complete();
-          await _until(
+          await changes.until(
             () async =>
                 (await status.read(icinga2DbSourceId))!.servedResyncSeq == 1,
-            'Request raised while reading was not served by the next sync',
           );
-          await _until(
+          await changes.until(
             () async =>
                 (await queryRows(
                   session,
                   "SELECT count(*)::int AS complete FROM icinga2_sync_progress WHERE phase='complete'",
                 )).single['complete'] ==
                 2,
-            'Both syncs did not finish reading',
           );
           expect(
             await queryRows(
@@ -457,7 +463,8 @@ void main() {
 
       test('request_while_paused', () async {
         final clock = StreamReaderClock();
-        final status = await start(clock: clock);
+        final backoffs = _Backoffs();
+        final status = await start(clock: clock, backoffs: backoffs);
         await ready(status);
         await session.db.unsafeExecute('''
           INSERT INTO raw_inbox (raw_id, source_id, observed_at, body, body_sha256, content_type, status)
@@ -474,14 +481,13 @@ void main() {
           }
         };
         await server.send(streamDbCheck(now.add(const Duration(seconds: 1))));
-        await queued.future.timeout(const Duration(seconds: 2));
+        await queued.future;
         clock.onSchedule = null;
         clock.advance(const Duration(seconds: 1));
-        await _until(
+        await changes.until(
           () async =>
               (await status.read(icinga2DbSourceId))!.state ==
               StreamConsumerState.paused,
-          'Source did not pause at retained-work cap',
         );
         await exhaustPending();
         expect((await status.read(icinga2DbSourceId))!.servedResyncSeq, 0);
@@ -490,43 +496,56 @@ void main() {
         await session.db.unsafeExecute(
           "DELETE FROM raw_inbox WHERE status='failed'",
         );
-        await _until(
-          () async =>
-              (await status.read(icinga2DbSourceId))!.servedResyncSeq == 1,
-          'Reconnected source did not serve the paused request',
-        );
-        await ready(status);
+        await backoffs.retry();
+        await ready(status, sequence: 2);
+        expect((await status.read(icinga2DbSourceId))!.servedResyncSeq, 1);
         final result = (await status.read(icinga2DbSourceId))!;
         expect(result.connectionSeq, 2);
         expect(result.gapCount, 1);
       });
 
       test('connection_flapping', () async {
-        final status = await start(immediateBackoff: true);
-        await ready(status);
-        // Advance the database spacing clock for each observed five-second
-        // socket interruption. Ten minutes of steps, without wall-time sleeps.
-        for (var step = 1; step < 120; step++) {
-          await session.db.unsafeExecute('''
-            UPDATE icinga2_sync_progress SET started_at=clock_timestamp()-interval '${5 * (step % 12 == 0 ? 12 : step % 12)} seconds'
-            WHERE sync_id=(SELECT sync_id FROM icinga2_sync_progress ORDER BY started_at DESC LIMIT 1)
+        final backoffs = _Backoffs();
+        final status = await start(backoffs: backoffs);
+        Future<void> finishSync(int sequence) async {
+          await ready(status, sequence: sequence);
+          final result = await queryRows(session, '''
+            SELECT p.read_problem, p.read_end_at IS NOT NULL AS finished
+            FROM icinga2_sync_progress p JOIN icinga2_stream_status s
+              ON s."sourceId" = p.source_id AND s."connectionId" = p.connection_id
+            WHERE s."connectionSeq" = $sequence AND s.state = 'connected'
           ''');
+          expect(result, [
+            {'read_problem': null, 'finished': true},
+          ]);
+        }
+
+        await finishSync(1);
+        // Model 119 drops in groups of twelve five-second steps. Fence the
+        // intervening steps beyond the hang guard; open spacing only when due.
+        for (var step = 1; step < 120; step++) {
           await server.subscriptions.last.close();
-          await _until(
-            () async {
-              final current = await status.read(icinga2DbSourceId);
-              return current!.connectionSeq == step + 1 &&
-                  server.subscriptionsReady == step + 1;
-            },
-            'Missing subscription ${step + 1}; logs: $messages',
+          final syncDue = step % 12 == 0;
+          await backoffs.retry(
+            () => session.db.unsafeExecute('''
+            UPDATE icinga2_sync_progress SET started_at=clock_timestamp() +
+              interval '${syncDue ? '-61 seconds' : '1 day'}'
+            WHERE sync_id=(SELECT sync_id FROM icinga2_sync_progress ORDER BY started_at DESC LIMIT 1)
+          '''),
           );
-          if (step % 12 == 0) await ready(status);
+          await server.waitForSubscriptions(step + 1);
+          expect(
+            (await status.read(icinga2DbSourceId))!.connectionSeq,
+            step + 1,
+          );
+          if (syncDue) await finishSync(step + 1);
         }
         final current = (await status.read(icinga2DbSourceId))!;
         expect(current.connectionSeq, 120);
         expect(current.gapCount, 119);
+        expect(server.subscriptionsReady, 120);
         expect(await countRows(session, 'icinga2_sync_progress'), 10);
-      }, timeout: const Timeout(Duration(minutes: 2)));
+      });
     },
     rollbackDatabase: RollbackDatabase.disabled,
     testGroupTagsOverride: ['db'],

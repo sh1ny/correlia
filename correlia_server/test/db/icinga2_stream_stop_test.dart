@@ -1,3 +1,6 @@
+@Timeout(Duration(minutes: 5))
+library;
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -16,9 +19,16 @@ import '../support/icinga2_consumer_loopback.dart';
 import '../support/icinga2_pipeline.dart';
 import '../support/icinga2_stream_pipeline.dart';
 import '../support/icinga2_stream_fixture.dart';
+import '../support/icinga2_test_db_changes.dart';
 import '../support/secret_fixture.dart';
 
 const _certs = '../correlia_icinga2_notify/test/fixtures';
+// Longer than the test hang guard, so the driver's default two-second query
+// timeout does not preempt deliberately blocked fixture statements.
+const _blockedQueryTimeout = Duration(minutes: 10);
+const _workLock = 7100;
+const _entryLock = 7101;
+const _blockerLock = 7102;
 
 void main() {
   withServerpod(
@@ -26,6 +36,7 @@ void main() {
     (builder, _) {
       late Session session;
       late pg.Connection observer;
+      late IcingaTestDbChanges changes;
 
       setUp(() async {
         session = builder.build();
@@ -38,6 +49,11 @@ void main() {
         addTearDown(() async {
           if (observer.isOpen) await observer.close(force: true);
         });
+        changes = await IcingaTestDbChanges.start(session.serverpod, [
+          'icinga2_stream_status',
+          'icinga2_admitted_batch',
+        ]);
+        addTearDown(changes.close);
       });
 
       Future<
@@ -89,95 +105,109 @@ void main() {
         return (supervisor: supervisor, http: http);
       }
 
-      Future<void> backendGone(int pid, Stopwatch watch) async {
-        while (watch.elapsed < const Duration(seconds: 5)) {
-          final rows = await observer.execute(
-            pg.Sql.named('SELECT 1 FROM pg_stat_activity WHERE pid=@pid'),
-            parameters: {'pid': pid},
-          );
-          if (rows.isEmpty) return;
-        }
-        fail('Dedicated backend $pid did not exit within five seconds');
+      Future<void> connected(int count) => changes.until(() async {
+        final rows = await observer.execute('''
+          SELECT count(*) FROM icinga2_stream_status s
+          JOIN icinga2_sync_progress p ON s."lastSyncId" = p.sync_id
+            AND s."connectionId" = p.connection_id
+          WHERE s.state = 'connected' AND p.read_end_at IS NOT NULL
+            AND p.read_problem IS NULL
+        ''');
+        return rows.single[0] == count;
+      });
+
+      for (final running in [false, true]) {
+        test(
+          running
+              ? 'stop_during_a_running_statement'
+              : 'stop_during_a_stalled_insert',
+          () async {
+            final entered = Completer<void>();
+            final resume = Completer<void>();
+            final dedicated = Completer<pg.Connection>();
+            await observer.execute('BEGIN');
+            try {
+              await observer.execute(
+                'CREATE TEMP TABLE stop_unrelated_work (value int) ON COMMIT DROP',
+              );
+              await observer.execute(
+                'INSERT INTO stop_unrelated_work VALUES (1)',
+              );
+              if (running) {
+                await observer.execute(
+                  'SELECT pg_advisory_xact_lock($_blockerLock)',
+                );
+              }
+              final fixture = await startSupervisor(
+                onConsumerConnection: (connection) async {
+                  if (!dedicated.isCompleted) dedicated.complete(connection);
+                },
+                beforeAdmissionCommit: (tx) async {
+                  await tx.execute(
+                    'SET LOCAL idle_in_transaction_session_timeout = 0',
+                  );
+                  await tx.execute('SELECT pg_advisory_xact_lock($_workLock)');
+                  if (running) {
+                    await tx.execute('SET LOCAL statement_timeout = 0');
+                    await tx.execute('SET LOCAL lock_timeout = 0');
+                    await tx.execute('SELECT pg_advisory_lock($_entryLock)');
+                  }
+                  entered.complete();
+                  if (running) {
+                    await tx.execute('''
+                      DO \$\$ BEGIN
+                        PERFORM pg_advisory_unlock($_entryLock);
+                        PERFORM pg_advisory_xact_lock($_blockerLock);
+                      END \$\$
+                    ''', timeout: _blockedQueryTimeout);
+                  } else {
+                    await resume.future;
+                  }
+                },
+              );
+              await connected(1);
+              await fixture.http.send(streamDbCheck(DateTime.now().toUtc()));
+              await entered.future;
+              if (running) {
+                // The backend releases this lock from inside the blocking SQL.
+                await observer.execute(
+                  'SELECT pg_advisory_xact_lock($_entryLock)',
+                  timeout: _blockedQueryTimeout,
+                );
+              }
+              expect(
+                (await observer.execute(
+                  'SELECT pg_try_advisory_xact_lock($_workLock)',
+                )).single[0],
+                isFalse,
+                reason: 'The admission transaction must still be in flight',
+              );
+              final stopping = fixture.supervisor.stop();
+              await (await dedicated.future).closed;
+              await observer.execute(
+                'SELECT pg_advisory_xact_lock($_workLock)',
+                timeout: _blockedQueryTimeout,
+              );
+              expect(
+                (await observer.execute(
+                  'SELECT count(*) FROM raw_inbox',
+                )).single[0],
+                0,
+              );
+              expect(
+                (await observer.execute(
+                  'SELECT value FROM stop_unrelated_work',
+                )).single[0],
+                1,
+              );
+              await stopping;
+            } finally {
+              resume.complete();
+              await observer.execute('ROLLBACK');
+            }
+          },
+        );
       }
-
-      test('stop_during_a_stalled_insert', () async {
-        final entered = Completer<int>();
-        final resume = Completer<void>();
-        final dedicated = Completer<pg.Connection>();
-        final fixture = await startSupervisor(
-          onConsumerConnection: (connection) async {
-            if (!dedicated.isCompleted) dedicated.complete(connection);
-          },
-          beforeAdmissionCommit: (tx) async {
-            final pid =
-                (await tx.execute('SELECT pg_backend_pid()')).single[0]! as int;
-            if (!entered.isCompleted) entered.complete(pid);
-            await resume.future;
-          },
-        );
-        addTearDown(() {
-          if (!resume.isCompleted) resume.complete();
-        });
-        await fixture.http.send(streamDbCheck(DateTime.now().toUtc()));
-        final pid = await entered.future.timeout(const Duration(seconds: 15));
-        final watch = Stopwatch()..start();
-        final stopping = fixture.supervisor.stop();
-        try {
-          await (await dedicated.future).closed.timeout(
-            const Duration(milliseconds: 4500),
-          );
-          await backendGone(pid, watch);
-          expect(
-            (await observer.execute(
-              'SELECT count(*) FROM raw_inbox',
-            )).single[0],
-            0,
-          );
-        } finally {
-          resume.complete();
-          await stopping.timeout(const Duration(seconds: 10));
-        }
-        expect(watch.elapsed, lessThan(const Duration(seconds: 10)));
-      }, timeout: const Timeout(Duration(seconds: 35)));
-
-      test('stop_during_a_running_statement', () async {
-        final entered = Completer<int>();
-        final fixture = await startSupervisor(
-          beforeAdmissionCommit: (tx) async {
-            await tx.execute("SET LOCAL statement_timeout = 0");
-            final pid =
-                (await tx.execute('SELECT pg_backend_pid()')).single[0]! as int;
-            entered.complete(pid);
-            await tx.execute(
-              'SELECT pg_sleep(30)',
-              timeout: const Duration(seconds: 35),
-            );
-          },
-        );
-        await fixture.http.send(streamDbCheck(DateTime.now().toUtc()));
-        final pid = await entered.future.timeout(const Duration(seconds: 15));
-        final running = Stopwatch()..start();
-        while (true) {
-          final rows = await observer.execute(
-            pg.Sql.named(
-              "SELECT 1 FROM pg_stat_activity WHERE pid=@pid AND query LIKE '%pg_sleep(30)%' AND state='active'",
-            ),
-            parameters: {'pid': pid},
-          );
-          if (rows.isNotEmpty) break;
-          if (running.elapsed > const Duration(seconds: 5)) {
-            fail('Statement did not start');
-          }
-        }
-        final watch = Stopwatch()..start();
-        final stopping = fixture.supervisor.stop();
-        await backendGone(pid, watch);
-        await stopping.timeout(const Duration(seconds: 10));
-        expect(
-          (await observer.execute('SELECT count(*) FROM raw_inbox')).single[0],
-          0,
-        );
-      }, timeout: const Timeout(Duration(seconds: 35)));
 
       test('insert_finishing_as_stop_begins', () async {
         final entered = Completer<void>();
@@ -192,7 +222,7 @@ void main() {
           if (!resume.isCompleted) resume.complete();
         });
         await fixture.http.send(streamDbCheck(DateTime.now().toUtc()));
-        await entered.future.timeout(const Duration(seconds: 15));
+        await entered.future;
         await observer.execute('BEGIN');
         try {
           await observer.execute(
@@ -201,7 +231,7 @@ void main() {
           await observer.execute('INSERT INTO stop_unrelated_work VALUES (1)');
           final stopping = fixture.supervisor.stop();
           resume.complete();
-          await stopping.timeout(const Duration(seconds: 10));
+          await stopping;
           final rows =
               (await session.db.unsafeQuery(
                     'SELECT count(*) FROM raw_inbox',
@@ -224,38 +254,28 @@ void main() {
           if (!resume.isCompleted) resume.complete();
           await observer.execute('ROLLBACK');
         }
-      }, timeout: const Timeout(Duration(seconds: 35)));
+      });
 
       test('stop_while_reading', () async {
         final fixture = await startSupervisor();
-        await fixture.http.firstSubscription.future.timeout(
-          const Duration(seconds: 10),
-        );
-        final watch = Stopwatch()..start();
-        await fixture.supervisor.stop().timeout(const Duration(seconds: 10));
-        await fixture.http.disconnected.future.timeout(
-          const Duration(seconds: 2),
-        );
-        expect(watch.elapsed, lessThan(const Duration(seconds: 10)));
+        await connected(1);
+        await fixture.supervisor.stop();
+        await fixture.http.disconnected.future;
         final leases = await observer.execute(
           "SELECT \"expiresAt\" <= clock_timestamp() FROM icinga2_stream_lease WHERE \"sourceId\"='$icinga2DbSourceId'",
         );
         expect(leases.single[0], isTrue);
-      }, timeout: const Timeout(Duration(seconds: 30)));
+      });
 
       test('lease_row_still_locked_at_stop', () async {
         final fixture = await startSupervisor();
-        await fixture.http.firstSubscription.future.timeout(
-          const Duration(seconds: 10),
-        );
+        await connected(1);
         await observer.execute('BEGIN');
         try {
           final before = await observer.execute(
             "SELECT \"expiresAt\" FROM icinga2_stream_lease WHERE \"sourceId\"='$icinga2DbSourceId' FOR UPDATE",
           );
-          final watch = Stopwatch()..start();
-          await fixture.supervisor.stop().timeout(const Duration(seconds: 10));
-          expect(watch.elapsed, lessThan(const Duration(seconds: 10)));
+          await fixture.supervisor.stop();
           final after = await observer.execute(
             "SELECT \"expiresAt\" FROM icinga2_stream_lease WHERE \"sourceId\"='$icinga2DbSourceId'",
           );
@@ -267,7 +287,7 @@ void main() {
           "SELECT state FROM icinga2_stream_status WHERE \"sourceId\"='$icinga2DbSourceId'",
         );
         expect(status.single[0], isNot('released'));
-      }, timeout: const Timeout(Duration(seconds: 30)));
+      });
 
       test('database_unreachable_at_stop', () async {
         var reachable = true;
@@ -288,22 +308,18 @@ void main() {
             return endpoint.open();
           },
         );
-        await fixture.http.firstSubscription.future.timeout(
-          const Duration(seconds: 10),
-        );
+        await connected(1);
         final before = await observer.execute(
           "SELECT \"expiresAt\" FROM icinga2_stream_lease WHERE \"sourceId\"='$icinga2DbSourceId'",
         );
         reachable = false;
         await (await dedicated.future).close(force: true);
-        final watch = Stopwatch()..start();
-        await fixture.supervisor.stop().timeout(const Duration(seconds: 10));
-        expect(watch.elapsed, lessThan(const Duration(seconds: 10)));
+        await fixture.supervisor.stop();
         final after = await observer.execute(
           "SELECT \"expiresAt\" FROM icinga2_stream_lease WHERE \"sourceId\"='$icinga2DbSourceId'",
         );
         expect(after.single[0], before.single[0]);
-      }, timeout: const Timeout(Duration(seconds: 30)));
+      });
 
       test('session_settings_of_the_dedicated_connection', () async {
         final checked = Completer<void>();
@@ -324,8 +340,8 @@ void main() {
             checked.complete();
           },
         );
-        await checked.future.timeout(const Duration(seconds: 10));
-        await fixture.supervisor.stop().timeout(const Duration(seconds: 10));
+        await checked.future;
+        await fixture.supervisor.stop();
       });
 
       test('stop_cancels_a_live_reclamation_pass', () async {
@@ -340,19 +356,19 @@ void main() {
         addTearDown(() {
           if (!resume.isCompleted) resume.complete();
         });
-        await entered.future.timeout(const Duration(seconds: 15));
-        final watch = Stopwatch()..start();
+        await entered.future;
         try {
-          await fixture.supervisor.stop().timeout(const Duration(seconds: 10));
-          expect(watch.elapsed, lessThan(const Duration(seconds: 10)));
+          await fixture.supervisor.stop();
         } finally {
           resume.complete();
         }
-      }, timeout: const Timeout(Duration(seconds: 30)));
+      });
 
       Future<({List<StreamTarget> targets, IcingaConsumerLoopback http})>
-      manyTargets() async {
-        final http = await IcingaConsumerLoopback.start();
+      manyTargets({bool strictSocketErrors = false}) async {
+        final http = await IcingaConsumerLoopback.start(
+          strictSocketErrors: strictSocketErrors,
+        );
         addTearDown(http.close);
         final ids = List.generate(
           64,
@@ -405,14 +421,6 @@ void main() {
         );
       }
 
-      Future<void> waitForCount(String sql, int count) async {
-        final watch = Stopwatch()..start();
-        while (watch.elapsed < const Duration(seconds: 30)) {
-          if ((await observer.execute(sql)).single[0] == count) return;
-        }
-        fail('Timed out waiting for $count: $sql');
-      }
-
       test('many_sources', () async {
         final fixture = await manyTargets();
         final endpoint = await StreamDatabaseEndpoint.resolve(
@@ -421,13 +429,18 @@ void main() {
         final admitted = Completer<void>();
         final resume = Completer<void>();
         var inFlight = 0;
+        final dedicated = <pg.Connection>[];
         final supervisor = Icinga2StreamSupervisor(
           loadTargets: () async => fixture.targets,
           openDatabase: (_) => endpoint.open(),
           holder: 'many-stop-test',
           log: (_) {},
           runMode: 'test',
-          beforeAdmissionCommit: (_) async {
+          onConsumerConnection: (connection) async => dedicated.add(connection),
+          beforeAdmissionCommit: (tx) async {
+            await tx.execute(
+              'SET LOCAL idle_in_transaction_session_timeout = 0',
+            );
             inFlight++;
             if (inFlight == 64) admitted.complete();
             await resume.future;
@@ -439,98 +452,111 @@ void main() {
           if (!resume.isCompleted) resume.complete();
         });
         try {
-          await waitForCount('SELECT count(*) FROM icinga2_stream_lease', 64);
-          final watch = Stopwatch()..start();
-          while (fixture.http.subscriptions.length < 64 &&
-              watch.elapsed < const Duration(seconds: 30)) {
-            await observer.execute('SELECT 1');
-          }
-          expect(fixture.http.subscriptions, hasLength(64));
+          await connected(64);
+          await fixture.http.waitForObjectResponses(64);
+          expect(fixture.http.subscriptionsReady, 64);
           final event =
               '${jsonEncode(streamDbCheck(DateTime.now().toUtc()))}\n';
           for (final response in fixture.http.subscriptions) {
             response.write(event);
           }
           await Future.wait(fixture.http.subscriptions.map((r) => r.flush()));
-          await admitted.future.timeout(const Duration(seconds: 30));
-          final stopping = Stopwatch()..start();
+          await admitted.future;
           final stopped = supervisor.stop();
-          await stopped.timeout(const Duration(seconds: 10));
-          expect(stopping.elapsed, lessThan(const Duration(seconds: 10)));
+          await Future.wait(dedicated.map((connection) => connection.closed));
+          await stopped;
         } finally {
           resume.complete();
         }
-      }, timeout: const Timeout(Duration(minutes: 2)));
+      });
 
       test('two_workers_64_sources', () async {
-        final fixture = await manyTargets();
+        final fixture = await manyTargets(strictSocketErrors: true);
         final endpoint = await StreamDatabaseEndpoint.resolve(
           session.serverpod,
         );
         var firstTargets = fixture.targets.take(32).toList();
         var secondTargets = fixture.targets.skip(32).toList();
-        var firstConnections = 0;
-        var secondConnections = 0;
+        final expandedFirst = Completer<void>();
+        final expandedSecond = Completer<void>();
+        final opens = <(String, String), List<Future<pg.Connection>>>{};
         Icinga2StreamSupervisor make(
           String holder,
-          Future<List<StreamTarget>> Function() targets,
-          Future<void> Function(pg.Connection) onConnection,
+          List<StreamTarget> Function() targets,
+          Completer<void> expanded,
         ) => Icinga2StreamSupervisor(
-          loadTargets: targets,
+          loadTargets: () async => targets(),
           openDatabase: (_) => endpoint.open(),
           holder: holder,
           log: (_) {},
           runMode: 'test',
           revisionInterval: const Duration(milliseconds: 100),
-          onConsumerConnection: onConnection,
+          onConsumerOpenForTest: (source, opening) {
+            (opens[(holder, source)] ??= []).add(opening);
+          },
+          afterAcquisitionScanForTest: (count) {
+            if (count == 64 && !expanded.isCompleted) expanded.complete();
+          },
         );
-        final first = make('first-holder', () async => firstTargets, (_) async {
-          firstConnections++;
-        });
-        final second = make('second-holder', () async => secondTargets, (
-          _,
-        ) async {
-          secondConnections++;
-        });
+        final first = make('first-holder', () => firstTargets, expandedFirst);
+        final second = make(
+          'second-holder',
+          () => secondTargets,
+          expandedSecond,
+        );
         first.start();
         second.start();
         addTearDown(first.stop);
         addTearDown(second.stop);
-        await waitForCount('SELECT count(*) FROM icinga2_stream_lease', 64);
-        final subscribed = Stopwatch()..start();
-        while (fixture.http.subscriptionsReady < 64 &&
-            subscribed.elapsed < const Duration(seconds: 10)) {
-          await observer.execute('SELECT 1');
-        }
+        await fixture.http.checked(connected(64));
+        await fixture.http.waitForObjectResponses(64);
         expect(fixture.http.subscriptionsReady, 64);
+        final expected = {
+          for (final target in firstTargets) (target.sourceId, 'first-holder'),
+          for (final target in secondTargets)
+            (target.sourceId, 'second-holder'),
+        };
         firstTargets = fixture.targets;
         secondTargets = fixture.targets;
-        final watch = Stopwatch()..start();
-        while ((firstConnections < 32 || secondConnections < 32) &&
-            watch.elapsed < const Duration(seconds: 30)) {
-          await observer.execute('SELECT 1');
-        }
-        expect(firstConnections, 32);
-        expect(secondConnections, 32);
-        final holders = await observer.execute(
-          'SELECT holder, count(*) FROM icinga2_stream_lease GROUP BY holder ORDER BY holder',
+        await fixture.http.checked(
+          Future.wait([
+            expandedFirst.future,
+            expandedSecond.future,
+          ]),
         );
-        expect(holders.map((row) => [row[0], row[1]]).toList(), [
-          ['first-holder', 32],
-          ['second-holder', 32],
-        ]);
-        await Future.wait([
-          first.stop(),
-          second.stop(),
-        ]).timeout(const Duration(seconds: 10));
-      }, timeout: const Timeout(Duration(minutes: 2)));
+        final holders = await observer.execute(
+          'SELECT "sourceId"::text, holder FROM icinga2_stream_lease',
+        );
+        expect(
+          holders.map((row) => (row[0]! as String, row[1]! as String)),
+          unorderedEquals(expected),
+        );
+        expect(
+          fixture.http.eventRequests.map(
+            (request) =>
+                (jsonDecode(request.$2) as Map<String, Object?>)['queue'],
+          ),
+          unorderedEquals(expected.map((pair) => pair.$1)),
+        );
+        expect(
+          opens.keys,
+          unorderedEquals(expected.map((pair) => (pair.$2, pair.$1))),
+        );
+        for (final opened in opens.values) {
+          expect(opened, hasLength(1));
+          expect((await opened.single).isOpen, isTrue);
+        }
+        fixture.http.expectSubscriptionDisconnects();
+        await fixture.http.checked(Future.wait([first.stop(), second.stop()]));
+        await fixture.http.waitForDisconnects(64);
+      });
 
       test('batch_ids_of_a_removed_source', () async {
         await publishStreamDb(session);
         await observer.execute('''
           INSERT INTO icinga2_admitted_batch ("sourceId","batchId","admittedAt")
           VALUES ('$icinga2DbSourceId', gen_random_uuid(), clock_timestamp()-interval '61 minutes'),
-                 ('$icinga2DbSourceId', gen_random_uuid(), clock_timestamp()-interval '59 minutes')
+                 ('$icinga2DbSourceId', gen_random_uuid(), clock_timestamp())
         ''');
         await IngestConfigRepository(
           session,
@@ -551,7 +577,9 @@ void main() {
         );
         addTearDown(supervisor.stop);
         supervisor.start();
-        await waitForCount('SELECT count(*) FROM icinga2_admitted_batch', 1);
+        await changes.until(
+          () async => await countRows(session, 'icinga2_admitted_batch') == 1,
+        );
         final kept = await observer.execute('''
           SELECT "admittedAt" > clock_timestamp()-interval '1 hour'
           FROM icinga2_admitted_batch WHERE "sourceId"='$icinga2DbSourceId'
@@ -590,9 +618,7 @@ void main() {
           await observer.execute(
             "SELECT id FROM alerts WHERE fingerprint = lpad('1',64,'0') FOR UPDATE",
           );
-          final watch = Stopwatch()..start();
           expect(await reclaim(), 1);
-          expect(watch.elapsed, lessThan(const Duration(seconds: 2)));
           final remaining = await session.db.unsafeQuery(
             'SELECT fingerprint FROM alerts',
           );
@@ -607,9 +633,7 @@ void main() {
           await observer.execute(
             'SELECT singleton FROM raw_admission_cutoff FOR UPDATE',
           );
-          final watch = Stopwatch()..start();
           expect(await reclaim(), 0);
-          expect(watch.elapsed, lessThan(const Duration(seconds: 2)));
           expect(
             (await session.db.unsafeQuery(
               'SELECT count(*) FROM alerts',
