@@ -103,6 +103,8 @@ Future<void> applySchemaSteps(
   Session session,
   List<SchemaStep> steps, {
   Duration lockTimeout = defaultSchemaLockTimeout,
+  Future<void> Function(Transaction, SchemaStep)? beforeStepForTest,
+  int? stepTimeoutInSecondsForTest,
 }) async {
   try {
     await session.db.transaction((transaction) async {
@@ -138,9 +140,11 @@ Future<void> applySchemaSteps(
           transaction: transaction,
         );
         if (existing.isNotEmpty) return;
+        await beforeStepForTest?.call(transaction, step);
         await session.db.unsafeSimpleExecute(
           step.sql,
           transaction: transaction,
+          timeoutInSeconds: stepTimeoutInSecondsForTest,
         );
         await session.db.unsafeExecute(
           'INSERT INTO correlia_schema_versions (version) VALUES (@version)',

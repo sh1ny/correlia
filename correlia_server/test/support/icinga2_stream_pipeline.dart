@@ -19,6 +19,7 @@ Future<String> publishStreamDb(
   bool shared = false,
   bool routed = true,
   String apiUrl = 'https://icinga.example:5665',
+  Future<void> Function(Transaction)? beforePublicationWrites,
 }) async {
   final source = streamSource(icinga2DbSourceId)
     ..['state_type_policy'] = policy
@@ -52,6 +53,10 @@ Future<String> publishStreamDb(
       await IngestConfigRepository(
         session,
         secretStore: testSecretStore,
+        beforeInventoryForTest: beforePublicationWrites,
+        writeTimeoutInSecondsForTest: beforePublicationWrites == null
+            ? null
+            : const Duration(minutes: 5).inSeconds,
       ).publishConfig(
         config,
         {

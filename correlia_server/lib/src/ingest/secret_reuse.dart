@@ -11,8 +11,9 @@ Future<void> recordPublicationReuse(
   Session session,
   Transaction transaction,
   IngestBootstrap input,
-  SecretCommitments commitments,
-) async {
+  SecretCommitments commitments, {
+  int? timeoutInSecondsForTest,
+}) async {
   final bare = <String, String>{};
   void addBare(String reference, String digest) {
     bare[digest] = commitments.passwordReuse(input.secret(reference)!);
@@ -84,6 +85,7 @@ Future<void> recordPublicationReuse(
     SELECT digest FROM conflict ORDER BY digest NULLS LAST LIMIT 1''',
     parameters: QueryParameters.named({'values': reuseValues}),
     transaction: transaction,
+    timeoutInSeconds: timeoutInSecondsForTest,
   );
   if (matches.isNotEmpty) {
     throw BootstrapError(

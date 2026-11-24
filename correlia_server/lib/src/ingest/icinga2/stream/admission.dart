@@ -118,6 +118,8 @@ final class ConsumerAdmission {
     this.connection, {
     this.afterFence,
     this.beforeCommit,
+    this.beforeWriteForTest,
+    this.writeErrorForTest,
   });
 
   final pg.Connection connection;
@@ -127,6 +129,12 @@ final class ConsumerAdmission {
 
   /// A test can hold the real admission transaction just before commit.
   final Future<void> Function(pg.TxSession)? beforeCommit;
+
+  /// Observes or stages the exact raw write transaction in a fixture.
+  final Future<void> Function(pg.TxSession, StreamRawBatch)? beforeWriteForTest;
+
+  /// Observes a failed raw statement before the reader handles its error.
+  final void Function(StreamRawBatch, pg.ServerException)? writeErrorForTest;
 
   /// The retained-work lookup used for both monitoring and admitting a batch.
   static const retainedCountSql = '''SELECT count(*) FROM (
@@ -199,8 +207,14 @@ final class ConsumerAdmission {
         // A rollback lets this insert claim the batch instead.
         if (claimed.isEmpty) return StreamAdmissionResult.committed;
 
+        await beforeWriteForTest?.call(tx, batch);
         for (final row in batch.rows) {
-          await _insertRow(tx, lease.sourceId, snapshotId, batch, row);
+          try {
+            await _insertRow(tx, lease.sourceId, snapshotId, batch, row);
+          } on pg.ServerException catch (error) {
+            writeErrorForTest?.call(batch, error);
+            rethrow;
+          }
         }
         if (batch.syncId case final syncId?) {
           final updated = await tx.execute(

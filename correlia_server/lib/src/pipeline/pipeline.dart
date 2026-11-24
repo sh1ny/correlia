@@ -196,17 +196,22 @@ final class _Prepared {
 }
 
 final class _Deadline {
-  _Deadline() : stopwatch = Stopwatch()..start();
-  final Stopwatch stopwatch;
+  _Deadline(this._testElapsed)
+    : _stopwatch = _testElapsed == null ? (Stopwatch()..start()) : null;
+
+  final Duration Function()? _testElapsed;
+  final Stopwatch? _stopwatch;
+  Duration get _elapsed => _stopwatch?.elapsed ?? _testElapsed!();
+
   void check() {
-    if (stopwatch.elapsed >= pipelineRowDeadline) {
+    if (_elapsed >= pipelineRowDeadline) {
       throw TimeoutException('pipeline transaction deadline');
     }
   }
 
   int get remainingMillis {
     check();
-    final left = (pipelineRowDeadline - stopwatch.elapsed).inMilliseconds;
+    final left = (pipelineRowDeadline - _elapsed).inMilliseconds;
     return left < 5000 ? left.clamp(1, 5000) : 5000;
   }
 }
@@ -229,6 +234,8 @@ final class PipelineRepository {
     this.afterPin,
     this.afterClaim,
     this.afterAlertInsertConflict,
+    this.afterKeyReservationForTest,
+    this.elapsedForTest,
     Map<String, int>? retryCounts,
     this.retryDelay,
     PipelineCounters? counters,
@@ -247,6 +254,12 @@ final class PipelineRepository {
   /// before anything else; tests use it to hold that transaction open.
   final Future<void> Function()? afterClaim;
   final Future<void> Function()? afterAlertInsertConflict;
+
+  /// Runs after inserting the key, before acquiring the alert.
+  final Future<void> Function()? afterKeyReservationForTest;
+
+  /// Test transaction elapsed time, independent of the worker receipt clock.
+  final Duration Function()? elapsedForTest;
   final Map<String, int> _retryCounts;
   final Duration Function(int)? retryDelay;
   final PipelineCounters counters;
@@ -273,7 +286,7 @@ final class PipelineRepository {
 
   /// Commits one unpinned row's active snapshot before decoding or returning.
   Future<bool> pinOne() async {
-    final deadline = _Deadline();
+    final deadline = _Deadline(elapsedForTest);
     final pinned = await session.db.transaction((tx) async {
       await _limits(tx, deadline);
       final rows = await session.db.unsafeQuery(
@@ -314,7 +327,7 @@ WHERE observed_at=@observed AND raw_id=CAST(@id AS uuid)''',
   Future<bool> processOne() async {
     _Raw? claimed;
     DecodedBatch? completedBatch;
-    final deadline = _Deadline();
+    final deadline = _Deadline(elapsedForTest);
     try {
       final processed = await session.db.transaction((tx) async {
         await _limits(tx, deadline);
@@ -550,6 +563,7 @@ ON CONFLICT ("eventId") DO NOTHING RETURNING "eventId"''',
                 }
                 continue;
               }
+              await afterKeyReservationForTest?.call();
             }
             stateInputs.add(
               StateInput(
@@ -970,7 +984,7 @@ VALUES (@observed,CAST(@raw AS uuid),@pin,@code,@path,@now)''',
         (code != null && code.startsWith('08')) ||
         error is SocketException ||
         (error is DatabaseQueryException && code == null);
-    final deadline = _Deadline();
+    final deadline = _Deadline(elapsedForTest);
     final recorded = await session.db.transaction((tx) async {
       await _limits(tx, deadline);
       final rows = await session.db.unsafeQuery(

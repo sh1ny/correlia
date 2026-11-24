@@ -1,3 +1,6 @@
+@Timeout(Duration(minutes: 5))
+library;
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -6,11 +9,13 @@ import 'package:correlia_server/src/ingest/bootstrap.dart';
 import 'package:correlia_server/src/ingest/config_repository.dart';
 import 'package:correlia_server/src/schema/schema_steps.dart';
 import 'package:correlia_server/src/secrets/commitments.dart';
+import 'package:correlia_server/src/secrets/reuse_backfill.dart';
 import 'package:serverpod/serverpod.dart';
 import 'package:test/test.dart';
 
 import '../integration/test_tools/serverpod_test_tools.dart';
 import '../support/icinga2_stream_fixture.dart';
+import '../support/postgres_lock_witness.dart';
 import '../support/secret_fixture.dart';
 import '../support/secret_reuse_fixture.dart';
 
@@ -26,6 +31,8 @@ Matcher _code(String code) =>
     throwsA(isA<BootstrapError>().having((e) => e.code, 'code', code));
 
 void main() {
+  final cluster = LockWitnessCluster();
+  tearDownAll(cluster.close);
   withServerpod(
     'secret inventory history and restart',
     (builder, _) {
@@ -54,22 +61,25 @@ void main() {
             runMode: 'test',
           );
 
-      Future<IngestBootstrap> webhook(int revision, [int seed = 1]) =>
-          repository.publishConfig(
-            streamBootstrap(revision, [
-              {
-                'id': _webhookId,
-                'kind': 'icinga2',
-                'enabled': true,
-                'credentials': [
-                  {'ref': 'current-webhook', 'type': 'bearer'},
-                ],
-                'output_ids': <String>[],
-              },
-            ]),
-            {'current-webhook': _encoded(seed)},
-            runMode: 'test',
-          );
+      Future<IngestBootstrap> webhook(
+        int revision, [
+        int seed = 1,
+        IngestConfigRepository? publisher,
+      ]) => (publisher ?? repository).publishConfig(
+        streamBootstrap(revision, [
+          {
+            'id': _webhookId,
+            'kind': 'icinga2',
+            'enabled': true,
+            'credentials': [
+              {'ref': 'current-webhook', 'type': 'bearer'},
+            ],
+            'output_ids': <String>[],
+          },
+        ]),
+        {'current-webhook': _encoded(seed)},
+        runMode: 'test',
+      );
 
       Future<void> history(
         List<Map<String, Object?>> sources, {
@@ -316,44 +326,77 @@ void main() {
           CREATE TRIGGER test_gate AFTER INSERT ON secret_reuse_digest
             FOR EACH ROW EXECUTE FUNCTION test_gate_inventory();
         ''');
-        final held = Completer<void>();
+        final witness = await PostgresLockWitness.start(session);
+        addTearDown(witness.close);
+        final held = Completer<LockActor>();
         final release = Completer<void>();
-        final gate = builder.build().db.transaction((tx) async {
-          await session.db.unsafeQuery(
+        final gateSession = builder.build();
+        final gate = gateSession.db.transaction((tx) async {
+          final actor = await pooledLockActor(gateSession, tx);
+          await gateSession.db.unsafeQuery(
             'SELECT pg_advisory_xact_lock($lock)',
             transaction: tx,
           );
-          held.complete();
+          held.complete(actor);
           await release.future;
         });
-        await held.future;
-        final scanning = initializeSchema(builder.build());
+        final blocker = await held.future;
+        final scanSession = builder.build();
+        final scanActor = Completer<LockActor>();
+        final scanning = backfillSecretReuse(
+          scanSession,
+          writeTimeoutInSecondsForTest: const Duration(minutes: 5).inSeconds,
+          beforeWriteForTest: (tx, completing) async {
+            if (!completing) {
+              scanActor.complete(
+                await pooledLockActor(scanSession, tx, waiter: true),
+              );
+            }
+          },
+        );
         Future<IngestBootstrap>? publishing;
         try {
-          final wait = Stopwatch()..start();
-          while (true) {
-            final waiters = await session.db.unsafeQuery(
-              '''SELECT 1 FROM pg_locks
-              WHERE locktype='advisory' AND objid=$lock AND NOT granted''',
-            );
-            if (waiters.isNotEmpty) break;
-            if (wait.elapsed > const Duration(seconds: 3)) {
-              fail('Backfill never reached the held digest gate');
-            }
-          }
-          publishing = webhook(2, low);
-          // The publisher takes its advisory lock before its shared digest write.
-          wait.reset();
-          while (true) {
-            final owners = await session.db.unsafeQuery(
-              '''SELECT 1 FROM pg_locks
-              WHERE locktype='advisory' AND objid=1129271884 AND granted''',
-            );
-            if (owners.isNotEmpty) break;
-            if (wait.elapsed > const Duration(seconds: 3)) {
-              fail('Publisher did not overlap backfill');
-            }
-          }
+          final scanner = await Future.any([
+            scanActor.future,
+            scanning.then<LockActor>(
+              (_) => throw StateError('Backfill did not write the snapshot'),
+            ),
+          ]);
+          await witness.blockedBy(
+            scanner,
+            blocker,
+            scanning,
+            statement: 'INSERT INTO secret_reuse_digest',
+            advisory: true,
+          );
+          final publisher = builder.build();
+          final publishActor = Completer<LockActor>();
+          publishing = webhook(
+            2,
+            low,
+            IngestConfigRepository(
+              publisher,
+              secretStore: testSecretStore,
+              writeTimeoutInSecondsForTest: const Duration(
+                minutes: 5,
+              ).inSeconds,
+              beforeInventoryForTest: (tx) async => publishActor.complete(
+                await pooledLockActor(publisher, tx, waiter: true),
+              ),
+            ),
+          );
+          final writer = await Future.any([
+            publishActor.future,
+            publishing.then<LockActor>(
+              (_) => throw StateError('Publisher did not overlap backfill'),
+            ),
+          ]);
+          await witness.blockedBy(
+            writer,
+            scanner,
+            publishing,
+            statement: 'INSERT INTO secret_reuse_digest',
+          );
         } finally {
           release.complete();
           await gate;
@@ -389,31 +432,48 @@ void main() {
           CREATE TRIGGER test_batch_size BEFORE UPDATE ON secret_reuse_backfill
             FOR EACH ROW EXECUTE FUNCTION test_check_inventory_batch();
         ''');
-        final held = Completer<void>();
+        final witness = await PostgresLockWitness.start(session);
+        addTearDown(witness.close);
+        final held = Completer<LockActor>();
         final release = Completer<void>();
         final gateSession = builder.build();
         final gate = gateSession.db.transaction((tx) async {
+          final actor = await pooledLockActor(gateSession, tx);
           await gateSession.db.unsafeQuery(
             'SELECT pg_advisory_xact_lock($lock)',
             transaction: tx,
           );
-          held.complete();
+          held.complete(actor);
           await release.future;
         });
-        await held.future;
-        final scanning = initializeSchema(builder.build());
-        try {
-          final wait = Stopwatch()..start();
-          while (true) {
-            final waiters = await session.db.unsafeQuery(
-              '''SELECT 1 FROM pg_locks
-                WHERE locktype='advisory' AND objid=$lock AND NOT granted''',
-            );
-            if (waiters.isNotEmpty) break;
-            if (wait.elapsed > const Duration(seconds: 10)) {
-              fail('Large history never reached the last batch');
+        final blocker = await held.future;
+        final scanSession = builder.build();
+        final scanActor = Completer<LockActor>();
+        final scanning = backfillSecretReuse(
+          scanSession,
+          writeTimeoutInSecondsForTest: const Duration(minutes: 5).inSeconds,
+          beforeWriteForTest: (tx, completing) async {
+            if (completing) {
+              scanActor.complete(
+                await pooledLockActor(scanSession, tx, waiter: true),
+              );
             }
-          }
+          },
+        );
+        try {
+          final scanner = await Future.any([
+            scanActor.future,
+            scanning.then<LockActor>(
+              (_) => throw StateError('Backfill did not reach the last batch'),
+            ),
+          ]);
+          await witness.blockedBy(
+            scanner,
+            blocker,
+            scanning,
+            statement: 'UPDATE secret_reuse_backfill',
+            advisory: true,
+          );
           // This transaction must commit with the scanner still held.
           await webhook(10001, 22);
         } finally {
@@ -431,6 +491,8 @@ void main() {
       }, timeout: const Timeout(Duration(minutes: 2)));
     },
     rollbackDatabase: RollbackDatabase.disabled,
+    ephemeralDatabase: false,
+    configOverride: cluster.override,
     testGroupTagsOverride: ['db'],
   );
 }

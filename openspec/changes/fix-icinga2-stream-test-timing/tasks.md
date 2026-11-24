@@ -11,8 +11,10 @@ No spec delta. The existing suites remain the product acceptance checks; the lis
 
 ## 2. PostgreSQL ordering
 
-- [ ] 2.1 Verify A1 using the embedded lock log and exact backend identities, including a pooled contender; distinguish log generation and fixture DB before relying on the witness.
-- [ ] 2.2 Replace waits in admission (including concurrent cutoff), tombstone, lease expiry, sync progress, publisher version and secret reuse backfill DB suites; verify their real concurrency assertions.
+- [x] 2.1 Verify A1 using the embedded lock log and exact backend identities, including a pooled contender; distinguish log generation and fixture DB before relying on the witness.
+- [x] 2.2 Replace waits in admission (including concurrent cutoff), tombstone, lease expiry, sync progress, publisher version and secret reuse backfill DB suites; verify their real concurrency assertions.
+
+The six contention suites own their embedded postmasters through Serverpod. On the shared postmaster, the isolate forwarding `postgres.log` can exit while later suites still attach to the database. A suite-owned postmaster retains the log observer through teardown and leaves the shared cluster untouched.
 
 ## 3. Controlled deadlines and real peers
 

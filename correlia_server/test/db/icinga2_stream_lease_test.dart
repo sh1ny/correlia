@@ -1,3 +1,6 @@
+@Timeout(Duration(minutes: 5))
+library;
+
 import 'dart:async';
 
 import 'package:correlia_server/src/ingest/icinga2/stream/database.dart';
@@ -9,6 +12,7 @@ import 'package:test/test.dart';
 import '../integration/test_tools/serverpod_test_tools.dart';
 import '../support/icinga2_pipeline.dart';
 import '../support/icinga2_stream_pipeline.dart';
+import '../support/postgres_lock_witness.dart';
 
 class _ScheduledCall {
   _ScheduledCall(this.at, this.callback);
@@ -41,6 +45,8 @@ class _Clock {
 }
 
 void main() {
+  final cluster = LockWitnessCluster();
+  tearDownAll(cluster.close);
   withServerpod(
     'stream lease fencing and deadlines',
     (builder, _) {
@@ -59,11 +65,18 @@ void main() {
           TRUNCATE lease_test_writes;
         ''');
         await publishStreamDb(session);
-        firstConnection = await openStreamDatabase(session.serverpod);
+        final endpoint = await StreamDatabaseEndpoint.resolve(
+          session.serverpod,
+        );
+        firstConnection = await endpoint.open(
+          queryTimeout: const Duration(minutes: 5),
+        );
         addTearDown(() async {
           if (firstConnection.isOpen) await firstConnection.close();
         });
-        secondConnection = await openStreamDatabase(session.serverpod);
+        secondConnection = await endpoint.open(
+          queryTimeout: const Duration(minutes: 5),
+        );
         addTearDown(() async {
           if (secondConnection.isOpen) await secondConnection.close();
         });
@@ -76,6 +89,34 @@ void main() {
         SET "expiresAt" = clock_timestamp() - interval '1 second'
         WHERE "sourceId" = '$icinga2DbSourceId'
       ''');
+
+      Future<void> freezeSqlClock() async {
+        await session.db.unsafeSimpleExecute('''
+          CREATE SCHEMA IF NOT EXISTS fixture_clock;
+          CREATE TABLE IF NOT EXISTS fixture_clock.instant (value timestamptz);
+          TRUNCATE fixture_clock.instant;
+          INSERT INTO fixture_clock.instant VALUES ('2026-01-01 00:00:00+00');
+          CREATE OR REPLACE FUNCTION fixture_clock.clock_timestamp()
+          RETURNS timestamptz VOLATILE LANGUAGE sql
+          AS 'SELECT value FROM fixture_clock.instant';
+        ''');
+        for (final connection in [firstConnection, secondConnection]) {
+          await connection.execute(
+            'SET search_path=fixture_clock,pg_catalog,public',
+          );
+          expect(
+            (await connection.execute('''
+            SELECT clock_timestamp() = fixture_clock.clock_timestamp()
+              AND clock_timestamp() = '2026-01-01 00:00:00+00'::timestamptz
+          ''')).single[0],
+            isTrue,
+          );
+        }
+      }
+
+      Future<void> advanceSqlClock() => session.db.unsafeSimpleExecute(
+        "UPDATE fixture_clock.instant SET value = value + interval '31 seconds'",
+      );
 
       test('two_workers_start', () async {
         final leases = await Future.wait([
@@ -123,55 +164,49 @@ void main() {
       });
 
       test('expiry_between_the_lease_check_and_the_commit', () async {
+        await freezeSqlClock();
+        final witness = await PostgresLockWitness.start(session);
+        addTearDown(witness.close);
         final lease = (await first.acquire(icinga2DbSourceId, 'worker-a'))!;
-        await session.db.unsafeSimpleExecute('''
-          UPDATE icinga2_stream_lease SET "expiresAt" = clock_timestamp() + interval '1 second'
-          WHERE "sourceId" = '$icinga2DbSourceId'
-        ''');
-        final entered = Completer<int>();
+        final entered = Completer<LockActor>();
         final finish = Completer<void>();
         final writing = first.fenced<String>(lease, (tx) async {
           await tx.execute(
             "INSERT INTO lease_test_writes VALUES ('old-generation')",
           );
-          final pid =
-              (await tx.execute('SELECT pg_backend_pid()')).single[0]! as int;
-          entered.complete(pid);
+          entered.complete(await lockActor(tx));
           await finish.future;
           return 'committed';
         });
         Future<StreamLease?>? takeover;
         StreamLease? next;
         try {
-          final pid = await entered.future;
+          final blocker = await entered.future;
           expect(
             await session.db.unsafeQuery('SELECT 1 FROM lease_test_writes'),
             isEmpty,
           );
-          final watch = Stopwatch()..start();
-          while (true) {
-            final expired =
-                (await session.db.unsafeQuery('''
-              SELECT "expiresAt" <= clock_timestamp() FROM icinga2_stream_lease
-              WHERE "sourceId" = '$icinga2DbSourceId'
-            ''')).single[0]
-                    as bool;
-            if (expired) break;
-            if (watch.elapsed > const Duration(seconds: 5)) {
-              fail('Database clock did not reach lease expiry');
-            }
-          }
-          takeover = second.acquire(icinga2DbSourceId, 'worker-b');
-          while (true) {
-            final blocked = await session.db.unsafeQuery('''
-              SELECT 1 FROM pg_stat_activity
-              WHERE $pid = ANY(pg_blocking_pids(pid)) AND datname = current_database()
-            ''');
-            if (blocked.isNotEmpty) break;
-            if (watch.elapsed > const Duration(seconds: 5)) {
-              fail('Takeover did not wait for the fenced transaction');
-            }
-          }
+          await advanceSqlClock();
+          final enteredTakeover = Completer<LockActor>();
+          final claimant = StreamLeaseStore(
+            secondConnection,
+            beforeLeaseQueryForTest: (tx) async =>
+                enteredTakeover.complete(await lockActor(tx, waiter: true)),
+          );
+          takeover = claimant.acquire(icinga2DbSourceId, 'worker-b');
+          final waiter = await Future.any([
+            enteredTakeover.future,
+            takeover.then<LockActor>(
+              (_) =>
+                  throw StateError('Takeover did not reach the lease update'),
+            ),
+          ]);
+          await witness.blockedBy(
+            waiter,
+            blocker,
+            takeover,
+            statement: 'UPDATE icinga2_stream_lease',
+          );
           final row = (await session.db.unsafeQuery('''
             SELECT holder, generation FROM icinga2_stream_lease
             WHERE "sourceId" = '$icinga2DbSourceId'
@@ -201,52 +236,52 @@ void main() {
       test(
         'a_lease_expiring_while_the_lock_waits_cannot_authorize_work',
         () async {
+          final witness = await PostgresLockWitness.start(session);
+          addTearDown(witness.close);
           for (final renewal in [false, true]) {
+            await freezeSqlClock();
             final lease = (await first.acquire(icinga2DbSourceId, 'worker-a'))!;
-            await session.db.unsafeExecute('''
-            UPDATE icinga2_stream_lease SET "expiresAt"=clock_timestamp()+interval '1 second'
-            WHERE "sourceId"='$icinga2DbSourceId'
-          ''');
-            final locked = Completer<int>();
+            final locked = Completer<LockActor>();
             final unlock = Completer<void>();
             final locker = secondConnection.runTx((tx) async {
+              final actor = await lockActor(tx);
               await tx.execute(
                 'SELECT id FROM icinga2_stream_lease FOR UPDATE',
               );
-              locked.complete(
-                (await tx.execute('SELECT pg_backend_pid()')).single[0]! as int,
-              );
+              locked.complete(actor);
               await unlock.future;
             });
-            final pid = await locked.future;
+            final blocker = await locked.future;
+            final entered = Completer<LockActor>();
+            final contender = StreamLeaseStore(
+              firstConnection,
+              beforeLeaseQueryForTest: (tx) async =>
+                  entered.complete(await lockActor(tx, waiter: true)),
+            );
             final attempt = renewal
-                ? first.renew(lease)
-                : first.fenced(lease, (_) async => true);
+                ? contender.renew(lease)
+                : contender.fenced(lease, (_) async => true);
             try {
-              final budget = Stopwatch()..start();
-              while ((await session.db.unsafeQuery('''
-              SELECT 1 FROM pg_stat_activity
-              WHERE $pid=ANY(pg_blocking_pids(pid)) AND datname=current_database()
-            ''')).isEmpty) {
-                if (budget.elapsed > const Duration(milliseconds: 750)) {
-                  fail(
-                    'Lease operation did not wait on the row before expiration',
-                  );
-                }
-              }
-              while ((await session.db.unsafeQuery('''
-              SELECT "expiresAt">clock_timestamp() FROM icinga2_stream_lease
-            ''')).single[0] ==
-                  true) {
-                if (budget.elapsed > const Duration(milliseconds: 1500)) {
-                  fail('Database clock did not reach lease expiry');
-                }
-              }
+              final waiter = await Future.any([
+                entered.future,
+                attempt.then<LockActor>(
+                  (_) =>
+                      throw StateError('Operation did not wait for the lease'),
+                ),
+              ]);
+              await witness.blockedBy(
+                waiter,
+                blocker,
+                attempt,
+                statement: 'FROM icinga2_stream_lease',
+              );
+              await advanceSqlClock();
             } finally {
               unlock.complete();
               await locker;
             }
             expect(await attempt, renewal ? isFalse : isNull);
+            await session.db.unsafeExecute('DELETE FROM icinga2_stream_lease');
           }
         },
       );
@@ -367,6 +402,8 @@ void main() {
       });
     },
     rollbackDatabase: RollbackDatabase.disabled,
+    ephemeralDatabase: false,
+    configOverride: cluster.override,
     testGroupTagsOverride: ['db'],
   );
 }

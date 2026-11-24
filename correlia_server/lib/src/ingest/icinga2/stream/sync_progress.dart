@@ -273,17 +273,21 @@ class SyncProgressStore {
       false;
 
   /// Closes abandoned readings only while the source is retired and lease expired.
-  Future<bool> retire(String sourceId, {required int generation}) =>
-      runStreamWrite(_connection, (tx) async {
-        final source = await tx.execute(
-          Sql.named('''
+  Future<bool> retire(
+    String sourceId, {
+    required int generation,
+    Future<void> Function(TxSession)? beforeSourceLockForTest,
+  }) => runStreamWrite(_connection, (tx) async {
+    await beforeSourceLockForTest?.call(tx);
+    final source = await tx.execute(
+      Sql.named('''
           SELECT enabled FROM ingest_source WHERE "sourceId"=@source:uuid FOR UPDATE
         '''),
-          parameters: {'source': sourceId},
-        );
-        if (source.isNotEmpty && source.single[0] == true) return false;
-        final lease = await tx.execute(
-          Sql.named('''
+      parameters: {'source': sourceId},
+    );
+    if (source.isNotEmpty && source.single[0] == true) return false;
+    final lease = await tx.execute(
+      Sql.named('''
           WITH held AS MATERIALIZED (
             SELECT generation, "expiresAt" FROM icinga2_stream_lease
             WHERE "sourceId"=@source:uuid FOR UPDATE
@@ -291,22 +295,22 @@ class SyncProgressStore {
           SELECT 1 FROM held WHERE generation=@generation:int8
             AND "expiresAt"<=clock_timestamp()
         '''),
-          parameters: {'source': sourceId, 'generation': generation},
-        );
-        if (lease.isEmpty) return false;
-        final rows = await tx.execute(
-          Sql.named('''
+      parameters: {'source': sourceId, 'generation': generation},
+    );
+    if (lease.isEmpty) return false;
+    final rows = await tx.execute(
+      Sql.named('''
           SELECT sync_id::text FROM icinga2_sync_progress
           WHERE source_id=@source:uuid AND read_end_at IS NULL
           ORDER BY started_at FOR UPDATE
         '''),
-          parameters: {'source': sourceId},
-        );
-        for (final row in rows) {
-          await _closeReading(tx, row[0]! as String, _sourceRetired);
-        }
-        await tx.execute(
-          Sql.named('''
+      parameters: {'source': sourceId},
+    );
+    for (final row in rows) {
+      await _closeReading(tx, row[0]! as String, _sourceRetired);
+    }
+    await tx.execute(
+      Sql.named('''
           UPDATE icinga2_stream_status SET
             "gapCount"="gapCount"+CASE WHEN "connectionSeq">"lastGapSeq" THEN 1 ELSE 0 END,
             "lastGapAt"=CASE WHEN "connectionSeq">"lastGapSeq"
@@ -316,10 +320,10 @@ class SyncProgressStore {
             "currentSyncId"=NULL, state='retired'
           WHERE "sourceId"=@source:uuid
         '''),
-          parameters: {'source': sourceId},
-        );
-        return true;
-      });
+      parameters: {'source': sourceId},
+    );
+    return true;
+  });
 
   /// Deletes fully accounted progress retained for at least thirty days.
   Future<int> prune(String sourceId) => runStreamWrite(_connection, (tx) async {

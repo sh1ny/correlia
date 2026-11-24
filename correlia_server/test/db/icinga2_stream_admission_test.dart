@@ -16,6 +16,7 @@ import '../integration/test_tools/serverpod_test_tools.dart';
 import '../support/icinga2_pipeline.dart';
 import '../support/icinga2_stream_fixture.dart';
 import '../support/icinga2_stream_pipeline.dart';
+import '../support/postgres_lock_witness.dart';
 import '../support/secret_fixture.dart';
 
 const _connectionId = 'aaaaaaaa-0000-4000-8000-000000000001';
@@ -23,6 +24,8 @@ const _holderId = 'aaaaaaaa-0000-4000-8000-000000000002';
 const _nextHolderId = 'aaaaaaaa-0000-4000-8000-000000000003';
 
 void main() {
+  final cluster = LockWitnessCluster();
+  tearDownAll(cluster.close);
   withServerpod(
     'Icinga2 fenced consumer admission',
     (builder, _) {
@@ -207,13 +210,97 @@ void main() {
         expect(await countRows(session, 'icinga2_admitted_batch'), 0);
       });
 
+      test('stream_insert_waits_for_a_concurrent_cutoff_update', () async {
+        final endpoint = await StreamDatabaseEndpoint.resolve(
+          session.serverpod,
+        );
+        final contender = await endpoint.open(
+          queryTimeout: const Duration(minutes: 5),
+        );
+        addTearDown(contender.close);
+        final blocker = await endpoint.open(
+          queryTimeout: const Duration(minutes: 5),
+        );
+        addTearDown(blocker.close);
+        final witness = await PostgresLockWitness.start(session);
+        addTearDown(witness.close);
+        await session.db.unsafeSimpleExecute(
+          "UPDATE icinga2_stream_lease SET \"expiresAt\" = 'infinity'",
+        );
+        final held = Completer<LockActor>();
+        final release = Completer<void>();
+        final update = blocker.runTx((tx) async {
+          final actor = await lockActor(tx);
+          await tx.execute(
+            'SELECT 1 FROM raw_admission_cutoff WHERE singleton=1 FOR UPDATE',
+          );
+          held.complete(actor);
+          await release.future;
+          await tx.execute(
+            "UPDATE raw_admission_cutoff SET cutoff = 'infinity'",
+          );
+        });
+        final entered = Completer<LockActor>();
+        final repository = ConsumerAdmission(
+          contender,
+          beforeWriteForTest: (tx, _) async {
+            entered.complete(await lockActor(tx, waiter: true));
+          },
+        );
+        Future<StreamAdmissionResult>? writing;
+        try {
+          final locker = await Future.any([
+            held.future,
+            update.then<LockActor>(
+              (_) => throw StateError('Cutoff update returned before locking'),
+            ),
+          ]);
+          writing = admit(
+            batch([
+              [check()],
+            ]),
+            repository: repository,
+          );
+          final waiter = await Future.any([
+            entered.future,
+            writing.then<LockActor>(
+              (result) => throw StateError(
+                'Admission returned before its raw insert: $result',
+              ),
+            ),
+          ]);
+          await witness.blockedBy(
+            waiter,
+            locker,
+            writing,
+            statement: 'INSERT INTO raw_inbox',
+          );
+        } finally {
+          release.complete();
+          await update;
+        }
+        expect(await writing, StreamAdmissionResult.receiptBehindCutoff);
+        for (final table in [
+          'raw_inbox',
+          'icinga2_raw_origin',
+          'icinga2_admitted_batch',
+        ]) {
+          expect(await countRows(session, table), 0, reason: table);
+        }
+        await session.db.unsafeSimpleExecute(
+          "UPDATE raw_admission_cutoff SET cutoff = '-infinity'",
+        );
+      }, timeout: const Timeout(Duration(minutes: 5)));
+
       test('publication_between_the_check_and_the_commit', () async {
-        final checked = Completer<void>();
+        final witness = await PostgresLockWitness.start(session);
+        addTearDown(witness.close);
+        final checked = Completer<LockActor>();
         final finish = Completer<void>();
         final repository = ConsumerAdmission(
           db,
-          afterFence: () async {
-            checked.complete();
+          beforeWriteForTest: (tx, _) async {
+            checked.complete(await lockActor(tx));
             await finish.future;
           },
         );
@@ -223,29 +310,41 @@ void main() {
           ]),
           repository: repository,
         );
-        await Future.any([checked.future, admitting.then<void>((_) {})]);
-        expect(checked.isCompleted, isTrue);
+        final blocker = await Future.any([
+          checked.future,
+          admitting.then<LockActor>(
+            (result) => throw StateError(
+              'Admission did not hold the source lock: $result',
+            ),
+          ),
+        ]);
+        final publisher = builder.build();
+        final entered = Completer<LockActor>();
         final publishing = publishStreamDb(
-          builder.build(),
+          publisher,
           revision: 2,
           apiUrl: 'https://other-icinga.example:5665',
+          beforePublicationWrites: (tx) async => entered.complete(
+            await pooledLockActor(publisher, tx, waiter: true),
+          ),
         );
         try {
-          final clock = Stopwatch()..start();
-          while (true) {
-            final blockers = await session.db.unsafeQuery(
-              '''SELECT 1 FROM pg_stat_activity
-            WHERE datname=current_database() AND query LIKE '%ingest_source%'
-              AND cardinality(pg_blocking_pids(pid))>0''',
-            );
-            if (blockers.isNotEmpty) break;
-            if (clock.elapsed > const Duration(seconds: 1)) {
-              fail('Publication did not wait for the admission source lock');
-            }
-          }
+          final waiter = await Future.any([
+            entered.future,
+            publishing.then<LockActor>(
+              (_) => throw StateError('Publication did not wait for admission'),
+            ),
+          ]);
+          await witness.blockedBy(
+            waiter,
+            blocker,
+            publishing,
+            statement: 'UPDATE ingest_source',
+          );
         } finally {
           finish.complete();
           await publishing;
+          await admitting;
         }
         expect(await admitting, StreamAdmissionResult.committed);
         expect(
@@ -636,6 +735,8 @@ void main() {
       });
     },
     rollbackDatabase: RollbackDatabase.disabled,
+    ephemeralDatabase: false,
+    configOverride: cluster.override,
     testGroupTagsOverride: ['db'],
   );
 }
