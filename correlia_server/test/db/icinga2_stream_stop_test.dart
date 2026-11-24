@@ -28,7 +28,7 @@ const _certs = '../correlia_icinga2_notify/test/fixtures';
 const _blockedQueryTimeout = Duration(minutes: 10);
 const _workLock = 7100;
 const _entryLock = 7101;
-const _blockerLock = 7102;
+const _sessionLock = 7103;
 
 void main() {
   withServerpod(
@@ -49,6 +49,8 @@ void main() {
         addTearDown(() async {
           if (observer.isOpen) await observer.close(force: true);
         });
+        // The observer owns deliberately held locks and releases them itself.
+        await observer.execute('SET idle_in_transaction_session_timeout = 0');
         changes = await IcingaTestDbChanges.start(session.serverpod, [
           'icinga2_stream_status',
           'icinga2_admitted_batch',
@@ -133,11 +135,6 @@ void main() {
               await observer.execute(
                 'INSERT INTO stop_unrelated_work VALUES (1)',
               );
-              if (running) {
-                await observer.execute(
-                  'SELECT pg_advisory_xact_lock($_blockerLock)',
-                );
-              }
               final fixture = await startSupervisor(
                 onConsumerConnection: (connection) async {
                   if (!dedicated.isCompleted) dedicated.complete(connection);
@@ -147,9 +144,9 @@ void main() {
                     'SET LOCAL idle_in_transaction_session_timeout = 0',
                   );
                   await tx.execute('SELECT pg_advisory_xact_lock($_workLock)');
+                  await tx.execute('SELECT pg_advisory_lock($_sessionLock)');
                   if (running) {
                     await tx.execute('SET LOCAL statement_timeout = 0');
-                    await tx.execute('SET LOCAL lock_timeout = 0');
                     await tx.execute('SELECT pg_advisory_lock($_entryLock)');
                   }
                   entered.complete();
@@ -157,7 +154,7 @@ void main() {
                     await tx.execute('''
                       DO \$\$ BEGIN
                         PERFORM pg_advisory_unlock($_entryLock);
-                        PERFORM pg_advisory_xact_lock($_blockerLock);
+                        LOOP PERFORM pg_sleep(30); END LOOP;
                       END \$\$
                     ''', timeout: _blockedQueryTimeout);
                   } else {
@@ -182,10 +179,18 @@ void main() {
                 isFalse,
                 reason: 'The admission transaction must still be in flight',
               );
-              final stopping = fixture.supervisor.stop();
+              final timers = _StopTimers();
+              final stopping = timers.stop(fixture.supervisor);
+              final deadline = timers.abortAdmissions(1);
               await (await dedicated.future).closed;
               await observer.execute(
                 'SELECT pg_advisory_xact_lock($_workLock)',
+                timeout: _blockedQueryTimeout,
+              );
+              // This session lock survives transaction rollback. The test
+              // never unlocks it on the client, so it witnesses backend exit.
+              await observer.execute(
+                'SELECT pg_advisory_xact_lock($_sessionLock)',
                 timeout: _blockedQueryTimeout,
               );
               expect(
@@ -201,6 +206,7 @@ void main() {
                 1,
               );
               await stopping;
+              expect(deadline.isActive, isFalse);
             } finally {
               resume.complete();
               await observer.execute('ROLLBACK');
@@ -462,9 +468,12 @@ void main() {
           }
           await Future.wait(fixture.http.subscriptions.map((r) => r.flush()));
           await admitted.future;
-          final stopped = supervisor.stop();
+          final timers = _StopTimers();
+          final stopped = timers.stop(supervisor);
+          final deadline = timers.abortAdmissions(64);
           await Future.wait(dedicated.map((connection) => connection.closed));
           await stopped;
+          expect(deadline.isActive, isFalse);
         } finally {
           resume.complete();
         }

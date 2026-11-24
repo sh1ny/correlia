@@ -39,7 +39,8 @@ TIER: FULL
 
 ### D3: Prove shutdown ordering against database work still blocked
 
-- **Choice:** For stalled admission, hold the Dart gate and transaction lock. For running SQL, lift the test transaction’s statement and lock timeouts; a single backend statement releases a session entry lock and then attempts a separate lock held by the observer. Acquisition of the entry lock proves entry; the SQL blocker stays held until shutdown interrupts the statement. In both cases, observe dedicated client closure, independently acquire the rolled-back transaction’s advisory lock, and check that its writes are absent and unrelated transaction work survives, all before releasing the Dart gate or SQL blocker. Only a generous whole-test hang guard bounds the awaits; production shutdown settings are unchanged.
+- **Choice:** For stalled admission, hold a Dart gate and a transaction lock. For running SQL, disable the test transaction's statement timeout; inside one statement release the entry lock, then loop `pg_sleep(30)` solely to keep the statement interruptibly blocked until shutdown. The observer witnesses statement entry, dedicated client closure, transaction and session lock release, absence of the staged writes, and survival of unrelated work. The owner requires that slower runners not cause failures, so the delta changes verification evidence, not promised deadlines or outcomes.
+- Keep the observer transaction alive until the test releases it. An unreleased session-level advisory lock witnesses server session shutdown independently of the transaction lock. Capture the timers armed synchronously during stop in a test-only Zone: assert the four-second admission aborts and the shared ten-second deadline, fire the four-second timers explicitly, and prove stop cancels the outer timer without firing it after the I/O barriers. PostgreSQL's one-second disconnect-check configuration is covered separately; the test does not turn the host's scheduling into an elapsed-time assertion.
 - **Rejected:** Release the blockers before stop; that would stop testing cancellation of outstanding work.
 - **Reversal cost:** low.
 - **Important:** no; replaces the assertion mechanism, not production shutdown settings.
@@ -60,7 +61,7 @@ TIER: FULL
 
 ## Carried constraints
 
-- **C1:** Exercise real TLS loopback and the worktree’s embedded PostgreSQL. Kind: invariant. Destination: ADR 0014.
+- **C1:** Exercise real TLS loopback. Kind: invariant. Destination: doc comment: `correlia_server/test/support/icinga2_consumer_loopback.dart` `IcingaConsumerLoopback`. The existing embedded-database rule in accepted ADR 0014 remains in force and is not amended.
 - **C2:** Await state changes and commits without per-step wall-clock deadlines. Kind: invariant. Destination: doc comment: `correlia_server/test/support/icinga2_test_db_changes.dart` `IcingaTestDbChanges`.
 - **C3:** Surface transport errors outside deliberately staged peer shutdown. Kind: invariant. Destination: doc comment: `correlia_server/test/support/icinga2_consumer_loopback.dart` `IcingaConsumerLoopback`.
 
@@ -130,6 +131,7 @@ sequenceDiagram
 |---|---|---|
 | Test DB notifications | Yes | Another session commits the condition; there is no reliable same-isolate event for raw inbox and sync progress. |
 | Run-mode-gated acquisition and open observers | Yes | After a successful acquisition scan, the test must know every launched asynchronous open, not just the ones that already finished. |
+| Test-only Zone timer capture | Yes | Proves the production timeout parameters and that normal shutdown finishes without firing the outer deadline; a stopwatch cannot separate host scheduling from this behavior. |
 | Production callbacks for each DB assertion | No | Test LISTEN/NOTIFY already supplies a reliable commit barrier. |
 | Test retries or error-wide socket suppression | No | Can hide both missing events and real peer or fixture failures. |
 

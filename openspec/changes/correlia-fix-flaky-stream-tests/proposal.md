@@ -18,7 +18,7 @@ None.
 
 ### Modified Capabilities
 
-None. Test synchronization changes; Icinga 2’s external behavior, accepted scenarios and operational deadlines stay unchanged.
+- `icinga2-event-streams`: clarify deterministic evidence for existing shutdown scenarios; no production deadline changes.
 
 ## Impact
 

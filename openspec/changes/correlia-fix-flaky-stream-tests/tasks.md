@@ -2,7 +2,13 @@
 
 ## Test map
 
-No delta scenarios; strengthen the existing Icinga 2 Event Streams regression tests.
+The delta preserves existing outcomes and deadlines. Only the evidence for shutdown timing changes.
+
+| Requirement | Scenarios | Test file | State |
+|---|---|---|---|
+| Consumer database sessions end their own work | Stop during a stalled insert; Stop during a running statement; Insert finishing as stop begins | `correlia_server/test/db/icinga2_stream_stop_test.dart` (matching snake-case names) | green |
+| Consumer stops within the shutdown deadline | Many sources; Stop while reading; Lease row still locked at stop; Two workers, 64 sources; Session settings of the dedicated connection; Database unreachable at stop | `correlia_server/test/db/icinga2_stream_stop_test.dart` (matching snake-case names) and existing TCP coverage in `icinga2_stream_tls_e2e_test.dart` | green |
+ 
 
 ## 1. Make stream regression tests event-driven
 
