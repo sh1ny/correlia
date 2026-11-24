@@ -18,9 +18,9 @@ The six contention suites own their embedded postmasters through Serverpod. On t
 
 ## 3. Controlled deadlines and real peers
 
-- [ ] 3.1 Convert live backpressure, live lease and shutdown-order DB suites to committed/socket events and fixture clocks; verify the same-batch second lock failure and relative outage deadline.
-- [ ] 3.2 Convert `icinga2_stream_tls_e2e_test.dart` stalls to staged timer firing and observed EOF without step caps; verify all TLS cases.
-- [ ] 3.3 Convert the supplementary plugin health busy-spin to matching Go RPC arrival and controlled watchdog/connection-loss precedence. Verify the plugin protocol suite; leave the unrelated plugin diagnostic case untouched.
+- [x] 3.1 Convert live backpressure, live lease and shutdown-order DB suites to committed/socket events and fixture clocks; verify the same-batch second lock failure and relative outage deadline.
+- [x] 3.2 Convert `icinga2_stream_tls_e2e_test.dart` stalls to staged timer firing and observed EOF without step caps; verify all TLS cases.
+- [x] 3.3 Convert the supplementary plugin health busy-spin to matching Go RPC arrival and controlled watchdog/connection-loss precedence. Verify the plugin protocol suite; leave the unrelated plugin diagnostic case untouched.
 
 ## Workflow follow-up
 

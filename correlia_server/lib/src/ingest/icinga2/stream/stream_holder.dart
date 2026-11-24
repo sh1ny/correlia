@@ -235,6 +235,8 @@ final class _StreamAttempt {
       admission = ConsumerAdmission(
         db,
         beforeCommit: holder.owner._beforeAdmissionCommit,
+        beforeWriteForTest: holder.owner._beforeRawWrite,
+        writeErrorForTest: holder.owner._rawWriteError,
       );
 
   final _StreamHolder holder;
@@ -498,7 +500,7 @@ final class _StreamAttempt {
               break;
           }
         }
-        await _closed.wait(waitFor);
+        await _closed.wait(waitFor, schedule: holder.owner._syncSchedule);
       }
     } on Object {
       close('database');

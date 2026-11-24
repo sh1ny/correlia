@@ -1,3 +1,6 @@
+@Timeout(Duration(minutes: 5))
+library;
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -5,6 +8,7 @@ import 'dart:io';
 import 'package:correlia_server/src/ingest/bootstrap.dart';
 import 'package:correlia_server/src/ingest/icinga2/stream/database.dart';
 import 'package:correlia_server/src/ingest/icinga2/stream/status.dart';
+import 'package:correlia_server/src/ingest/icinga2/stream/admission.dart';
 import 'package:correlia_server/src/ingest/icinga2/stream/supervisor.dart';
 import 'package:postgres/postgres.dart' as pg;
 import 'package:serverpod/serverpod.dart';
@@ -14,14 +18,8 @@ import '../integration/test_tools/serverpod_test_tools.dart';
 import '../support/icinga2_consumer_loopback.dart';
 import '../support/icinga2_pipeline.dart';
 import '../support/icinga2_stream_pipeline.dart';
+import '../support/icinga2_test_db_changes.dart';
 import '../support/stream_reader_clock.dart';
-
-Future<void> _until(Future<bool> Function() condition, String message) async {
-  final watch = Stopwatch()..start();
-  while (!await condition()) {
-    if (watch.elapsed > const Duration(seconds: 5)) fail(message);
-  }
-}
 
 void main() {
   withServerpod(
@@ -35,6 +33,8 @@ void main() {
       late StreamReaderClock backoff;
       late List<Duration> backoffDelays;
       late List<String> logs;
+      late IcingaTestDbChanges changes;
+      late Completer<void> backoffScheduled;
 
       setUp(() async {
         session = builder.build();
@@ -43,6 +43,11 @@ void main() {
           'TRUNCATE icinga2_stream_lease,icinga2_stream_status,icinga2_admitted_batch,icinga2_stream_resync',
         );
         server = await IcingaConsumerLoopback.start();
+        changes = await IcingaTestDbChanges.start(session.serverpod, [
+          'icinga2_stream_status',
+          'raw_inbox',
+        ]);
+        addTearDown(changes.close);
         addTearDown(server.close);
         snapshot = await publishStreamDb(
           session,
@@ -52,13 +57,19 @@ void main() {
         logs = [];
         backoff = StreamReaderClock();
         backoffDelays = [];
-        backoff.onSchedule = backoffDelays.add;
+        backoffScheduled = Completer<void>();
+        backoff.onSchedule = (delay) {
+          backoffDelays.add(delay);
+          final previous = backoffScheduled;
+          backoffScheduled = Completer<void>();
+          previous.complete();
+        };
       });
 
       Future<void> start({
         Future<void> Function(pg.TxSession)? beforeCommit,
-        Future<void> Function()? beforeAdmit,
-        bool realReaderTime = false,
+        Future<void> Function(pg.TxSession, StreamRawBatch)? beforeWrite,
+        void Function(StreamRawBatch, pg.ServerException)? writeError,
       }) async {
         final endpoint = await StreamDatabaseEndpoint.resolve(
           session.serverpod,
@@ -66,16 +77,22 @@ void main() {
         final probe = await endpoint.open();
         addTearDown(probe.close);
         status = StreamStatusStore(probe);
+        final leaseClock = StreamReaderClock();
         final supervisor = Icinga2StreamSupervisor(
           holder: 'live-backpressure-tests',
-          openDatabase: (_) => endpoint.open(),
+          openDatabase: (_) => beforeWrite == null
+              ? endpoint.open()
+              : endpoint.open(queryTimeout: const Duration(minutes: 5)),
           revisionInterval: const Duration(milliseconds: 25),
           runMode: 'test',
-          readerClockForTest: realReaderTime ? null : () => clock.elapsed,
-          readerScheduleForTest: realReaderTime ? null : clock.schedule,
+          readerClockForTest: () => clock.elapsed,
+          readerScheduleForTest: clock.schedule,
+          leaseClockForTest: () => leaseClock.elapsed,
+          leaseScheduleForTest: leaseClock.schedule,
           backoffScheduleForTest: backoff.schedule,
           backoffRandomForTest: () => 0.5,
-          beforeAdmitForTest: beforeAdmit,
+          beforeRawWriteForTest: beforeWrite,
+          rawWriteErrorForTest: writeError,
           beforeAdmissionCommit: beforeCommit,
           log: logs.add,
           loadTargets: () async => [
@@ -99,14 +116,11 @@ void main() {
         );
         addTearDown(supervisor.stop);
         supervisor.start();
-        await server.firstSubscription.future.timeout(
-          const Duration(seconds: 5),
-        );
-        await _until(
+        await server.waitForSubscriptions(1);
+        await changes.until(
           () async =>
               (await status.read(icinga2DbSourceId))?.state ==
               StreamConsumerState.connected,
-          'Initial sync did not connect',
         );
       }
 
@@ -118,18 +132,18 @@ void main() {
           }
         };
         await server.send(streamDbCheck(at));
-        await scheduled.future.timeout(const Duration(seconds: 5));
+        await scheduled.future;
         clock.onSchedule = null;
         clock.advance(const Duration(seconds: 1));
       }
 
       Future<void> expectGap(String reason) async {
-        await server.disconnected.future.timeout(const Duration(seconds: 5));
-        await _until(() async {
+        await server.waitForDisconnects(1);
+        await changes.until(() async {
           final value = await status.read(icinga2DbSourceId);
           return value?.state == StreamConsumerState.backoff &&
               value?.lastErrorClass == reason;
-        }, 'Missing $reason backoff status');
+        });
         final value = (await status.read(icinga2DbSourceId))!;
         expect(value.gapCount, 1);
         expect(value.lastGapSeq, 1);
@@ -147,11 +161,10 @@ void main() {
           FROM generate_series(1,100)
         ''');
         await flushEvent(DateTime.now().toUtc());
-        await _until(
+        await changes.until(
           () async =>
               (await status.read(icinga2DbSourceId))?.state ==
               StreamConsumerState.paused,
-          'Reader did not pause at the retained-work cap',
         );
         clock.advance(const Duration(seconds: 29));
         expect((await status.read(icinga2DbSourceId))!.gapCount, 0);
@@ -161,47 +174,75 @@ void main() {
       });
 
       test('insert_blocked_below_the_cap', () async {
-        var attempts = 0;
+        final attempts = StreamController<(String, String?, String)>();
+        final failures = StreamIterator(attempts.stream);
+        addTearDown(() async {
+          await failures.cancel();
+          await attempts.close();
+        });
+        Duration? blockedAt;
+        final retries = StreamController<Duration>();
+        final retry = StreamIterator(retries.stream);
+        addTearDown(() async {
+          await retry.cancel();
+          await retries.close();
+        });
         await start(
-          realReaderTime: true,
-          beforeAdmit: () async {
-            attempts++;
+          beforeWrite: (tx, _) async {
+            expect(
+              (await tx.execute('SHOW statement_timeout')).single[0],
+              '2s',
+            );
+            expect((await tx.execute('SHOW lock_timeout')).single[0], '2s');
+            await tx.execute('SET LOCAL statement_timeout=0');
           },
+          writeError: (batch, error) =>
+              attempts.add((batch.id, error.code, error.message)),
+        );
+        await session.db.unsafeSimpleExecute(
+          "UPDATE icinga2_stream_lease SET \"expiresAt\"='infinity'",
         );
         final lockConnection = await openStreamDatabase(session.serverpod);
         addTearDown(lockConnection.close);
-        final locked = Completer<int>();
+        final locked = Completer<void>();
         final unlock = Completer<void>();
         final locker = lockConnection.runTx((tx) async {
           await tx.execute('SET LOCAL idle_in_transaction_session_timeout=0');
           await tx.execute('LOCK TABLE icinga2_raw_origin IN SHARE MODE');
-          locked.complete(
-            (await tx.execute('SELECT pg_backend_pid()')).single[0]! as int,
-          );
+          locked.complete();
           await unlock.future;
         });
-        final pid = await locked.future;
-        final heldFor = Stopwatch()..start();
         try {
+          await Future.any([
+            locked.future,
+            locker.then<void>((_) => throw StateError('Blocker ended early')),
+          ]);
+          final sent = Completer<void>();
+          clock.onSchedule = (delay) {
+            if (delay == const Duration(seconds: 30)) blockedAt = clock.elapsed;
+            if (delay != const Duration(seconds: 1)) return;
+            if (!sent.isCompleted) {
+              sent.complete();
+            } else {
+              retries.add(clock.elapsed + delay);
+            }
+          };
           await server.send(streamDbCheck(DateTime.now().toUtc()));
-          await _until(() async {
-            final rows = await session.db.unsafeQuery('''
-              SELECT 1 FROM pg_stat_activity
-              WHERE $pid=ANY(pg_blocking_pids(pid))
-                AND datname=current_database()
-            ''');
-            return rows.isNotEmpty;
-          }, 'Admission never waited on the database lock');
+          await sent.future;
+          clock.advance(const Duration(seconds: 1));
+          expect(await failures.moveNext(), isTrue);
+          final (batchId, code, message) = failures.current;
+          expect(code, '55P03');
+          expect(message, contains('lock timeout'));
           expect(await countRows(session, 'raw_inbox'), 0);
-          await server.disconnected.future.timeout(const Duration(seconds: 35));
+          expect(await retry.moveNext(), isTrue);
+          final outage = blockedAt! + const Duration(seconds: 30);
+          expect(retry.current, lessThan(outage));
+          clock.advance(retry.current - clock.elapsed);
+          expect(await failures.moveNext(), isTrue);
+          expect(failures.current, (batchId, code, message));
+          clock.advance(outage - clock.elapsed);
           await expectGap('backpressure');
-          expect(
-            heldFor.elapsed,
-            greaterThanOrEqualTo(const Duration(seconds: 30)),
-          );
-          expect(attempts, greaterThan(1));
-          final remaining = const Duration(seconds: 40) - heldFor.elapsed;
-          if (remaining > Duration.zero) await Future<void>.delayed(remaining);
         } finally {
           unlock.complete();
           await locker;
@@ -211,7 +252,7 @@ void main() {
           await countRows(session, 'icinga2_admitted_batch'),
           lessThanOrEqualTo(1),
         );
-      }, timeout: const Timeout(Duration(seconds: 60)));
+      });
 
       test('repeated_short_pauses', () async {
         final entered = StreamController<Completer<void>>.broadcast();
@@ -234,13 +275,12 @@ void main() {
         Future<void> delayedFlush(DateTime timestamp) async {
           final next = entered.stream.first;
           await flushEvent(timestamp);
-          final release = await next.timeout(const Duration(seconds: 5));
+          final release = await next;
           clock.advance(const Duration(seconds: 19));
           release.complete();
           final expected = releases.length;
-          await _until(
+          await changes.until(
             () async => await countRows(session, 'raw_inbox') >= expected,
-            'Admission did not complete after the short pause',
           );
         }
 
@@ -291,31 +331,41 @@ void main() {
         }
         final sending = socket.flush().then<void>(
           (_) {},
-          onError: (Object _, StackTrace _) {},
+          onError: (Object error, StackTrace stack) {
+            // The consumer closes this socket with queued writes when lag wins.
+            if (error is SocketException &&
+                (error.osError?.errorCode == 32 ||
+                    error.osError?.errorCode == 104)) {
+              return;
+            }
+            Error.throwWithStackTrace(error, stack);
+          },
         );
+        sending
+            .ignore(); // Teardown joins the write even after the expected gap.
         addTearDown(() async {
           socket.destroy();
           await sending;
         });
         for (var batch = 0; batch < 7; batch++) {
-          final release = await next.timeout(const Duration(seconds: 20));
+          final release = await next;
           if (batch < 6) next = entered.stream.first;
           clock.advance(const Duration(seconds: 20));
           release.complete();
           final expected = batch + 1;
-          await _until(
+          await changes.until(
             () async => await countRows(session, 'raw_inbox') >= expected,
-            'Queued batch did not reach the pipeline',
           );
           await processIcinga2(session, DateTime.now().toUtc());
         }
         await expectGap('lag');
-      }, timeout: const Timeout(Duration(minutes: 2)));
+      });
 
-      Future<void> waitBackoff(int count) => _until(() async {
-        await status.read(icinga2DbSourceId);
-        return backoffDelays.length >= count;
-      }, 'The supervisor did not schedule reconnect $count');
+      Future<void> waitBackoff(int count) async {
+        while (backoffDelays.length < count) {
+          await backoffScheduled.future;
+        }
+      }
 
       Future<void> takeIcingaDown() async {
         for (final socket in server.subscriptions) {
@@ -397,12 +447,11 @@ void main() {
           "UPDATE icinga2_sync_progress SET started_at=started_at-interval '61 seconds'",
         );
         backoff.advance(const Duration(seconds: 11));
-        await synced.future.timeout(const Duration(seconds: 5));
-        await _until(
+        await synced.future;
+        await changes.until(
           () async =>
               (await status.read(icinga2DbSourceId))?.state ==
               StreamConsumerState.connected,
-          'Reconnected stream did not finish its sync',
         );
         final reconnected = (await status.read(icinga2DbSourceId))!;
         expect(reconnected.gapCount, 1);

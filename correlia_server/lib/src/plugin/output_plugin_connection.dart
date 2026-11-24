@@ -436,6 +436,11 @@ final class OutputPluginConnection {
   /// failure at or past the deadline is a health timeout, regardless of status.
   Future<OutputPluginHealth> health({
     Duration timeout = const Duration(seconds: 2),
+    Future<v1.CheckHealthResponse> Function(
+      Future<v1.CheckHealthResponse> response,
+      Duration deadline,
+    )?
+    observeCallForTest,
   }) async {
     if (timeout <= Duration.zero) throw ArgumentError.value(timeout, 'timeout');
     final deadline = timeout < const Duration(seconds: 2)
@@ -446,12 +451,23 @@ final class OutputPluginConnection {
     }
     final stopwatch = Stopwatch()..start();
     try {
-      final response = await _client
-          .checkHealth(
-            v1.CheckHealthRequest(),
-            options: CallOptions(timeout: deadline),
-          )
-          .timeout(deadline);
+      final call = _client.checkHealth(
+        v1.CheckHealthRequest(),
+        options: observeCallForTest == null
+            ? CallOptions(timeout: deadline)
+            : null,
+      );
+      final v1.CheckHealthResponse response;
+      if (observeCallForTest == null) {
+        response = await call.timeout(deadline);
+      } else {
+        call.ignore();
+        try {
+          response = await observeCallForTest(call, deadline);
+        } finally {
+          await call.cancel();
+        }
+      }
       if (utf8.encode(response.reason).length > 256) {
         _fail(const OutputPluginException('plugin_protocol_error'));
         throw const OutputPluginException('plugin_protocol_error');

@@ -1,6 +1,8 @@
 @Tags(['plugin'])
+@Timeout(Duration(minutes: 5))
 library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -31,10 +33,17 @@ void main() {
   });
   tearDownAll(() async => suite.dispose());
 
-  Future<OutputPluginConnection> connect([String mode = 'normal']) async {
+  Future<OutputPluginConnection> connect([
+    String mode = 'normal',
+    String? healthMarker,
+  ]) async {
     final connection = await OutputPluginConnection.start(
       executable: executable,
-      arguments: ['--mode', mode],
+      arguments: [
+        '--mode',
+        mode,
+        if (healthMarker != null) ...['--health-marker', healthMarker],
+      ],
       configJson: config,
       secrets: secrets,
     );
@@ -253,41 +262,93 @@ void main() {
     expect((await connection.health()).serving, isTrue);
   });
 
-  test('health_call_stalls', () async {
-    final connection = await connect('stall-health');
-    await expectLater(
-      connection.health(timeout: const Duration(milliseconds: 100)),
-      throwsA(failure('plugin_health_timeout')),
+  Future<void> stagedHealth({
+    required Duration requested,
+    required Duration expected,
+    bool loseConnection = false,
+  }) async {
+    final directory = await suite.scratchDirectory.createTemp('health-');
+    final marker = File('${directory.path}/entered');
+    final events = StreamIterator(directory.watch());
+    var next = events.moveNext();
+    addTearDown(events.cancel);
+    final connection = await connect('stall-health', marker.path);
+    var nativeCompleted = false;
+    var watchdogFired = false;
+    final fire = Completer<void>();
+    final watchdog = TimeoutException('fixture health watchdog');
+    final result = expectLater(
+      connection.health(
+        timeout: requested,
+        observeCallForTest: (rpc, deadline) async {
+          expect(deadline, expected);
+          unawaited(
+            rpc.then<void>(
+              (_) => nativeCompleted = true,
+              onError: (Object _, StackTrace _) => nativeCompleted = true,
+            ),
+          );
+          await fire.future;
+          watchdogFired = true;
+          throw watchdog;
+        },
+      ),
+      throwsA(
+        failure(
+          loseConnection ? 'plugin_connection_lost' : 'plugin_health_timeout',
+        ),
+      ),
     );
-  });
-
-  test('health_call_stalls_under_load', () async {
-    // Supplementary stress evidence; the classifier test is deterministic proof.
-    final connection = await connect('stall-health');
-    for (var i = 0; i < 20; i++) {
-      final call = connection.health(
-        timeout: const Duration(milliseconds: 100),
-      );
-      final busy = Stopwatch()..start();
-      while (busy.elapsed < const Duration(milliseconds: 300)) {}
-      await expectLater(call, throwsA(failure('plugin_health_timeout')));
+    result.ignore();
+    try {
+      while (!marker.existsSync()) {
+        if (!await Future.any([
+          next,
+          result.then<bool>(
+            (_) =>
+                throw StateError('Health finished before Go entered the RPC'),
+          ),
+        ])) {
+          fail('Go RPC stage observer closed');
+        }
+        next = events.moveNext();
+      }
+      expect(await marker.readAsString(), '${connection.pid}');
+      expect(nativeCompleted, isFalse);
+      if (loseConnection) {
+        expect(Process.killPid(connection.pid!, ProcessSignal.sigkill), isTrue);
+        expect(await connection.failure, failure('plugin_connection_lost'));
+      }
+    } finally {
+      fire.complete();
+      await events.cancel();
+      await result;
     }
-  });
+    expect(watchdogFired, isTrue);
+  }
 
-  test('health_connection_lost_during_call', () async {
-    // Supplementary process coverage; the classifier proves observed-loss
-    // precedence. An early unavailable status may instead follow D2.
-    final connection = await connect('stall-health');
-    final call = connection.health(timeout: const Duration(seconds: 2));
-    final assertion = expectLater(
-      call,
-      throwsA(failure('plugin_connection_lost')),
-    );
-    expect(Process.killPid(connection.pid!, ProcessSignal.sigkill), isTrue);
-    await assertion;
-    expect(
-      await connection.failure,
-      failure('plugin_connection_lost'),
-    );
-  });
+  test(
+    'health_call_stalls',
+    () => stagedHealth(
+      requested: const Duration(milliseconds: 100),
+      expected: const Duration(milliseconds: 100),
+    ),
+  );
+
+  test(
+    'health_watchdog_uses_the_shared_cap',
+    () => stagedHealth(
+      requested: const Duration(seconds: 20),
+      expected: const Duration(seconds: 2),
+    ),
+  );
+
+  test(
+    'health_connection_lost_during_call',
+    () => stagedHealth(
+      requested: const Duration(seconds: 2),
+      expected: const Duration(seconds: 2),
+      loseConnection: true,
+    ),
+  );
 }
