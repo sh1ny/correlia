@@ -1,3 +1,6 @@
+@Timeout(Duration(minutes: 5))
+library;
+
 import 'dart:async';
 
 import 'package:correlia_server/src/ingest/icinga2/stream/database.dart';
@@ -12,8 +15,11 @@ import '../support/icinga2_delivery.dart' as webhook;
 import '../support/icinga2_pipeline.dart';
 import '../support/icinga2_stream_pipeline.dart';
 import '../support/ingest_schema.dart';
+import '../support/postgres_lock_witness.dart';
 
 void main() {
+  final cluster = LockWitnessCluster();
+  tearDownAll(cluster.close);
   withServerpod(
     'stream tombstone reclamation',
     (builder, _) {
@@ -26,7 +32,12 @@ void main() {
         session = builder.build();
         await initializeIngestSchema(session);
         await clearPipelineTables(session);
-        sweepConnection = await openStreamDatabase(session.serverpod);
+        final endpoint = await StreamDatabaseEndpoint.resolve(
+          session.serverpod,
+        );
+        sweepConnection = await endpoint.open(
+          queryTimeout: const Duration(minutes: 5),
+        );
       });
 
       tearDown(() async {
@@ -60,6 +71,9 @@ void main() {
       Future<int> sweep() => TombstoneSweep(
         sweepConnection,
         clock: () => boundary.add(const Duration(hours: 1)),
+        beforeCutoffLockForTest: (tx) async {
+          await lockActor(tx);
+        },
       ).runOnce();
 
       Future<void> rawAt(Session writer, DateTime receipt, {Transaction? tx}) =>
@@ -69,6 +83,7 @@ void main() {
           VALUES (@receipt,gen_random_uuid(),'$icinga2OtherDbSourceId',decode('00','hex'),'test','application/json')''',
             parameters: QueryParameters.named({'receipt': receipt}),
             transaction: tx,
+            timeoutInSeconds: const Duration(minutes: 5).inSeconds,
           );
 
       test('objects_deleted_upstream', () async {
@@ -196,50 +211,32 @@ void main() {
       });
 
       Future<void> sweepDuringKeyReservation() async {
+        final reserved = Completer<void>();
+        final release = ContentionGate();
         final worker = PipelineRepository(
           builder.build(),
           clock: () => boundary,
+          elapsedForTest: () => Duration.zero,
+          afterKeyReservationForTest: () {
+            reserved.complete();
+            return release.future;
+          },
         );
         expect(await worker.pinOne(), isTrue);
-        const lock = 1129271990;
-        await session.db.unsafeSimpleExecute('''
-          CREATE FUNCTION wait_test_reservation() RETURNS trigger LANGUAGE plpgsql AS \$\$
-          BEGIN PERFORM pg_advisory_xact_lock($lock); RETURN NEW; END; \$\$;
-          CREATE TRIGGER wait_test_reservation AFTER INSERT ON observation_keys
-            FOR EACH ROW EXECUTE FUNCTION wait_test_reservation();
-        ''');
-        final held = Completer<void>();
-        final release = Completer<void>();
-        final locker = builder.build();
-        final gate = locker.db.transaction((tx) async {
-          await locker.db.unsafeQuery(
-            'SELECT pg_advisory_xact_lock($lock)',
-            transaction: tx,
-          );
-          held.complete();
-          await release.future;
-        });
-        await held.future;
-        final writing = worker.processOne();
+        // The real observation key exists in the open transaction.
+        final writing = release.run(worker.processOne);
         try {
-          final elapsed = Stopwatch()..start();
-          while (true) {
-            final rows = await session.db.unsafeQuery('''SELECT 1 FROM pg_locks
-              WHERE locktype='advisory' AND objid=$lock AND NOT granted''');
-            if (rows.isNotEmpty) break;
-            if (elapsed.elapsed > const Duration(seconds: 3)) {
-              fail('Worker did not reserve the key before alert acquisition');
-            }
-          }
-          expect(await sweep(), 1);
+          await Future.any([
+            reserved.future,
+            writing.then<void>(
+              (_) => throw StateError('Worker did not reserve a key'),
+            ),
+          ]);
+          expect(await release.run(sweep), 1);
         } finally {
-          release.complete();
-          await gate;
-          await writing;
-          await session.db.unsafeSimpleExecute(
-            'DROP FUNCTION wait_test_reservation() CASCADE',
-          );
+          await release.join();
         }
+        expect(await writing, isTrue);
       }
 
       test('provisional_key_does_not_prevent_reclamation', () async {
@@ -364,45 +361,52 @@ void main() {
 
       test('admission_and_reclamation_fence_both_orders', () async {
         final writer = builder.build();
+        final witness = await PostgresLockWitness.start(session);
+        addTearDown(witness.close);
         final oldReceipt = fence.add(const Duration(seconds: 1));
         await mark(1, fence.subtract(const Duration(seconds: 1)));
-        final inserted = Completer<int>();
-        final release = Completer<void>();
-        final writing = writer.db.transaction((tx) async {
-          await rawAt(writer, oldReceipt, tx: tx);
-          inserted.complete(
-            (await writer.db.unsafeQuery(
-                  'SELECT pg_backend_pid()',
-                  transaction: tx,
-                )).single[0]!
-                as int,
-          );
-          await release.future;
-        });
-        Future<void> blockedBy(int pid) async {
-          final elapsed = Stopwatch()..start();
-          while (elapsed.elapsed < const Duration(milliseconds: 750)) {
-            final waiting = await session.db.unsafeQuery('''
-              SELECT 1 FROM pg_stat_activity
-              WHERE $pid = ANY(pg_blocking_pids(pid)) AND datname=current_database()
-            ''');
-            if (waiting.isNotEmpty) return;
-          }
-          fail('Expected another transaction to block on backend $pid');
-        }
-
-        final writerPid = await inserted.future;
+        final inserted = Completer<LockActor>();
+        final release = ContentionGate();
+        final writing = release.run(
+          () => writer.db.transaction((tx) async {
+            final actor = await pooledLockActor(writer, tx);
+            await rawAt(writer, oldReceipt, tx: tx);
+            inserted.complete(actor);
+            await release.future;
+          }),
+        );
+        final writerActor = await Future.any([
+          inserted.future,
+          writing.then<LockActor>(
+            (_) => throw StateError('Admission did not hold the cutoff'),
+          ),
+        ]);
+        var sweepEntered = Completer<LockActor>();
         final scanner = TombstoneSweep(
           sweepConnection,
           clock: () => boundary.add(const Duration(hours: 1)),
+          beforeCutoffLockForTest: (tx) async => sweepEntered.complete(
+            await lockActor(tx, waiter: SqlTimeouts.sweep),
+          ),
         );
-        final waiting = scanner.runOnce();
+        final waiting = release.run(scanner.runOnce);
         try {
-          await blockedBy(writerPid);
+          final sweepActor = await Future.any([
+            sweepEntered.future,
+            waiting.then<LockActor>(
+              (_) => throw StateError('Sweep did not wait for admission'),
+            ),
+          ]);
+          await witness.blockedBy(
+            sweepActor,
+            writerActor,
+            waiting,
+            statement: 'SET cutoff=GREATEST',
+          );
         } finally {
-          release.complete();
-          await writing;
+          await release.join();
         }
+        await writing;
         expect(await waiting, 0);
         expect(await countRows(session, 'alerts'), 1);
         await session.db.unsafeExecute("UPDATE raw_inbox SET status='done'");
@@ -413,35 +417,63 @@ void main() {
           CREATE TRIGGER wait_after_cutoff_update AFTER UPDATE ON raw_admission_cutoff
             FOR EACH ROW EXECUTE FUNCTION wait_after_cutoff_update();
         ''');
-        final held = Completer<int>();
-        final unlock = Completer<void>();
-        final gate = session.db.transaction((tx) async {
-          await session.db.unsafeQuery(
-            'SELECT pg_advisory_xact_lock($advisory)',
-            transaction: tx,
-          );
-          held.complete(
-            (await session.db.unsafeQuery(
-                  'SELECT pg_backend_pid()',
-                  transaction: tx,
-                )).single[0]!
-                as int,
-          );
-          await unlock.future;
-        });
-        final gatePid = await held.future;
-        final reclaiming = scanner.runOnce();
+        addTearDown(
+          () => session.db.unsafeSimpleExecute(
+            'DROP FUNCTION wait_after_cutoff_update() CASCADE',
+          ),
+        );
+        final held = Completer<LockActor>();
+        final unlock = ContentionGate();
+        final gate = unlock.run(
+          () => session.db.transaction((tx) async {
+            final actor = await pooledLockActor(session, tx);
+            await session.db.unsafeQuery(
+              'SELECT pg_advisory_xact_lock($advisory)',
+              transaction: tx,
+            );
+            held.complete(actor);
+            await unlock.future;
+          }),
+        );
+        final cutoffGate = await Future.any([
+          held.future,
+          gate.then<LockActor>(
+            (_) => throw StateError('Cutoff trigger gate was not held'),
+          ),
+        ]);
+        sweepEntered = Completer<LockActor>();
+        final reclaiming = unlock.run(scanner.runOnce);
+        late Future<void> rejected;
         try {
-          await blockedBy(gatePid);
-          // Identify the sweep backend waiting at the trigger; admission now
-          // has to queue behind its cutoff update, not observe the old cutoff.
-          final sweepPid =
-              (await session.db.unsafeQuery('''
-            SELECT pid FROM pg_stat_activity WHERE $gatePid = ANY(pg_blocking_pids(pid))
-          ''')).single[0]!
-                  as int;
-          final rejected = expectLater(
-            rawAt(writer, oldReceipt),
+          final sweepActor = await Future.any([
+            sweepEntered.future,
+            reclaiming.then<LockActor>(
+              (_) =>
+                  throw StateError('Sweep did not wait in the cutoff trigger'),
+            ),
+          ]);
+          await witness.blockedBy(
+            sweepActor,
+            cutoffGate,
+            reclaiming,
+            statement: 'SET cutoff=GREATEST',
+            advisory: true,
+          );
+          final admissionEntered = Completer<LockActor>();
+          final admission = unlock.run(
+            () => writer.db.transaction((tx) async {
+              admissionEntered.complete(
+                await pooledLockActor(
+                  writer,
+                  tx,
+                  waiter: SqlTimeouts.poolDefault,
+                ),
+              );
+              await rawAt(writer, oldReceipt, tx: tx);
+            }),
+          );
+          rejected = expectLater(
+            admission,
             throwsA(
               isA<DatabaseQueryException>().having(
                 (e) => e.code,
@@ -450,26 +482,34 @@ void main() {
               ),
             ),
           );
-          try {
-            await blockedBy(sweepPid);
-          } finally {
-            unlock.complete();
-            await rejected;
-          }
-          expect(await reclaiming, 1);
-        } finally {
-          if (!unlock.isCompleted) unlock.complete();
-          await gate;
-          await reclaiming;
-          await session.db.unsafeSimpleExecute(
-            'DROP FUNCTION wait_after_cutoff_update() CASCADE',
+          rejected.ignore();
+          final admissionActor = await Future.any([
+            admissionEntered.future,
+            admission.then<LockActor>(
+              (_) => throw StateError(
+                'Admission was not queued behind the cutoff',
+              ),
+            ),
+          ]);
+          await witness.blockedBy(
+            admissionActor,
+            sweepActor,
+            admission,
+            statement: 'INSERT INTO raw_inbox',
           );
+        } finally {
+          await unlock.join();
         }
+        await gate;
+        await rejected;
+        expect(await reclaiming, 1);
         await rawAt(writer, boundary);
         expect(await countRows(session, 'raw_inbox'), 2);
       });
     },
     rollbackDatabase: RollbackDatabase.disabled,
+    ephemeralDatabase: false,
+    configOverride: cluster.override,
     testGroupTagsOverride: ['db'],
   );
 }

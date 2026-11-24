@@ -8,8 +8,19 @@ const _batchSize = 500;
 /// snapshots, not the outbox; any writer that changes that must add an outbox
 /// pass. New publishers inventory their own writes; retired pre-cutover
 /// credentials are captured separately by the cutover trigger.
-Future<void> backfillSecretReuse(Session session) async {
-  while (await session.db.transaction((tx) => _nextBatch(session, tx))) {}
+Future<void> backfillSecretReuse(
+  Session session, {
+  Future<void> Function(Transaction, bool)? beforeWriteForTest,
+  int? writeTimeoutInSecondsForTest,
+}) async {
+  while (await session.db.transaction(
+    (tx) => _nextBatch(
+      session,
+      tx,
+      beforeWriteForTest,
+      writeTimeoutInSecondsForTest,
+    ),
+  )) {}
 }
 
 enum _Pass {
@@ -28,7 +39,12 @@ enum _Pass {
   final String data;
 }
 
-Future<bool> _nextBatch(Session session, Transaction tx) async {
+Future<bool> _nextBatch(
+  Session session,
+  Transaction tx,
+  Future<void> Function(Transaction, bool)? beforeWriteForTest,
+  int? writeTimeoutInSecondsForTest,
+) async {
   final state = (await session.db.unsafeQuery(
     '''SELECT snapshot_mark,snapshot_boundary,commitment_mark,commitment_boundary,
       credential_mark,credential_boundary,complete
@@ -40,6 +56,9 @@ Future<bool> _nextBatch(Session session, Transaction tx) async {
     final mark = state[pass.index * 2]! as int;
     final boundary = state[pass.index * 2 + 1]! as int;
     if (mark == boundary) continue;
+    if (beforeWriteForTest != null && pass == _Pass.snapshot) {
+      await beforeWriteForTest(tx, false);
+    }
     final result = (await session.db.unsafeQuery(
       '''WITH batch AS MATERIALIZED (
         SELECT ${pass.cursor} AS cursor, ${pass.data} FROM ${pass.table}
@@ -54,6 +73,7 @@ Future<bool> _nextBatch(Session session, Transaction tx) async {
       SELECT count(*), max(cursor) FROM batch''',
       parameters: QueryParameters.named({'mark': mark, 'boundary': boundary}),
       transaction: tx,
+      timeoutInSeconds: writeTimeoutInSecondsForTest,
     )).single;
     final end = result[0] == _batchSize ? result[1]! as int : boundary;
     final complete =
@@ -63,16 +83,20 @@ Future<bool> _nextBatch(Session session, Transaction tx) async {
           _Pass.commitment => state[4] == state[5],
           _Pass.credential => true,
         };
+    if (complete) await beforeWriteForTest?.call(tx, true);
     await session.db.unsafeExecute(
       'UPDATE secret_reuse_backfill SET ${pass.name}_mark=@mark,complete=@complete WHERE singleton=1',
       parameters: QueryParameters.named({'mark': end, 'complete': complete}),
       transaction: tx,
+      timeoutInSeconds: writeTimeoutInSecondsForTest,
     );
     return !complete;
   }
+  await beforeWriteForTest?.call(tx, true);
   await session.db.unsafeExecute(
     'UPDATE secret_reuse_backfill SET complete=true WHERE singleton=1',
     transaction: tx,
+    timeoutInSeconds: writeTimeoutInSecondsForTest,
   );
   return false;
 }

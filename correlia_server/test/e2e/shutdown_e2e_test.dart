@@ -25,9 +25,9 @@ void main() {
           database: database,
           environment: {'CORRELIA_TEST_STOP_PROBE': '1'},
         );
-        await child.waitUntilReady();
+        await child.waitForReadyEvent();
 
-        expect(await child.stop(), 0, reason: child.output);
+        expect(await child.stop(deadline: null), 0, reason: child.output);
         final lines = child.output.split('\n');
         int indexOf(Pattern pattern) =>
             lines.indexWhere((line) => line.contains(pattern));
@@ -125,13 +125,11 @@ void main() {
             );
           }
           expect(
-            await child.stop(deadline: const Duration(seconds: 15)),
+            await child.stop(deadline: null),
             condition == 'unreachable' ? 1 : 0,
             reason: child.output,
           );
-          await fixture.upstream.disconnected.future.timeout(
-            const Duration(seconds: 2),
-          );
+          await fixture.upstream.waitForDisconnects(1);
           final output = child.output;
           final stopped = output.indexOf(
             condition == 'free' ? ' stopped' : ' lease expires',

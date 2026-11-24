@@ -20,7 +20,6 @@ const _source = '33333333-3333-4333-8333-333333333333';
 const _password = 'echo-"\\-secret-\u00e9';
 const _username = 'co~relia-streamx';
 final _basicToken = base64.encode(utf8.encode('$_username:$_password'));
-const _deadline = Duration(seconds: 60);
 const _timeout = Timeout(Duration(minutes: 7));
 
 String _encoded(List<int> bytes) => base64Url.encode(bytes).replaceAll('=', '');
@@ -106,7 +105,7 @@ final class _Upstream {
   }
 
   Future<void> send(String line) async {
-    await connected.future.timeout(_deadline);
+    await connected.future;
     sockets.last.writeln(line);
     await sockets.last.flush();
   }
@@ -183,8 +182,8 @@ final class _Fixture {
       },
     );
     children.add(child);
-    await child.waitUntilReady();
-    await upstream.connected.future.timeout(_deadline);
+    await child.waitForReadyEvent();
+    await upstream.connected.future;
     final api = Client('http://127.0.0.1:${child.apiPort}/');
     try {
       initialCursor = (await api.alertConsole.snapshot()).cursor;
@@ -194,14 +193,12 @@ final class _Fixture {
   }
 
   Future<void> until(Future<bool> Function() condition) async {
-    await (() async {
-      while (!await condition()) {
-        if (!await nextChange) {
-          throw StateError('database notifications closed');
-        }
-        nextChange = changes.moveNext();
+    while (!await condition()) {
+      if (!await nextChange) {
+        throw StateError('database notifications closed');
       }
-    })().timeout(_deadline);
+      nextChange = changes.moveNext();
+    }
   }
 
   Future<List<String>> admitted() async => (await connection.execute(
@@ -240,6 +237,12 @@ final class _Fixture {
       absent(jsonEncode(snapshot.toJson()), 'snapshot');
       final page = await api.alertConsole.feed(initialCursor, 100);
       absent(jsonEncode(page.toJson()), 'feed');
+      // Serverpod test mode does not persist fast, successful sessions.
+      // Explicitly exercise the failed-session log instead of relying on slowness.
+      await expectLater(
+        api.alertConsole.feed('invalid-fixture-cursor', 100),
+        throwsA(isA<InvalidCursorException>()),
+      );
     } finally {
       api.close();
     }
@@ -259,22 +262,31 @@ final class _Fixture {
     }
     for (final path in ['/livez', '/readyz', '/startupz']) {
       for (final web in [false, true]) {
-        final response = await child.fetch(path, web: web);
+        final response = await child.fetch(
+          path,
+          web: web,
+          requestTimeout: null,
+        );
         expect(response?.status, 200);
         absent(response!.body, path);
       }
     }
-    final console = await child.fetch('/', web: true);
+    final console = await child.fetch('/', web: true, requestTimeout: null);
     expect(console?.status, anyOf(200, 503));
     absent(console!.body, 'console');
-    expect(await child.closeStdin(), 0);
+    const failedFeedSession = '''
+      SELECT 1 FROM serverpod_session_log
+      WHERE endpoint = 'alertConsole' AND method = 'feed'
+        AND error IS NOT NULL AND "isOpen" = false
+    ''';
+    await until(
+      () async => (await connection.execute(failedFeedSession)).isNotEmpty,
+    );
+    expect(await child.closeStdin(deadline: null), 0);
     for (final delivery in deliveries) {
       absent(delivery, 'webhook delivery');
     }
-    expect(
-      await connection.execute('SELECT 1 FROM serverpod_session_log'),
-      isNotEmpty,
-    );
+    expect(await connection.execute(failedFeedSession), isNotEmpty);
     final tables = await connection.execute(
       "SELECT format('%I.%I',schemaname,tablename) FROM pg_tables WHERE schemaname='public'",
     );
@@ -352,8 +364,8 @@ Future<void> _withFixture(Future<void> Function(_Fixture) run) async {
       database: database,
     );
     children.add(bootstrap);
-    await bootstrap.waitUntilReady();
-    expect(await bootstrap.closeStdin(), 0);
+    await bootstrap.waitForReadyEvent();
+    expect(await bootstrap.closeStdin(deadline: null), 0);
     await connection.execute(
       'CREATE TABLE secret_test_admission (seq bigserial, body bytea NOT NULL)',
     );
@@ -378,6 +390,9 @@ Future<void> _withFixture(Future<void> Function(_Fixture) run) async {
     );
     await connection.execute(
       'CREATE TRIGGER secret_test_status AFTER INSERT OR UPDATE ON icinga2_stream_status FOR EACH ROW EXECUTE FUNCTION secret_test_notify()',
+    );
+    await connection.execute(
+      'CREATE TRIGGER secret_test_log AFTER INSERT OR UPDATE ON serverpod_session_log FOR EACH ROW EXECUTE FUNCTION secret_test_notify()',
     );
     await connection.execute('LISTEN secret_test_change');
     changes = StreamIterator<Object?>(
@@ -431,8 +446,7 @@ void main() {
         await f.start();
         final token =
             await (sync ? f.upstream.servicesToken : f.upstream.streamToken)
-                .future
-                .timeout(_deadline);
+                .future;
         expect(token.endsWith('=') && token.contains(RegExp(r'[+/]')), isTrue);
         expect(utf8.encode('$_username:').length % 3, isNot(0));
         final output = 'left $token middle Basic $token right';
@@ -456,7 +470,7 @@ void main() {
           await f.upstream.send(wire);
         }
         f.upstream.releaseSync.complete();
-        await f.firstDelivery.future.timeout(_deadline);
+        await f.firstDelivery.future;
         final envelope =
             jsonDecode((await f.admitted()).single) as Map<String, Object?>;
         final item =
@@ -509,7 +523,7 @@ void main() {
         bodies.where((s) => s.contains('redacted')),
         hasLength(greaterThanOrEqualTo(2)),
       );
-      await f.firstDelivery.future.timeout(_deadline);
+      await f.firstDelivery.future;
       await f.scan();
     }),
     timeout: _timeout,
@@ -535,7 +549,7 @@ void main() {
       expect((await f.admitted()).single, contains('redacted'));
       expect(await f.connection.execute('SELECT 1 FROM raw_inbox'), isNotEmpty);
       expect(await f.connection.execute('SELECT 1 FROM events'), isNotEmpty);
-      await f.firstDelivery.future.timeout(_deadline);
+      await f.firstDelivery.future;
       await f.scan();
     }),
     timeout: _timeout,
@@ -575,7 +589,7 @@ void main() {
         hasLength(greaterThanOrEqualTo(2)),
       );
       expect(await f.connection.execute('SELECT 1 FROM events'), isNotEmpty);
-      await f.firstDelivery.future.timeout(_deadline);
+      await f.firstDelivery.future;
       await f.scan();
     }),
     timeout: _timeout,
@@ -598,7 +612,7 @@ void main() {
         'results': [confirm, invalid],
       });
       await f.start();
-      await f.upstream.syncRequested.future.timeout(_deadline);
+      await f.upstream.syncRequested.future;
       await f.upstream.send(jsonEncode(streamDbCheck(now)));
       await f.until(
         () async =>
@@ -636,11 +650,11 @@ void main() {
     () => _withFixture((f) async {
       await f.start();
       f.upstream.releaseSync.complete();
-      await f.upstream.syncRequested.future.timeout(_deadline);
+      await f.upstream.syncRequested.future;
       expect(f.upstream.authorized, greaterThanOrEqualTo(2));
       f.upstream.rejectNext = true;
       f.upstream.sockets.last.destroy();
-      await f.upstream.authFailed.future.timeout(_deadline);
+      await f.upstream.authFailed.future;
       await f.until(
         () async => (await f.connection.execute(
           "SELECT 1 FROM icinga2_stream_status WHERE \"lastErrorClass\"='unauthorized'",

@@ -1,3 +1,6 @@
+@Timeout(Duration(minutes: 5))
+library;
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -8,6 +11,7 @@ import 'package:test/test.dart';
 
 import '../integration/test_tools/serverpod_test_tools.dart';
 import '../support/icinga2_stream_fixture.dart';
+import '../support/postgres_lock_witness.dart';
 import '../support/secret_fixture.dart';
 import '../support/secret_reuse_fixture.dart';
 
@@ -19,7 +23,7 @@ const _legacyDigest =
 Future<void> _oldPublish(
   Session session,
   int revision, {
-  Future<void> Function()? beforeCommit,
+  Future<void> Function(Transaction)? beforeCommit,
 }) => session.db.transaction((tx) async {
   await session.db.unsafeQuery(
     'SELECT pg_advisory_xact_lock($_publicationLock)',
@@ -57,10 +61,12 @@ Future<void> _oldPublish(
     parameters: QueryParameters.named({'id': 'previous-release-$revision'}),
     transaction: tx,
   );
-  await beforeCommit?.call();
+  await beforeCommit?.call(tx);
 });
 
 void main() {
+  final cluster = LockWitnessCluster();
+  tearDownAll(cluster.close);
   withServerpod(
     'secret inventory publisher cutover',
     (builder, _) {
@@ -77,45 +83,68 @@ void main() {
       });
 
       test('publication_in_flight_at_the_cutover', () async {
-        final inserted = Completer<void>();
-        final release = Completer<void>();
-        final publisher = _oldPublish(
-          builder.build(),
-          1,
-          beforeCommit: () {
-            inserted.complete();
-            return release.future;
-          },
+        final witness = await PostgresLockWitness.start(session);
+        addTearDown(witness.close);
+        final inserted = Completer<LockActor>();
+        final release = ContentionGate();
+        final publishSession = builder.build();
+        final publisher = release.run(
+          () => _oldPublish(
+            publishSession,
+            1,
+            beforeCommit: (tx) async {
+              inserted.complete(await pooledLockActor(publishSession, tx));
+              await release.future;
+            },
+          ),
         );
-        await inserted.future;
-        var finished = false;
-        final cutover = applySchemaSteps(
-          builder.build(),
-          schemaSteps,
-        ).whenComplete(() => finished = true);
+        final blocker = await Future.any([
+          inserted.future,
+          publisher.then<LockActor>(
+            (_) => throw StateError('Publisher did not hold its transaction'),
+          ),
+        ]);
+        final cutoverSession = builder.build();
+        final entered = Completer<LockActor>();
+        final cutover = release.run(
+          () => applySchemaSteps(
+            cutoverSession,
+            schemaSteps,
+            stepTimeoutInSecondsForTest: const Duration(minutes: 5).inSeconds,
+            beforeStepForTest: (tx, step) async {
+              if (step.version == 5) {
+                entered.complete(
+                  await pooledLockActor(
+                    cutoverSession,
+                    tx,
+                    waiter: SqlTimeouts.schemaStep,
+                  ),
+                );
+              }
+            },
+          ),
+        );
         try {
-          final deadline = Stopwatch()..start();
-          var waiting = false;
-          while (!finished && deadline.elapsed < const Duration(seconds: 3)) {
-            final rows = await session.db.unsafeQuery(
-              '''SELECT 1 FROM pg_locks
-              WHERE locktype='advisory' AND objid=$_publicationLock AND NOT granted''',
-            );
-            if (rows.isNotEmpty) {
-              waiting = true;
-              break;
-            }
-          }
-          expect(
-            waiting,
-            isTrue,
-            reason: 'cutover must wait on the publication advisory lock',
+          final waiter = await Future.any([
+            entered.future,
+            cutover.then<LockActor>(
+              (_) => throw StateError(
+                'Cutover did not reach the publication lock',
+              ),
+            ),
+          ]);
+          await witness.blockedBy(
+            waiter,
+            blocker,
+            cutover,
+            statement: 'pg_advisory_xact_lock($_publicationLock)',
+            advisory: true,
           );
         } finally {
-          release.complete();
-          await publisher;
-          await cutover;
+          await release.join();
         }
+        await publisher;
+        await cutover;
         final boundary = (await session.db.unsafeQuery(
           'SELECT snapshot_boundary FROM secret_reuse_backfill',
         )).single[0];
@@ -182,6 +211,8 @@ void main() {
       });
     },
     rollbackDatabase: RollbackDatabase.disabled,
+    ephemeralDatabase: false,
+    configOverride: cluster.override,
     testGroupTagsOverride: ['db'],
   );
 }

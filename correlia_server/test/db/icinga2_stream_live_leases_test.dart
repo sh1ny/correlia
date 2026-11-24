@@ -1,3 +1,6 @@
+@Timeout(Duration(minutes: 5))
+library;
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -6,6 +9,7 @@ import 'package:correlia_server/src/ingest/config_repository.dart';
 import 'package:correlia_server/src/ingest/icinga2/stream/database.dart';
 import 'package:correlia_server/src/ingest/icinga2/stream/status.dart';
 import 'package:correlia_server/src/ingest/icinga2/stream/supervisor.dart';
+import 'package:correlia_server/src/ingest/icinga2/stream/sync_progress.dart';
 import 'package:correlia_server/src/ingest/icinga2/stream/targets.dart';
 import 'package:postgres/postgres.dart' as pg;
 import 'package:serverpod/serverpod.dart';
@@ -16,6 +20,7 @@ import '../support/icinga2_consumer_loopback.dart';
 import '../support/icinga2_pipeline.dart';
 import '../support/icinga2_stream_fixture.dart';
 import '../support/icinga2_stream_pipeline.dart';
+import '../support/icinga2_test_db_changes.dart';
 import '../support/secret_fixture.dart';
 import '../support/stream_reader_clock.dart';
 
@@ -28,6 +33,7 @@ void main() {
       late IcingaConsumerLoopback http;
       late StreamDatabaseEndpoint endpoint;
       late StreamTarget target;
+      late IcingaTestDbChanges changes;
 
       setUp(() async {
         session = builder.build();
@@ -36,6 +42,12 @@ void main() {
           TRUNCATE icinga2_admitted_batch, icinga2_stream_lease,
             icinga2_stream_status, icinga2_stream_resync
         ''');
+        changes = await IcingaTestDbChanges.start(session.serverpod, [
+          'icinga2_stream_status',
+          'icinga2_stream_lease',
+          'icinga2_sync_progress',
+        ]);
+        addTearDown(changes.close);
         observer = await openStreamDatabase(session.serverpod);
         addTearDown(() async {
           if (observer.isOpen) await observer.close(force: true);
@@ -72,6 +84,8 @@ void main() {
         Future<void> Function()? beforeNumberCommit,
         Duration? headerDeadline,
         void Function(String message)? onLog,
+        void Function(SyncStartDisposition)? onSyncDecision,
+        StreamReaderClock? syncClock,
         Future<pg.Connection> Function(Duration)? openDatabase,
         Future<List<StreamTarget>> Function()? loadTargets,
         Duration revisionInterval = const Duration(hours: 1),
@@ -101,6 +115,8 @@ void main() {
           beforeAdmitForTest: beforeAdmit,
           beforeNumberCommitForTest: beforeNumberCommit,
           headerDeadlineForTest: headerDeadline,
+          onSyncDecisionForTest: onSyncDecision,
+          syncScheduleForTest: syncClock?.schedule,
           onConsumerConnection: (connection) async {
             if (!database.isCompleted) database.complete(connection);
           },
@@ -133,15 +149,8 @@ void main() {
         FROM icinga2_stream_lease WHERE "sourceId" = '$icinga2DbSourceId'
       ''')).single;
 
-      Future<void> waitForConnections(int count) async {
-        final watch = Stopwatch()..start();
-        while (http.subscriptionsReady < count) {
-          if (watch.elapsed > const Duration(seconds: 10)) {
-            fail('Expected $count subscriptions');
-          }
-          await observer.execute('SELECT 1');
-        }
-      }
+      Future<void> waitForConnections(int count) =>
+          http.waitForSubscriptions(count);
 
       for (final (credential, reference) in [
         ('password', 'icinga-password'),
@@ -173,7 +182,7 @@ void main() {
             },
           );
           expect(
-            await diagnostic.future.timeout(const Duration(seconds: 5)),
+            await diagnostic.future,
             'icinga2-stream source=$icinga2DbSourceId '
             'missing_secret_pin credential=$credential',
           );
@@ -229,10 +238,16 @@ void main() {
         );
         await first.ready();
         final previous = await status();
+        await ageSync();
         await expire();
         first.clock.advance(const Duration(seconds: 10));
-        await http.disconnected.future.timeout(const Duration(seconds: 5));
+        await http.disconnected.future;
         await waitForConnections(2);
+        await changes.until(() async {
+          final current = await status();
+          return current.connectionSeq == 2 &&
+              current.state == StreamConsumerState.connected;
+        });
         final row = await leaseRow();
         expect(row[0], 'worker-a');
         expect(row[1], greaterThan(1));
@@ -257,7 +272,7 @@ void main() {
           'SELECT raw_id FROM raw_inbox',
         );
         old.clock.advance(Duration.zero);
-        await http.disconnected.future.timeout(const Duration(seconds: 5));
+        await http.disconnected.future;
         final after = await status();
         expect(after.connectionId, before.connectionId);
         expect(after.connectionSeq, before.connectionSeq);
@@ -275,7 +290,7 @@ void main() {
         worker.clock.advance(const Duration(seconds: 19));
         expect(http.disconnected.isCompleted, isFalse);
         worker.clock.advance(const Duration(seconds: 1));
-        await http.disconnected.future.timeout(const Duration(seconds: 5));
+        await http.disconnected.future;
         expect((await leaseRow())[2], isTrue);
       });
 
@@ -291,12 +306,12 @@ void main() {
           }
         };
         worker.clock.advance(const Duration(seconds: 10));
-        await renewed.future.timeout(const Duration(seconds: 5));
+        await renewed.future;
         await (await worker.database.future).close(force: true);
         worker.clock.advance(const Duration(seconds: 19));
         expect(http.disconnected.isCompleted, isFalse);
         worker.clock.advance(const Duration(seconds: 1));
-        await http.disconnected.future.timeout(const Duration(seconds: 5));
+        await http.disconnected.future;
         expect((await leaseRow())[2], isTrue);
       });
 
@@ -315,7 +330,7 @@ void main() {
         });
         await old.ready();
         await http.send(streamDbCheck(DateTime.now().toUtc()));
-        await entered.future.timeout(const Duration(seconds: 10));
+        await entered.future;
         await ageSync();
         await expire();
         final next = start('worker-b');
@@ -324,7 +339,7 @@ void main() {
         final before = await status();
         final rows = await observer.execute('SELECT raw_id FROM raw_inbox');
         resume.complete();
-        await http.disconnected.future.timeout(const Duration(seconds: 5));
+        await http.disconnected.future;
         final after = await status();
         expect(after.state, before.state);
         expect(after.connectionId, before.connectionId);
@@ -351,9 +366,9 @@ void main() {
         );
         await old.ready();
         old.clock.advance(const Duration(seconds: 10));
-        await committed.future.timeout(const Duration(seconds: 5));
+        await committed.future;
         old.clock.advance(const Duration(seconds: 10));
-        await http.disconnected.future.timeout(const Duration(seconds: 5));
+        await http.disconnected.future;
         old.clock.advance(const Duration(seconds: 2));
         release.complete();
         await old.supervisor.stop();
@@ -404,7 +419,7 @@ void main() {
             addTearDown(() {
               if (!finish.isCompleted) finish.complete();
             });
-            await entered.future.timeout(const Duration(seconds: 5));
+            await entered.future;
             final cancel = await armed.future;
             cancel();
             expect(http.subscriptions, isEmpty);
@@ -427,22 +442,54 @@ void main() {
         final initial = (await status()).lastSyncId;
         await expire();
         old.clock.advance(const Duration(seconds: 20));
-        await http.disconnected.future.timeout(const Duration(seconds: 5));
+        await http.disconnected.future;
         await session.db.unsafeExecute('''
-          UPDATE icinga2_sync_progress SET started_at=clock_timestamp()-interval '31 seconds'
+          CREATE SCHEMA spacing_clock;
+          CREATE TABLE spacing_clock.instant (value timestamptz);
+          INSERT INTO spacing_clock.instant VALUES (clock_timestamp() + interval '1 day');
+          CREATE FUNCTION spacing_clock.clock_timestamp()
+          RETURNS timestamptz VOLATILE LANGUAGE sql
+          AS 'SELECT value FROM spacing_clock.instant';
+        ''');
+        addTearDown(
+          () => session.db.unsafeSimpleExecute(
+            'DROP SCHEMA spacing_clock CASCADE',
+          ),
+        );
+        await session.db.unsafeExecute('''
+          UPDATE icinga2_sync_progress
+          SET started_at=spacing_clock.clock_timestamp()-interval '31 seconds'
           WHERE sync_id=CAST(@id AS uuid)
         ''', parameters: QueryParameters.named({'id': initial}));
+        final scheduled = Completer<Duration>();
+        final syncClock = StreamReaderClock()
+          ..onSchedule = (delay) {
+            if (!scheduled.isCompleted) scheduled.complete(delay);
+          };
+        final decision = Completer<SyncStartDisposition>();
         final next = start(
           'second',
-          revisionInterval: const Duration(milliseconds: 25),
+          syncClock: syncClock,
+          openDatabase: (_) async {
+            final connection = await endpoint.open();
+            await connection.execute(
+              'SET search_path=spacing_clock,pg_catalog,public',
+            );
+            return connection;
+          },
+          onSyncDecision: (result) {
+            if (!decision.isCompleted) decision.complete(result);
+          },
         );
         await waitForConnections(2);
+        expect(await decision.future, SyncStartDisposition.tooSoon);
+        expect(await scheduled.future, const Duration(seconds: 29));
         expect(await countRows(session, 'icinga2_sync_progress'), 1);
         expect((await status()).state, StreamConsumerState.connecting);
-        await session.db.unsafeExecute('''
-          UPDATE icinga2_sync_progress SET started_at=clock_timestamp()-interval '60 seconds'
-          WHERE sync_id=CAST(@id AS uuid)
-        ''', parameters: QueryParameters.named({'id': initial}));
+        await session.db.unsafeExecute(
+          "UPDATE spacing_clock.instant SET value=value+interval '29 seconds'",
+        );
+        syncClock.advance(const Duration(seconds: 29));
         await next.ready();
         expect(await countRows(session, 'icinga2_sync_progress'), 2);
         expect((await status()).lastSyncId, isNot(initial));
@@ -462,7 +509,7 @@ void main() {
             }
           },
         );
-        await refused.future.timeout(const Duration(seconds: 5));
+        await refused.future;
         final failure = await status();
         expect(failure.lastErrorClass, 'unauthorized');
         expect(failure.connectionSeq, 1);
@@ -471,6 +518,83 @@ void main() {
         expect(await countRows(session, 'raw_inbox'), 0);
         await worker.supervisor.stop();
       });
+
+      for (final remove in [false, true]) {
+        test(
+          'quiet_source_${remove ? 'removed' : 'disabled'}_on_first_revision_tick',
+          () async {
+            final initialPass = Completer<void>();
+            final secondPass = Completer<void>();
+            final ready = Completer<void>();
+            final leaseClock = StreamReaderClock();
+            final loader = StreamTargetLoader(
+              session.serverpod,
+              testSecretResolver(session),
+            );
+            final worker = Icinga2StreamSupervisor(
+              loadTargets: loader.load,
+              openDatabase: (_) => endpoint.open(),
+              holder: 'quiet-worker',
+              runMode: 'test',
+              leaseClockForTest: () => leaseClock.elapsed,
+              leaseScheduleForTest: leaseClock.schedule,
+              afterRevisionPassForTest: () {
+                if (!initialPass.isCompleted) {
+                  initialPass.complete();
+                } else if (!secondPass.isCompleted) {
+                  secondPass.complete();
+                }
+              },
+              log: (message) {
+                if (message.endsWith(' connected') && !ready.isCompleted) {
+                  ready.complete();
+                }
+              },
+            );
+            addTearDown(worker.stop);
+            late _RevisionTick ticker;
+            runZoned(
+              worker.start,
+              zoneSpecification: ZoneSpecification(
+                createPeriodicTimer: (_, _, _, interval, tick) {
+                  expect(interval, const Duration(seconds: 30));
+                  return ticker = _RevisionTick(tick);
+                },
+              ),
+            );
+            await Future.wait([initialPass.future, ready.future]);
+            await http.waitForObjectResponses(1);
+            await session.db.unsafeExecute(
+              '''UPDATE icinga2_stream_lease SET "expiresAt"='infinity' ''',
+            );
+            final disabled = streamSource(icinga2DbSourceId, enabled: false);
+            (disabled['api']! as Map<String, Object?>)['url'] = http.url
+                .toString();
+            await IngestConfigRepository(
+              session,
+              secretStore: testSecretStore,
+            ).publishConfig(
+              streamBootstrap(2, [if (!remove) disabled]),
+              remove ? <String, Object?>{} : streamMaterial(),
+              runMode: 'test',
+            );
+            expect((await status()).state, StreamConsumerState.connected);
+            expect((await status()).gapCount, 0);
+            ticker.fire();
+            await secondPass.future;
+            await http.waitForDisconnects(1);
+            await changes.until(
+              () async =>
+                  (await status()).state == StreamConsumerState.stopped &&
+                  (await leaseRow())[2] == false,
+            );
+            expect((await status()).gapCount, 1);
+            expect((await status()).lastGapSeq, 1);
+            expect(http.subscriptionsReady, 1);
+            expect(ticker.tick, 1);
+          },
+        );
+      }
 
       for (final remove in [false, true]) {
         test(
@@ -516,7 +640,7 @@ void main() {
               },
             );
             if (remove) {
-              await reading.future.timeout(const Duration(seconds: 5));
+              await reading.future;
               expect((await status()).state, StreamConsumerState.syncing);
             } else {
               await worker.ready();
@@ -524,8 +648,8 @@ void main() {
             offline = true;
             await (await worker.database.future).close(force: true);
             await http.subscriptions.single.close();
-            await http.disconnected.future.timeout(const Duration(seconds: 5));
-            await leaseLeftToExpire.future.timeout(const Duration(seconds: 5));
+            await http.disconnected.future;
+            await leaseLeftToExpire.future;
             expect((await status()).gapCount, 0);
             if (remove) {
               await IngestConfigRepository(
@@ -543,16 +667,8 @@ void main() {
             final expected = remove
                 ? StreamConsumerState.retired
                 : StreamConsumerState.connected;
-            final deadline = Stopwatch()..start();
-            StreamStatus current;
-            do {
-              current = await status();
-              if (deadline.elapsed > const Duration(seconds: 8)) {
-                fail(
-                  'Recovery did not reach ${expected.name}: ${current.state.name}',
-                );
-              }
-            } while (current.state != expected);
+            await changes.until(() async => (await status()).state == expected);
+            final current = await status();
             expect(current.gapCount, 1);
             expect(current.lastGapSeq, 1);
             if (remove) {
@@ -576,6 +692,27 @@ void main() {
   );
 }
 
+final class _RevisionTick implements Timer {
+  _RevisionTick(this._callback);
+
+  final void Function(Timer) _callback;
+
+  @override
+  bool isActive = true;
+
+  @override
+  int tick = 0;
+
+  void fire() {
+    if (!isActive) throw StateError('Revision timer stopped');
+    tick++;
+    _callback(this);
+  }
+
+  @override
+  void cancel() => isActive = false;
+}
+
 final class _Worker {
   _Worker(
     this.supervisor,
@@ -591,5 +728,5 @@ final class _Worker {
   final Completer<pg.Connection> database;
   final void Function(Duration) freezeUntil;
 
-  Future<void> ready() => connected.future.timeout(const Duration(seconds: 10));
+  Future<void> ready() => connected.future;
 }

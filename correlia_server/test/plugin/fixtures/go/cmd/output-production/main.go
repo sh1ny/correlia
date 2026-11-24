@@ -24,6 +24,7 @@ type fixture struct {
 	pluginv1.UnimplementedOutputServiceServer
 	mode string
 	configured bool
+	healthMarker string
 }
 
 func (f *fixture) GRPCServer(_ *plugin.GRPCBroker, s *grpc.Server) error {
@@ -107,7 +108,15 @@ func (f *fixture) Configure(_ context.Context, r *pluginv1.ConfigureRequest) (*p
 }
 
 func (f *fixture) CheckHealth(ctx context.Context, _ *pluginv1.CheckHealthRequest) (*pluginv1.CheckHealthResponse, error) {
-	if f.mode == "stall-health" { <-ctx.Done(); return nil, ctx.Err() }
+	if f.mode == "stall-health" {
+		if f.healthMarker != "" {
+			temp := f.healthMarker + ".tmp"
+			if err := os.WriteFile(temp, []byte(strconv.Itoa(os.Getpid())), 0600); err != nil { return nil, err }
+			if err := os.Rename(temp, f.healthMarker); err != nil { return nil, err }
+		}
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	return &pluginv1.CheckHealthResponse{Serving: f.configured}, nil
 }
 
@@ -144,6 +153,7 @@ func (f *fixture) Deliver(stream grpc.BidiStreamingServer[pluginv1.DeliverReques
 func main() {
 	mode := flag.String("mode", "normal", "fixture behavior")
 	stallHandshake := flag.String("stall-handshake-marker", "", "test-only handshake stall marker")
+	healthMarker := flag.String("health-marker", "", "test-only health arrival marker")
 	flag.Parse()
 	if *stallHandshake != "" {
 		if err := os.WriteFile(*stallHandshake, []byte(strconv.Itoa(os.Getpid())), 0600); err != nil { panic(err) }
@@ -151,7 +161,7 @@ func main() {
 		select {}
 	}
 	go func() { _, _ = io.Copy(io.Discard, os.Stdin); os.Exit(0) }()
-	f := &fixture{mode: *mode}
+	f := &fixture{mode: *mode, healthMarker: *healthMarker}
 	plugin.Serve(&plugin.ServeConfig{
 		HandshakeConfig: plugin.HandshakeConfig{ProtocolVersion: 1, MagicCookieKey: "CORRELIA_PLUGIN", MagicCookieValue: "correlia.plugin.v1"},
 		Plugins: plugin.PluginSet{"output": f},

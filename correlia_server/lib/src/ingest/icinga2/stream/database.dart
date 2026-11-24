@@ -60,12 +60,13 @@ final class StreamDatabaseEndpoint {
   /// Opens an independent connection the caller may force-close on shutdown.
   Future<pg.Connection> open({
     Duration timeout = const Duration(seconds: 1),
+    Duration queryTimeout = const Duration(seconds: 2),
   }) async {
     final connection = await pg.Connection.open(
       _endpoint,
       settings: pg.ConnectionSettings(
         connectTimeout: timeout,
-        queryTimeout: const Duration(seconds: 2),
+        queryTimeout: queryTimeout,
         timeZone: 'UTC',
         sslMode: _sslMode,
         applicationName: 'correlia-icinga2-stream',

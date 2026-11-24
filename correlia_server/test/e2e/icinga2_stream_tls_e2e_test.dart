@@ -18,6 +18,24 @@ const _fixtures = '../correlia_icinga2_notify/test/fixtures';
 const _password = 'stream-password';
 const _user = 'stream-user';
 
+const _manualHeaderBudget = Duration(milliseconds: 917);
+
+final class _HeaderDeadline {
+  late _ProbeTimer timer;
+
+  Future<T> run<T>(Future<T> Function() request) => runZoned(
+    request,
+    zoneSpecification: ZoneSpecification(
+      createTimer: (self, parent, zone, delay, callback) {
+        if (delay != _manualHeaderBudget) {
+          return parent.createTimer(zone, delay, callback);
+        }
+        return timer = _ProbeTimer(delay, zone.bindCallback(callback));
+      },
+    ),
+  );
+}
+
 final class _RecordedRequest {
   _RecordedRequest(this.method, this.uri, this.authorization, this.body);
 
@@ -357,7 +375,7 @@ void main() {
     final sync = await client.query(SyncProjection.hosts);
     expect(sync.statusCode, HttpStatus.ok);
     expect(await utf8.decoder.bind(sync.body).join(), '{"results":[]}');
-  }, timeout: const Timeout(Duration(seconds: 12)));
+  });
 
   test('adapter_retries_zero_and_partial_writes', () async {
     final secure = _ControlledSecureSocket()..limits.addAll([0, 2, 100]);
@@ -370,13 +388,13 @@ void main() {
 
     socket.add(utf8.encode('secret'));
     final flushed = socket.flush();
-    await secure.blocked.future.timeout(const Duration(seconds: 5));
+    await secure.blocked.future;
     expect(secure.written, isEmpty);
     secure.writable();
-    await secure.blocked.future.timeout(const Duration(seconds: 5));
+    await secure.blocked.future;
     expect(utf8.decode(secure.written), 'se');
     secure.writable();
-    await flushed.timeout(const Duration(seconds: 5));
+    await flushed;
     expect(utf8.decode(secure.written), 'secret');
   });
 
@@ -395,7 +413,7 @@ void main() {
 
         socket.add(utf8.encode('secret'));
         final flushed = expectLater(socket.flush(), throwsA(anything));
-        await secure.blocked.future.timeout(const Duration(seconds: 5));
+        await secure.blocked.future;
         expect(utf8.decode(secure.written), 'se');
         if (leaseLoss) {
           live = false;
@@ -403,7 +421,7 @@ void main() {
         } else {
           socket.destroy();
         }
-        await flushed.timeout(const Duration(seconds: 5));
+        await flushed;
         expect(utf8.decode(secure.written), 'se');
         expect(raw.closed, isTrue);
         expect(secure.closed, isTrue);
@@ -430,7 +448,7 @@ void main() {
       }
     });
     secure.receive(Uint8List.fromList([1]));
-    await first.future.timeout(const Duration(seconds: 5));
+    await first.future;
     expect(secure.readEnabled, isFalse);
     for (var i = 0; i < 128; i++) {
       secure.receive(Uint8List(1024));
@@ -449,16 +467,18 @@ void main() {
       final server = await _HandshakeStall.start();
       final client = await _client(
         server.endpoint,
-        headerDeadline: const Duration(milliseconds: 500),
+        headerDeadline: _manualHeaderBudget,
       );
       try {
+        final deadline = _HeaderDeadline();
         final failure = expectLater(
-          client.subscribe('source-one'),
+          deadline.run(() => client.subscribe('source-one')),
           _failure('timeout'),
         );
-        await server.connected.future.timeout(const Duration(seconds: 5));
-        await failure.timeout(const Duration(seconds: 5));
-        await server.eof.future.timeout(const Duration(seconds: 5));
+        await server.hello.future;
+        deadline.timer.fire();
+        await failure;
+        await server.eof.future;
       } finally {
         client.close();
         await server.close();
@@ -476,26 +496,31 @@ void main() {
         final client = await _client(
           server.endpoint,
           isLive: () => live,
-          headerDeadline: cancellation == 'timeout'
-              ? const Duration(milliseconds: 500)
-              : const Duration(seconds: 10),
+          headerDeadline: _manualHeaderBudget,
         );
         addTearDown(client.close);
 
-        final Future<Object> request = sync
-            ? client.query(SyncProjection.hosts)
-            : client.subscribe('source-one');
+        final deadline = _HeaderDeadline();
+        final request = deadline.run<Object>(
+          () => sync
+              ? client.query(SyncProjection.hosts)
+              : client.subscribe('source-one'),
+        );
         final failure = expectLater(
           request,
           sync && cancellation == 'timeout'
               ? throwsA(isA<TimeoutException>())
               : _failure(cancellation == 'timeout' ? 'timeout' : 'interrupted'),
         );
-        await server.hello.future.timeout(const Duration(seconds: 5));
+        await server.hello.future;
         if (cancellation == 'lease_loss') live = false;
-        if (cancellation != 'timeout') client.close();
-        await failure.timeout(const Duration(seconds: 5));
-        await server.eof.future.timeout(const Duration(seconds: 5));
+        if (cancellation == 'timeout') {
+          deadline.timer.fire();
+        } else {
+          client.close();
+        }
+        await failure;
+        await server.eof.future;
         expect(server.bytes, isNotEmpty);
         expect(
           latin1.decode(server.bytes),
@@ -515,23 +540,22 @@ void main() {
           server.endpoint,
           username: username,
           isLive: () => live,
-          headerDeadline: cancellation == 'timeout'
-              ? const Duration(seconds: 2)
-              : const Duration(seconds: 10),
+          headerDeadline: _manualHeaderBudget,
         );
         addTearDown(client.close);
-        final Future<Object> request = sync
-            ? client.query(SyncProjection.hosts)
-            : client.subscribe('source-one');
+        final deadline = _HeaderDeadline();
+        final request = deadline.run<Object>(
+          () => sync
+              ? client.query(SyncProjection.hosts)
+              : client.subscribe('source-one'),
+        );
         final failure = expectLater(
           request,
           sync && cancellation == 'timeout'
               ? throwsA(isA<TimeoutException>())
               : _failure(cancellation == 'timeout' ? 'timeout' : 'interrupted'),
         );
-        final peer = await server.connected.future.timeout(
-          const Duration(seconds: 5),
-        );
+        final peer = await server.connected.future;
         addTearDown(peer.destroy);
         final firstBytes = Completer<void>();
         final eof = Completer<void>();
@@ -548,12 +572,16 @@ void main() {
           onDone: eof.complete,
           onError: eof.completeError,
         );
-        await firstBytes.future.timeout(const Duration(seconds: 5));
+        await firstBytes.future;
         if (cancellation == 'lease_loss') live = false;
-        if (cancellation != 'timeout') client.close();
-        await failure.timeout(const Duration(seconds: 5));
+        if (cancellation == 'timeout') {
+          deadline.timer.fire();
+        } else {
+          client.close();
+        }
+        await failure;
         input.resume();
-        await eof.future.timeout(const Duration(seconds: 5));
+        await eof.future;
         expect(received, lessThan(username.length));
       });
     }
@@ -610,7 +638,7 @@ void main() {
       onDone: ended.complete,
       onError: ended.completeError,
     );
-    await requestBegan.future.timeout(const Duration(seconds: 5));
+    await requestBegan.future;
     expect(
       timers,
       hasLength(1),
@@ -618,7 +646,7 @@ void main() {
     );
     advance(const Duration(seconds: 1));
     await failed;
-    await ended.future.timeout(const Duration(seconds: 5));
+    await ended.future;
   });
 
   for (final chunked in [true, false]) {
@@ -630,9 +658,7 @@ void main() {
         final client = await _client(server.endpoint);
         addTearDown(client.close);
         final responseFuture = client.subscribe('source-one');
-        final peer = await server.connected.future.timeout(
-          const Duration(seconds: 5),
-        );
+        final peer = await server.connected.future;
         addTearDown(peer.destroy);
         final headers = Completer<void>();
         var request = '';
@@ -641,7 +667,7 @@ void main() {
           request += latin1.decode(bytes);
           if (request.contains('\r\n\r\n')) headers.complete();
         });
-        await headers.future.timeout(const Duration(seconds: 5));
+        await headers.future;
         peer.write(
           'HTTP/1.1 200 OK\r\n'
           '${chunked ? 'Transfer-Encoding: chunked' : 'Connection: close'}\r\n'
@@ -649,9 +675,7 @@ void main() {
           '${chunked ? '5\r\nhello\r\n' : 'hello'}',
         );
         await peer.flush();
-        final response = await responseFuture.timeout(
-          const Duration(seconds: 5),
-        );
+        final response = await responseFuture;
         final first = Completer<void>();
         final done = Completer<void>();
         final body = <int>[];
@@ -667,13 +691,13 @@ void main() {
           onDone: done.complete,
           onError: done.completeError,
         );
-        await first.future.timeout(const Duration(seconds: 5));
+        await first.future;
         peer.write(chunked ? '5\r\nworld\r\n0\r\n\r\n' : 'world');
         await peer.flush();
         await peer.close();
         expect(utf8.decode(body), 'hello');
         subscription.resume();
-        await done.future.timeout(const Duration(seconds: 5));
+        await done.future;
         expect(utf8.decode(body), 'helloworld');
       },
     );

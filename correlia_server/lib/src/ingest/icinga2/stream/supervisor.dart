@@ -100,8 +100,12 @@ final class Icinga2StreamSupervisor {
     Future<void> Function()? beforeNumberCommitForTest,
     void Function(String, Future<pg.Connection>)? onConsumerOpenForTest,
     void Function(int)? afterAcquisitionScanForTest,
+    void Function()? afterRevisionPassForTest,
     void Function(SyncStartDisposition)? onSyncDecisionForTest,
+    ReaderScheduler? syncScheduleForTest,
     Duration? headerDeadlineForTest,
+    Future<void> Function(pg.TxSession, StreamRawBatch)? beforeRawWriteForTest,
+    void Function(StreamRawBatch, pg.ServerException)? rawWriteErrorForTest,
   }) : _beforeAdmissionCommit = runMode == 'test'
            ? beforeAdmissionCommit
            : null,
@@ -120,9 +124,13 @@ final class Icinga2StreamSupervisor {
            : null,
        _onConsumerOpen = runMode == 'test' ? onConsumerOpenForTest : null,
        _onSyncDecision = runMode == 'test' ? onSyncDecisionForTest : null,
+       _syncSchedule = runMode == 'test' ? syncScheduleForTest : null,
        _afterAcquisitionScan = runMode == 'test'
            ? afterAcquisitionScanForTest
            : null,
+       _afterRevisionPass = runMode == 'test' ? afterRevisionPassForTest : null,
+       _beforeRawWrite = runMode == 'test' ? beforeRawWriteForTest : null,
+       _rawWriteError = runMode == 'test' ? rawWriteErrorForTest : null,
        _headerDeadline =
            (runMode == 'test' ? headerDeadlineForTest : null) ??
            const Duration(seconds: 10);
@@ -146,8 +154,12 @@ final class Icinga2StreamSupervisor {
   final Future<void> Function()? _beforeNumberCommit;
   final void Function(String, Future<pg.Connection>)? _onConsumerOpen;
   final void Function(int)? _afterAcquisitionScan;
+  final void Function()? _afterRevisionPass;
   final void Function(SyncStartDisposition)? _onSyncDecision;
+  final ReaderScheduler? _syncSchedule;
   final Duration _headerDeadline;
+  final Future<void> Function(pg.TxSession, StreamRawBatch)? _beforeRawWrite;
+  final void Function(StreamRawBatch, pg.ServerException)? _rawWriteError;
   Duration _leaseNow() => _leaseClock?.call() ?? _watch.elapsed;
   final _watch = Stopwatch()..start();
   final _active = <String, _StreamHolder>{};
@@ -167,7 +179,10 @@ final class Icinga2StreamSupervisor {
 
   void _schedulePass() {
     if (_stopping || _pass != null) return;
-    _pass = _runPass().whenComplete(() => _pass = null);
+    _pass = _runPass().whenComplete(() {
+      _pass = null;
+      _afterRevisionPass?.call();
+    });
   }
 
   Future<void> _runPass() async {

@@ -130,6 +130,7 @@ final class RoleRuntime {
       log('Started ${subsystem.name}');
     }
     startup.subsystemsStarted = true;
+    log('Ready to serve');
     return const Started();
   }
 

@@ -216,6 +216,7 @@ final class OutputPluginConnection {
   /// Failed starts retain their original error class and the child reap outcome.
   /// [afterForcedStop] is a test-only cleanup-failure injection.
   /// [beforeStartupCleanup] is a test-only abandonment barrier.
+  /// [healthInterceptorForTest] observes actual health RPC call options.
   static Future<OutputPluginConnection> start({
     required String executable,
     List<String> arguments = const [],
@@ -225,6 +226,7 @@ final class OutputPluginConnection {
     Duration shutdownGrace = const Duration(seconds: 5),
     Future<void> Function()? afterForcedStop,
     Future<void> Function()? beforeStartupCleanup,
+    ClientInterceptor? healthInterceptorForTest,
   }) async {
     if (timeout <= Duration.zero) throw ArgumentError.value(timeout, 'timeout');
     if (shutdownGrace.isNegative) {
@@ -261,7 +263,12 @@ final class OutputPluginConnection {
     try {
       starting = core.start();
       await starting.timeout(remaining());
-      final client = v1.PluginServiceClient(core.channel);
+      final client = v1.PluginServiceClient(
+        core.channel,
+        interceptors: healthInterceptorForTest == null
+            ? const []
+            : [healthInterceptorForTest],
+      );
       final response = await client.getMetadata(
         v1.GetMetadataRequest(),
         options: CallOptions(timeout: remaining()),
@@ -436,6 +443,11 @@ final class OutputPluginConnection {
   /// failure at or past the deadline is a health timeout, regardless of status.
   Future<OutputPluginHealth> health({
     Duration timeout = const Duration(seconds: 2),
+    Future<v1.CheckHealthResponse> Function(
+      Future<v1.CheckHealthResponse> response,
+      Duration deadline,
+    )?
+    observeCallForTest,
   }) async {
     if (timeout <= Duration.zero) throw ArgumentError.value(timeout, 'timeout');
     final deadline = timeout < const Duration(seconds: 2)
@@ -446,12 +458,23 @@ final class OutputPluginConnection {
     }
     final stopwatch = Stopwatch()..start();
     try {
-      final response = await _client
-          .checkHealth(
-            v1.CheckHealthRequest(),
-            options: CallOptions(timeout: deadline),
-          )
-          .timeout(deadline);
+      final call = _client.checkHealth(
+        v1.CheckHealthRequest(),
+        options: observeCallForTest == null
+            ? CallOptions(timeout: deadline)
+            : null,
+      );
+      final v1.CheckHealthResponse response;
+      if (observeCallForTest == null) {
+        response = await call.timeout(deadline);
+      } else {
+        call.ignore();
+        try {
+          response = await observeCallForTest(call, deadline);
+        } finally {
+          await call.cancel();
+        }
+      }
       if (utf8.encode(response.reason).length > 256) {
         _fail(const OutputPluginException('plugin_protocol_error'));
         throw const OutputPluginException('plugin_protocol_error');

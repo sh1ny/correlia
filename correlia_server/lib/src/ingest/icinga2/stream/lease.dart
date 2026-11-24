@@ -50,10 +50,13 @@ Future<bool> lockStreamLease(TxSession tx, StreamLease lease) async {
 /// Acquires and fences stream leases on a dedicated database connection.
 class StreamLeaseStore {
   /// Uses [connection] for lease transactions.
-  StreamLeaseStore(this.connection);
+  StreamLeaseStore(this.connection, {this.beforeLeaseQueryForTest});
 
   /// The database connection used by this store.
   final Connection connection;
+
+  /// Observes the transaction just before its contested lease query in tests.
+  final Future<void> Function(TxSession)? beforeLeaseQueryForTest;
 
   /// Acquires an expired lease for an enabled stream source, if available.
   Future<StreamLease?> acquire(String sourceId, String holder) =>
@@ -78,6 +81,7 @@ class StreamLeaseStore {
           '''),
           parameters: {'source': sourceId, 'holder': holder},
         );
+        await beforeLeaseQueryForTest?.call(tx);
         final rows = await tx.execute(
           Sql.named('''
             UPDATE icinga2_stream_lease
@@ -113,6 +117,7 @@ class StreamLeaseStore {
   // Only the outer statement checks expiry, after the materialized lock read.
   Future<bool> _retime(StreamLease lease, int seconds) =>
       runStreamWrite(connection, (tx) async {
+        await beforeLeaseQueryForTest?.call(tx);
         final result = await tx.execute(
           Sql.named('''
             WITH held AS MATERIALIZED (
@@ -141,6 +146,7 @@ class StreamLeaseStore {
     Future<T> Function(TxSession) work, {
     Duration timeout = const Duration(seconds: 2),
   }) => runStreamWrite(connection, (tx) async {
+    await beforeLeaseQueryForTest?.call(tx);
     if (!await lockStreamLease(tx, lease)) return null;
     return work(tx);
   }, timeout: timeout);

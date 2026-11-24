@@ -314,10 +314,10 @@ final class ChildServer {
     });
   }
 
-  /// Completes when [pattern] matches output, or fails on final exit or timeout.
+  /// Completes on matching output or final exit; null [timeout] uses the test guard.
   Future<void> waitForOutput(
     RegExp pattern, {
-    Duration timeout = const Duration(seconds: 60),
+    Duration? timeout = const Duration(seconds: 60),
   }) {
     if (_output.any(pattern.hasMatch)) return Future.value();
     final done = Completer<void>();
@@ -334,14 +334,15 @@ final class ChildServer {
         }
       }),
     );
-    return done.future
-        .timeout(
-          timeout,
-          onTimeout: () => throw StateError(
-            'Server (pid $pid) printed no $pattern within $timeout. Output:\n$output',
-          ),
-        )
-        .whenComplete(() => _waiters.remove(waiter));
+    final completion = timeout == null
+        ? done.future
+        : done.future.timeout(
+            timeout,
+            onTimeout: () => throw StateError(
+              'Server (pid $pid) printed no $pattern within $timeout. Output:\n$output',
+            ),
+          );
+    return completion.whenComplete(() => _waiters.remove(waiter));
   }
 
   /// Returns the HTTP status on the current API port, or web port if [web].
@@ -349,20 +350,25 @@ final class ChildServer {
       (await fetch(path, web: web))?.status;
 
   /// Fetches [path] from the current attempt, or returns null on failure.
+  /// Pass a null [requestTimeout] when the enclosing test owns the hang guard.
   Future<({int status, String body})?> fetch(
     String path, {
     bool web = false,
+    Duration? requestTimeout = const Duration(seconds: 5),
   }) async {
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 2);
+    final client = HttpClient()
+      ..connectionTimeout = requestTimeout == null
+          ? null
+          : const Duration(seconds: 2);
     try {
       final request = await client.get(
         'localhost',
         web ? webPort : apiPort,
         path,
       );
-      final response = await request.close().timeout(
-        const Duration(seconds: 5),
-      );
+      final response = requestTimeout == null
+          ? await request.close()
+          : await request.close().timeout(requestTimeout);
       final body = await response.transform(utf8.decoder).join();
       return (status: response.statusCode, body: body);
     } on Object {
@@ -420,6 +426,30 @@ final class ChildServer {
     throw StateError('Server (pid $pid) $why. Output:\n$output');
   }
 
+  /// Waits for the current Correlia attempt's startup event, then checks it once.
+  Future<void> waitForReadyEvent() async {
+    await waitForOutput(RegExp(r'\[correlia\] Ready to serve$'), timeout: null);
+    final process = _process;
+    final client = HttpClient();
+    try {
+      final request = await client.get('localhost', apiPort, '/startupz');
+      final response = await request.close();
+      await response.drain<void>();
+      if (response.statusCode != 200 ||
+          !identical(process, _process) ||
+          hasExited ||
+          _stopping ||
+          !_ownsApiListener()) {
+        throw StateError(
+          'Startup receipt did not match the running child:\n$output',
+        );
+      }
+      _ready = true;
+    } finally {
+      client.close(force: true);
+    }
+  }
+
   /// Suppresses retries and sends SIGKILL, including to an in-flight spawn.
   void kill() {
     _stopping = true;
@@ -432,7 +462,7 @@ final class ChildServer {
   /// Waits for any in-flight spawn. Prefer this over [stop] when exit status
   /// matters: embedded Postgres's SIGTERM handler exits 143.
   Future<int> closeStdin({
-    Duration deadline = const Duration(seconds: 30),
+    Duration? deadline = const Duration(seconds: 30),
   }) async {
     _stopping = true;
     await _spawning;
@@ -441,7 +471,7 @@ final class ChildServer {
     } on Object {
       // Already exited or closed its end; the final exit code is authoritative.
     }
-    return _awaitExit(deadline, 'closing stdin');
+    return deadline == null ? exitCode : _awaitExit(deadline, 'closing stdin');
   }
 
   Future<int> _awaitExit(Duration deadline, String action) => exitCode.timeout(
@@ -455,11 +485,11 @@ final class ChildServer {
   );
 
   /// Suppresses retries, then sends SIGTERM, or SIGKILL after [deadline].
-  Future<int> stop({Duration deadline = const Duration(seconds: 30)}) async {
+  Future<int> stop({Duration? deadline = const Duration(seconds: 30)}) async {
     _stopping = true;
     await _spawning;
     _process.kill(ProcessSignal.sigterm);
-    return _awaitExit(deadline, 'SIGTERM');
+    return deadline == null ? exitCode : _awaitExit(deadline, 'SIGTERM');
   }
 }
 

@@ -1,4 +1,5 @@
 @Tags(['db'])
+@Timeout(Duration(minutes: 5))
 library;
 
 import 'dart:async';
@@ -17,6 +18,7 @@ import '../integration/test_tools/serverpod_test_tools.dart';
 import '../support/icinga2_consumer_loopback.dart';
 import '../support/icinga2_pipeline.dart';
 import '../support/icinga2_stream_fixture.dart';
+import '../support/postgres_lock_witness.dart';
 import '../support/ingest_schema.dart';
 import '../support/pod_fixture.dart';
 import '../support/secret_fixture.dart';
@@ -201,34 +203,44 @@ void main() {
           );
           addTearDown(workers.stop);
           await workers.start();
-          await server.firstSubscription.future.timeout(
-            const Duration(seconds: 5),
-          );
+          await server.waitForObjectResponses(1);
           final lockAcquired = Completer<void>();
-          final unlock = Completer<void>();
+          final unlock = ContentionGate();
           final lock = locked
-              ? session.db.transaction((tx) async {
-                  await session.db.unsafeQuery(
-                    'SELECT 1 FROM icinga2_stream_lease FOR UPDATE',
-                    transaction: tx,
-                  );
-                  lockAcquired.complete();
-                  await unlock.future;
-                })
+              ? unlock.run(
+                  () => session.db.transaction((tx) async {
+                    await pooledLockActor(session, tx);
+                    await session.db.unsafeQuery(
+                      'SELECT 1 FROM icinga2_stream_lease FOR UPDATE',
+                      transaction: tx,
+                    );
+                    lockAcquired.complete();
+                    await unlock.future;
+                  }),
+                )
               : null;
           try {
-            if (locked) await lockAcquired.future;
+            if (lock != null) {
+              await Future.any([
+                lockAcquired.future,
+                lock.then<void>(
+                  (_) => throw StateError(
+                    'Lease locker exited before acquiring the lock',
+                  ),
+                ),
+              ]);
+            }
             offline = unreachable;
-            await workers.stop().timeout(const Duration(seconds: 10));
+            await workers.stop();
             expect(
               order,
               containsAllInOrder(['icinga2-event-streams', 'pipeline']),
             );
             expect(expiredAtPipelineStop, !locked && !unreachable);
           } finally {
-            unlock.complete();
-            await lock;
+            await unlock.join();
           }
+          await lock;
         });
       }
     },

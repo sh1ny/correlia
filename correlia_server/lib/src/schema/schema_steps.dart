@@ -103,6 +103,8 @@ Future<void> applySchemaSteps(
   Session session,
   List<SchemaStep> steps, {
   Duration lockTimeout = defaultSchemaLockTimeout,
+  Future<void> Function(Transaction, SchemaStep)? beforeStepForTest,
+  int? stepTimeoutInSecondsForTest,
 }) async {
   try {
     await session.db.transaction((transaction) async {
@@ -138,9 +140,11 @@ Future<void> applySchemaSteps(
           transaction: transaction,
         );
         if (existing.isNotEmpty) return;
+        await beforeStepForTest?.call(transaction, step);
         await session.db.unsafeSimpleExecute(
           step.sql,
           transaction: transaction,
+          timeoutInSeconds: stepTimeoutInSecondsForTest,
         );
         await session.db.unsafeExecute(
           'INSERT INTO correlia_schema_versions (version) VALUES (@version)',
@@ -155,9 +159,13 @@ Future<void> applySchemaSteps(
 }
 
 /// Initializes the installed SQL-owned schema.
+///
+/// The fixture hooks observe the real startup backfill and its contested writes.
 Future<void> initializeSchema(
   Session session, {
   Duration lockTimeout = defaultSchemaLockTimeout,
+  Future<void> Function(Transaction, bool)? beforeBackfillWriteForTest,
+  int? backfillWriteTimeoutInSecondsForTest,
 }) async {
   final List<SchemaStep> steps;
   try {
@@ -166,5 +174,9 @@ Future<void> initializeSchema(
     throw const SchemaStepException(1);
   }
   await applySchemaSteps(session, steps, lockTimeout: lockTimeout);
-  await backfillSecretReuse(session);
+  await backfillSecretReuse(
+    session,
+    beforeWriteForTest: beforeBackfillWriteForTest,
+    writeTimeoutInSecondsForTest: backfillWriteTimeoutInSecondsForTest,
+  );
 }

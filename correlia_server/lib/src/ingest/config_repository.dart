@@ -27,11 +27,22 @@ final class SnapshotActivationError implements Exception {
 
 /// Publishes immutable snapshots and current admission credentials atomically.
 final class IngestConfigRepository {
-  const IngestConfigRepository(this.session, {this.secretStore});
+  const IngestConfigRepository(
+    this.session, {
+    this.secretStore,
+    this.beforeInventoryForTest,
+    this.writeTimeoutInSecondsForTest,
+  });
   final Session session;
 
   /// The publication store; read-only snapshot users do not need one.
   final SecretStore? secretStore;
+
+  /// Observes the publication transaction with its advisory lock held.
+  final Future<void> Function(Transaction)? beforeInventoryForTest;
+
+  /// Overrides the driver watchdog on the two contested fixture writes.
+  final int? writeTimeoutInSecondsForTest;
 
   SecretStore get _store =>
       secretStore ??
@@ -159,11 +170,13 @@ final class IngestConfigRepository {
           }
         }
         await _refuseSourceChanges(input, transaction);
+        await beforeInventoryForTest?.call(transaction);
         await recordPublicationReuse(
           session,
           transaction,
           input,
           _store.commitments,
+          timeoutInSecondsForTest: writeTimeoutInSecondsForTest,
         );
         await _validateCommitments(imported, transaction);
         await _importSecrets(input, imported, transaction);
@@ -216,6 +229,7 @@ final class IngestConfigRepository {
         // Publication obtains exclusive source locks; admission uses shared locks.
         await session.db.unsafeExecute(
           'UPDATE ingest_source SET enabled=false',
+          timeoutInSeconds: writeTimeoutInSecondsForTest,
           transaction: transaction,
         );
         await session.db.unsafeExecute(

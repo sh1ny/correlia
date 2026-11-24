@@ -1,3 +1,6 @@
+@Timeout(Duration(minutes: 5))
+library;
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -21,6 +24,7 @@ import '../support/icinga2_pipeline.dart';
 import '../support/icinga2_stream_decode_fixture.dart';
 import '../support/icinga2_stream_fixture.dart';
 import '../support/icinga2_stream_pipeline.dart';
+import '../support/postgres_lock_witness.dart';
 import '../support/secret_fixture.dart';
 import '../support/stream_reader_clock.dart';
 
@@ -28,6 +32,8 @@ const _connection = 'aaaaaaaa-0000-4000-8000-000000000001';
 const _nextConnection = 'aaaaaaaa-0000-4000-8000-000000000002';
 
 void main() {
+  final cluster = LockWitnessCluster();
+  tearDownAll(cluster.close);
   withServerpod(
     'Icinga2 sync progress',
     (builder, _) {
@@ -454,37 +460,64 @@ void main() {
           streamSource(icinga2DbSourceId, enabled: false),
         ]);
         await expire();
-        final other = await openStreamDatabase(session.serverpod);
+        final endpoint = await StreamDatabaseEndpoint.resolve(
+          session.serverpod,
+        );
+        final other = await endpoint.open(
+          queryTimeout: const Duration(minutes: 5),
+        );
         addTearDown(other.close);
-        final locked = Completer<int>();
-        final release = Completer<void>();
-        final publication = other.runTx((tx) async {
-          await tx.execute('''UPDATE ingest_source SET enabled=true
+        final contender = await endpoint.open(
+          queryTimeout: const Duration(minutes: 5),
+        );
+        addTearDown(contender.close);
+        final witness = await PostgresLockWitness.start(session);
+        addTearDown(witness.close);
+        final locked = Completer<LockActor>();
+        final release = ContentionGate();
+        final publication = release.run(
+          () => other.runTx((tx) async {
+            final actor = await lockActor(tx);
+            await tx.execute('''UPDATE ingest_source SET enabled=true
           WHERE "sourceId"='$icinga2DbSourceId'::uuid''');
-          locked.complete(
-            (await tx.execute('SELECT pg_backend_pid()')).single[0]! as int,
-          );
-          await release.future;
-        });
-        final pid = await locked.future;
-        final sweep = progress.retire(
-          icinga2DbSourceId,
-          generation: lease.generation,
+            locked.complete(actor);
+            await release.future;
+          }),
+        );
+        final blocker = await Future.any([
+          locked.future,
+          publication.then<LockActor>(
+            (_) => throw StateError('Publication did not lock the source'),
+          ),
+        ]);
+        final entered = Completer<LockActor>();
+        final sweep = release.run(
+          () => SyncProgressStore(contender).retire(
+            icinga2DbSourceId,
+            generation: lease.generation,
+            beforeSourceLockForTest: (tx) async => entered.complete(
+              await lockActor(tx, waiter: SqlTimeouts.streamWrite),
+            ),
+          ),
         );
         try {
-          final watch = Stopwatch()..start();
-          while ((await session.db.unsafeQuery(
-            '''SELECT 1 FROM pg_stat_activity
-          WHERE $pid=ANY(pg_blocking_pids(pid)) AND datname=current_database()''',
-          )).isEmpty) {
-            if (watch.elapsed > const Duration(seconds: 5)) {
-              fail('Sweep did not wait for publication');
-            }
-          }
+          final waiter = await Future.any([
+            entered.future,
+            sweep.then<LockActor>(
+              (_) =>
+                  throw StateError('Retirement did not wait for publication'),
+            ),
+          ]);
+          await witness.blockedBy(
+            waiter,
+            blocker,
+            sweep,
+            statement: 'SELECT enabled FROM ingest_source',
+          );
         } finally {
-          release.complete();
-          await publication;
+          await release.join();
         }
+        await publication;
         expect(await sweep, isFalse);
         lease = (await leases.acquire(icinga2DbSourceId, 'worker-b'))!;
         expect((await progress.read(id))!.readEndAt, isNull);
@@ -624,6 +657,8 @@ void main() {
       });
     },
     rollbackDatabase: RollbackDatabase.disabled,
+    ephemeralDatabase: false,
+    configOverride: cluster.override,
     testGroupTagsOverride: ['db'],
   );
 }
