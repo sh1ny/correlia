@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'subscription.dart';
 import 'sync_reader.dart';
@@ -20,12 +21,12 @@ final class StreamHttpFailure implements Exception {
 final class IcingaStreamHttpClient {
   IcingaStreamHttpClient({
     required this.endpoint,
-    required this.username,
+    required String username,
     required List<int> password,
     required List<int> ca,
     bool Function()? isLive,
     this.headerDeadline = const Duration(seconds: 10),
-  }) : _password = List<int>.of(password),
+  }) : _basicToken = _encodeBasicToken(username, password),
        _isLive = isLive ?? _alwaysLive,
        _context = SecurityContext(withTrustedRoots: false)
          ..setTrustedCertificatesBytes(ca)
@@ -42,8 +43,13 @@ final class IcingaStreamHttpClient {
   }
 
   final Uri endpoint;
-  final String username;
-  final List<int> _password;
+
+  /// The exact outbound Basic token, for redaction only; never log it.
+  String get basicToken =>
+      _basicToken ?? (throw const StreamHttpFailure('interrupted'));
+
+  String? _basicToken;
+
   final bool Function() _isLive;
   final SecurityContext _context;
   final Duration headerDeadline;
@@ -51,6 +57,21 @@ final class IcingaStreamHttpClient {
   bool _closed = false;
 
   static bool _alwaysLive() => true;
+
+  static String _encodeBasicToken(String username, List<int> password) {
+    final user = utf8.encode(username);
+    final passwordOffset = user.length + 1;
+    final credentials = Uint8List(passwordOffset + password.length)
+      ..setRange(0, user.length, user)
+      ..[user.length] = 0x3a
+      ..setRange(passwordOffset, passwordOffset + password.length, password);
+    try {
+      return base64.encode(credentials);
+    } finally {
+      credentials.fillRange(0, credentials.length, 0);
+    }
+  }
+
   bool get _live => !_closed && _isLive();
 
   /// Opens the streaming event subscription.
@@ -143,7 +164,7 @@ final class IcingaStreamHttpClient {
     request.headers.set(HttpHeaders.acceptHeader, ContentType.json.mimeType);
     request.headers.set(
       HttpHeaders.authorizationHeader,
-      'Basic ${base64.encode([...utf8.encode('$username:'), ..._password])}',
+      'Basic $basicToken',
     );
     if (overrideGet) request.headers.set('X-HTTP-Method-Override', 'GET');
     request.write(jsonEncode(body));
@@ -187,11 +208,11 @@ final class IcingaStreamHttpClient {
   void close() {
     if (_closed) return;
     _closed = true;
+    _basicToken = null;
     for (final transaction in _transactions.toList()) {
       transaction.abort('interrupted');
     }
     _transactions.clear();
-    _password.fillRange(0, _password.length, 0);
   }
 }
 

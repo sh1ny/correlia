@@ -304,6 +304,7 @@ final class _StreamAttempt {
       final password = target.password;
       final redactor = PasswordRedactor(
         password is Uint8List ? password : Uint8List.fromList(password),
+        basicToken: http.basicToken,
       );
       _reader = StreamReader(
         request: _request(),

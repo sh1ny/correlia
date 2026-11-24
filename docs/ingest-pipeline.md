@@ -93,6 +93,9 @@ If a worker logs `missing_secret_pin`, check the reported source and credential
 role against the restored secret store. The worker cannot adopt that revision
 until both referenced records are available; the diagnostic omits secret names
 and material.
+Before storage, the consumer removes echoed password forms and the exact
+Basic authentication token from stream and sync content, even if the `Basic `
+prefix is absent. Input and admission limits still apply after redaction.
 `state_type_policy` defaults to `hard_only`; use `soft_and_hard` to apply SOFT
 problems as well as HARD problems. Confirm that the expected check state is
 current before migrating a notification-only source.

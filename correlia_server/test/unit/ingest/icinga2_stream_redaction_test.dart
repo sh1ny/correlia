@@ -100,6 +100,40 @@ void main() {
       }
     });
 
+    test('basic_token_does_not_expand_the_password_marker', () {
+      final password = _bytes('!#');
+      final token = base64.encode(_bytes('${'u' * 256}:!#'));
+      final input = _bytes('{"comment":"left !# right"}');
+      final result = PasswordRedactor(
+        password,
+        basicToken: token,
+      ).sanitize(input);
+      final comment = _object(result.bytes)['comment']! as String;
+      expect(comment, startsWith('left '));
+      expect(comment, endsWith(' right'));
+      expect(comment.contains('!#'), isFalse);
+      expect(
+        comment.length,
+        'left  right'.length + base64.encode(password).length,
+      );
+    });
+
+    test('malformed_basic_token_echo_keeps_its_lexical_failure', () {
+      final password = _bytes('fixture-secret');
+      final token = base64.encode(_bytes('u:fixture-secret'));
+      final input = _bytes('{"comment":"left Basic $token right');
+      final result = PasswordRedactor(
+        password,
+        basicToken: token,
+      ).sanitize(input);
+      final text = utf8.decode(result.bytes);
+      expect(result.invalidJson, isTrue);
+      expect(result.redacted, isTrue);
+      expect(text.contains(token), isFalse);
+      expect(text, startsWith('{"comment":"left Basic '));
+      expect(text, endsWith(' right'));
+    });
+
     test('original_lexical_failure_survives_tab_redaction', () {
       const input = '{"comment":"before\tafter","keep":7}';
       final result = PasswordRedactor(_bytes('\t')).sanitize(_bytes(input));

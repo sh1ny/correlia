@@ -136,8 +136,8 @@ their group re-runs that test. Every other row starts `red` and turns green when
 | icinga2-event-streams → Echoed authentication secrets are redacted before admission | Password echoed in a sync object | `correlia_server/test/e2e/icinga2_stream_secrets_e2e_test.dart` | `password_echoed_in_a_sync_object` | green |
 | icinga2-event-streams → Echoed authentication secrets are redacted before admission | Password echoed through JSON string escaping | `correlia_server/test/e2e/icinga2_stream_secrets_e2e_test.dart` | `escaped_password_is_redacted_in_stream_and_sync` | green |
 | icinga2-event-streams → Echoed authentication secrets are redacted before admission | Escaped sync echo on confirmation or rejected object | `correlia_server/test/e2e/icinga2_stream_secrets_e2e_test.dart` | `escaped_sync_echo_does_not_keep_eventless_rows` | green |
-| icinga2-event-streams → Echoed authentication secrets are redacted before admission | Basic token echoed in the stream | `correlia_server/test/e2e/icinga2_stream_secrets_e2e_test.dart` | `basic_token_echoed_in_the_stream` | pending |
-| icinga2-event-streams → Echoed authentication secrets are redacted before admission | Basic token echoed in a sync object | `correlia_server/test/e2e/icinga2_stream_secrets_e2e_test.dart` | `basic_token_echoed_in_a_sync_repair` | pending |
+| icinga2-event-streams → Echoed authentication secrets are redacted before admission | Basic token echoed in the stream | `correlia_server/test/e2e/icinga2_stream_secrets_e2e_test.dart` | `basic_token_echoed_in_the_stream` | green |
+| icinga2-event-streams → Echoed authentication secrets are redacted before admission | Basic token echoed in a sync object | `correlia_server/test/e2e/icinga2_stream_secrets_e2e_test.dart` | `basic_token_echoed_in_a_sync_repair` | green |
 | icinga2-event-streams → Echoed authentication secrets are redacted before admission | Replacement cannot contain a short password | `correlia_server/test/unit/ingest/icinga2_stream_redaction_test.dart` | `short_password_is_not_recreated` | green |
 | icinga2-event-streams → Echoed authentication secrets are redacted before admission | Literal match inside unrelated escape | `correlia_server/test/unit/ingest/icinga2_stream_redaction_test.dart` | `unrelated_escape_preserves_event` | green |
 | icinga2-event-streams → Echoed authentication secrets are redacted before admission | Redaction does not make an originally malformed line eligible | `correlia_server/test/db/icinga2_stream_backpressure_test.dart` | `redaction_keeps_original_invalid_json` (full row green in 8.2) | green |
@@ -432,7 +432,7 @@ their group re-runs that test. Every other row starts `red` and turns green when
 
 ## 13. Basic authentication token redaction
 
-- [ ] 13.1 Share the exact transmitted Basic token with the stream and sync redactor. Verify both new scenarios red then green, unchanged size limits and malformed-input handling, and `mise run check`; flip their test-map rows green.
+- [x] 13.1 Share the exact transmitted Basic token with the stream and sync redactor. Verify both new scenarios red then green, unchanged size limits and malformed-input handling, and `mise run check`; flip their test-map rows green.
 
 ## Workflow follow-up
 

@@ -18,6 +18,8 @@ import '../support/shared_cluster.dart';
 
 const _source = '33333333-3333-4333-8333-333333333333';
 const _password = 'echo-"\\-secret-\u00e9';
+const _username = 'co~relia-streamx';
+final _basicToken = base64.encode(utf8.encode('$_username:$_password'));
 const _deadline = Duration(seconds: 60);
 const _timeout = Timeout(Duration(minutes: 7));
 
@@ -30,6 +32,8 @@ final class _Upstream {
   final connected = Completer<void>();
   final syncRequested = Completer<void>();
   final releaseSync = Completer<void>();
+  final streamToken = Completer<String>();
+  final servicesToken = Completer<String>();
   final authFailed = Completer<void>();
   final sockets = <Socket>[];
   String services = '{"results":[]}';
@@ -55,9 +59,10 @@ final class _Upstream {
 
   Future<void> serve(HttpRequest request) async {
     await request.drain<void>();
-    final expected =
-        'Basic ${base64.encode(utf8.encode('correlia:$_password'))}';
-    if (request.headers.value(HttpHeaders.authorizationHeader) != expected) {
+    final authorization = request.headers.value(
+      HttpHeaders.authorizationHeader,
+    );
+    if (authorization != 'Basic $_basicToken') {
       request.response.statusCode = 403;
       await request.response.close();
       return;
@@ -70,6 +75,9 @@ final class _Upstream {
         await request.response.close();
         if (!authFailed.isCompleted) authFailed.complete();
         return;
+      }
+      if (!streamToken.isCompleted) {
+        streamToken.complete(authorization!.substring('Basic '.length));
       }
       final socket = await request.response.detachSocket(writeHeaders: false);
       sockets.add(socket);
@@ -84,6 +92,9 @@ final class _Upstream {
       request.response.write('{"results":[]}');
       await request.response.close();
     } else if (request.uri.path == '/v1/objects/services') {
+      if (!servicesToken.isCompleted) {
+        servicesToken.complete(authorization!.substring('Basic '.length));
+      }
       if (!syncRequested.isCompleted) syncRequested.complete();
       await releaseSync.future;
       request.response.write(services);
@@ -138,8 +149,9 @@ final class _Fixture {
   Future<void> start() async {
     final source = streamSource(_source);
     source['output_ids'] = [outputId];
-    (source['api']! as Map<String, Object?>)['url'] =
-        'https://127.0.0.1:${upstream.server.port}';
+    (source['api']! as Map<String, Object?>)
+      ..['url'] = 'https://127.0.0.1:${upstream.server.port}'
+      ..['username'] = _username;
     final config = File('${dir.path}/config.json');
     final secrets = File('${dir.path}/secrets.json');
     final configData = streamBootstrap(1, [source]);
@@ -205,6 +217,7 @@ final class _Fixture {
       base64.encode(passwordBytes).replaceAll('=', ''),
       base64Url.encode(passwordBytes),
       _encoded(passwordBytes),
+      _basicToken,
       utf8.decode(upstream.ca),
       base64.encode(upstream.ca),
       _encoded(upstream.ca),
@@ -409,6 +422,69 @@ String _escaped(Object? value) =>
     jsonEncode(value).replaceAll('echo-', r'\u0065cho-');
 
 void main() {
+  for (final sync in [false, true]) {
+    test(
+      sync
+          ? 'basic_token_echoed_in_a_sync_repair'
+          : 'basic_token_echoed_in_the_stream',
+      () => _withFixture((f) async {
+        await f.start();
+        final token =
+            await (sync ? f.upstream.servicesToken : f.upstream.streamToken)
+                .future
+                .timeout(_deadline);
+        expect(token.endsWith('=') && token.contains(RegExp(r'[+/]')), isTrue);
+        expect(utf8.encode('$_username:').length % 3, isNot(0));
+        final output = 'left $token middle Basic $token right';
+        final object = streamDbCheck(DateTime.now().toUtc(), sync: sync);
+        if (sync) {
+          _withOutput(object, output);
+        } else {
+          (object['check_result']! as Map<String, Object?>)['output'] = output;
+        }
+        final first = token.codeUnitAt(0).toRadixString(16).padLeft(4, '0');
+        final wire = jsonEncode(
+          sync
+              ? {
+                  'results': [object],
+                }
+              : object,
+        ).replaceFirst(token, '${r'\u'}$first${token.substring(1)}');
+        if (sync) {
+          f.upstream.services = wire;
+        } else {
+          await f.upstream.send(wire);
+        }
+        f.upstream.releaseSync.complete();
+        await f.firstDelivery.future.timeout(_deadline);
+        final envelope =
+            jsonDecode((await f.admitted()).single) as Map<String, Object?>;
+        final item =
+            (envelope['items']! as List<Object?>).single!
+                as Map<String, Object?>;
+        expect(item['redacted'], isTrue);
+        for (final table in ['raw_inbox', 'events', 'outbox']) {
+          final column = table == 'raw_inbox' ? 'body' : 'payload';
+          final rows = await f.connection.execute(
+            "SELECT convert_from($column,'UTF8') FROM $table",
+          );
+          final payload = rows.single.single! as String;
+          // Keep the matcher failure free of the synthetic credential.
+          expect(payload.contains(token), isFalse, reason: table);
+          expect(
+            payload.contains('left ') &&
+                payload.contains(' middle Basic ') &&
+                payload.contains(' right'),
+            isTrue,
+            reason: table,
+          );
+        }
+        await f.scan();
+      }),
+      timeout: _timeout,
+    );
+  }
+
   test(
     'password_echoed_after_a_successful_subscription',
     () => _withFixture((f) async {

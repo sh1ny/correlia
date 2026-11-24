@@ -16,16 +16,19 @@ final class WireRedaction {
   /// Whether the original input was invalid UTF-8 or JSON syntax.
   final bool invalidJson;
 
-  /// Whether any password echo was replaced.
+  /// Whether an authentication-secret echo was replaced.
   final bool redacted;
 }
 
-/// Redacts password echoes before input reaches a semantic parser.
+/// Redacts authentication-secret echoes before input reaches a semantic parser.
 final class PasswordRedactor {
-  /// Creates a redactor for the supplied password bytes.
-  PasswordRedactor(Uint8List password) {
+  /// Uses [password] and, when provided, the exact outbound Basic [basicToken].
+  PasswordRedactor(Uint8List password, {String? basicToken}) {
     if (password.isEmpty) {
       throw ArgumentError('Icinga2 password must not be empty');
+    }
+    if (basicToken != null && basicToken.isEmpty) {
+      throw ArgumentError('Icinga2 Basic token must not be empty');
     }
     final standard = base64.encode(password);
     final url = base64Url.encode(password);
@@ -36,21 +39,19 @@ final class PasswordRedactor {
         standard.split('=').first,
         url,
         url.split('=').first,
+        ?basicToken,
       })
         ascii.encode(value),
     ];
     _patterns = forms.map(_Pattern.new).toList(growable: false);
-    var maxLength = 0;
-    for (final form in forms) {
-      if (form.length > maxLength) maxLength = form.length;
-    }
-    for (var c = 65; c <= 122; c++) {
-      if (c > 90 && c < 97) continue;
-      if (forms.every((form) => form.first != c && form.last != c)) {
-        _marker = Uint8List(maxLength)..fillRange(0, maxLength, c);
-        break;
-      }
-    }
+    // All candidates are outside both Base64 alphabets. Avoid the password's
+    // ends too, so a match cannot enter the marker from either edge.
+    final byte = const [0x21, 0x23, 0x25].firstWhere(
+      (value) => value != password.first && value != password.last,
+    );
+    // A complete crossing would need more bytes than any raw password.
+    // A longer username/token must not enlarge the replacement.
+    _marker = Uint8List(standard.length)..fillRange(0, standard.length, byte);
   }
 
   late final List<_Pattern> _patterns;
