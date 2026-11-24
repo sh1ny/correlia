@@ -71,6 +71,14 @@ final class _StopTimers {
   }
 }
 
+Future<void> _stopIdle(Icinga2StreamSupervisor supervisor) async {
+  final timers = _StopTimers();
+  final stopping = timers.stop(supervisor);
+  final deadline = timers.abortAdmissions(0);
+  await stopping;
+  expect(deadline.isActive, isFalse);
+}
+
 final class _ManualTimer implements Timer {
   _ManualTimer(this.delay, this._callback);
 
@@ -331,7 +339,7 @@ void main() {
       test('stop_while_reading', () async {
         final fixture = await startSupervisor();
         await connected(1);
-        await fixture.supervisor.stop();
+        await _stopIdle(fixture.supervisor);
         await fixture.http.disconnected.future;
         final leases = await observer.execute(
           "SELECT \"expiresAt\" <= clock_timestamp() FROM icinga2_stream_lease WHERE \"sourceId\"='$icinga2DbSourceId'",
@@ -347,7 +355,7 @@ void main() {
           final before = await observer.execute(
             "SELECT \"expiresAt\" FROM icinga2_stream_lease WHERE \"sourceId\"='$icinga2DbSourceId' FOR UPDATE",
           );
-          await fixture.supervisor.stop();
+          await _stopIdle(fixture.supervisor);
           final after = await observer.execute(
             "SELECT \"expiresAt\" FROM icinga2_stream_lease WHERE \"sourceId\"='$icinga2DbSourceId'",
           );
@@ -386,7 +394,7 @@ void main() {
         );
         reachable = false;
         await (await dedicated.future).close(force: true);
-        await fixture.supervisor.stop();
+        await _stopIdle(fixture.supervisor);
         final after = await observer.execute(
           "SELECT \"expiresAt\" FROM icinga2_stream_lease WHERE \"sourceId\"='$icinga2DbSourceId'",
         );
