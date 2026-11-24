@@ -37,8 +37,8 @@ tenant, `default`, in 1.0).
   admission and decode-by-kind pipeline.
 - **Versioned mapping documents in the bootstrap configuration.** Mapping documents are written in the
   bootstrap configuration file (JSON), carry their own format version, and activate atomically with the sources in the
-  immutable configuration snapshot. Activation validates every mapping and rejects one that declares
-  neither an observation id nor a source time (RUL-8).
+  immutable configuration snapshot. Activation validates every mapping and rejects one without a source
+  time (stricter than RUL-8, which needs an observation id or a source time).
 - **Mapping preview.** A read-only API method, under the console access policy, maps a pasted sample with
   the active mapping or a draft one and returns the events it would produce, with every unmapped or
   rejected field. It stores nothing.
@@ -53,8 +53,7 @@ tenant, `default`, in 1.0).
 - `integration-alertmanager`: Thanos Ruler deliveries through Alertmanager become a supported, fixture-
   tested setup, including the HA replica label and the one-source-per-tenant rule.
 - `source-ingress`: the supported kinds gain the generic webhook; the configuration format carries
-  mapping documents; activation validates them and refuses a mapping without an observation id or a
-  source time.
+  mapping documents; activation validates them and refuses a mapping without a source time.
 - `durable-pipeline`: rows of the new kind decode through their pinned mapping, including the failure
   path's safe field naming.
 

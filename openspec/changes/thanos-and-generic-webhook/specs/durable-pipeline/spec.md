@@ -48,9 +48,13 @@ kind or format with no decoder SHALL fail the row with a bounded error, never fa
 - **WHEN** a row of a stream source carries a format this build does not know
 - **THEN** the row fails with `unsupported_format` and no decoder runs
 
-#### Scenario: Generic row after its mapping changes
-- **WHEN** a `generic` row is admitted under mapping revision A and a configuration changing that mapping activates before the row is claimed
-- **THEN** the row is decoded with mapping revision A from its pinned snapshot
+#### Scenario: Generic mapping changes before the first claim
+- **WHEN** a `generic` row is admitted while mapping revision A is active and revision B activates before the row is first claimed
+- **THEN** the row is pinned to the snapshot holding B and decoded with B
+
+#### Scenario: Generic mapping changes after the first claim
+- **WHEN** a `generic` row is pinned to the snapshot holding mapping revision A, its first attempt fails transiently, and revision B activates before the retry
+- **THEN** the retry decodes with A, and the pin is unchanged
 
 #### Scenario: Generic row pinned to a snapshot without its mapping
 - **WHEN** a `generic` row's pinned snapshot holds no mapping of the name its source declares
@@ -60,13 +64,17 @@ kind or format with no decoder SHALL fail the row with a bounded error, never fa
 
 ### Requirement: Generic decode failures name paths, never values
 
-A failed `generic` row SHALL record a bounded error code and the JSON Pointer of the offending field, and SHALL
-NOT copy any payload value into the error, logs or metrics.
-A failure SHALL commit no event and no output intent from that delivery.
+A failed `generic` row SHALL record a bounded error code and an RFC 6901 path of at most 256 bytes. A path segment
+SHALL be kept only where the pinned mapping names that segment at that position, or as an index of an array the
+path traverses; every other segment SHALL be `*`. No payload value SHALL be stored. No event or output intent commits.
 
 #### Scenario: Invalid JSON body
 - **WHEN** a `generic` row's body is not valid JSON
 - **THEN** the row fails with `invalid_json`, the error holds no part of the body, and no event commits
+
+#### Scenario: Numeric object key
+- **WHEN** a mapping reads `/check/name` and a failing alert carries an object key `0042` under `/check`
+- **THEN** the stored path names `/check/*`, because `0042` is an object key, not an array index
 
 #### Scenario: Failure in the second of three alerts
 - **WHEN** the second alert of a three-alert delivery has a severity value its table does not list and no default

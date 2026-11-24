@@ -34,11 +34,11 @@ the manifest does not list, or a manifest entry without its file, SHALL fail the
 
 The documented Thanos setup SHALL keep Ruler's HA replica label out of identity, by dropping it in Ruler or by
 listing it in the source's `excluded_identity_labels`. With either, the same rule fired by two Ruler replicas
-SHALL yield one fingerprint; without both, the documentation SHALL state the replicas yield two.
+SHALL yield one fingerprint; with neither, the documentation SHALL state that the replicas yield two.
 
 #### Scenario: Two Ruler replicas, replica label excluded
 - **WHEN** two Ruler replicas fire the same rule, differing only in the replica label, and the source excludes that label
-- **THEN** both notifications yield the same fingerprint and the second firing observation of equal evidence is deduplicated
+- **THEN** both notifications yield the same fingerprint
 
 #### Scenario: Replica label kept in identity
 - **WHEN** the same two notifications arrive at a source that neither excludes nor drops the replica label

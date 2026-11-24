@@ -16,7 +16,7 @@ bounded field error.
 
 #### Scenario: Mapping published with its source
 - **WHEN** a configuration declares mapping `checks` with `mapping_format: 1` and a `generic` source naming it
-- **THEN** activation succeeds and rows admitted for that source are pinned to the snapshot holding `checks`
+- **THEN** activation succeeds, and a row of that source first claimed while this snapshot is active is decoded with `checks`
 
 #### Scenario: Unsupported mapping format
 - **WHEN** a mapping declares `mapping_format: 2`
@@ -42,9 +42,9 @@ absent field.
 
 ### Requirement: Activation requires observation identity evidence
 
-A mapping SHALL declare at least one identity field, and an observation id pointer, a source time pointer, or
-both. Activation SHALL refuse a mapping that declares neither, so no generic event id is ever derived from
-arrival time (RUL-8).
+A mapping SHALL declare at least one identity field and a source time pointer, and MAY declare an observation
+id pointer. Activation SHALL refuse a mapping without a source time pointer, so no generic event id or ordering is
+ever derived from arrival time (RUL-8).
 
 #### Scenario: Mapping with a source time only
 - **WHEN** a mapping declares identity field `host` and a source time pointer but no observation id
@@ -52,7 +52,11 @@ arrival time (RUL-8).
 
 #### Scenario: RUL-8 neither observation id nor source time
 - **WHEN** a mapping declares identity fields but neither an observation id pointer nor a source time pointer
-- **THEN** activation fails with a validation error naming the mapping, and the prior snapshot stays active
+- **THEN** activation fails with a field error naming `mappings[i].source_time`, and the prior snapshot stays active
+
+#### Scenario: Observation id without a source time
+- **WHEN** a mapping declares identity fields and an observation id pointer but no source time pointer
+- **THEN** activation fails with a field error naming `mappings[i].source_time`, and the prior snapshot stays active
 
 #### Scenario: No identity field
 - **WHEN** a mapping declares an observation id pointer but no identity field
@@ -74,10 +78,9 @@ with that pointer named.
 
 ### Requirement: Generic alert identity
 
-A generic alert's fingerprint SHALL hash tenant, namespace, kind `generic` and the mapping's identity fields as
-ordered name/value pairs, using the canonical tuple encoding. Its observation key SHALL be the declared
-observation id when present, else status, severity and the reported source time. Batch position and arrival
-SHALL NOT affect either.
+A generic fingerprint SHALL hash tenant, namespace, kind `generic` and the mapping's identity fields, whose values
+SHALL be JSON strings, with the canonical tuple encoding. The observation key SHALL be the observation id when
+mapped, else status, severity and reported source time. Batch position and arrival SHALL NOT affect either.
 
 #### Scenario: ID-6 re-batched generic alerts
 - **WHEN** the same two alerts arrive once in one delivery and again as two single deliveries, in reverse order
@@ -87,15 +90,19 @@ SHALL NOT affect either.
 - **WHEN** an alert has no value at one of the mapping's identity field pointers
 - **THEN** the raw row fails with an identity-field error naming that pointer, and no event or output intent commits
 
+#### Scenario: Identity value that is not a string
+- **WHEN** an identity pointer selects the JSON number `1` in one alert
+- **THEN** the raw row fails with `identity_type` naming that pointer, so it never shares an identity with the string `"1"`
+
 #### Scenario: Observation id absent in one alert
-- **WHEN** a mapping declares only an observation id pointer and an alert lacks a value there
-- **THEN** the raw row fails with a field error naming the pointer, and no arrival-derived id is used
+- **WHEN** a mapping declares an observation id pointer and an alert lacks a value there
+- **THEN** the raw row fails with a field error naming the pointer, and no fallback or arrival-derived id is used
 
 ### Requirement: Status and severity value tables
 
-A mapping SHALL derive status (`firing` or `resolved`) and severity from value tables keyed by the sender's
-value, each with an optional declared default. A value missing from its table with no default SHALL fail the
-raw row, naming the pointer, never the value.
+A mapping SHALL declare `status` and `severity`. Status (`firing` or `resolved`) SHALL come from a value table;
+severity from a value table or a constant level. Each table maps the sender's value and may declare a default; a
+value missing from its table with no default SHALL fail the raw row, naming the pointer, never the value.
 
 #### Scenario: Mapped status and severity
 - **WHEN** a mapping maps status `OK` to `resolved` and severity `CRIT` to `critical`, and an alert carries those values
@@ -111,13 +118,13 @@ raw row, naming the pointer, never the value.
 
 ### Requirement: Declared time formats
 
-Each time pointer SHALL declare its format: `rfc3339`, `epoch_seconds` or `epoch_millis`. The reported text or
-number SHALL be kept as source evidence, and the normalized source time SHALL go through the existing skew
-clamp. An RFC 3339 value without an offset, or a value of another format, SHALL fail the raw row.
+Each time pointer SHALL declare `rfc3339`, `epoch_seconds` or `epoch_millis`. The reported evidence SHALL be the
+RFC 3339 text as sent, or the exact UTC RFC 3339 rendering of an epoch value; the normalized time SHALL go
+through the existing skew clamp. An RFC 3339 value without an offset, or a value of another type, SHALL fail the raw row.
 
 #### Scenario: Epoch milliseconds
 - **WHEN** a source time pointer declared `epoch_millis` selects `1795497600123`
-- **THEN** the event's source time is 2026-11-24T05:20:00.123Z and the reported evidence is `1795497600123`
+- **THEN** the event's source time and its reported evidence are both `2026-11-24T05:20:00.123Z`, and the same value in another delivery gives the same event id
 
 #### Scenario: RFC 3339 without an offset
 - **WHEN** a pointer declared `rfc3339` selects `2026-11-24T05:20:00`
@@ -129,9 +136,9 @@ clamp. An RFC 3339 value without an offset, or a value of another format, SHALL 
 
 ### Requirement: Display fields copy or take a constant
 
-A mapping's display fields (summary, description, labels and links) SHALL each copy one pointer's value or take
-a literal constant; no templating. Display text over its bound SHALL be truncated with the marker, without
-changing identity. A copied value that is not a string or number SHALL fail the raw row.
+A mapping SHALL declare `summary` and MAY declare `description`, up to 128 `labels` and up to 16 `links`, each
+copying one pointer's value or taking a constant; no templating. Display text over its bound SHALL be truncated
+with the marker, without changing identity. A copied non-scalar, or a link that is not an http(s) URL, SHALL fail the row.
 
 #### Scenario: Copied and constant display fields
 - **WHEN** a mapping copies `/check/output` into the description and sets label `team` to the constant `ops`
@@ -140,6 +147,14 @@ changing identity. A copied value that is not a string or number SHALL fail the 
 #### Scenario: ID-3 long display text
 - **WHEN** a copied description is 5000 scalars long
 - **THEN** the description is truncated to 4096 scalars with the truncation marker and the fingerprint equals that of the same alert with a short description
+
+#### Scenario: Link that is not a URL
+- **WHEN** a link copies `/runbook` and an alert carries `see wiki` there
+- **THEN** the raw row fails with a field error naming `/runbook`
+
+#### Scenario: Mapping without a summary
+- **WHEN** a mapping declares no `summary`
+- **THEN** activation fails with a field error naming `mappings[i].summary`
 
 #### Scenario: Object copied into a display field
 - **WHEN** the summary pointer selects a JSON object
@@ -165,16 +180,20 @@ not itself name stored as `*`. Under `count` such fields SHALL be counted on the
 
 ### Requirement: Mapping preview
 
-A read-only API method, under the console access policy, SHALL map a sample payload with the source's active
-mapping or a draft mapping sent with the request, and SHALL return the events it would produce and every
-unmapped, rejected or invalid field. It SHALL store nothing and publish nothing.
+A read-only API method under the console access policy SHALL map a sample of at most 1 MiB and 100 alerts with
+the source's active mapping or a draft, and SHALL return the events of the alerts that decode, whether the row would
+fail, and every unmapped path and field error, capped at 100 entries and 64 KiB. It SHALL store and publish nothing.
 
 #### Scenario: Preview with a draft mapping
 - **WHEN** the method is called in development mode from loopback with a sample of two alerts and a draft mapping
 - **THEN** it returns two events with their fingerprints and event ids, the unmapped field paths, and no raw row, event, output intent or snapshot is created
 
+#### Scenario: Preview of a sample with several errors
+- **WHEN** a sample holds one valid alert and two alerts each with a different field error
+- **THEN** the result holds the valid alert's event, both field errors with their pointers, and states that the row would fail
+
 #### Scenario: Preview of an invalid draft
-- **WHEN** the draft mapping declares neither an observation id nor a source time
+- **WHEN** the draft mapping declares no source time pointer
 - **THEN** the method returns the same validation error activation would, and no event
 
 #### Scenario: Preview outside the console access policy

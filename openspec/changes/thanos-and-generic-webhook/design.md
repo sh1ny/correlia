@@ -5,8 +5,8 @@
 | Trigger | Applies? | Evidence |
 |---|---|---|
 | T1 Components (new component, or 3+ with directed relationships) | yes | New generic decoder and mapping parser, a new preview endpoint, plus bootstrap → snapshot → ingress → pipeline → decoder |
-| T2 State (persistent state, caches, 3+ state machine) | yes | Mappings become part of the persisted configuration snapshot (`config_repository.dart:203`); a parsed-snapshot cache in ingress |
-| T3 Concurrency (background work, workers/isolates, async, retries) | yes | Generic rows are decoded by the pipeline workers under the existing retry budget (`pipeline.dart:865-869`) |
+| T2 State (persistent state, caches, 3+ state machine) | yes | Mappings become part of the persisted configuration snapshot (`config_repository.dart:203`) |
+| T3 Concurrency (background work, workers/isolates, async, retries) | yes | Generic rows are decoded by the pipeline workers (`pipeline.dart:865-869`) under the existing five-attempt budget (`pipeline.dart:1005-1018`) |
 | T4 Boundaries (data format, migration, shared interface, IPC, external) | yes | Configuration file format (mapping documents), snapshot JSON, a new public RPC method, a new webhook route, captured Thanos fixture format |
 | T5 Volume (grows without a fixed bound) | yes | Batched `items` arrays and mapping documents need explicit bounds |
 | T6 Risk (security, money, data loss, unrecoverable user data) | yes | Sender-controlled payloads reach failure records; a new authenticated ingress route |
@@ -17,7 +17,7 @@ TIER: FULL
 
 The proposal (`proposal.md`) and the four spec deltas state what changes; this section records the code the design builds on.
 
-- **Configuration file.** The bootstrap file is JSON: `_readFile` decodes it with `jsonDecode`
+- **Configuration file.** The bootstrap file is JSON, read with a 64 KiB cap and decoded with `jsonDecode`
   (`correlia_server/lib/src/ingest/bootstrap.dart:620-629`). Root fields are an allow-list that adds `namespaces`
   only in format version 2 (`bootstrap.dart:217-223`); unknown fields fail through `_sourceFields`
   (`source_config.dart:304-318`), which reflects a key only if it matches `^[a-z][a-z_]{0,31}$`
@@ -29,7 +29,8 @@ The proposal (`proposal.md`) and the four spec deltas state what changes; this s
   (`correlia_server/lib/src/models/ingest_source.spy.yaml:6`), so a new kind value needs no migration.
 - **Snapshot.** `publicJson` writes `format_version`, `revision`, `sources` and `outputs`
   (`bootstrap.dart:163-168`); `snapshotId` is the SHA-256 of those bytes (`bootstrap.dart:171`). A committed pin
-  is reloaded through `ConfigRepository.snapshot` (`config_repository.dart:505-517`).
+  is loaded by the worker from `raw.pin` (`pipeline.dart:363-373`). Rows are pinned at first claim, not at admission:
+`pinOne` writes the snapshot active at that moment (`pipeline.dart:287-319`).
 - **Ingress.** Routes are `/hooks/<kind>/<uuid>[/<token>]` (`ingress.dart:171-175`); a four-segment path
   on any kind but Alertmanager answers 401 (`ingress.dart:180-183`). Each request loads and decodes the active
   `publicJson` (`ingress.dart:294-312`) and rejects a kind mismatch with 401 (`ingress.dart:318-321`). It checks
@@ -40,18 +41,23 @@ The proposal (`proposal.md`) and the four spec deltas state what changes; this s
   turn every other segment into `*`, bounded at 256 characters (`pipeline.dart:140-157`). The done outcome is a
   JSON column (`pipeline.dart:797-815`), so new counters need no migration.
 - **Identity.** `alertFingerprint` hashes tenant, namespace, kind and identity fields with byte-sorted keys
-  (`event/identity.dart:275-299`), within 1..128 fields (`event_generated/correlia/event/v1/event_bounds.dart:101-104`).
+  (`event/identity.dart:275-305`), within 1..128 fields (`event_generated/correlia/event/v1/event_bounds.dart:101-104`).
   `ObservationKey.native` takes a source key (`identity.dart:318-329`); `ObservationKey.fallback` needs status,
   severity and reported source time and fails `missing_evidence` without it (`identity.dart:357-370`).
+- **Source time is required downstream.** The worker dereferences `event.sourceTime!` to classify, record and order
+  each observation (`pipeline.dart:445`, `:539`, `:613`). The Icinga2 mapper, which has a native observation key,
+  still sets a source time and reports an epoch time as its RFC 3339 rendering (`ingest/icinga2/mapper.dart:92-137`).
+- **Bounds the mapping must respect.** Events carry at most 16 links (`proto/correlia/event/v1/event.proto:275-279`);
+  a link needs a bounded valid HTTP(S) target (`event/canonical_event.dart:110-127`).
 - **Time.** `classifyEvidence` marks evidence more than 24 hours ahead as future-dated and more than 7 days old as
   late (`pipeline.dart:43-57`); the skew allowance is 5 minutes (`pipeline.dart:35`).
 - **Console access.** `ConsoleAccessPolicy.check` admits only development or test run modes, the api or all
   role, a loopback peer and allowed Host and Origin (`console/console_access_policy.dart:7-18`); endpoints call
   it first (`endpoints/alert_console_endpoint.dart:10-16`).
-- **RPC size.** `maxRequestSize` is 524288 bytes in development, staging and production
-  (`config/development.yaml:42`); `config/test.yaml` sets none.
-- **Capture tooling.** `tool/alertmanager_capture.sh` runs Docker containers (`:16`) and a Python receiver
-  (`:25`); fixtures are named per release, such as
+- **RPC size.** `maxRequestSize` is 524288 bytes in development (`config/development.yaml:42`), staging
+  (`config/staging.yaml:46`) and production (`config/production.yaml:42`); `config/test.yaml` sets none.
+- **Capture tooling.** `tool/alertmanager_capture.sh` starts a Python receiver (`:36-61`), runs Alertmanager in
+  Docker (`:82`) and drives resolution by posting an explicit `endsAt` (`:93-98`); fixtures are named per release, such as
   `correlia_server/test/unit/ingest/fixtures/alertmanager/v0.16.2-firing.json`.
 
 ## Decisions
@@ -133,7 +139,9 @@ Scope decisions S1–S6 are in `proposal.md`; they appear in the summary table.
   mapping is used. Namespace and source instance come from the source in the active snapshot, so fingerprints
   and event ids match real deliveries. It returns a typed `MappingPreviewResult`: events (fingerprint, event id,
   status, severity, summary, source time), unmapped paths, field errors (pointer and code) and the validation
-  error, if any. Bounds: sample at most 1 MiB, at most 100 alerts.
+  error, if any. Bounds: sample at most 1 MiB decoded and 100 alerts, draft at most 32 KiB; errors and unmapped
+  paths at most 100 entries and 64 KiB together, then a count. Alerts are decoded independently in a collecting
+  mode of the same decoder (D10), so every error is reported and `wouldFail` states the production outcome.
 - **Rejected:** no source id, with fixed preview identity values, because its fingerprints would not match the
   real source's and could not be compared with stored events.
 - **Reversal cost:** medium (public RPC contract the M4 console uses)
@@ -155,7 +163,8 @@ Scope decisions S1–S6 are in `proposal.md`; they appear in the summary table.
 
 - **Choice:** A pure `decodeGeneric(DecodeRequest, GenericMapping)` beside the other decoders, dispatched from
   `_decoderFor` with the mapping taken from the pinned snapshot. Ingress keeps admitting bytes without parsing.
-  The preview calls the same function.
+  The decoder works per alert and has two modes: production stops at the first error and fails the row;
+  the preview collects each alert's outcome, bounded as in D8.
 - **Rejected:** mapping at ingress, because a mapping error would refuse a delivery that a later mapping fix
   could process, and it would break the bytes-first admission model (ADR 0016).
 - **Reversal cost:** medium
@@ -175,9 +184,11 @@ Scope decisions S1–S6 are in `proposal.md`; they appear in the summary table.
 
 ### D12: Safe failure paths for generic rows
 
-- **Choice:** `safeFailurePath` gains a generic arm whose allowed segments are the segments of the pinned
-  mapping's own pointers plus array indexes up to 4 digits; every other segment is stored as `*`. Mapping
-  pointers are operator-written, so naming them leaks no sender data; values are never stored.
+- **Choice:** A generic arm of `safeFailurePath` renders RFC 6901 paths: a segment is kept only where some pointer
+  of the pinned mapping has that segment at that position under the same kept prefix; an index is kept only
+  where the decoder traversed an array; everything else is `*`, and the path is cut at 256 bytes. Errors raised
+  later by canonical event validation carry canonical field paths (`pipeline.dart:457-465`) and keep the existing
+  canonical-name allow-list. Failures are recorded on the row by `_fail`; no new log line is added.
 - **Rejected:** a fixed allow-list like the other kinds (`pipeline.dart:140-157`), because generic field names
   are only known per mapping, so a fixed list would redact everything or nothing.
 - **Reversal cost:** low
@@ -186,9 +197,9 @@ Scope decisions S1–S6 are in `proposal.md`; they appear in the summary table.
 
 ### D13: Required and wrong-typed fields fail the row
 
-- **Choice:** Identity values, status, and the observation id or source time a mapping declares are required;
-  an absent value or one of the wrong JSON type fails the whole raw row with the pointer and a code. Identity
-  values may be strings or numbers; numbers are encoded by their JSON text.
+- **Choice:** Identity values, status, source time and a declared observation id are required in each alert;
+  an absent value or one of the wrong JSON type fails the whole raw row with the safe path and a code (identity
+  values must be strings, D20).
 - **Rejected:** skipping the bad alert and committing the rest, because a partial batch hides data loss.
 - **Reversal cost:** low
 - **Important:** no
@@ -198,52 +209,83 @@ Scope decisions S1–S6 are in `proposal.md`; they appear in the summary table.
 
 - **Choice:** Fingerprints use `alertFingerprint` with `source_kind` `generic`; the observation key is
   `ObservationKey.native` when an observation id is mapped, else `ObservationKey.fallback`. Display text goes
-  through the existing display truncation (ID-3); source times go through `classifyEvidence` and the skew clamp.
+  through `normalizeDisplayText` (`canonical_event.dart:694`, ID-3); source times go through `classifyEvidence`
+  and the skew clamp. An epoch source time's reported evidence is its exact UTC RFC 3339 rendering (nanosecond
+  digits only as needed), as the Icinga2 mapper does (`icinga2/mapper.dart:92-137`); the number itself stays in the
+  raw body. RFC 3339 input keeps its text as sent.
 - **Rejected:** a generic-specific hash or truncation, because the canonical-event spec already fixes both.
 - **Reversal cost:** high (identity bytes)
-- **Important:** no (follows the canonical-event spec; no new format)
+- **Important:** no (follows the canonical-event spec and the Icinga2 precedent; no new format)
 - **Chosen by:** agent
 
 ### D15: Mapping bounds
 
-- **Choice:** At most 64 mappings per file, 32 KiB of canonical JSON each, 128 identity fields (the canonical
-  bound), 128 labels, 32 links, value tables of at most 256 entries with 256-byte keys, and pointers of at most
-  512 bytes. A batched delivery holds at most 1000 alerts; more fails the row with `items_bound`.
-- **Rejected:** no caps, because each request parses the snapshot and each worker parses mappings.
+- **Choice:** Mappings share the configuration file's existing 64 KiB cap (`bootstrap.dart:625`), which is the
+  aggregate bound; each mapping is at most 32 KiB of canonical JSON, at most 64 per file. Inside one: 128 identity
+  fields (the canonical bound), 128 labels, 16 links (the event bound), value tables of 256 entries with 256-byte
+  keys, pointers of 512 bytes. A delivery holds at most 1000 alerts; more fails the row with `items_bound`.
+  `summary`, `status` and `severity` are required at activation, so an activated mapping can build every
+  required canonical field.
+- **Rejected:** raising the file cap for mappings, because no realistic mapping set needs more and the active
+  snapshot is read on every delivery.
 - **Reversal cost:** low (caps can rise)
 - **Important:** no
 - **Chosen by:** agent
 
-### D16: Ingress caches the parsed active snapshot
+### D16: Ingress keeps reading the snapshot per request
 
-- **Choice:** Ingress keeps one parsed copy of the active snapshot keyed by snapshot id, replaced when the id
-  read with the source row differs (`ingress.dart:294-312`). Snapshots are immutable, so the cache cannot be stale.
-- **Rejected:** decoding `publicJson` per request with mappings inside it, because up to 2 MiB of mappings would
-  be parsed on every delivery.
+- **Choice:** No ingress cache. Ingress already reads and decodes `publicJson` per request (`ingress.dart:294-312`);
+  mappings add at most what the 64 KiB file cap allows (D15).
+- **Rejected:** a parsed cache keyed by snapshot id, because the bounded growth does not justify a second copy
+  of configuration state, and the transfer would remain.
 - **Reversal cost:** low
 - **Important:** no
 - **Chosen by:** agent
 
 ### D17: Preview request size
 
-- **Choice:** Raise `maxRequestSize` to 1310720 bytes (1.25 MiB) in `config/development.yaml` and set it in
-  `config/test.yaml`, the only run modes the console policy admits, so a 1 MiB sample plus a draft fits. Staging
-  and production keep 524288.
-- **Rejected:** a 448 KiB sample cap, because D8 sets 1 MiB to match the default body limit.
+- **Choice:** Set `maxRequestSize` to 2621440 bytes (2.5 MiB) in `config/development.yaml` and `config/test.yaml`.
+  Sample and draft travel as JSON strings, and escaping at most doubles valid JSON text, so 2 × (1 MiB + 32 KiB)
+  plus the envelope fits. The endpoint enforces the decoded budgets itself. A test sends an escape-heavy 1 MiB
+  sample and a draft through the real client. Staging and production keep 524288; there the console policy
+  refuses the call anyway (`console_access_policy.dart:10`).
+- **Rejected:** a 224 KiB sample cap within today's limit, because D8 sets 1 MiB to match the default body limit.
 - **Reversal cost:** low
 - **Important:** no (development and test settings only)
 - **Chosen by:** agent
 
 ### D18: Thanos capture
 
-- **Choice:** Extend `tool/alertmanager_capture.sh` with a Thanos mode: a Ruler container with a static rule and
-  two replicas, sending to one pinned Alertmanager, whose webhook goes to the existing receiver. Fixtures go
-  under `fixtures/thanos/` with a `manifest.json` of image names and digests; a test checks the manifest and the
-  files match.
+- **Choice:** Extend `tool/alertmanager_capture.sh` with a Thanos mode: two Ruler containers (replica labels
+  `a` and `b`) evaluate a rule file whose expression always fires, sending to one pinned Alertmanager. Resolution
+  is driven by replacing the rule file and reloading both Rulers. The receiver writes every notification with a
+  sequence number, never overwriting. Two runs are captured per release: replica label kept (two fingerprints
+  expected) and dropped by Ruler (one). `fixtures/thanos/manifest.json` lists each file with its sequence, run,
+  replica labels seen, and the image names and digests; a test checks files and manifest match.
 - **Rejected:** a second capture script, because receiver, ports and cleanup would be duplicated.
 - **Reversal cost:** low
 - **Important:** no
 - **Chosen by:** agent
+
+### D19: Source time is required in every mapping
+
+- **Choice:** `source_time` is required; `observation_id` is optional. Activation refuses a mapping without
+  `source_time`. The worker needs a source time for every observation (`pipeline.dart:445`, `:539`, `:613`).
+- **Rejected:** observation-id-only mappings ordered by observed time, because arrival time would stand in for
+  source evidence, against ADR 0024.
+- **Reversal cost:** low (the rule can be relaxed later)
+- **Important:** yes (changes what users see: activation refuses more mappings)
+- **Chosen by:** user (owner via Ormy, 2026-11-24: "G1a")
+
+### D20: Identity values are JSON strings
+
+- **Choice:** Each identity pointer must select a JSON string; any other type fails the row with `identity_type`
+  and the safe path. This keeps `1` and `"1"` from sharing an identity.
+- **Rejected:** strings and numbers with the JSON type in the identity bytes, because identity would change when
+  a sender switches between `1`, `"1"` and `1.0`.
+- **Reversal cost:** low (a type-tagged encoding can come in a new `mapping_format`)
+- **Important:** yes (changes what users see)
+- **Chosen by:** user (owner via Ormy, 2026-11-24: "G2a")
 
 ### Decision summary
 
@@ -269,10 +311,12 @@ Scope decisions S1–S6 are in `proposal.md`; they appear in the summary table.
 | D12 | Safe failure paths | Mapping-named segments only | Fixed allow-list | low | no | agent |
 | D13 | Required/wrong-typed fields | Fail the whole row | Skip the alert | low | no | agent |
 | D14 | Identity, display, time | Reuse event library | Generic-specific | high | no | agent |
-| D15 | Mapping bounds | Explicit caps | No caps | low | no | agent |
-| D16 | Ingress snapshot parse | Cache by snapshot id | Parse per request | low | no | agent |
-| D17 | Preview request size | 1.25 MiB in dev/test | 448 KiB sample | low | no | agent |
+| D15 | Mapping bounds | Share the 64 KiB file cap; explicit caps | Raise the file cap | low | no | agent |
+| D16 | Ingress snapshot read | Per request, unchanged | Cache by snapshot id | low | no | agent |
+| D17 | Preview request size | 2.5 MiB in dev/test | 224 KiB sample | low | no | agent |
 | D18 | Thanos capture | Extend the existing tool | Second script | low | no | agent |
+| D19 | Source time in mappings | Required | Id-only, ordered by arrival | low | yes | user |
+| D20 | Identity value type | JSON strings only | Strings and numbers, type-tagged | low | yes | user |
 
 ## Assumptions
 
@@ -297,8 +341,11 @@ Scope decisions S1–S6 are in `proposal.md`; they appear in the summary table.
   alternative. Destination: spec: specs/source-ingress/spec.md → Requirement: Generic deliveries are admitted before mapping
 - **C5:** No Thanos source kind and no tenant header handling; tenants are separate sources (D20).
   Kind: rejected alternative. Destination: spec: specs/integration-alertmanager/spec.md → Requirement: One source per Thanos tenant
-- **C6:** The ingress snapshot cache is valid only because snapshots are immutable and content-addressed.
-  Kind: invariant. Destination: doc comment: `correlia_server/lib/src/ingest/ingress.dart` the snapshot cache
+- **C6:** Mappings are authored only in the bootstrap configuration file; there is no second activation path
+  until M4 adds console editing. Kind: deliberate gap. Destination: ADR 0031
+- **C7:** A generic row always decodes with the mapping of its pinned snapshot; retries never re-pin, and
+  decoding with a repaired mapping is operator replay, deferred to change 7. Kind: deliberate gap. Destination:
+  spec: specs/durable-pipeline/spec.md → Requirement: Rows decode by their source's kind
 
 ## Diagrams (FULL)
 
@@ -309,7 +356,7 @@ flowchart LR
   F[config file JSON] --> B[IngestBootstrap.parse<br/>+ GenericMapping.parse]
   B --> S[(ingest_config_snapshot<br/>publicJson with mappings)]
   Sender -->|POST /hooks/generic/id| I[Ingress]
-  I -->|reads, cached by id| S
+  I -->|reads per request| S
   I --> R[(raw_inbox, pinned)]
   R --> P[Pipeline worker]
   P -->|ConfigRepository.snapshot| S
@@ -359,7 +406,6 @@ flowchart TB
 | State | Owner (sole writer) | Lifetime | Invalidation / rebuild | Authoritative copy |
 |---|---|---|---|---|
 | Mapping documents in a snapshot | `ConfigRepository` publish (`config_repository.dart:203`) | Forever (immutable snapshot) | Never; a change publishes a new snapshot | `ingest_config_snapshot.publicJson` |
-| Ingress parsed-snapshot cache | Ingress handler | Process | Replaced when the active snapshot id differs | The snapshot row |
 | Parsed `GenericMapping` per worker claim | Pipeline worker | One row | Rebuilt per claim from the pinned snapshot | The snapshot row |
 | Raw generic row and its outcome | Pipeline worker (existing) | Existing retention | Existing | `raw_inbox` |
 | Preview result | None (returned, never stored) | One call | n/a | n/a |
@@ -370,7 +416,7 @@ flowchart TB
 |---|---|---|---|---|
 | Mapping validation at activation | Invalid mapping | Activation fails; prior snapshot stays | yes | Operator: bounded field error at startup |
 | Ingress, generic route | Crash before commit | Sender retries; transport dedup | yes | Sender sees no 202 |
-| `decodeGeneric` | Field error | Row fails with pointer and code | n/a (deterministic) | Operator: failed row and pipeline log line with safe path |
+| `decodeGeneric` | Field error | Row fails with safe path and code | n/a (deterministic) | Operator: failed row evidence (code and safe path) |
 | Worker dies mid-row | Transaction rolls back | Row reclaimed (existing) | yes | Nobody needs to |
 | Pinned snapshot lacks the mapping | `unsupported_mapping` | Row fails; replay in change 7 | n/a | Operator: failed row |
 | Preview | Invalid draft or sample | Typed error result | yes | Console user |
@@ -382,14 +428,15 @@ flowchart TB
 |---|---|---|---|---|
 | Generic body | Source body limit, default 1 MiB; depth 32 | 413 / `depth_bound` | Existing ingress | Unchanged: per-source limit |
 | Alerts per delivery | 1000 (D15) | Row fails `items_bound` | Existing processing deadline | 10x senders batch less; bound holds |
-| Mappings per file | 64 × 32 KiB (D15) | Activation fails | n/a | Fixed by the caps |
-| Ingress snapshot cache | One entry | Replaced | n/a | Constant |
-| Preview sample | 1 MiB, 100 alerts (D8) | Typed error | RPC default | Dev/test only |
-| Unmapped path list in preview | 100 paths, then a count | Count of the rest | n/a | Constant |
+| Preview request | 2.5 MiB wire; 1 MiB sample, 32 KiB draft, 100 alerts (D8, D17) | Typed error; over the wire cap Serverpod refuses | RPC default | Dev/test only |
+| Preview diagnostics | 100 entries and 64 KiB, then a count | Count of the rest | n/a | Constant |
+| Mappings in the snapshot | 64 KiB file cap (D15) | Activation fails | n/a | Fixed by the cap |
 
 ## Flow & State Gaps (FULL)
 
 - **Mapping changed while rows are pending:** rows decode with the mapping of their pinned snapshot (durable-pipeline delta).
+- **Mapping changed between admission and first claim:** the row is pinned at first claim (`pipeline.dart:287-319`), so
+  it decodes with the mapping active then; after the pin, retries keep it (C7).
 - **Mapping removed while rows are pending:** the old snapshot still holds it, so pending rows decode; only a
   snapshot that never had it fails `unsupported_mapping`.
 - **Same alert in two deliveries, different batching:** identity depends only on mapped values (D4, D14);
@@ -405,7 +452,7 @@ flowchart TB
 |---|---|---|---|
 | Mapping-named failure path redaction (D12) | yes | Sender keys could carry secrets into stored errors | none |
 | Byte-stable snapshot without mappings (D9) | yes | Snapshot ids are stored pins; changing them is expensive | none |
-| Ingress snapshot cache (D16) | yes | Per-request parse of mappings grows with the config | Profiling showing parse cost is negligible |
+| Ingress snapshot cache (D16) | no | Growth is bounded by the 64 KiB file cap | Profiling showing snapshot reads dominate ingress latency |
 | Per-alert partial commit | no | Hides loss; a whole-row failure is visible | Owner asks for best-effort batches |
 | Mapping templates | no | Owner chose D2a | A new `mapping_format` |
 | Database-managed mappings | no | S3 | M4 console change |
