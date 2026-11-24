@@ -54,3 +54,12 @@ the owner's 2026-11-23 decision for Kaname's ESI generator: “fall back to
 CI+Codex if too big.” Run Linux verification and request GitHub Codex review
 of the complete diff on a draft PR. Leave marking it ready, merging, and
 archiving to the owner.
+
+## Supplemental design review: Basic credential redaction
+
+Isolated Codex CLI 0.167.0 approved D31 with changes on 2026-11-24
+(OMP skipped as the current harness; actual model and reasoning unreported).
+It confirmed that the shared attempt-local token adds one bounded pattern and
+does not enlarge replacements. Its low-severity finding was applied: the two
+regressions echo the real outbound header's token, must distinguish padded
+standard Base64 from Base64url, and include one JSON-escaped form per path.

@@ -900,18 +900,20 @@ Scope decisions S1-S5 are in `proposal.md`.
 - **Important:** yes (a guarantee users rely on).
 - **Chosen by:** user (owner, 2026-11-23: "Scope the fence", after review round 6)
 
-### D31: An echoed password is redacted before admission
+### D31: Echoed authentication secrets are redacted before admission
 
 - **Choice:** A bounded lexical pass classifies each line or object before the semantic parser or any
-  observable representation. With valid JSON, redact occurrences of the password and its padded and unpadded
-  base64/base64url forms in decoded string keys and values, mapping matches back to wire spans. Do not match
-  JSON syntax, numbers, or parts of escapes that decode to unrelated text. Preserve unrelated wire bytes.
-  With malformed JSON or invalid UTF-8, match literal byte echoes and base64 forms, and scan recoverable
-  strings for decoded echoes. Audit a malformed item's `line_b64` by decoding its wrapper before checking
-  the sanitized bytes. Do not treat incidental matches in fixed metadata as echoes.
-  Use a JSON-safe printable ASCII letter that is neither the first nor last byte of any forbidden form,
-  repeated to the maximum forbidden form's byte length. This excludes every match inside the marker or
-  crossing its edges without excluding any password: there are at most five forbidden forms. Replace
+  observable representation. With valid JSON, redact occurrences of the password, its padded and unpadded
+  base64/base64url forms, and the exact Base64 token sent in the Basic header, with or without its prefix.
+  Scan decoded string keys and values, mapping matches back to wire spans. Do not match JSON syntax, numbers,
+  or parts of escapes that decode to unrelated text. Preserve unrelated wire bytes.
+  With malformed JSON or invalid UTF-8, match those same forms in the raw bytes and in recoverable strings.
+  Audit a malformed item's `line_b64` by decoding its wrapper before checking the sanitized bytes.
+  Do not treat incidental matches in fixed metadata as echoes.
+  Repeat one of the JSON-safe bytes `!`, `#`, `%` to the longest password-only form's byte length. Choose
+  a byte different from both ends of the raw password: at most two candidates are excluded. No Base64
+  alphabet contains these bytes, so a Base64 match cannot enter the marker. A raw password match cannot
+  enter either edge or cross the whole marker. The added token does not increase replacement size. Replace
   overlapping matches together, flag changed items `redacted`, and enforce the existing size bounds on
   sanitized items and their encoded form. Diagnostics contain no input from the lexical pass. The semantic
   parser, failure recorder, batcher and mapper see only sanitized bytes. For a stream item classified as
@@ -925,6 +927,7 @@ Scope decisions S1-S5 are in `proposal.md`.
 - **Chosen by:** user: redact literal and escaped echoes before any durable or diagnostic representation.
   After round 10 the owner kept the current password range, scoped valid JSON checks to decoded content,
   preserved unrelated decoded text, and required a replacement that cannot reproduce an echo.
+  Basic-token expansion approved by Ormy for the owner, 2026-11-24, pending owner review.
 
 ### D32: Tombstone reclamation respects receipt time
 
@@ -1046,7 +1049,7 @@ Scope decisions S1-S5 are in `proposal.md`.
 | D28 | Fence receipt time | May differ between copies of one result | Keep silent keys | low | yes | user |
 | D29 | Row origin | `icinga2_raw_origin` by raw id | Columns on `raw_inbox` | low | yes | user |
 | D30 | Displayed source | Converges for one source only | Other-source confirm is visible | low | yes | user |
-| D31 | Password echo | Redacted before admission | Drop the line | low | yes | user |
+| D31 | Password and Basic token echoes | Redacted before admission | Drop the line | low | yes | user |
 | D32 | Tombstone growth | Lateness horizon plus pending receipts and a durable admission cutoff | Wall-clock-only expiry; never reclaim | medium | yes | user |
 
 ## Assumptions
@@ -1174,10 +1177,10 @@ Scope decisions S1-S5 are in `proposal.md`.
   deliberate gap. Destination: spec: specs/alert-state/spec.md → Requirement: Silent confirms keep no key
 - **C34:** The displayed source converges only when one source writes the alert. Kind: deliberate gap.
   Destination: spec: specs/alert-state/spec.md → Requirement: Displayed source in a shared namespace
-- **C35:** Remove decoded JSON password echoes and malformed-byte echoes before semantic parsing, batching,
-  sampling or logging, with a marker that cannot recreate an echo. Kind: invariant.
-  Destination: spec: specs/icinga2-event-streams/spec.md → Requirement: An echoed password is redacted before
-  admission
+- **C35:** Remove decoded JSON authentication-secret echoes and malformed-byte echoes before semantic parsing,
+  batching, sampling or logging, with a marker that cannot recreate an echo. Kind: invariant.
+  Destination: spec: specs/icinga2-event-streams/spec.md → Requirement: Echoed authentication secrets are
+  redacted before admission
 - **C36:** A silent tombstone is deleted only once its fence predates the lateness horizon relative to both the
   durable admission cutoff and every pending receipt. Kind: invariant.
   Destination: spec: specs/alert-state/spec.md → Requirement: Tombstones are reclaimed after the lateness horizon

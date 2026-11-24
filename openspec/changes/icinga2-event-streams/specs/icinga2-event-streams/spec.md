@@ -246,20 +246,20 @@ raw row, so it fails visibly with its field error without failing valid lines re
 ### Requirement: Lines are stored as read
 
 Each line SHALL be stored as an item holding its text as read (base64 when it is not valid UTF-8) and its own
-receipt time, except that an echoed API password is redacted first, as "An echoed password is redacted before
-admission" states.
+receipt time, except that echoed authentication secrets are redacted first, as "Echoed authentication
+secrets are redacted before admission" specifies.
 
 #### Scenario: Malformed JSON and invalid UTF-8
 - **WHEN** a line is not valid JSON, another holds a duplicate member inside `check_result.vars_after`, and another is not valid UTF-8
 - **THEN** each is admitted alone with its bytes recoverable from the row, and the rows fail with `invalid_json`, `duplicate_field` on `check_result.vars_after.state`, and `invalid_json`
 
-### Requirement: An echoed password is redacted before admission
+### Requirement: Echoed authentication secrets are redacted before admission
 
-Before semantic parsing, batching, sampling, or logging, the consumer SHALL redact the API password
-and padded and unpadded base64/base64url forms from decoded JSON strings. For malformed input it SHALL
-also remove literal byte echoes and recoverable string echoes. Replacement SHALL NOT create an echo,
-even across its boundaries. Keep unrelated wire bytes, flag changed items `redacted`, and retain the
-original lexical failure for malformed stream lines.
+Before parsing, batching, sampling or logging, redact the password, its padded and unpadded Base64 and
+Base64url forms and the exact outgoing Basic auth token from decoded JSON strings. Match the token with
+or without `Basic `. For malformed input also redact raw byte and recoverable string echoes. Preserve
+unrelated bytes, flag replacements, and retain lexical failure and existing limits. A replacement SHALL
+NOT recreate an echo, including across its edges.
 
 #### Scenario: Password echoed after a successful subscription
 - **WHEN** an authenticated subscription returns a malformed line containing the password and a well-formed acknowledgement whose comment contains it
@@ -276,6 +276,14 @@ original lexical failure for malformed stream lines.
 #### Scenario: Escaped sync echo on confirmation or rejected object
 - **WHEN** one sync object with an escaped echo confirms an existing alert and another with an escaped echo fails validation
 - **THEN** the admitted confirmation is sanitized and deleted after processing, the rejected object is never admitted, and diagnostics copy neither echo
+
+#### Scenario: Basic token echoed in the stream
+- **WHEN** the stream echoes the padded standard Base64 token captured from its outgoing Basic header, both bare and prefixed, including a JSON escape, using a username whose UTF-8 byte length plus the colon is not a multiple of three
+- **THEN** the admitted raw item is flagged `redacted`, the token is absent from its retained bytes, event, outbox payload and diagnostics, and surrounding unrelated content remains
+
+#### Scenario: Basic token echoed in a sync object
+- **WHEN** a sync object that produces a retained repair echoes its captured outgoing Basic token bare and prefixed, including a JSON escape, using the same unaligned username and padded standard Base64
+- **THEN** the admitted raw item is flagged `redacted`, the token is absent from its retained bytes, repair event, outbox payload and diagnostics, and surrounding unrelated content remains
 
 #### Scenario: Replacement cannot contain a short password
 - **WHEN** a valid password matches part of a conventional redaction marker and is echoed in a comment
