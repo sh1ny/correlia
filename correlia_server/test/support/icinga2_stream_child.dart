@@ -66,6 +66,9 @@ final class Icinga2StreamChild {
     final env = {
       'CORRELIA_SECRET_KEY_FILE': cluster.secretKeyFile,
       'SERVERPOD_DATABASE_REQUIRE_SSL': 'false',
+      // Production config requires a value even on our test-owned Unix socket.
+      if (mode == 'production')
+        'SERVERPOD_PASSWORD_database': 'unused-test-unix-socket-password',
     };
     if (revision != null) {
       final config = File('${files.path}/config-$revision.json')
