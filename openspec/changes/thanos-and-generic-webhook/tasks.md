@@ -121,7 +121,7 @@ group re-runs that test. Every other row starts `red` and turns green when its g
 
 ## 1. ADR 0031
 
-- [ ] 1.1 Write `docs/adr/0031-generic-webhook-mapping-documents.md` ("Generic webhook mapping documents", `Status: accepted`) from design D1–D4, D7, D9 and D22: mapping format 1, its place in the snapshot, bootstrap-only authoring and the rollout order with publisher version 2. It carries **C2** (format 1 fixes JSON Pointer selection, flat keys, copy/constant display and no templates; any change is a new `mapping_format`), **C6** (mappings are authored only in the bootstrap file until M4) and **C9** (every role runs this release before a generic source is published; the publisher gate is version 2). Add it to the in-force index in `openspec/architecture.md`. Verify: the file states C2, C6 and C9, `mise run check` passes the doc lints, and the index lists 0031.
+- [x] 1.1 Write `docs/adr/0031-generic-webhook-mapping-documents.md` ("Generic webhook mapping documents", `Status: accepted`) from design D1–D4, D7, D9 and D22: mapping format 1, its place in the snapshot, bootstrap-only authoring and the rollout order with publisher version 2. It carries **C2** (format 1 fixes JSON Pointer selection, flat keys, copy/constant display and no templates; any change is a new `mapping_format`), **C6** (mappings are authored only in the bootstrap file until M4) and **C9** (every role runs this release before a generic source is published; the publisher gate is version 2). Add it to the in-force index in `openspec/architecture.md`. Verify: the file states C2, C6 and C9, `mise run check` passes the doc lints, and the index lists 0031.
 
 ## 2. Thanos captures, fixtures and setup
 
