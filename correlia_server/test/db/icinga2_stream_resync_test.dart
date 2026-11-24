@@ -514,8 +514,9 @@ void main() {
           backoffs: backoffs,
           onSyncDecision: (value) {
             final pending = decision;
-            if (pending != null && !pending.isCompleted)
+            if (pending != null && !pending.isCompleted) {
               pending.complete(value);
+            }
           },
         );
         Future<void> finishSync(int sequence) async {

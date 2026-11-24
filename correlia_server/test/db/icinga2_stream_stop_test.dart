@@ -21,6 +21,7 @@ import '../support/icinga2_stream_pipeline.dart';
 import '../support/icinga2_stream_fixture.dart';
 import '../support/icinga2_test_db_changes.dart';
 import '../support/secret_fixture.dart';
+import '../support/stream_reader_clock.dart';
 
 const _certs = '../correlia_icinga2_notify/test/fixtures';
 // Longer than the test hang guard, so the driver's default two-second query
@@ -140,6 +141,7 @@ void main() {
         Future<void> Function(pg.Connection)? onConsumerConnection,
         Future<void> Function(pg.TxSession)? beforeSweepCommit,
         Future<pg.Connection> Function(Duration)? openDatabase,
+        StreamReaderClock? leaseClock,
       }) async {
         final http = await IcingaConsumerLoopback.start();
         addTearDown(http.close);
@@ -172,6 +174,10 @@ void main() {
           holder: 'stop-test-holder',
           log: (_) {},
           runMode: 'test',
+          leaseClockForTest: leaseClock == null
+              ? null
+              : () => leaseClock.elapsed,
+          leaseScheduleForTest: leaseClock?.schedule,
           beforeAdmissionCommit: beforeAdmissionCommit,
           onConsumerConnection: onConsumerConnection,
           beforeSweepCommit: beforeSweepCommit,
@@ -210,6 +216,7 @@ void main() {
                 'INSERT INTO stop_unrelated_work VALUES (1)',
               );
               final fixture = await startSupervisor(
+                leaseClock: StreamReaderClock(),
                 onConsumerConnection: (connection) async {
                   if (!dedicated.isCompleted) dedicated.complete(connection);
                 },
@@ -293,6 +300,7 @@ void main() {
         final entered = Completer<void>();
         final resume = Completer<void>();
         final fixture = await startSupervisor(
+          leaseClock: StreamReaderClock(),
           beforeAdmissionCommit: (_) async {
             if (!entered.isCompleted) entered.complete();
             await resume.future;
@@ -469,20 +477,44 @@ void main() {
       });
 
       test('stop_cancels_a_live_reclamation_pass', () async {
-        final entered = Completer<void>();
+        final entered =
+            Completer<
+              ({
+                bool openAtStop,
+                bool closingAtReturn,
+                Future<void> stopping,
+              })
+            >();
         final resume = Completer<void>();
+        // Stop from inside the pre-commit hook so the sweep's own deadline
+        // cannot cancel it between the readiness signal and explicit stop.
+        late final Icinga2StreamSupervisor supervisor;
         final fixture = await startSupervisor(
-          beforeSweepCommit: (_) async {
-            if (!entered.isCompleted) entered.complete();
-            await resume.future;
+          beforeSweepCommit: (tx) {
+            final openAtStop = tx.isOpen;
+            final stopping = supervisor.stop();
+            entered.complete((
+              openAtStop: openAtStop,
+              closingAtReturn: !tx.isOpen,
+              stopping: stopping,
+            ));
+            return resume.future;
           },
         );
+        supervisor = fixture.supervisor;
         addTearDown(() {
           if (!resume.isCompleted) resume.complete();
         });
-        await entered.future;
+        final result = await entered.future;
         try {
-          await fixture.supervisor.stop();
+          expect(result.openAtStop, isTrue);
+          expect(result.closingAtReturn, isTrue);
+          // Acquire the cutoff row before unblocking the sweep's commit.
+          await observer.execute(
+            'SELECT singleton FROM raw_admission_cutoff FOR UPDATE',
+            timeout: _blockedQueryTimeout,
+          );
+          await result.stopping;
         } finally {
           resume.complete();
         }
@@ -553,6 +585,7 @@ void main() {
         final admitted = Completer<void>();
         final resume = Completer<void>();
         var inFlight = 0;
+        final leaseClock = StreamReaderClock();
         final dedicated = <pg.Connection>[];
         final supervisor = Icinga2StreamSupervisor(
           loadTargets: () async => fixture.targets,
@@ -560,6 +593,8 @@ void main() {
           holder: 'many-stop-test',
           log: (_) {},
           runMode: 'test',
+          leaseClockForTest: () => leaseClock.elapsed,
+          leaseScheduleForTest: leaseClock.schedule,
           onConsumerConnection: (connection) async => dedicated.add(connection),
           beforeAdmissionCommit: (tx) async {
             await tx.execute(
