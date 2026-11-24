@@ -154,7 +154,7 @@ String safeFailurePath(
       RegExp(r'^alerts\[[0-9]{1,4}\]$'),
     ),
     Icinga2SourceKind() => (_icinga2PathFields, null),
-    GenericSourceKind() => (const {'event'}, null),
+    GenericSourceKind() => (const {'event', 'identity_fields'}, null),
   };
   final safe = path
       .split('.')

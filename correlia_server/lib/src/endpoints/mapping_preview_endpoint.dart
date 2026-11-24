@@ -7,6 +7,9 @@ import '../ingest/mapping_preview.dart';
 
 /// Read-only preview of an active or draft generic mapping on the local console.
 class MappingPreviewEndpoint extends Endpoint {
+  @override
+  bool get logSessions => false;
+
   /// Maps [sample] against the active generic source or the supplied draft.
   Future<MappingPreviewResult> preview(
     Session session,

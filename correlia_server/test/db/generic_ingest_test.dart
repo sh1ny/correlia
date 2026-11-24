@@ -50,6 +50,45 @@ void main() {
         return raw;
       }
 
+      test(
+        'generator_link_keeps_canonical_text_and_stores_a_safe_url',
+        () async {
+          const href = 'https://example.org/a\u0000b';
+          const display = 'a\u0000\u0000b\\u0000\\\u0000c';
+          final config = await publishGenericConfig(
+            session,
+            now: _now,
+            mapping: {
+              ...checkMapping(),
+              'links': {
+                'generator': {'copy': '/url'},
+              },
+              'description': {'copy': '/display'},
+              'labels': {
+                'message': {'copy': '/display'},
+              },
+            },
+          );
+          await deliver(config, {
+            ...genericAlert(_now),
+            'url': href,
+            'display': display,
+          }, _now);
+          final event = (await genericEvents(session)).single;
+          expect(event.links.single.href, href);
+          expect(event.description, display);
+          expect(event.labels['message'], display);
+          final subject = await session.db.unsafeQuery(
+            'SELECT correlia_event_subject(payload) FROM events',
+          );
+          expect(subject.single[0], event.fingerprint);
+          expect(
+            (await theAlert(session))['generatorUrl'],
+            'https://example.org/a%00b',
+          );
+        },
+      );
+
       test('mapping_published_with_its_source', () async {
         final config = await publishGenericConfig(
           session,

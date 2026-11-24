@@ -81,6 +81,12 @@ void main() {
             isEmpty,
           );
         }
+        expect(
+          await session.db.unsafeQuery(
+            "SELECT 1 FROM serverpod_session_log WHERE endpoint='mappingPreview'",
+          ),
+          isEmpty,
+        );
         final snapshots = await session.db.unsafeQuery(
           'SELECT "snapshotId" FROM ingest_config_snapshot',
         );
@@ -343,6 +349,7 @@ void main() {
         expect(rejected.diagnostics.single.code, 'event_too_large');
       });
     },
+    enableSessionLogging: true,
     configOverride: (config) => config.copyWith(runMode: 'development'),
     rollbackDatabase: RollbackDatabase.disabled,
     testGroupTagsOverride: ['db'],

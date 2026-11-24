@@ -86,6 +86,7 @@ List<SchemaStep> get schemaSteps => [
     File('schema/0009_icinga2_sync_finalization.sql').readAsStringSync(),
   ),
   _publisherVersion2,
+  SchemaStep(11, File('schema/0011_event_subject_text.sql').readAsStringSync()),
 ];
 
 /// Installs the publisher-version trigger and backfill boundaries in one

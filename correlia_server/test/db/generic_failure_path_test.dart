@@ -109,6 +109,23 @@ void main() {
         );
       });
 
+      test('aggregate_identity_bound_preserves_the_canonical_path', () async {
+        final input = await publishGenericConfig(
+          session,
+          now: _now,
+          mapping: {
+            ...checkMapping(),
+            'identity': {'first': '/host', 'second': '/host'},
+          },
+        );
+        await expectFailure(
+          input,
+          jsonEncode({...genericAlert(_now), 'host': 'a' * 600000}),
+          'too_large',
+          'identity_fields',
+        );
+      });
+
       test('canonical_failure_while_decoding', () async {
         final input = await publishGenericConfig(
           session,

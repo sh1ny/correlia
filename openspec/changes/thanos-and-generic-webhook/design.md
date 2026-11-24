@@ -245,6 +245,11 @@ Scope decisions S1–S6 are in `proposal.md`; they appear in the summary table.
   widen this change's migration scope.
   Other copied strings, including labels and descriptions, retain their existing behavior.
   Owner confirmed this amendment to the delegated decision during pre-ship review.
+  Pre-ship follow-through: schema step 11 makes the existing event-subject index ignore JSONB-incompatible
+  NUL escapes in its projection without changing canonical event bytes or earlier index keys. The alert-state
+  projection percent-encodes NUL in generator URLs, leaving the canonical link unchanged. The alternative,
+  rejecting NUL throughout copied display text, would reverse the D13 preservation decision. The coordinator
+  handed this follow-through decision back; the agent chose the narrow forward-only migration.
 - **Rejected:** skipping the bad alert and committing the rest, because a partial batch hides data loss.
 - **Reversal cost:** low
 - **Important:** no

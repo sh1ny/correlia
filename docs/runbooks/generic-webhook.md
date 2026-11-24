@@ -79,6 +79,9 @@ are not supported.
 A copied summary containing NUL (`U+0000`) fails with `invalid_text` at
 its mapping pointer in preview and delivery. Other copied fields keep
 their existing text rules.
+Schema step 11 enables storage of these canonical events without changing
+their bytes. A copied generator URL retains its canonical value; the alert
+view renders embedded NUL as `%00`.
 
 ### Bounds
 
