@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:serverpod/serverpod.dart';
 
+import '../secrets/reuse_backfill.dart';
+
 /// A forward-only, independently committed schema step.
 final class SchemaStep {
   /// Creates a step from its version and SQL statements.
@@ -72,7 +74,23 @@ List<SchemaStep> get schemaSteps => [
   SchemaStep(2, File('schema/0002_activity.sql').readAsStringSync()),
   SchemaStep(3, File('schema/0003_plugin_outputs.sql').readAsStringSync()),
   SchemaStep(4, File('schema/0004_icinga2.sql').readAsStringSync()),
+  _secretReuseCutover,
+  SchemaStep(6, File('schema/0006_icinga2_raw_origin.sql').readAsStringSync()),
+  SchemaStep(7, File('schema/0007_icinga2_reconcile.sql').readAsStringSync()),
+  SchemaStep(
+    8,
+    File('schema/0008_icinga2_retained_work.sql').readAsStringSync(),
+  ),
+  SchemaStep(
+    9,
+    File('schema/0009_icinga2_sync_finalization.sql').readAsStringSync(),
+  ),
 ];
+
+/// Installs the publisher-version trigger and backfill boundaries in one
+/// transaction holding the publication lock, acquired after the schema lock.
+SchemaStep get _secretReuseCutover =>
+    SchemaStep(5, File('schema/0005_secret_reuse.sql').readAsStringSync());
 
 /// Applies each missing step under the shared transaction advisory lock.
 ///
@@ -148,4 +166,5 @@ Future<void> initializeSchema(
     throw const SchemaStepException(1);
   }
   await applySchemaSteps(session, steps, lockTimeout: lockTimeout);
+  await backfillSecretReuse(session);
 }

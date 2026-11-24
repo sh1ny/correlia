@@ -1,0 +1,20 @@
+class: Icinga2StreamStatusRow
+table: icinga2_stream_status
+serverOnly: true
+fields:
+  sourceId: UuidValue, unique
+  state: String
+  connectionId: String?
+  connectionSeq: int, default=0
+  connectedAt: DateTime?
+  lastEventAt: DateTime?
+  gapCount: int, default=0
+  lastGapSeq: int, default=0
+  lastGapAt: DateTime?
+  oversizeLines: int, default=0
+  lagMs: int?
+  lastErrorClass: String?
+  servedResyncSeq: int, default=0
+  syncTimeoutsInARow: int, default=0
+  currentSyncId: UuidValue?
+  lastSyncId: UuidValue?

@@ -1,0 +1,65 @@
+VERDICT: APPROVE_WITH_CHANGES
+CHANGES_APPLIED: yes
+
+Moving sync accounting into 6.4 is sound. The pipeline must commit the progress update with eventless raw-row deletion so the outcome survives deletion. The reader and guarded phase finalization can land in 9.2. The proposed key-before-alert order is also sound if the sweep takes only cutoff and alert locks and uses ordinary MVCC reads for evidence. That leaves no sweep-to-key wait edge to close a cycle with a writer holding a provisional key. [D12](/home/bgshi/Development/dart/correlia/openspec/changes/icinga2-event-streams/design.md:492) · [D32](/home/bgshi/Development/dart/correlia/openspec/changes/icinga2-event-streams/design.md:882)
+
+**Required changes**
+
+1. **Make the visibility and lock rules explicit in D32.** Run the indexed evidence probes as separate `READ COMMITTED` statements after acquiring the alert lock, using non-locking reads. A statement snapshot taken before alert acquisition can miss evidence committed by the preceding lock holder. Reserve all keys in sorted order before taking any alert locks, and keep late and future-dated webhook evidence in the same sorted alert acquisition pass as ready observations. A second pass can invert the alert order across batches. [D32](/home/bgshi/Development/dart/correlia/openspec/changes/icinga2-event-streams/design.md:886) · [Pipeline reservation order](/home/bgshi/Development/dart/correlia/correlia_server/lib/src/pipeline/pipeline.dart:435)
+2. **Require both evidence-writer interleavings in 6.3.** With independent connections and barriers, pause a writer after provisional reservation and prove that the sweep commits while the reservation remains open. Then verify that a ready problem reacquires or creates the alert and late webhook evidence leaves it absent. In the reverse order, commit evidence under the alert lock and verify that the sweep preserves the tombstone. Use a fixture that remains eligible under the oldest-pending-receipt guard so the test reaches the evidence probe. The draft tombstone test exercises admission versus cutoff, which is a different race. [Task 6.3](/home/bgshi/Development/dart/correlia/openspec/changes/icinga2-event-streams/tasks.md:363) · [Draft tombstone test](/home/bgshi/Development/dart/correlia/correlia_server/test/db/icinga2_tombstone_test.dart:86)
+3. **Make the 6.4 accounting proof cover retry and terminal failure.** Explicitly require `rowsDone`, `rowsFailed`, and outcome counts including `diverged` in the transaction that commits the corresponding raw-row outcome. After an injected delete failure, assert that the raw row remains pending and counters and effects are unchanged, then retry and assert one deletion and one increment. Also prove terminal failure increments `rowsFailed` once and a retryable failure leaves it unchanged. The draft rollback assertion stops before reprocessing. [Task 6.4](/home/bgshi/Development/dart/correlia/openspec/changes/icinga2-event-streams/tasks.md:367) · [Draft atomicity test](/home/bgshi/Development/dart/correlia/correlia_server/test/db/icinga2_stream_pipeline_test.dart:206)
+
+This verdict covers the two working-tree amendments. The relevant draft DB tests were untracked at `8d8bcfb`, so they provide no committed test evidence yet. I reviewed them statically. No tests were run and no files were edited.
+
+## Supplemental design review: sync framing ceiling
+
+Codex CLI 0.167.0, isolated `codex` route (OMP skipped as the current harness); actual model and reasoning were not reported. Result: approved with changes; all three design changes applied. Group 9 owns boundary tests, and group 10 owns the full reconnect check.
+
+1. **Moderate — Make framing failure take precedence over oversize skipping.** The bad-object requirement unconditionally says to count elements over 1 MiB and continue. The broken-framing requirement makes the 1,048,577th opening fatal, and that opening necessarily comes after the element has crossed 1 MiB. Qualify the continuation rule in the spec and D20. After crossing the byte limit, the scanner drops the payload and continues checking string state and matching bracket types. Count `object_too_large` only once the element closes with intact framing. On a depth violation or bracket mismatch, record `invalid_framing` as the read problem before reconnect cancellation can record `interrupted`. Preserve already admitted rows and limit diagnostics to the fixed reason and, if needed, `results[<index>]`. [Bad sync objects](openspec/changes/icinga2-event-streams/specs/icinga2-event-streams/spec.md:469) · [Broken framing](openspec/changes/icinga2-event-streams/specs/icinga2-event-streams/spec.md:503) · [D12 finalization](openspec/changes/icinga2-event-streams/design.md:506) · [D20](openspec/changes/icinga2-event-streams/design.md:720)
+
+2. **Moderate — Account for the bracket stack in the memory bound.** D3 caps the number of open containers, but the resource table still budgets only one object and one batch. State the scanner’s byte budget explicitly alongside those buffers. A typed byte stack can track matching bracket types in at most 1 MiB, with constant-size string state and no disk spill. This also makes it possible to verify that discarding an oversized payload leaves only bounded framing state. [D3](openspec/changes/icinga2-event-streams/design.md:214) · [Resource bounds](openspec/changes/icinga2-event-streams/design.md:1252)
+
+3. **Moderate — Add both sides of the exact boundary to group 9.** The spec covers the fatal side, but group 9’s test map has no ceiling case. Define the count to include the result element’s own container and exclude the response envelope. Add chunked fixtures at the production limit. Exactly 1,048,576 balanced openings should yield one `object_too_large` count and allow a following valid object through. The next opening should immediately yield `invalid_framing` even with a balanced suffix, preserve an admitted prefix, and trigger reconnect without admitting the suffix. Include a bracket mismatch after the byte limit to prove the scanner still checks bracket types while skipping. [Ceiling scenario](openspec/changes/icinga2-event-streams/specs/icinga2-event-streams/spec.md:511) · [Test map](openspec/changes/icinga2-event-streams/tasks.md:171) · [Group 9](openspec/changes/icinga2-event-streams/tasks.md:391)
+
+D32 locking, visibility, interleaving, and transactional sync-accounting obligations remain in force.
+
+## Supplemental design review: cancellable HTTPS handoff
+
+Codex CLI 0.167.0, isolated `codex` route (OMP skipped as current harness; actual model and reasoning not reported). First pass: revise; second pass: approve with changes. The D8 amendment applies all three conditions; runtime acceptance remains open in 10.3.
+
+1. **High — Make cancellation atomic from dial through the last authenticated write.** On the pinned SDK, `HttpClient.close(force: true)` can cancel only factory tasks already registered with the client. D13 should invoke the D8 attempt’s abort directly, including while the factory is still returning its task. Make abort terminal and idempotent. Settle the `ConnectionTask.socket` future exposed to `HttpClient` independently of the SDK handshake, and close any late TCP or TLS result. At the adapter, check cancellation and the monotonic lease deadline before each raw write, including writable callbacks that resume a partial write. Force-close the retained transport and discard queued output on abort. On the pinned SDK, `RawSecureSocket.close()` can wait for buffered output to drain. Verify both orderings of cancellation and handoff, plus expiry while a partial write is queued. [D8](openspec/changes/icinga2-event-streams/design.md#L389) · [D4](openspec/changes/icinga2-event-streams/design.md#L252) · [D13](openspec/changes/icinga2-event-streams/design.md#L607)
+
+2. **High — Prove bounded retention beyond the live-attempt registry.** The stalled probe observed peer EOF while the handshake future stayed pending for the two-second observation window. Removing an attempt from the registry leaves open what the pending continuation retains. Require that continuation to release references to the attempt, client, request, credential buffers, and application waiters on cancellation, while preserving enough state to dispose of a late TLS result and consume a late error. Repeated stalls should verify bounded retained resources and peer closure in addition to the registry count. [D8](openspec/changes/icinga2-event-streams/design.md#L394) · [Stalled peer result](openspec/changes/icinga2-event-streams/evidence/icinga2-stream-implementation-notes.md#L15)
+
+3. **Moderate — Keep adapter verification open until the production path passes.** A3 demonstrated HTTP framing over the earlier SDK TLS socket and peer EOF in a separate raw-socket probe. Record the adapter integration as pending. Exercise partial writes through `HttpClient`, including zero-byte writes and `flush` settlement on abort, and measure queued bytes during a sustained read pause. Run both response framing modes and the exclusive-trust cases through the production factory. Include a TLS stall followed by a header stall that together exceed the 10-second header budget, and verify the `timeout` classification, peer closure, and backoff. [A3](openspec/changes/icinga2-event-streams/design.md#L1029) · [Probe evidence](openspec/changes/icinga2-event-streams/evidence/icinga2-stream-implementation-notes.md#L7) · [TLS and subscription requirements](openspec/changes/icinga2-event-streams/specs/icinga2-event-streams/spec.md#L34)
+
+## Supplemental design review: gap numbering after TLS
+
+Codex CLI 0.167.0, isolated `codex` route (OMP skipped as current harness; actual model and reasoning not reported). Third valid review: approved with changes; the D8/D12 and gap spec amendments apply all three conditions.
+
+1. **High — Make authorization mandatory on every subscription send.** D12 defines a sound publication boundary, but D8 does not say how the HTTP client prevents pooled socket reuse from bypassing a gate implemented in `connectionFactory`. Require each subscription attempt to use its own verified TLS transport and hand it to `HttpClient` only after the fenced numbering commit is acknowledged. Test that an idle reusable socket cannot bypass the gate. Preserve D12’s publication ordering and abort any queued authenticated output as soon as invalidation is observed. [D8](openspec/changes/icinga2-event-streams/design.md#L383) · [D12](openspec/changes/icinga2-event-streams/design.md#L515)
+
+2. **Moderate — Cover a lost commit acknowledgement in the gap spec.** D12 defines the recovery correctly, but the existing death scenario covers a known durable number. Add a case that times out or cancels while the numbering commit outcome is unknown. In both outcomes, assert peer closure, zero HTTP bytes, and no replacement allocation while the old operation can still commit. Then assert exactly one gap if numbering committed and zero if it rolled back. [D12](openspec/changes/icinga2-event-streams/design.md#L530) · [Gaps counted once per connection](openspec/changes/icinga2-event-streams/specs/icinga2-event-streams/spec.md#L864)
+
+3. **Moderate — Fence pre-numbering status by attempt identity.** A DNS, TCP, or TLS failure can publish `backoff` before it has a connection ID, so D12’s connection-ID check cannot distinguish a late failure from the active attempt. Specify that only the current attempt’s terminal outcome can update retry status, including when an earlier attempt’s status write overlaps the next attempt. Test that delayed completion cannot overwrite a successor’s `syncing` or `connected` state, and that an authenticated HTTP refusal sets `backoff` and counts its numbered connection once. [D12](openspec/changes/icinga2-event-streams/design.md#L536) · [Reconnect with backoff](openspec/changes/icinga2-event-streams/specs/icinga2-event-streams/spec.md#L831)
+
+## Pre-ship review: draft PR fallback
+
+Local Codex CLI 0.167.0 rejected the full review input before reviewing it:
+1,871,163 characters against a 1,048,576-character limit. No local pre-ship
+verdict was issued. The design review verdict above is unchanged.
+
+On 2026-11-24, Ormy authorized the fallback on the owner's behalf, citing
+the owner's 2026-11-23 decision for Kaname's ESI generator: “fall back to
+CI+Codex if too big.” Run Linux verification and request GitHub Codex review
+of the complete diff on a draft PR. Leave marking it ready, merging, and
+archiving to the owner.
+
+## Supplemental design review: Basic credential redaction
+
+Isolated Codex CLI 0.167.0 approved D31 with changes on 2026-11-24
+(OMP skipped as the current harness; actual model and reasoning unreported).
+It confirmed that the shared attempt-local token adds one bounded pattern and
+does not enlarge replacements. Its low-severity finding was applied: the two
+regressions echo the real outbound header's token, must distinguish padded
+standard Base64 from Base64url, and include one JSON-escaped form per path.

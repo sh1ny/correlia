@@ -11,6 +11,7 @@ import 'package:serverpod/serverpod.dart';
 import 'package:test/test.dart';
 
 import '../integration/test_tools/serverpod_test_tools.dart';
+import '../support/icinga2_stream_fixture.dart';
 import '../support/ingest_schema.dart';
 import '../support/secret_fixture.dart';
 import 'ingest_config_test.dart' show sourceId, token;
@@ -178,6 +179,27 @@ void main() {
                 'SELECT count(*) FROM raw_inbox',
               )).single[0]!
               as int;
+
+      test('stream_source_holds_no_credentials', () async {
+        final input = await config.publishConfig(
+          streamBootstrap(1, [streamSource(sourceId)]),
+          streamMaterial(),
+          runMode: 'test',
+        );
+        expect(input.sources.single.credentials, isEmpty);
+        expect(
+          (await session.db.unsafeQuery(
+            'SELECT count(*) FROM ingest_source_credential',
+          )).single[0],
+          0,
+        );
+        await start(input);
+        expect(
+          (await send(path: '/hooks/icinga2/$sourceId', bearer: 1)).$1,
+          401,
+        );
+        expect(await rawCount(), 0);
+      });
 
       test('route_kind_mismatch', () async {
         await start(await publish(1, [_credential(1)]));

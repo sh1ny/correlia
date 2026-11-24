@@ -1,5 +1,3 @@
-import '../support/secret_fixture.dart';
-
 import 'dart:typed_data';
 
 import 'package:correlia_server/src/ingest/admission.dart';
@@ -7,16 +5,36 @@ import 'package:correlia_server/src/ingest/config_repository.dart';
 import 'package:test/test.dart';
 
 import '../integration/test_tools/serverpod_test_tools.dart';
+import '../support/icinga2_pipeline.dart';
+import '../support/icinga2_stream_fixture.dart';
 import '../support/ingest_schema.dart';
+import '../support/secret_fixture.dart';
 import 'ingest_config_test.dart' as fixture;
 
 void main() {
   withServerpod(
     'admission transaction',
     (builder, _) {
-      test('admission_commit_fails', () async {
+      test('stream_source_has_no_request_budget', () async {
         final session = builder.build();
         await initializeIngestSchema(session);
+        final repository = IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        );
+        await repository.publishConfig(
+          streamBootstrap(1, [streamSource(fixture.sourceId)]),
+          streamMaterial(),
+          runMode: 'test',
+        );
+        final snapshot = (await repository.activeSnapshot())!['publicJson'];
+        expect(snapshot, contains('"max_pending_rows":100'));
+        expect(snapshot, isNot(contains('"rate_limit"')));
+      });
+
+      test('admission_commit_fails', () async {
+        final session = builder.build();
+        await clearPipelineTables(session);
         await IngestConfigRepository(
           session,
           secretStore: testSecretStore,

@@ -1,17 +1,34 @@
 #!/usr/bin/env bash
-# Capture real Icinga 2 notifications for linux-x64 with Docker (task 9.1).
+# Capture real Icinga 2 notifications or Event Streams for linux-x64 with Docker.
 #
-# usage: tool/icinga2_capture.sh RELEASE [RELEASE ...]   (for example 2.16.6)
+# usage: tool/icinga2_capture.sh [--stream [--consumer BUILT_SERVER]] RELEASE [RELEASE ...]
 #
 # Builds nothing itself: run `mise run build:icinga2-notify` first. Each release runs in its own
 # container from the official icinga/icinga2 image, on the host network, with an ephemeral REST API
 # port. The driver (correlia_server/tool/icinga2_capture/main.dart) writes the evidence under
 # correlia_server/test/unit/ingest/fixtures/icinga2/<release>/linux-x64/. Set CAPTURE_ONLY to a comma separated list of
 # scenario names to run a subset.
+# --stream captures the upstream API. --consumer additionally runs a built
+# Correlia server against the populated lab, including every omitted grant.
 set -euo pipefail
 
+stream=0
+consumer=
+if [[ ${1:-} == --stream ]]; then
+  stream=1
+  shift
+  if [[ ${1:-} == --consumer ]]; then
+    if [[ $# -lt 2 || ! -x $2 ]]; then
+      echo "--consumer requires an executable Correlia bundle entry point" >&2
+      exit 2
+    fi
+    consumer=$(realpath -- "$2")
+    shift 2
+  fi
+fi
+
 if (( $# < 1 )); then
-  echo "usage: $0 RELEASE [RELEASE ...]" >&2
+  echo "usage: $0 [--stream [--consumer BUILT_SERVER]] RELEASE [RELEASE ...]" >&2
   exit 2
 fi
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -19,7 +36,10 @@ server="$root/correlia_server"
 sender="$root/build/icinga2-notify/linux-x64/correlia-icinga2-notify"
 contrib="$root/contrib/icinga2"
 out="$server/test/unit/ingest/fixtures/icinga2"
-[[ -x $sender ]] || { echo "build the sender first: mise run build:icinga2-notify" >&2; exit 2; }
+if (( !stream )) && [[ ! -x $sender ]]; then
+  echo "build the sender first: mise run build:icinga2-notify" >&2
+  exit 2
+fi
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/i2cap-XXXXXXXX")
 suffix=${tmp##*/i2cap-}
@@ -57,9 +77,16 @@ PY
 )
   args=(--release "$release" --image "$image" --image-id "$image_id" --image-platform "$platform"
         --digest "$digest" --container "$name"
-        --api-port "$api_port" --out "$out" --sender "$sender" --contrib "$contrib")
-  if [[ -n ${CAPTURE_ONLY:-} ]]; then args+=(--only "$CAPTURE_ONLY"); fi
-  (cd "$server" && mise exec -- dart run tool/icinga2_capture/main.dart "${args[@]}") || status=1
+        --api-port "$api_port" --out "$out")
+  if (( stream )); then
+    driver=tool/icinga2_capture/streams.dart
+    if [[ -n $consumer ]]; then args+=(--consumer "$consumer"); fi
+  else
+    driver=tool/icinga2_capture/main.dart
+    args+=(--sender "$sender" --contrib "$contrib")
+    if [[ -n ${CAPTURE_ONLY:-} ]]; then args+=(--only "$CAPTURE_ONLY"); fi
+  fi
+  (cd "$server" && mise exec -- dart run "$driver" "${args[@]}") || status=1
   docker rm -fv "$name" >/dev/null 2>&1 || true
 done
 exit "$status"

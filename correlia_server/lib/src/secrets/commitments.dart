@@ -5,6 +5,7 @@ import 'package:crypto/crypto.dart';
 
 final _keyDomain = utf8.encode('correlia-kek-commitment-v1');
 final _pluginDomain = utf8.encode('correlia-plugin-secret-v1');
+final _passwordReuseDomain = utf8.encode('correlia-password-reuse-v1');
 final _commitmentInfo = utf8.encode('correlia-commitment-key-v1\u0001');
 const _prefix = 'hmac-sha256:';
 
@@ -42,6 +43,10 @@ final class SecretCommitments {
   /// Returns the keyed commitment of [reference] and [bytes].
   String plugin(String reference, List<int> bytes) =>
       '$_prefix${_digest(_pluginMac, _pluginDomain, utf8.encode(reference), bytes)}';
+
+  /// Returns a keyed reuse digest independent of the reference name.
+  String passwordReuse(List<int> bytes) =>
+      _digest(_pluginMac, _passwordReuseDomain, bytes).toString();
 
   /// Checks [expected] by its scheme independently of the record's scheme.
   bool verify(String reference, String expected, List<int> bytes) {

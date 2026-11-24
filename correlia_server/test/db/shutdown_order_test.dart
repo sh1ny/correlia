@@ -3,12 +3,23 @@ library;
 
 import 'dart:async';
 
+import 'package:correlia_server/src/ingest/config_repository.dart';
+import 'package:correlia_server/src/ingest/icinga2/stream/database.dart';
+import 'package:correlia_server/src/ingest/ingest_startup.dart';
+import 'package:correlia_server/src/ingest/ingest_test_gates.dart';
+import 'package:correlia_server/src/ingest/ingest_workers.dart';
 import 'package:correlia_server/src/runtime/process_options.dart';
 import 'package:correlia_server/src/runtime/role_runtime.dart';
 import 'package:correlia_server/src/runtime/subsystem.dart';
 import 'package:test/test.dart';
 
+import '../integration/test_tools/serverpod_test_tools.dart';
+import '../support/icinga2_consumer_loopback.dart';
+import '../support/icinga2_pipeline.dart';
+import '../support/icinga2_stream_fixture.dart';
+import '../support/ingest_schema.dart';
 import '../support/pod_fixture.dart';
+import '../support/secret_fixture.dart';
 
 /// A subsystem whose [stop] runs [onStop] and then throws [failure], if set.
 final class _Subsystem extends Subsystem {
@@ -122,4 +133,106 @@ void main() {
       },
     );
   });
+
+  withServerpod(
+    'Worker stops live Icinga consumers before its pipeline',
+    (builder, _) {
+      for (final (name, locked, unreachable) in [
+        ('shutdown_order', false, false),
+        ('shutdown_with_the_lease_row_locked', true, false),
+        ('shutdown_with_the_database_unreachable', false, true),
+      ]) {
+        test(name, () async {
+          final session = builder.build();
+          await initializeIngestSchema(session);
+          await clearPipelineTables(session);
+          await session.db.unsafeSimpleExecute(
+            'TRUNCATE icinga2_stream_lease,icinga2_stream_status,icinga2_admitted_batch,icinga2_stream_resync',
+          );
+          final server = await IcingaConsumerLoopback.start();
+          addTearDown(server.close);
+          final source = streamSource(icinga2DbSourceId);
+          (source['api']! as Map<String, Object?>)['url'] = server.url
+              .toString();
+          final bootstrap =
+              await IngestConfigRepository(
+                session,
+                secretStore: testSecretStore,
+              ).publishConfig(
+                streamBootstrap(1, [source]),
+                streamMaterial(),
+                runMode: 'test',
+              );
+          final startup =
+              IngestStartup(
+                  pod: session.serverpod,
+                  role: ProcessRole.worker,
+                  runMode: 'test',
+                  environment: const {},
+                )
+                ..bootstrap = bootstrap
+                ..resolver = testSecretResolver(session);
+          final endpoint = await StreamDatabaseEndpoint.resolve(
+            session.serverpod,
+          );
+          final order = <String>[];
+          var offline = false;
+          bool? expiredAtPipelineStop;
+          final workers = IngestWorkers(
+            pod: session.serverpod,
+            startup: startup,
+            runMode: 'test',
+            gates: IngestTestGates.fromEnvironment('test', const {}),
+            log: (_) {},
+            openStreamDatabaseForTest: (_) async {
+              if (offline) throw StateError('database unreachable on stop');
+              return endpoint.open();
+            },
+            beforeComponentStop: (component) async {
+              order.add(component);
+              if (component != 'pipeline') return;
+              expiredAtPipelineStop =
+                  (await queryRows(
+                        session,
+                        'SELECT "expiresAt"<=clock_timestamp() AS expired FROM icinga2_stream_lease',
+                      )).single['expired']
+                      as bool;
+            },
+          );
+          addTearDown(workers.stop);
+          await workers.start();
+          await server.firstSubscription.future.timeout(
+            const Duration(seconds: 5),
+          );
+          final lockAcquired = Completer<void>();
+          final unlock = Completer<void>();
+          final lock = locked
+              ? session.db.transaction((tx) async {
+                  await session.db.unsafeQuery(
+                    'SELECT 1 FROM icinga2_stream_lease FOR UPDATE',
+                    transaction: tx,
+                  );
+                  lockAcquired.complete();
+                  await unlock.future;
+                })
+              : null;
+          try {
+            if (locked) await lockAcquired.future;
+            offline = unreachable;
+            await workers.stop().timeout(const Duration(seconds: 10));
+            expect(
+              order,
+              containsAllInOrder(['icinga2-event-streams', 'pipeline']),
+            );
+            expect(expiredAtPipelineStop, !locked && !unreachable);
+          } finally {
+            unlock.complete();
+            await lock;
+          }
+        });
+      }
+    },
+    rollbackDatabase: RollbackDatabase.disabled,
+    testGroupTagsOverride: ['db'],
+  );
 }

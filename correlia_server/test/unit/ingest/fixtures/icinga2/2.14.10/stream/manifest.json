@@ -1,0 +1,61 @@
+{
+  "capture_version": 1,
+  "release": "2.14.10",
+  "image": "icinga/icinga2:2.14.10",
+  "image_digest": "icinga/icinga2@sha256:7bc65998bd2438471695dd091498a33b806d5abc039aa06747e1524b395efc09",
+  "image_id": "sha256:7bc65998bd2438471695dd091498a33b806d5abc039aa06747e1524b395efc09",
+  "image_platform": "linux/amd64",
+  "container_machine": "x86_64",
+  "icinga_version": "icinga2 - The Icinga 2 network monitoring daemon (version: v2.14.10)",
+  "grants": [
+    "events/StateChange",
+    "events/AcknowledgementSet",
+    "events/AcknowledgementCleared",
+    "events/DowntimeStarted",
+    "events/DowntimeRemoved",
+    "events/Flapping",
+    "objects/query/Host",
+    "objects/query/Service"
+  ],
+  "subscription_status": 200,
+  "transfer_encoding": null,
+  "content_length": -1,
+  "unknown_attribute_status": 400,
+  "older_result_status": 409,
+  "paired_service_output": "service HARD problem",
+  "paired_event_type": "StateChange",
+  "permission_denials": {
+    "events/StateChange": {
+      "phase": "subscription",
+      "status": 404
+    },
+    "events/AcknowledgementSet": {
+      "phase": "subscription",
+      "status": 404
+    },
+    "events/AcknowledgementCleared": {
+      "phase": "subscription",
+      "status": 404
+    },
+    "events/DowntimeStarted": {
+      "phase": "subscription",
+      "status": 404
+    },
+    "events/DowntimeRemoved": {
+      "phase": "subscription",
+      "status": 404
+    },
+    "events/Flapping": {
+      "phase": "subscription",
+      "status": 404
+    },
+    "objects/query/Host": {
+      "phase": "hosts",
+      "status": 403
+    },
+    "objects/query/Service": {
+      "phase": "services",
+      "status": 403
+    }
+  }
+}

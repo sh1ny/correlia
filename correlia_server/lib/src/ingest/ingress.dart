@@ -294,7 +294,8 @@ final class _IngressRoute extends Route {
         '''SELECT s.kind,s.enabled,s."allowPathToken",c."publicJson",c.revision,
              credential.reference,credential.digest,credential."notBefore",credential."notAfter"
            FROM ingest_active_config a JOIN ingest_config_snapshot c ON c."snapshotId"=a."snapshotId"
-           LEFT JOIN ingest_source s ON s."sourceId"=CAST(@source AS uuid)
+           LEFT JOIN ingest_source s
+             ON s."sourceId"=CAST(@source AS uuid) AND s.mode='webhook'
            LEFT JOIN ingest_source_credential credential
              ON credential."sourceId"=s."sourceId" AND credential.type=@type
            WHERE a.singleton=1 ORDER BY credential.reference LIMIT 4''',
@@ -395,16 +396,22 @@ final class _IngressRoute extends Route {
       final retry = owner._limiter.take(source, revision, rate, owner._clock());
       if (retry != null) return _Result(429, retryAfter: retry);
     }
-    final outcome = await IngestAdmission(session).admit(
-      sourceId: source,
-      kind: kind,
-      credential: matched!,
-      pathToken: pathToken,
-      body: body,
-      contentType: 'application/json',
-      observedAt: observedAt,
-      idempotencyKey: idempotencyKey,
-    );
+    final AdmissionOutcome outcome;
+    try {
+      outcome = await IngestAdmission(session).admit(
+        sourceId: source,
+        kind: kind,
+        credential: matched!,
+        pathToken: pathToken,
+        body: body,
+        contentType: 'application/json',
+        observedAt: observedAt,
+        idempotencyKey: idempotencyKey,
+      );
+    } on DatabaseQueryException catch (error) {
+      if (error.code == 'CR001') return const _Result(503);
+      rethrow;
+    }
     return _Result(switch (outcome) {
       AdmissionOutcome.accepted || AdmissionOutcome.duplicate => 202,
       AdmissionOutcome.conflict => 409,

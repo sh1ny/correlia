@@ -39,14 +39,15 @@ _Classification _classify(Icinga2Fact fact) => switch (fact) {
         // No notification follows a SOFT problem, so it cannot alert.
         : stateType == Icinga2StateType.soft
         ? (EventKind.state, EventStatus.info, EventSeverity.info)
-        : (EventKind.alert, EventStatus.firing, _severity(state)),
+        : (EventKind.alert, EventStatus.firing, icinga2StateSeverity(state)),
   AckFact() => (EventKind.ack, EventStatus.info, EventSeverity.info),
   DowntimeFact() => (EventKind.downtime, EventStatus.info, EventSeverity.info),
   FlappingFact() => (EventKind.state, EventStatus.info, EventSeverity.info),
   CommentFact() => (EventKind.comment, EventStatus.info, EventSeverity.info),
 };
 
-EventSeverity _severity(Icinga2State state) => switch (state) {
+/// Maps a normalized Icinga state to the shared webhook and stream severity.
+EventSeverity icinga2StateSeverity(Icinga2State state) => switch (state) {
   Icinga2State.down ||
   Icinga2State.unreachable ||
   Icinga2State.critical => EventSeverity.critical,
@@ -54,6 +55,22 @@ EventSeverity _severity(Icinga2State state) => switch (state) {
   Icinga2State.unknown => EventSeverity.unknown,
   Icinga2State.up || Icinga2State.ok => EventSeverity.info,
 };
+
+/// Returns the complete display name of a host or service.
+String icinga2ObjectName(Icinga2Object object) => switch (object.service) {
+  final service? => '${object.host}!$service',
+  null => object.host,
+};
+
+/// Builds the stable state summary shared by webhook, stream and sync events.
+String icinga2StateSummary(Icinga2Object object, Icinga2State state) {
+  final shown = state == Icinga2State.unreachable ? Icinga2State.down : state;
+  return normalizeDisplayText(
+    '${icinga2ObjectName(object)} ${shown.wire}',
+    maxScalars: CanonicalEventBounds.CanonicalEventSummaryLength.max!,
+    singleLine: true,
+  );
+}
 
 /// Maps one fact to one canonical event.
 ///
@@ -72,13 +89,6 @@ CanonicalEvent mapIcinga2Fact(
 }) {
   final (kind, status, severity) = _classify(fact);
   final object = fact.object;
-  final name = switch (object.service) {
-    final service? => '${object.host}!$service',
-    null => object.host,
-  };
-  final shown = fact.state == Icinga2State.unreachable
-      ? Icinga2State.down
-      : fact.state;
   final sourceTime = switch (fact) {
     StateFact() => fact.lastStateChange,
     NotificationFact() => fact.notificationTime,
@@ -96,11 +106,7 @@ CanonicalEvent mapIcinga2Fact(
     kind: kind,
     status: status,
     severity: severity,
-    summary: normalizeDisplayText(
-      '$name ${shown.wire}',
-      maxScalars: CanonicalEventBounds.CanonicalEventSummaryLength.max!,
-      singleLine: true,
-    ),
+    summary: icinga2StateSummary(object, fact.state),
     description: description == null || description.isEmpty
         ? null
         : normalizeDisplayText(

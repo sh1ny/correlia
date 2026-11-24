@@ -144,3 +144,145 @@ TransitionResult decideTransition(AlertState? state, Observation observation) {
       ? Created(next)
       : Applied(next, visibleChange: kind != null, activityKind: kind);
 }
+
+/// Whether stream evidence can reserve a key and pass the alert fence.
+enum StreamEligibility { ready, late, futureDated }
+
+/// The single primary outcome of one stream or sync item.
+enum StreamOutcome {
+  applied,
+  stale,
+  duplicateObservation,
+  late,
+  futureDated,
+  confirmed,
+  repaired,
+  tombstoned,
+  softInfo,
+  informational,
+}
+
+/// A state decision and the evidence the caller must retain atomically.
+final class StreamDecision {
+  const StreamDecision._(
+    this.outcome,
+    this.state, {
+    this.transition,
+    this.keepsEvent = false,
+    this.diverged = false,
+  });
+
+  final StreamOutcome outcome;
+  final AlertState? state;
+
+  /// Null when the item must not write any alert state.
+  final TransitionResult? transition;
+  final bool keepsEvent;
+  final bool diverged;
+}
+
+/// Evaluates an observation against locked state and its key reservation.
+///
+/// A null observation represents a SOFT problem already excluded by policy.
+/// Ineligible evidence takes precedence over an existing key and cannot
+/// refresh state. Divergence compares against the result after this item.
+StreamDecision decideStreamTransition(
+  AlertState? state,
+  Observation? observation, {
+  bool reconcile = false,
+  bool duplicate = false,
+  StreamEligibility eligibility = StreamEligibility.ready,
+}) {
+  if (observation == null) {
+    return StreamDecision._(StreamOutcome.softInfo, state);
+  }
+  final diverged =
+      reconcile &&
+      (state?.status != observation.status ||
+          state?.severity != observation.severity);
+  if (eligibility != StreamEligibility.ready) {
+    return StreamDecision._(
+      eligibility == StreamEligibility.late
+          ? StreamOutcome.late
+          : StreamOutcome.futureDated,
+      state,
+      diverged: diverged,
+    );
+  }
+  if (duplicate) {
+    final next = state == null || observation.status == EventStatus.info
+        ? state
+        : _advanceFreshness(state, observation.orderingKey);
+    return StreamDecision._(
+      StreamOutcome.duplicateObservation,
+      next,
+      transition: next == null || identical(next, state) ? null : Stale(next),
+      diverged: diverged,
+    );
+  }
+  final transition = decideTransition(state, observation);
+  if (transition is Stale) {
+    return StreamDecision._(
+      StreamOutcome.stale,
+      transition.state,
+      transition: transition,
+      keepsEvent: !reconcile,
+      diverged: diverged,
+    );
+  }
+  if (transition is Ignored) {
+    return StreamDecision._(
+      StreamOutcome.informational,
+      state,
+      keepsEvent: true,
+    );
+  }
+  if (reconcile &&
+      state == null &&
+      observation.status == EventStatus.resolved) {
+    final tombstone = transition.state!;
+    return StreamDecision._(
+      StreamOutcome.tombstoned,
+      tombstone,
+      transition: Applied(tombstone, visibleChange: false),
+    );
+  }
+  if (reconcile && state != null && !diverged) {
+    final confirmed = _advanceFreshness(
+      state,
+      observation.orderingKey,
+      advanceFence: true,
+    );
+    return StreamDecision._(
+      StreamOutcome.confirmed,
+      confirmed,
+      transition: Applied(confirmed, visibleChange: false),
+    );
+  }
+  return StreamDecision._(
+    reconcile && state != null ? StreamOutcome.repaired : StreamOutcome.applied,
+    transition.state,
+    transition: transition,
+    keepsEvent: true,
+  );
+}
+
+AlertState _advanceFreshness(
+  AlertState state,
+  OrderingKey key, {
+  bool advanceFence = false,
+}) {
+  final fresher = compareTimestamps(key.observedAt, state.lastObservedAt) > 0;
+  if (!fresher && !advanceFence) return state;
+  return AlertState(
+    status: state.status,
+    severity: state.severity,
+    summary: state.summary,
+    sourceInstance: state.sourceInstance,
+    firingSince: state.firingSince,
+    generatorUrl: state.generatorUrl,
+    fence: advanceFence ? key : state.fence,
+    version: state.version,
+    lastObservedAt: fresher ? key.observedAt : state.lastObservedAt,
+  );
+}

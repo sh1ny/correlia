@@ -1,12 +1,15 @@
 @Tags(['e2e'])
 library;
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../support/child_server.dart';
+import '../support/icinga2_pipeline.dart';
+import '../support/icinga2_stream_child.dart';
 
 const _timeout = Timeout(Duration(minutes: 3));
 
@@ -117,6 +120,26 @@ void main() {
     },
     timeout: _timeout,
   );
+
+  test('api_role_does_not_start_a_configured_stream', () async {
+    final scenario = await Icinga2StreamChild.create();
+    final child = await scenario.start(role: 'api', revision: 1);
+    final http = HttpClient();
+    addTearDown(() => http.close(force: true));
+    final request = await http.post(
+      '127.0.0.1',
+      child.apiPort,
+      '/icinga2Stream/status',
+    );
+    request.headers.contentType = ContentType.json;
+    request.write(jsonEncode({'sourceId': icinga2DbSourceId}));
+    final response = await request.close();
+    expect(response.statusCode, HttpStatus.ok);
+    expect(await utf8.decoder.bind(response).join(), 'null');
+    expect(await scenario.count('icinga2_stream_lease'), 0);
+    expect(scenario.upstream.eventRequests, isEmpty);
+    expect(child.output, isNot(contains('icinga2-stream source=')));
+  }, timeout: _timeout);
 
   test('worker role answers 404 for the console', () async {
     final child = await start('roles-worker-console', [

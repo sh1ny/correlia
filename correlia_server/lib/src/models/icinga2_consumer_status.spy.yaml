@@ -1,0 +1,17 @@
+class: Icinga2ConsumerStatus
+fields:
+  sourceId: UuidValue
+  state: String
+  connectionId: String?
+  connectionSeq: int
+  connectedAt: DateTime?
+  lastEventAt: DateTime?
+  gapCount: int
+  lastGapAt: DateTime?
+  oversizeLines: int
+  lagMs: int?
+  lastErrorClass: String?
+  unservedSyncRequest: bool
+  syncTimeoutsInARow: int
+  currentSync: Icinga2ConsumerSync?
+  lastSync: Icinga2ConsumerSync?

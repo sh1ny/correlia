@@ -14,6 +14,7 @@ import '../unit/ingest/alertmanager_decoder_test.dart' as payload;
 import 'pipeline_test.dart' as pipeline_fixture;
 
 import '../integration/test_tools/serverpod_test_tools.dart';
+import '../support/icinga2_stream_fixture.dart';
 import '../support/ingest_schema.dart';
 import '../support/secret_fixture.dart';
 
@@ -206,6 +207,63 @@ void main() {
           await session.db.unsafeSimpleExecute('DELETE FROM "$table"');
         }
       });
+      test('mode_change_refused', () async {
+        final repository = IngestConfigRepository(
+          builder.build(),
+          secretStore: testSecretStore,
+        );
+        final secrets = {'source-token': token(1), ...streamMaterial()};
+        await repository.publishConfig(
+          kindConfig(1, 'icinga2'),
+          secrets,
+          runMode: 'test',
+        );
+        final disabled = await repository.publishConfig(
+          kindConfig(2, null),
+          secrets,
+          runMode: 'test',
+        );
+        await expectLater(
+          repository.publishConfig(
+            streamBootstrap(3, [streamSource(sourceId)]),
+            secrets,
+            runMode: 'test',
+          ),
+          throwsA(
+            isA<BootstrapError>()
+                .having((e) => e.field, 'field', 'sources[0].mode')
+                .having((e) => e.code, 'code', 'mode_changed'),
+          ),
+        );
+        expect(
+          (await repository.activeSnapshot())!['snapshotId'],
+          disabled.snapshotId,
+        );
+      });
+
+      test('new_source_for_the_stream_is_published', () async {
+        const streamId = '33333333-3333-4333-8333-333333333333';
+        final repository = IngestConfigRepository(
+          builder.build(),
+          secretStore: testSecretStore,
+        );
+        final webhook =
+            (kindConfig(1, 'icinga2')['sources']! as List<Object?>).single;
+        final result = await repository.publishConfig(
+          streamBootstrap(1, [webhook, streamSource(streamId)]),
+          {'source-token': token(1), ...streamMaterial()},
+          runMode: 'test',
+        );
+        expect(
+          result.sources.map((source) => source.id),
+          unorderedEquals([sourceId, streamId]),
+        );
+        expect(
+          (await repository.activeSnapshot())!['snapshotId'],
+          result.snapshotId,
+        );
+      });
+
       test('v2_publication_cutover', () async {
         final session = builder.build();
         final repository = IngestConfigRepository(

@@ -39,8 +39,8 @@ simulator, and failures are visible and replayable. M2 retires the risk that rea
 
    Needs 1.
 3. `icinga2-event-streams` (split from change 2 by the owner, 2026-11-19, after three design-review rounds):
-   - the Event Streams API consumer (`CheckResult`, `StateChange`, acknowledgements, downtimes, flapping)
-     with a per-source lease and bounded backpressure into Icinga 2;
+   - the Event Streams API consumer (`StateChange`, acknowledgements, downtimes and flapping), with a
+     per-source lease and bounded backpressure into Icinga 2. Decision S2 deliberately excludes `CheckResult`;
    - state sync on connect and its reconciliation ordering; the soft/hard state policy per source;
    - captured golden Event Streams fixtures.
 

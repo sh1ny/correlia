@@ -1,0 +1,33 @@
+# 0030. Pull sources: leased consumers, fenced admission and reconcile observations
+
+- Status: accepted (2026-11-23)
+- Date: 2026-11-23
+- Supersedes: none; extends [0016](0016-durable-staged-pipeline.md), [0017](0017-alert-and-incident-state-model.md), [0024](0024-identities-and-upstream-evidence.md) and [0029](0029-source-credentials-and-admission-limits.md) with the exceptions below.
+- Chosen by: user (lease, admission, ordering, retention and release contracts); agent (operational bounds and implementation details).
+
+## Context
+
+Webhook delivery depends on an upstream notification. A pull source can receive state transitions directly and reconcile after a gap, but it must not bypass durable admission, contend indefinitely with a replacement worker, or publish a stale alert that the state machine never applied.
+
+## Decision
+
+The worker and all roles run pull consumers. One database lease per enabled source grants a generation for 30 seconds, renewed every 10 seconds by database time. Status writes and admission take a shared lease lock and check holder, generation and expiry. A write that passed before expiry may commit after expiry; a newer generation cannot be granted until it releases the lock. A running holder closes upstream sockets 20 seconds after it sent its last acknowledged acquisition or renewal, measured monotonically. A late acknowledgement cannot reopen them, and a frozen process cannot write after takeover.
+
+A pull source writes raw rows only through consumer admission, which checks source mode and enabled state, active configuration revision and lease generation in one transaction. At its per-source pending-plus-failed limit the reader pauses rather than dropping accepted work. A sustained stall or growing read lag closes the upstream connection and records a gap; reconnect sync recovers eligible current state, not missed intermediate, acknowledgement, downtime or flapping events. These triggers do not bound the upstream server's queue memory.
+
+Each lease holder owns a dedicated database connection for writes. Shutdown cancels upstream reads and closes that connection by four seconds; a final release is reported only after its transaction commits. The consumer stop budget is ten seconds. Backend lock release is not guaranteed by the local deadline; an unreleased lease expires independently.
+
+Stream and sync read the same check-result ordering evidence and use the same native observation key. Reconcile observations pass the ordinary alert fence. A newer observation that changes state is stored and routed; agreement only advances the fence and last-observed time. A resolved observation with no alert writes a silent tombstone. Sync counts disagreement when a stale, duplicate, late or future-dated observation cannot repair it; it does not count a result deliberately skipped by the soft-state policy. Order guarantees exclude distinct equal starts and clock faults beyond the skew bound. Duplicate copies can leave different fence receipt times, and a silent confirm preserves the displayed source in an explicitly shared namespace.
+
+## Exceptions to earlier ADRs
+
+- **0016 — durable pipeline.** Consumer rows have no transport delivery key. A batch ID is written in the same transaction as its raw rows and origin records. After an unknown commit outcome, look up the receipt before applying gates on new inserts; a committed batch is not inserted twice. A failed row's origin and sync ID come from its admission record, not its body or pinned source. Stale stream observations are stored but not routed. A completed sync row that stored no event is deleted with its processing counts; failed rows, stream rows and sync rows that stored an event are retained. Kept rows can grow with stored events and have no separate limit until change 7 adds the database-size watermark. Invalid sync objects are counted without admission. Stream raw evidence preserves sender bytes apart from credential-echo redaction, including the original malformed verdict when sanitization makes the text parseable.
+- **0017 — state and ordering.** Stream and sync classify late and future items before lookup, count them and store no event or key. A stale reconcile is counted, not stored. Silent confirmation and tombstone creation commit in the raw processing transaction without activity, an event, a key or an output intent. An eventless reconcile removes any temporary key reservation before commit. Equal starts, clamped copies and shared displayed-source attribution have the limits above.
+- **0024 — identities and deduplication.** A silent tombstone can hold a fence without a stored observation. Reclamation requires a marked, evidence-free tombstone whose effective fence is strictly past the lateness horizon relative to both the durable cutoff and the oldest pending receipt across all sources. Lateness of queued evidence still uses its original receipt. Reclamation and the cutoff advance commit atomically; a fresh problem after deletion creates a new alert lifecycle. Processing retries alert acquisition if a competing sweep deletes the row between insert conflict and the locking read. Ordinary resolved rows keep their fences after history expires.
+- **0029 — credentials and admission.** A stream source has no inbound credential or request budget; its webhook path returns 401 as for an unknown source. Both admission paths reject new raw receipts older than the durable reclamation cutoff, under a shared admission lock. A webhook returns 503 for that refusal; a pull consumer records a gap and resyncs. An exact retry in the existing transport window or with a retained batch receipt still reports the existing commit, and a conflicting live webhook key still returns 409.
+
+## Upgrade and limits
+
+Continue using [0028](0028-encrypted-secret-store.md) for encrypted, keyed stream credentials. Cutover installs the publisher-version gate and records the historical reuse-inventory boundaries together under the publication lock. Upgrade every role before publishing a stream source; after that, older processes cannot safely run against the database. A stream password cannot share bytes with any secret that has a bare commitment. The reader removes literal and encoded password echoes before creating durable or diagnostic evidence.
+
+The retained-work cap bounds unfinished evidence, not all disk use. An old pending receipt can delay tombstone reclamation globally. A sweep skips locked candidates and has a local deadline; shutdown cancels it without promising when PostgreSQL will release its locks.

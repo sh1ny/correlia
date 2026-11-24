@@ -1,0 +1,13 @@
+class: Icinga2AdmittedBatch
+table: icinga2_admitted_batch
+serverOnly: true
+fields:
+  sourceId: UuidValue
+  batchId: UuidValue
+  admittedAt: DateTime
+indexes:
+  icinga2_admitted_batch_source_id_idx:
+    fields: sourceId, batchId
+    unique: true
+  icinga2_admitted_batch_expiry_idx:
+    fields: admittedAt

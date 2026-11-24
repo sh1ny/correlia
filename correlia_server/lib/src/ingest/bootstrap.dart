@@ -178,13 +178,29 @@ final class IngestBootstrap {
     String Function(String reference, List<int> bytes)? pluginCommitment,
     DateTime Function()? clock,
   }) {
-    return parseResolved(
+    final parsed = parseResolved(
       config,
       decodeBootstrapSecrets(secretInput),
       runMode: runMode,
       pluginCommitment: pluginCommitment,
       clock: clock,
     );
+    parsed.validateStreamImportEncoding(secretInput);
+    return parsed;
+  }
+
+  /// Requires byte-object syntax for stream material supplied by this import.
+  /// References absent from the import have already been resolved from storage.
+  void validateStreamImportEncoding(Object? secretInput) {
+    final imports = _map(secretInput, 'secrets', r'$');
+    for (final source in sources) {
+      if (source.stream case final stream?) {
+        if (imports[stream.passwordRef] is String ||
+            imports[stream.caRef] is String) {
+          _bad('secrets', 'value', 'credential_encoding');
+        }
+      }
+    }
   }
 
   /// Parses a publication using material already decoded or read from the store.
@@ -346,11 +362,17 @@ final class IngestBootstrap {
       'sources',
     ).indexed) {
       final field = 'sources[$index]';
-      for (final credential in _credentialInputs(
-        _map(value, 'config', field),
-        version,
-        field,
-      )) {
+      final row = _map(value, 'config', field);
+      final kind =
+          SourceKind.named(version == 1 ? 'alertmanager' : row['kind']) ??
+          _bad('config', '$field.kind', 'kind');
+      if (_sourceMode(row, kind, field) == SourceMode.eventStreams) {
+        final api = _map(row['api'], 'config', '$field.api');
+        yield _ref(api['password_ref'], '$field.api.password_ref');
+        yield _ref(api['ca_ref'], '$field.api.ca_ref');
+        continue;
+      }
+      for (final credential in _credentialInputs(row, version, field)) {
         yield credential.reference;
       }
     }

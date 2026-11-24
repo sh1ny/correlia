@@ -19,14 +19,17 @@ abstract class IngestSourceRow
     this.id,
     required this.sourceId,
     String? kind,
+    String? mode,
     required this.enabled,
     required this.allowPathToken,
-  }) : kind = kind ?? 'alertmanager';
+  }) : kind = kind ?? 'alertmanager',
+       mode = mode ?? 'webhook';
 
   factory IngestSourceRow({
     int? id,
     required _is.UuidValue sourceId,
     String? kind,
+    String? mode,
     required bool enabled,
     required bool allowPathToken,
   }) = _IngestSourceRowImpl;
@@ -38,6 +41,7 @@ abstract class IngestSourceRow
         jsonSerialization['sourceId'],
       ),
       kind: jsonSerialization['kind'] as String?,
+      mode: jsonSerialization['mode'] as String?,
       enabled: _is.BoolJsonExtension.fromJson(jsonSerialization['enabled']),
       allowPathToken: _is.BoolJsonExtension.fromJson(
         jsonSerialization['allowPathToken'],
@@ -56,6 +60,8 @@ abstract class IngestSourceRow
 
   String kind;
 
+  String mode;
+
   bool enabled;
 
   bool allowPathToken;
@@ -70,6 +76,7 @@ abstract class IngestSourceRow
     int? id,
     _is.UuidValue? sourceId,
     String? kind,
+    String? mode,
     bool? enabled,
     bool? allowPathToken,
   });
@@ -80,6 +87,7 @@ abstract class IngestSourceRow
       if (id != null) 'id': id,
       'sourceId': sourceId.toJson(),
       'kind': kind,
+      'mode': mode,
       'enabled': enabled,
       'allowPathToken': allowPathToken,
     };
@@ -125,12 +133,14 @@ class _IngestSourceRowImpl extends IngestSourceRow {
     int? id,
     required _is.UuidValue sourceId,
     String? kind,
+    String? mode,
     required bool enabled,
     required bool allowPathToken,
   }) : super._(
          id: id,
          sourceId: sourceId,
          kind: kind,
+         mode: mode,
          enabled: enabled,
          allowPathToken: allowPathToken,
        );
@@ -143,6 +153,7 @@ class _IngestSourceRowImpl extends IngestSourceRow {
     Object? id = _Undefined,
     _is.UuidValue? sourceId,
     String? kind,
+    String? mode,
     bool? enabled,
     bool? allowPathToken,
   }) {
@@ -150,6 +161,7 @@ class _IngestSourceRowImpl extends IngestSourceRow {
       id: id is int? ? id : this.id,
       sourceId: sourceId ?? this.sourceId,
       kind: kind ?? this.kind,
+      mode: mode ?? this.mode,
       enabled: enabled ?? this.enabled,
       allowPathToken: allowPathToken ?? this.allowPathToken,
     );
@@ -167,6 +179,11 @@ class IngestSourceRowUpdateTable extends _is.UpdateTable<IngestSourceRowTable> {
 
   _is.ColumnValue<String, String> kind(String value) => _is.ColumnValue(
     table.kind,
+    value,
+  );
+
+  _is.ColumnValue<String, String> mode(String value) => _is.ColumnValue(
+    table.mode,
     value,
   );
 
@@ -194,6 +211,11 @@ class IngestSourceRowTable extends _is.Table<int?> {
       this,
       hasDefault: true,
     );
+    mode = _is.ColumnString(
+      'mode',
+      this,
+      hasDefault: true,
+    );
     enabled = _is.ColumnBool(
       'enabled',
       this,
@@ -210,6 +232,8 @@ class IngestSourceRowTable extends _is.Table<int?> {
 
   late final _is.ColumnString kind;
 
+  late final _is.ColumnString mode;
+
   late final _is.ColumnBool enabled;
 
   late final _is.ColumnBool allowPathToken;
@@ -219,6 +243,7 @@ class IngestSourceRowTable extends _is.Table<int?> {
     id,
     sourceId,
     kind,
+    mode,
     enabled,
     allowPathToken,
   ];

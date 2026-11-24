@@ -12,6 +12,7 @@
 // ignore_for_file: no_leading_underscores_for_library_prefixes
 import 'package:serverpod/serverpod.dart' as _is;
 import '../endpoints/alert_console_endpoint.dart' as _izj6k6t1;
+import '../endpoints/icinga2_stream_endpoint.dart' as _i11286m8;
 
 class Endpoints extends _is.EndpointDispatch {
   @override
@@ -21,6 +22,12 @@ class Endpoints extends _is.EndpointDispatch {
         ..initialize(
           server,
           'alertConsole',
+          null,
+        ),
+      'icinga2Stream': _i11286m8.Icinga2StreamEndpoint()
+        ..initialize(
+          server,
+          'icinga2Stream',
           null,
         ),
     };
@@ -77,6 +84,33 @@ class Endpoints extends _is.EndpointDispatch {
                 Map<String, Stream> streamParams,
               ) => (endpoints['alertConsole'] as _izj6k6t1.AlertConsoleEndpoint)
                   .wakeUps(session),
+        ),
+      },
+    );
+    connectors['icinga2Stream'] = _is.EndpointConnector(
+      name: 'icinga2Stream',
+      endpoint: endpoints['icinga2Stream']!,
+      methodConnectors: {
+        'status': _is.MethodConnector(
+          name: 'status',
+          params: {
+            'sourceId': _is.ParameterDescription(
+              name: 'sourceId',
+              type: _is.getType<_is.UuidValue>(),
+              nullable: false,
+            ),
+          },
+          call:
+              (
+                _is.Session session,
+                Map<String, dynamic> params,
+              ) async =>
+                  (endpoints['icinga2Stream']
+                          as _i11286m8.Icinga2StreamEndpoint)
+                      .status(
+                        session,
+                        params['sourceId'],
+                      ),
         ),
       },
     );

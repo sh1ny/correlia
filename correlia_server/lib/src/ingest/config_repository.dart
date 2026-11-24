@@ -6,6 +6,7 @@ import 'package:serverpod/serverpod.dart';
 import '../secrets/commitments.dart';
 import '../secrets/secret_store.dart';
 import 'bootstrap.dart';
+import 'secret_reuse.dart';
 
 /// A rejected activation containing only public snapshot identities and revisions.
 final class SnapshotActivationError implements Exception {
@@ -72,13 +73,15 @@ final class IngestConfigRepository {
             transaction: tx,
           ),
         );
-        return IngestBootstrap.parseResolved(
+        final parsed = IngestBootstrap.parseResolved(
           config,
           material,
           runMode: runMode,
           pluginCommitment: store.commitments.plugin,
           clock: clock,
         );
+        parsed.validateStreamImportEncoding(secretInput);
+        return parsed;
       },
       imported,
       requireLiveSecrets: requireLiveSecrets,
@@ -132,6 +135,10 @@ final class IngestConfigRepository {
           "SET LOCAL lock_timeout = '5s'",
           transaction: transaction,
         );
+        await session.db.unsafeSimpleExecute(
+          "SET LOCAL correlia.publisher_version = '1'",
+          transaction: transaction,
+        );
         await _store.checkKey(session, transaction);
         final input = await prepare(transaction);
         final active = await activeSnapshot(transaction: transaction);
@@ -151,7 +158,13 @@ final class IngestConfigRepository {
             );
           }
         }
-        await _refuseKindChanges(input, transaction);
+        await _refuseSourceChanges(input, transaction);
+        await recordPublicationReuse(
+          session,
+          transaction,
+          input,
+          _store.commitments,
+        );
         await _validateCommitments(imported, transaction);
         await _importSecrets(input, imported, transaction);
         if (requireLiveSecrets) {
@@ -211,12 +224,13 @@ final class IngestConfigRepository {
         );
         for (final source in input.sources) {
           await session.db.unsafeExecute(
-            '''INSERT INTO ingest_source ("sourceId",kind,enabled,"allowPathToken")
-            VALUES (@id::uuid,@kind,@enabled,@path) ON CONFLICT ("sourceId") DO UPDATE
+            '''INSERT INTO ingest_source ("sourceId",kind,mode,enabled,"allowPathToken")
+            VALUES (@id::uuid,@kind,@mode,@enabled,@path) ON CONFLICT ("sourceId") DO UPDATE
             SET enabled=EXCLUDED.enabled,"allowPathToken"=EXCLUDED."allowPathToken"''',
             parameters: QueryParameters.named({
               'id': source.id,
               'kind': source.kind.name,
+              'mode': source.mode.wire,
               'enabled': source.enabled,
               'path': source.pathTokenEnabled,
             }),
@@ -257,27 +271,36 @@ final class IngestConfigRepository {
     }
   }
 
-  /// A source UUID keeps the kind it was first published with, also once it is
-  /// disabled (its row is never deleted), so pinned raw rows decode with it.
-  Future<void> _refuseKindChanges(
+  /// Rejects a different kind or admission mode for an existing source UUID.
+  ///
+  /// Removing a source disables its row but preserves both fields.
+  Future<void> _refuseSourceChanges(
     IngestBootstrap input,
     Transaction transaction,
   ) async {
     final stored = {
       for (final row in await session.db.unsafeQuery(
-        'SELECT "sourceId"::text,kind FROM ingest_source',
+        'SELECT "sourceId"::text,kind,mode FROM ingest_source',
         transaction: transaction,
         timeoutInSeconds: 5,
       ))
-        row[0]! as String: row[1]! as String,
+        row[0]! as String: (kind: row[1]! as String, mode: row[2]! as String),
     };
     for (final source in input.sources) {
       final existing = stored[source.id];
-      if (existing != null && existing != source.kind.name) {
+      if (existing == null) continue;
+      if (existing.kind != source.kind.name) {
         throw BootstrapError(
           'config',
           'sources[${source.declaredAt}].kind',
           'kind_changed',
+        );
+      }
+      if (existing.mode != source.mode.wire) {
+        throw BootstrapError(
+          'config',
+          'sources[${source.declaredAt}].mode',
+          'mode_changed',
         );
       }
     }
@@ -325,6 +348,11 @@ final class IngestConfigRepository {
       for (final output in input.outputs)
         if (output is PluginIngestOutput)
           for (final ref in output.secretRefs.values) ref.reference: true,
+      for (final source in input.sources)
+        if (source.stream case final stream?) ...{
+          stream.passwordRef: true,
+          stream.caRef: true,
+        },
     };
     if (imported.isNotEmpty) {
       final rows = await session.db.unsafeQuery(

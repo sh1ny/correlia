@@ -196,14 +196,21 @@ Future<void> runSecretOutputTest(
   }
 
   if (m1 != null) {
-    await session.db.unsafeExecute(
-      '''INSERT INTO ingest_config_snapshot ("snapshotId",revision,"publicJson")
-              VALUES (@snapshot,1,@json)''',
-      parameters: QueryParameters.named({
-        'snapshot': m1.snapshotId,
-        'json': m1.publicJson,
-      }),
-    );
+    await session.db.transaction((tx) async {
+      await session.db.unsafeSimpleExecute(
+        "SET LOCAL correlia.publisher_version = '1'",
+        transaction: tx,
+      );
+      await session.db.unsafeExecute(
+        '''INSERT INTO ingest_config_snapshot ("snapshotId",revision,"publicJson")
+                VALUES (@snapshot,1,@json)''',
+        parameters: QueryParameters.named({
+          'snapshot': m1.snapshotId,
+          'json': m1.publicJson,
+        }),
+        transaction: tx,
+      );
+    });
     await session.db.unsafeExecute(
       'INSERT INTO ingest_active_config (singleton,"snapshotId") VALUES (1,@snapshot)',
       parameters: QueryParameters.named({'snapshot': m1.snapshotId}),
