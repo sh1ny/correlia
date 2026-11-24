@@ -224,22 +224,29 @@ void main() {
         addTearDown(blocker.close);
         final witness = await PostgresLockWitness.start(session);
         addTearDown(witness.close);
+        addTearDown(
+          () => session.db.unsafeSimpleExecute(
+            "UPDATE raw_admission_cutoff SET cutoff = '-infinity'",
+          ),
+        );
         await session.db.unsafeSimpleExecute(
           "UPDATE icinga2_stream_lease SET \"expiresAt\" = 'infinity'",
         );
         final held = Completer<LockActor>();
-        final release = Completer<void>();
-        final update = blocker.runTx((tx) async {
-          final actor = await lockActor(tx);
-          await tx.execute(
-            'SELECT 1 FROM raw_admission_cutoff WHERE singleton=1 FOR UPDATE',
-          );
-          held.complete(actor);
-          await release.future;
-          await tx.execute(
-            "UPDATE raw_admission_cutoff SET cutoff = 'infinity'",
-          );
-        });
+        final release = ContentionGate();
+        final update = release.run(
+          () => blocker.runTx((tx) async {
+            final actor = await lockActor(tx);
+            await tx.execute(
+              'SELECT 1 FROM raw_admission_cutoff WHERE singleton=1 FOR UPDATE',
+            );
+            held.complete(actor);
+            await release.future;
+            await tx.execute(
+              "UPDATE raw_admission_cutoff SET cutoff = 'infinity'",
+            );
+          }),
+        );
         final entered = Completer<LockActor>();
         final repository = ConsumerAdmission(
           contender,
@@ -255,11 +262,13 @@ void main() {
               (_) => throw StateError('Cutoff update returned before locking'),
             ),
           ]);
-          writing = admit(
-            batch([
-              [check()],
-            ]),
-            repository: repository,
+          writing = release.run(
+            () => admit(
+              batch([
+                [check()],
+              ]),
+              repository: repository,
+            ),
           );
           final waiter = await Future.any([
             entered.future,
@@ -276,10 +285,10 @@ void main() {
             statement: 'INSERT INTO raw_inbox',
           );
         } finally {
-          release.complete();
-          await update;
+          await release.join();
         }
         expect(await writing, StreamAdmissionResult.receiptBehindCutoff);
+        await update;
         for (final table in [
           'raw_inbox',
           'icinga2_raw_origin',
@@ -287,16 +296,13 @@ void main() {
         ]) {
           expect(await countRows(session, table), 0, reason: table);
         }
-        await session.db.unsafeSimpleExecute(
-          "UPDATE raw_admission_cutoff SET cutoff = '-infinity'",
-        );
       }, timeout: const Timeout(Duration(minutes: 5)));
 
       test('publication_between_the_check_and_the_commit', () async {
         final witness = await PostgresLockWitness.start(session);
         addTearDown(witness.close);
         final checked = Completer<LockActor>();
-        final finish = Completer<void>();
+        final finish = ContentionGate();
         final repository = ConsumerAdmission(
           db,
           beforeWriteForTest: (tx, _) async {
@@ -304,11 +310,13 @@ void main() {
             await finish.future;
           },
         );
-        final admitting = admit(
-          batch([
-            [check()],
-          ]),
-          repository: repository,
+        final admitting = finish.run(
+          () => admit(
+            batch([
+              [check()],
+            ]),
+            repository: repository,
+          ),
         );
         final blocker = await Future.any([
           checked.future,
@@ -320,12 +328,14 @@ void main() {
         ]);
         final publisher = builder.build();
         final entered = Completer<LockActor>();
-        final publishing = publishStreamDb(
-          publisher,
-          revision: 2,
-          apiUrl: 'https://other-icinga.example:5665',
-          beforePublicationWrites: (tx) async => entered.complete(
-            await pooledLockActor(publisher, tx, waiter: true),
+        final publishing = finish.run(
+          () => publishStreamDb(
+            publisher,
+            revision: 2,
+            apiUrl: 'https://other-icinga.example:5665',
+            beforePublicationWrites: (tx) async => entered.complete(
+              await pooledLockActor(publisher, tx, waiter: true),
+            ),
           ),
         );
         try {
@@ -342,10 +352,9 @@ void main() {
             statement: 'UPDATE ingest_source',
           );
         } finally {
-          finish.complete();
-          await publishing;
-          await admitting;
+          await finish.join();
         }
+        await publishing;
         expect(await admitting, StreamAdmissionResult.committed);
         expect(
           await admit(

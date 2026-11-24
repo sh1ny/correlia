@@ -212,7 +212,7 @@ void main() {
 
       Future<void> sweepDuringKeyReservation() async {
         final reserved = Completer<void>();
-        final release = Completer<void>();
+        final release = ContentionGate();
         final worker = PipelineRepository(
           builder.build(),
           clock: () => boundary,
@@ -224,7 +224,7 @@ void main() {
         );
         expect(await worker.pinOne(), isTrue);
         // The real observation key exists in the open transaction.
-        final writing = worker.processOne();
+        final writing = release.run(worker.processOne);
         try {
           await Future.any([
             reserved.future,
@@ -232,12 +232,11 @@ void main() {
               (_) => throw StateError('Worker did not reserve a key'),
             ),
           ]);
-          expect(await sweep(), 1);
+          expect(await release.run(sweep), 1);
         } finally {
-          release.complete();
-          // Join the writer before the fixture is reset.
-          await writing;
+          await release.join();
         }
+        expect(await writing, isTrue);
       }
 
       test('provisional_key_does_not_prevent_reclamation', () async {
@@ -367,14 +366,21 @@ void main() {
         final oldReceipt = fence.add(const Duration(seconds: 1));
         await mark(1, fence.subtract(const Duration(seconds: 1)));
         final inserted = Completer<LockActor>();
-        final release = Completer<void>();
-        final writing = writer.db.transaction((tx) async {
-          final actor = await pooledLockActor(writer, tx);
-          await rawAt(writer, oldReceipt, tx: tx);
-          inserted.complete(actor);
-          await release.future;
-        });
-        final writerActor = await inserted.future;
+        final release = ContentionGate();
+        final writing = release.run(
+          () => writer.db.transaction((tx) async {
+            final actor = await pooledLockActor(writer, tx);
+            await rawAt(writer, oldReceipt, tx: tx);
+            inserted.complete(actor);
+            await release.future;
+          }),
+        );
+        final writerActor = await Future.any([
+          inserted.future,
+          writing.then<LockActor>(
+            (_) => throw StateError('Admission did not hold the cutoff'),
+          ),
+        ]);
         var sweepEntered = Completer<LockActor>();
         final scanner = TombstoneSweep(
           sweepConnection,
@@ -382,7 +388,7 @@ void main() {
           beforeCutoffLockForTest: (tx) async =>
               sweepEntered.complete(await lockActor(tx, waiter: true)),
         );
-        final waiting = scanner.runOnce();
+        final waiting = release.run(scanner.runOnce);
         try {
           final sweepActor = await Future.any([
             sweepEntered.future,
@@ -397,9 +403,9 @@ void main() {
             statement: 'SET cutoff=GREATEST',
           );
         } finally {
-          release.complete();
-          await writing;
+          await release.join();
         }
+        await writing;
         expect(await waiting, 0);
         expect(await countRows(session, 'alerts'), 1);
         await session.db.unsafeExecute("UPDATE raw_inbox SET status='done'");
@@ -410,20 +416,33 @@ void main() {
           CREATE TRIGGER wait_after_cutoff_update AFTER UPDATE ON raw_admission_cutoff
             FOR EACH ROW EXECUTE FUNCTION wait_after_cutoff_update();
         ''');
+        addTearDown(
+          () => session.db.unsafeSimpleExecute(
+            'DROP FUNCTION wait_after_cutoff_update() CASCADE',
+          ),
+        );
         final held = Completer<LockActor>();
-        final unlock = Completer<void>();
-        final gate = session.db.transaction((tx) async {
-          final actor = await pooledLockActor(session, tx);
-          await session.db.unsafeQuery(
-            'SELECT pg_advisory_xact_lock($advisory)',
-            transaction: tx,
-          );
-          held.complete(actor);
-          await unlock.future;
-        });
-        final cutoffGate = await held.future;
+        final unlock = ContentionGate();
+        final gate = unlock.run(
+          () => session.db.transaction((tx) async {
+            final actor = await pooledLockActor(session, tx);
+            await session.db.unsafeQuery(
+              'SELECT pg_advisory_xact_lock($advisory)',
+              transaction: tx,
+            );
+            held.complete(actor);
+            await unlock.future;
+          }),
+        );
+        final cutoffGate = await Future.any([
+          held.future,
+          gate.then<LockActor>(
+            (_) => throw StateError('Cutoff trigger gate was not held'),
+          ),
+        ]);
         sweepEntered = Completer<LockActor>();
-        final reclaiming = scanner.runOnce();
+        final reclaiming = unlock.run(scanner.runOnce);
+        late Future<void> rejected;
         try {
           final sweepActor = await Future.any([
             sweepEntered.future,
@@ -440,13 +459,15 @@ void main() {
             advisory: true,
           );
           final admissionEntered = Completer<LockActor>();
-          final admission = writer.db.transaction((tx) async {
-            admissionEntered.complete(
-              await pooledLockActor(writer, tx, waiter: true),
-            );
-            await rawAt(writer, oldReceipt, tx: tx);
-          });
-          final rejected = expectLater(
+          final admission = unlock.run(
+            () => writer.db.transaction((tx) async {
+              admissionEntered.complete(
+                await pooledLockActor(writer, tx, waiter: true),
+              );
+              await rawAt(writer, oldReceipt, tx: tx);
+            }),
+          );
+          rejected = expectLater(
             admission,
             throwsA(
               isA<DatabaseQueryException>().having(
@@ -456,34 +477,27 @@ void main() {
               ),
             ),
           );
-          try {
-            final admissionActor = await Future.any([
-              admissionEntered.future,
-              rejected.then<LockActor>(
-                (_) => throw StateError(
-                  'Admission was not queued behind the cutoff',
-                ),
+          rejected.ignore();
+          final admissionActor = await Future.any([
+            admissionEntered.future,
+            admission.then<LockActor>(
+              (_) => throw StateError(
+                'Admission was not queued behind the cutoff',
               ),
-            ]);
-            await witness.blockedBy(
-              admissionActor,
-              sweepActor,
-              rejected,
-              statement: 'INSERT INTO raw_inbox',
-            );
-          } finally {
-            unlock.complete();
-            await rejected;
-          }
-          expect(await reclaiming, 1);
-        } finally {
-          if (!unlock.isCompleted) unlock.complete();
-          await gate;
-          await reclaiming;
-          await session.db.unsafeSimpleExecute(
-            'DROP FUNCTION wait_after_cutoff_update() CASCADE',
+            ),
+          ]);
+          await witness.blockedBy(
+            admissionActor,
+            sweepActor,
+            admission,
+            statement: 'INSERT INTO raw_inbox',
           );
+        } finally {
+          await unlock.join();
         }
+        await gate;
+        await rejected;
+        expect(await reclaiming, 1);
         await rawAt(writer, boundary);
         expect(await countRows(session, 'raw_inbox'), 2);
       });

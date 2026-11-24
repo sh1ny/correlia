@@ -474,21 +474,30 @@ void main() {
         final witness = await PostgresLockWitness.start(session);
         addTearDown(witness.close);
         final locked = Completer<LockActor>();
-        final release = Completer<void>();
-        final publication = other.runTx((tx) async {
-          final actor = await lockActor(tx);
-          await tx.execute('''UPDATE ingest_source SET enabled=true
+        final release = ContentionGate();
+        final publication = release.run(
+          () => other.runTx((tx) async {
+            final actor = await lockActor(tx);
+            await tx.execute('''UPDATE ingest_source SET enabled=true
           WHERE "sourceId"='$icinga2DbSourceId'::uuid''');
-          locked.complete(actor);
-          await release.future;
-        });
-        final blocker = await locked.future;
+            locked.complete(actor);
+            await release.future;
+          }),
+        );
+        final blocker = await Future.any([
+          locked.future,
+          publication.then<LockActor>(
+            (_) => throw StateError('Publication did not lock the source'),
+          ),
+        ]);
         final entered = Completer<LockActor>();
-        final sweep = SyncProgressStore(contender).retire(
-          icinga2DbSourceId,
-          generation: lease.generation,
-          beforeSourceLockForTest: (tx) async =>
-              entered.complete(await lockActor(tx, waiter: true)),
+        final sweep = release.run(
+          () => SyncProgressStore(contender).retire(
+            icinga2DbSourceId,
+            generation: lease.generation,
+            beforeSourceLockForTest: (tx) async =>
+                entered.complete(await lockActor(tx, waiter: true)),
+          ),
         );
         try {
           final waiter = await Future.any([
@@ -505,9 +514,9 @@ void main() {
             statement: 'SELECT enabled FROM ingest_source',
           );
         } finally {
-          release.complete();
-          await publication;
+          await release.join();
         }
+        await publication;
         expect(await sweep, isFalse);
         lease = (await leases.acquire(icinga2DbSourceId, 'worker-b'))!;
         expect((await progress.read(id))!.readEndAt, isNull);

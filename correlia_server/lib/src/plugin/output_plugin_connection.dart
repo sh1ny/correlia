@@ -216,6 +216,7 @@ final class OutputPluginConnection {
   /// Failed starts retain their original error class and the child reap outcome.
   /// [afterForcedStop] is a test-only cleanup-failure injection.
   /// [beforeStartupCleanup] is a test-only abandonment barrier.
+  /// [healthInterceptorForTest] observes actual health RPC call options.
   static Future<OutputPluginConnection> start({
     required String executable,
     List<String> arguments = const [],
@@ -225,6 +226,7 @@ final class OutputPluginConnection {
     Duration shutdownGrace = const Duration(seconds: 5),
     Future<void> Function()? afterForcedStop,
     Future<void> Function()? beforeStartupCleanup,
+    ClientInterceptor? healthInterceptorForTest,
   }) async {
     if (timeout <= Duration.zero) throw ArgumentError.value(timeout, 'timeout');
     if (shutdownGrace.isNegative) {
@@ -261,7 +263,12 @@ final class OutputPluginConnection {
     try {
       starting = core.start();
       await starting.timeout(remaining());
-      final client = v1.PluginServiceClient(core.channel);
+      final client = v1.PluginServiceClient(
+        core.channel,
+        interceptors: healthInterceptorForTest == null
+            ? const []
+            : [healthInterceptorForTest],
+      );
       final response = await client.getMetadata(
         v1.GetMetadataRequest(),
         options: CallOptions(timeout: remaining()),

@@ -4,6 +4,33 @@ import 'dart:io';
 
 import 'package:postgres/postgres.dart' as pg;
 import 'package:serverpod/serverpod.dart';
+import 'package:test/test.dart';
+
+/// A held fixture gate that releases and joins its actors before witness teardown.
+final class ContentionGate {
+  ContentionGate() {
+    addTearDown(join);
+  }
+
+  final _release = Completer<void>();
+  final _actors = <Future<void>>[];
+
+  Future<void> get future => _release.future;
+
+  /// Starts and tracks an actor; the caller still owns its outcome assertion.
+  Future<T> run<T>(Future<T> Function() work) {
+    if (_release.isCompleted) throw StateError('Contention gate already open');
+    final actor = work();
+    _actors.add(actor.then<void>((_) {}, onError: (Object _, StackTrace _) {}));
+    return actor;
+  }
+
+  /// Opens the gate and waits for successful or failed actors to settle.
+  Future<void> join() async {
+    if (!_release.isCompleted) _release.complete();
+    await Future.wait(_actors);
+  }
+}
 
 /// Owns the embedded postmaster and its log for one contention suite.
 ///
@@ -19,9 +46,9 @@ final class LockWitnessCluster {
     if (database is! PostgresDatabaseConfig || database.dataPath == null) {
       throw StateError('Lock witness requires embedded test PostgreSQL');
     }
-    final root = _root ??= Directory.systemTemp.createTempSync(
-      'correlia-lock-db-',
-    );
+    final root = _root ??= (Directory(
+      '.serverpod',
+    )..createSync()).createTempSync('lock-');
     return config.copyWith(
       database: PostgresDatabaseConfig.embedded(
         dataPath: '${root.path}/pgdata',

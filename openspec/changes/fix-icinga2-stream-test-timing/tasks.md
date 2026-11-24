@@ -24,4 +24,4 @@ The six contention suites own their embedded postmasters through Serverpod. On t
 
 ## Workflow follow-up
 
-Use Specwright ship and read-only PR watch plus normal feedback handling; stop before automatic archive-and-merge. Do not execute any merge or enable auto-merge. At the unchanged reviewed head require green required checks and report three to five independent first-attempt CI runs covering DB, E2E and plugin tiers without retries, including any failures. If the head changes, obtain new evidence. Leave merge to the owner.
+Use Specwright ship and read-only PR watch plus normal feedback handling; stop before automatic archive-and-merge. Never merge or enable auto-merge, and leave `pr.merge` unchanged. Hand off only when required checks are green and the required review covers the unchanged PR head. Report three to five independent first-attempt CI results for each of the DB, E2E and plugin tiers at that same head, including every failure; do not retry tests. If the head changes, obtain new evidence. Leave merge to the owner.

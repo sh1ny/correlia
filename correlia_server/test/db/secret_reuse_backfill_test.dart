@@ -329,30 +329,39 @@ void main() {
         final witness = await PostgresLockWitness.start(session);
         addTearDown(witness.close);
         final held = Completer<LockActor>();
-        final release = Completer<void>();
+        final release = ContentionGate();
         final gateSession = builder.build();
-        final gate = gateSession.db.transaction((tx) async {
-          final actor = await pooledLockActor(gateSession, tx);
-          await gateSession.db.unsafeQuery(
-            'SELECT pg_advisory_xact_lock($lock)',
-            transaction: tx,
-          );
-          held.complete(actor);
-          await release.future;
-        });
-        final blocker = await held.future;
+        final gate = release.run(
+          () => gateSession.db.transaction((tx) async {
+            final actor = await pooledLockActor(gateSession, tx);
+            await gateSession.db.unsafeQuery(
+              'SELECT pg_advisory_xact_lock($lock)',
+              transaction: tx,
+            );
+            held.complete(actor);
+            await release.future;
+          }),
+        );
+        final blocker = await Future.any([
+          held.future,
+          gate.then<LockActor>(
+            (_) => throw StateError('Inventory gate did not lock'),
+          ),
+        ]);
         final scanSession = builder.build();
         final scanActor = Completer<LockActor>();
-        final scanning = backfillSecretReuse(
-          scanSession,
-          writeTimeoutInSecondsForTest: const Duration(minutes: 5).inSeconds,
-          beforeWriteForTest: (tx, completing) async {
-            if (!completing) {
-              scanActor.complete(
-                await pooledLockActor(scanSession, tx, waiter: true),
-              );
-            }
-          },
+        final scanning = release.run(
+          () => backfillSecretReuse(
+            scanSession,
+            writeTimeoutInSecondsForTest: const Duration(minutes: 5).inSeconds,
+            beforeWriteForTest: (tx, completing) async {
+              if (!completing) {
+                scanActor.complete(
+                  await pooledLockActor(scanSession, tx, waiter: true),
+                );
+              }
+            },
+          ),
         );
         Future<IngestBootstrap>? publishing;
         try {
@@ -371,17 +380,19 @@ void main() {
           );
           final publisher = builder.build();
           final publishActor = Completer<LockActor>();
-          publishing = webhook(
-            2,
-            low,
-            IngestConfigRepository(
-              publisher,
-              secretStore: testSecretStore,
-              writeTimeoutInSecondsForTest: const Duration(
-                minutes: 5,
-              ).inSeconds,
-              beforeInventoryForTest: (tx) async => publishActor.complete(
-                await pooledLockActor(publisher, tx, waiter: true),
+          publishing = release.run(
+            () => webhook(
+              2,
+              low,
+              IngestConfigRepository(
+                publisher,
+                secretStore: testSecretStore,
+                writeTimeoutInSecondsForTest: const Duration(
+                  minutes: 5,
+                ).inSeconds,
+                beforeInventoryForTest: (tx) async => publishActor.complete(
+                  await pooledLockActor(publisher, tx, waiter: true),
+                ),
               ),
             ),
           );
@@ -398,11 +409,11 @@ void main() {
             statement: 'INSERT INTO secret_reuse_digest',
           );
         } finally {
-          release.complete();
-          await gate;
-          await scanning;
-          await publishing;
+          await release.join();
         }
+        await gate;
+        await scanning;
+        await publishing;
         expect((await marks())['snapshot_mark'], 1);
         expect((await repository.activeSnapshot())!['revision'], 2);
       });
@@ -435,30 +446,39 @@ void main() {
         final witness = await PostgresLockWitness.start(session);
         addTearDown(witness.close);
         final held = Completer<LockActor>();
-        final release = Completer<void>();
+        final release = ContentionGate();
         final gateSession = builder.build();
-        final gate = gateSession.db.transaction((tx) async {
-          final actor = await pooledLockActor(gateSession, tx);
-          await gateSession.db.unsafeQuery(
-            'SELECT pg_advisory_xact_lock($lock)',
-            transaction: tx,
-          );
-          held.complete(actor);
-          await release.future;
-        });
-        final blocker = await held.future;
+        final gate = release.run(
+          () => gateSession.db.transaction((tx) async {
+            final actor = await pooledLockActor(gateSession, tx);
+            await gateSession.db.unsafeQuery(
+              'SELECT pg_advisory_xact_lock($lock)',
+              transaction: tx,
+            );
+            held.complete(actor);
+            await release.future;
+          }),
+        );
+        final blocker = await Future.any([
+          held.future,
+          gate.then<LockActor>(
+            (_) => throw StateError('Inventory gate did not lock'),
+          ),
+        ]);
         final scanSession = builder.build();
         final scanActor = Completer<LockActor>();
-        final scanning = backfillSecretReuse(
-          scanSession,
-          writeTimeoutInSecondsForTest: const Duration(minutes: 5).inSeconds,
-          beforeWriteForTest: (tx, completing) async {
-            if (completing) {
-              scanActor.complete(
-                await pooledLockActor(scanSession, tx, waiter: true),
-              );
-            }
-          },
+        final scanning = release.run(
+          () => backfillSecretReuse(
+            scanSession,
+            writeTimeoutInSecondsForTest: const Duration(minutes: 5).inSeconds,
+            beforeWriteForTest: (tx, completing) async {
+              if (completing) {
+                scanActor.complete(
+                  await pooledLockActor(scanSession, tx, waiter: true),
+                );
+              }
+            },
+          ),
         );
         try {
           final scanner = await Future.any([
@@ -475,12 +495,12 @@ void main() {
             advisory: true,
           );
           // This transaction must commit with the scanner still held.
-          await webhook(10001, 22);
+          await release.run(() => webhook(10001, 22));
         } finally {
-          release.complete();
-          await gate;
-          await scanning;
+          await release.join();
         }
+        await gate;
+        await scanning;
         expect((await marks())['complete'], true);
         expect(
           (await session.db.unsafeQuery(

@@ -86,15 +86,17 @@ void main() {
         final witness = await PostgresLockWitness.start(session);
         addTearDown(witness.close);
         final inserted = Completer<LockActor>();
-        final release = Completer<void>();
+        final release = ContentionGate();
         final publishSession = builder.build();
-        final publisher = _oldPublish(
-          publishSession,
-          1,
-          beforeCommit: (tx) async {
-            inserted.complete(await pooledLockActor(publishSession, tx));
-            await release.future;
-          },
+        final publisher = release.run(
+          () => _oldPublish(
+            publishSession,
+            1,
+            beforeCommit: (tx) async {
+              inserted.complete(await pooledLockActor(publishSession, tx));
+              await release.future;
+            },
+          ),
         );
         final blocker = await Future.any([
           inserted.future,
@@ -104,17 +106,19 @@ void main() {
         ]);
         final cutoverSession = builder.build();
         final entered = Completer<LockActor>();
-        final cutover = applySchemaSteps(
-          cutoverSession,
-          schemaSteps,
-          stepTimeoutInSecondsForTest: const Duration(minutes: 5).inSeconds,
-          beforeStepForTest: (tx, step) async {
-            if (step.version == 5) {
-              entered.complete(
-                await pooledLockActor(cutoverSession, tx, waiter: true),
-              );
-            }
-          },
+        final cutover = release.run(
+          () => applySchemaSteps(
+            cutoverSession,
+            schemaSteps,
+            stepTimeoutInSecondsForTest: const Duration(minutes: 5).inSeconds,
+            beforeStepForTest: (tx, step) async {
+              if (step.version == 5) {
+                entered.complete(
+                  await pooledLockActor(cutoverSession, tx, waiter: true),
+                );
+              }
+            },
+          ),
         );
         try {
           final waiter = await Future.any([
@@ -133,10 +137,10 @@ void main() {
             advisory: true,
           );
         } finally {
-          release.complete();
-          await publisher;
-          await cutover;
+          await release.join();
         }
+        await publisher;
+        await cutover;
         final boundary = (await session.db.unsafeQuery(
           'SELECT snapshot_boundary FROM secret_reuse_backfill',
         )).single[0];

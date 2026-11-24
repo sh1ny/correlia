@@ -169,19 +169,26 @@ void main() {
         addTearDown(witness.close);
         final lease = (await first.acquire(icinga2DbSourceId, 'worker-a'))!;
         final entered = Completer<LockActor>();
-        final finish = Completer<void>();
-        final writing = first.fenced<String>(lease, (tx) async {
-          await tx.execute(
-            "INSERT INTO lease_test_writes VALUES ('old-generation')",
-          );
-          entered.complete(await lockActor(tx));
-          await finish.future;
-          return 'committed';
-        });
+        final finish = ContentionGate();
+        final writing = finish.run(
+          () => first.fenced<String>(lease, (tx) async {
+            await tx.execute(
+              "INSERT INTO lease_test_writes VALUES ('old-generation')",
+            );
+            entered.complete(await lockActor(tx));
+            await finish.future;
+            return 'committed';
+          }),
+        );
         Future<StreamLease?>? takeover;
         StreamLease? next;
         try {
-          final blocker = await entered.future;
+          final blocker = await Future.any([
+            entered.future,
+            writing.then<LockActor>(
+              (_) => throw StateError('Fenced write did not hold the lease'),
+            ),
+          ]);
           expect(
             await session.db.unsafeQuery('SELECT 1 FROM lease_test_writes'),
             isEmpty,
@@ -193,7 +200,9 @@ void main() {
             beforeLeaseQueryForTest: (tx) async =>
                 enteredTakeover.complete(await lockActor(tx, waiter: true)),
           );
-          takeover = claimant.acquire(icinga2DbSourceId, 'worker-b');
+          takeover = finish.run(
+            () => claimant.acquire(icinga2DbSourceId, 'worker-b'),
+          );
           final waiter = await Future.any([
             enteredTakeover.future,
             takeover.then<LockActor>(
@@ -218,7 +227,7 @@ void main() {
             isEmpty,
           );
         } finally {
-          finish.complete();
+          await finish.join();
           try {
             expect(await writing, 'committed');
           } finally {
@@ -242,25 +251,34 @@ void main() {
             await freezeSqlClock();
             final lease = (await first.acquire(icinga2DbSourceId, 'worker-a'))!;
             final locked = Completer<LockActor>();
-            final unlock = Completer<void>();
-            final locker = secondConnection.runTx((tx) async {
-              final actor = await lockActor(tx);
-              await tx.execute(
-                'SELECT id FROM icinga2_stream_lease FOR UPDATE',
-              );
-              locked.complete(actor);
-              await unlock.future;
-            });
-            final blocker = await locked.future;
+            final unlock = ContentionGate();
+            final locker = unlock.run(
+              () => secondConnection.runTx((tx) async {
+                final actor = await lockActor(tx);
+                await tx.execute(
+                  'SELECT id FROM icinga2_stream_lease FOR UPDATE',
+                );
+                locked.complete(actor);
+                await unlock.future;
+              }),
+            );
+            final blocker = await Future.any([
+              locked.future,
+              locker.then<LockActor>(
+                (_) => throw StateError('Locker did not hold the lease'),
+              ),
+            ]);
             final entered = Completer<LockActor>();
             final contender = StreamLeaseStore(
               firstConnection,
               beforeLeaseQueryForTest: (tx) async =>
                   entered.complete(await lockActor(tx, waiter: true)),
             );
-            final attempt = renewal
-                ? contender.renew(lease)
-                : contender.fenced(lease, (_) async => true);
+            final attempt = unlock.run(
+              () => renewal
+                  ? contender.renew(lease)
+                  : contender.fenced(lease, (_) async => true),
+            );
             try {
               final waiter = await Future.any([
                 entered.future,
@@ -277,9 +295,9 @@ void main() {
               );
               await advanceSqlClock();
             } finally {
-              unlock.complete();
-              await locker;
+              await unlock.join();
             }
+            await locker;
             expect(await attempt, renewal ? isFalse : isNull);
             await session.db.unsafeExecute('DELETE FROM icinga2_stream_lease');
           }

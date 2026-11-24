@@ -7,9 +7,57 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:correlia_server/src/plugin/output_plugin_connection.dart';
+import 'package:grpc/grpc.dart';
 import 'package:test/test.dart';
 
 import 'support/plugin_fixture_support.dart';
+
+final class _HealthOptionsProbe extends ClientInterceptor {
+  Duration? deadline;
+  Future<void> Function()? cancel;
+
+  @override
+  ResponseFuture<R> interceptUnary<Q, R>(
+    ClientMethod<Q, R> method,
+    Q request,
+    CallOptions options,
+    ClientUnaryInvoker<Q, R> invoker,
+  ) {
+    if (!method.path.endsWith('/CheckHealth')) {
+      return invoker(method, request, options);
+    }
+    deadline = options.timeout;
+    // Keep the real call open while the test drives the normal Dart watchdog.
+    final rpc = invoker(
+      method,
+      request,
+      CallOptions(metadata: options.metadata),
+    );
+    cancel = rpc.cancel;
+    return rpc;
+  }
+}
+
+final class _ManualTimer implements Timer {
+  _ManualTimer(this._run);
+
+  void Function()? _run;
+
+  void fire() {
+    final run = _run!;
+    cancel();
+    run();
+  }
+
+  @override
+  void cancel() => _run = null;
+
+  @override
+  bool get isActive => _run != null;
+
+  @override
+  int get tick => isActive ? 0 : 1;
+}
 
 void main() {
   late PluginFixtureSuite suite;
@@ -36,6 +84,7 @@ void main() {
   Future<OutputPluginConnection> connect([
     String mode = 'normal',
     String? healthMarker,
+    _HealthOptionsProbe? healthOptions,
   ]) async {
     final connection = await OutputPluginConnection.start(
       executable: executable,
@@ -46,6 +95,7 @@ void main() {
       ],
       configJson: config,
       secrets: secrets,
+      healthInterceptorForTest: healthOptions,
     );
     connections.add(connection);
     return connection;
@@ -262,17 +312,42 @@ void main() {
     expect((await connection.health()).serving, isTrue);
   });
 
+  Future<File> watchHealthMarker() async {
+    final directory = await suite.scratchDirectory.createTemp('health-');
+    return File('${directory.path}/entered');
+  }
+
+  Future<void> waitForHealthMarker(
+    File marker,
+    OutputPluginConnection connection,
+    Future<void> result,
+  ) async {
+    final events = StreamIterator(marker.parent.watch());
+    var next = events.moveNext();
+    addTearDown(events.cancel);
+    final ended = result.then<bool>(
+      (_) => throw StateError('Health finished before Go entered the RPC'),
+    )..ignore();
+    try {
+      while (!marker.existsSync()) {
+        if (!await Future.any([next, ended])) fail('Go RPC observer closed');
+        next = events.moveNext();
+      }
+      expect(await marker.readAsString(), '${connection.pid}');
+    } finally {
+      await events.cancel();
+    }
+  }
+
   Future<void> stagedHealth({
     required Duration requested,
     required Duration expected,
     bool loseConnection = false,
   }) async {
-    final directory = await suite.scratchDirectory.createTemp('health-');
-    final marker = File('${directory.path}/entered');
-    final events = StreamIterator(directory.watch());
-    var next = events.moveNext();
-    addTearDown(events.cancel);
+    final marker = await watchHealthMarker();
     final connection = await connect('stall-health', marker.path);
+    var transportFailed = false;
+    unawaited(connection.failure.then<void>((_) => transportFailed = true));
     var nativeCompleted = false;
     var watchdogFired = false;
     final fire = Completer<void>();
@@ -300,29 +375,22 @@ void main() {
       ),
     );
     result.ignore();
+    Future<void> finish() async {
+      if (!fire.isCompleted) fire.complete();
+      await result;
+    }
+
+    addTearDown(finish);
     try {
-      while (!marker.existsSync()) {
-        if (!await Future.any([
-          next,
-          result.then<bool>(
-            (_) =>
-                throw StateError('Health finished before Go entered the RPC'),
-          ),
-        ])) {
-          fail('Go RPC stage observer closed');
-        }
-        next = events.moveNext();
-      }
-      expect(await marker.readAsString(), '${connection.pid}');
+      await waitForHealthMarker(marker, connection, result);
       expect(nativeCompleted, isFalse);
+      expect(transportFailed, isFalse);
       if (loseConnection) {
         expect(Process.killPid(connection.pid!, ProcessSignal.sigkill), isTrue);
         expect(await connection.failure, failure('plugin_connection_lost'));
       }
     } finally {
-      fire.complete();
-      await events.cancel();
-      await result;
+      await finish();
     }
     expect(watchdogFired, isTrue);
   }
@@ -335,13 +403,46 @@ void main() {
     ),
   );
 
-  test(
-    'health_watchdog_uses_the_shared_cap',
-    () => stagedHealth(
-      requested: const Duration(seconds: 20),
-      expected: const Duration(seconds: 2),
-    ),
-  );
+  for (final (requested, deadline) in [
+    (const Duration(milliseconds: 321), const Duration(milliseconds: 321)),
+    (const Duration(seconds: 20), const Duration(seconds: 2)),
+  ]) {
+    test(
+      'normal_health_applies_rpc_and_watchdog_deadlines_$requested',
+      () async {
+        final marker = await watchHealthMarker();
+        final probe = _HealthOptionsProbe();
+        final connection = await connect('stall-health', marker.path, probe);
+        _ManualTimer? timer;
+        final health = runZoned(
+          () => connection.health(timeout: requested),
+          zoneSpecification: ZoneSpecification(
+            createTimer: (self, parent, zone, delay, run) {
+              if (delay != deadline) {
+                return parent.createTimer(zone, delay, run);
+              }
+              expect(timer, isNull, reason: 'exactly one Dart health watchdog');
+              return timer = _ManualTimer(run);
+            },
+          ),
+        );
+        final result = expectLater(
+          health,
+          throwsA(failure('plugin_health_timeout')),
+        );
+        result.ignore();
+        addTearDown(() async {
+          timer?.cancel();
+          await probe.cancel?.call();
+        });
+        await waitForHealthMarker(marker, connection, result);
+        expect(probe.deadline, deadline);
+        expect(timer?.isActive, isTrue);
+        timer!.fire();
+        await result;
+      },
+    );
+  }
 
   test(
     'health_connection_lost_during_call',

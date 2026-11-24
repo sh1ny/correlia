@@ -14,6 +14,11 @@ import 'shared_cluster.dart';
 const _source = icinga2DbSourceId;
 
 /// An isolated real Correlia process and a local TLS Icinga2 peer.
+///
+/// This fixture observes real child outcomes; it adds no fault switch or
+/// timer override. Controlled timing-order checks run in-process.
+/// As required by ADR 0014, observe or terminate only the worktree-owned
+/// embedded database and the exact children started by this fixture.
 final class Icinga2StreamChild {
   Icinga2StreamChild._(this.cluster, this.db, this.upstream, this.files);
 

@@ -7,6 +7,10 @@ import 'package:serverpod/serverpod.dart';
 /// Wakes test predicates on committed writes, without polling or step deadlines.
 ///
 /// Use one observer per test group database and close it after stopping writers.
+///
+/// Release gates only after observing a committed transition or the named
+/// blocked database actor. A slow runner must not require per-step deadlines
+/// or test retries.
 final class IcingaTestDbChanges {
   IcingaTestDbChanges._(this._connection) {
     _failure.future.ignore();
@@ -75,8 +79,8 @@ final class IcingaTestDbChanges {
                   (source_id, connection_id, connection_seq, state, error_class, gap_count)
                 VALUES (NEW."sourceId", NEW."connectionId", NEW."connectionSeq",
                   NEW.state, NEW."lastErrorClass", NEW."gapCount");
-                PERFORM pg_notify('$_channel', TG_TABLE_NAME);
               END IF;
+              PERFORM pg_notify('$_channel', TG_TABLE_NAME);
               RETURN NULL;
             END \$\$
           ''');

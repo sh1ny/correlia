@@ -1,6 +1,7 @@
 @Tags(['e2e'])
 library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -295,14 +296,24 @@ void main() {
     await scenario.start(revision: 1);
     await scenario.waitState('connected');
     final oversized = 'x' * (streamLineLimit + 1);
+    final inspected = Completer<void>();
+    final counted = scenario.until(() async {
+      final outcome = await scenario.db.execute('''
+        SELECT "oversizeLines", "connectionSeq", "gapCount"
+        FROM icinga2_stream_status
+      ''');
+      final counts = outcome.single.toList();
+      if (!inspected.isCompleted) {
+        expect(counts, [0, 1, 0]);
+        inspected.complete();
+      }
+      return counts[0] == 2 && counts[1] == 1 && counts[2] == 0;
+    });
+    counted.ignore();
+    await Future.any([inspected.future, counted]);
     await scenario.upstream.sendLine(oversized);
     await scenario.upstream.sendLine(oversized);
-    await scenario.until(
-      () async => (await scenario.db.execute('''
-      SELECT 1 FROM icinga2_stream_status
-      WHERE "oversizeLines"=2 AND "connectionSeq"=1 AND "gapCount"=0
-    ''')).isNotEmpty,
-    );
+    await counted;
     expect(scenario.upstream.subscriptionsReady, 1);
     expect(await scenario.count('raw_inbox'), 0);
   }, timeout: _timeout);
