@@ -76,6 +76,10 @@ text obeys canonical display bounds. Constants that cannot fit the canonical
 field fail activation. A link must be a valid HTTP(S) URL; arbitrary templates
 are not supported.
 
+A copied summary containing NUL (`U+0000`) fails with `invalid_text` at
+its mapping pointer in preview and delivery. Other copied fields keep
+their existing text rules.
+
 ### Bounds
 
 - Bootstrap file: 64 KiB. Serialized `mappings` list: 64 KiB. At most 64

@@ -177,6 +177,7 @@ three digits for millis. RFC 3339 text is kept as sent. Other values SHALL fail 
 A mapping SHALL declare `summary`; `description`, 128 `labels` and 16 `links` are optional, each a copy or a constant.
 A copied string is used verbatim and a number or boolean as its JSON text; null or absent omits an optional field
 and fails a summary. An object, array or non-http(s) link SHALL fail the row. Impossible constants fail activation.
+Only copied summaries SHALL reject U+0000, using the existing diagnostic path bounds for preview and delivery.
 
 #### Scenario: Copied and constant display fields
 - **WHEN** a mapping copies `/check/output` into the description and sets label `team` to the constant `ops`
@@ -193,6 +194,14 @@ and fails a summary. An object, array or non-http(s) link SHALL fail the row. Im
 #### Scenario: Null summary
 - **WHEN** the summary pointer selects `null`
 - **THEN** the raw row fails with a field error naming the summary pointer
+
+#### Scenario: NUL in a copied summary
+- **WHEN** the summary pointer selects text containing U+0000
+- **THEN** preview and delivery report `invalid_text` at the rendered summary pointer (or `/*` if the first segment cannot fit); no event commits
+
+#### Scenario: NUL copied into a label and description
+- **WHEN** otherwise valid label and description strings contain U+0000
+- **THEN** both fields retain that character in the canonical event
 
 #### Scenario: Link that is not a URL
 - **WHEN** a link copies `/runbook` and an alert carries `see wiki` there

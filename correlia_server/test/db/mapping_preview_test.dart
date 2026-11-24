@@ -134,6 +134,30 @@ void main() {
         ]);
       });
 
+      test('preview_rejects_nul_in_copied_summary', () async {
+        final result = await preview({
+          ...genericAlert(_now),
+          'summary': 'bad\u0000summary',
+        });
+        expect(result.events, isEmpty);
+        expect(result.rowWouldFail, isTrue);
+        final failure = result.diagnostics.single;
+        expect((failure.path, failure.code), ('/summary', 'invalid_text'));
+        final key = 'x' * 256;
+        final bounded = await preview(
+          {...genericAlert(_now)..remove('summary'), key: '\u0000'},
+          {
+            ...checkMapping(),
+            'summary': {'copy': '/$key'},
+          },
+        );
+        expect(bounded.events, isEmpty);
+        expect(
+          (bounded.diagnostics.single.path, bounded.diagnostics.single.code),
+          ('/*', 'invalid_text'),
+        );
+      });
+
       test('preview_names_the_full_path', () async {
         final result = await preview({
           ...genericAlert(_now),
@@ -298,6 +322,25 @@ void main() {
             ),
           ),
         );
+
+        body['filler'] = '${body['filler']}x';
+        final oversized = jsonEncode(body);
+        expect(
+          decodeGeneric(
+            request(oversized, DateTime.utc(2026, 11, 24, 12), source.id),
+            mapping,
+          ).events.single.eventId,
+          expected.eventId,
+        );
+        final rejected = await previewMapping(
+          session,
+          genericPipelineSource,
+          oversized,
+          draftMapping: jsonEncode(mapping.toJson()),
+          now: _now,
+        );
+        expect(rejected.events, isEmpty);
+        expect(rejected.diagnostics.single.code, 'event_too_large');
       });
     },
     configOverride: (config) => config.copyWith(runMode: 'development'),

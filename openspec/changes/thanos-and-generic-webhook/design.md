@@ -239,6 +239,12 @@ Scope decisions S1–S6 are in `proposal.md`; they appear in the summary table.
   does (`icinga2/webhook_parser.dart:47-55`), because `jsonDecode` keeps the last value and a pointer would read
   a member nobody validated. Activation refuses constants the event cannot hold (empty summary, over-bound text, a non-http(s) link) and
   table outputs outside the canonical enums.
+  A copied summary containing U+0000 fails with `invalid_text` at its pointer under each mode's existing
+  rendering and path bounds. The worker binds `alerts.summary` as PostgreSQL text (`alert_state_service.dart:113-123`,
+  `migrations/20261111231140845-alert-state/migration.sql:12`), which cannot hold NUL. Preserving it there would
+  widen this change's migration scope.
+  Other copied strings, including labels and descriptions, retain their existing behavior.
+  Owner confirmed this amendment to the delegated decision during pre-ship review.
 - **Rejected:** skipping the bad alert and committing the rest, because a partial batch hides data loss.
 - **Reversal cost:** low
 - **Important:** no
@@ -398,7 +404,7 @@ Scope decisions S1–S6 are in `proposal.md`; they appear in the summary table.
 | D10 | Where mapping runs | Pipeline only | At ingress | medium | no | agent |
 | D11 | Read fields | Selected nodes and their subtrees | Selected leaves only | low | no | agent |
 | D12 | Safe failure paths | Mapping-named segments only | Fixed allow-list | low | no | agent |
-| D13 | Required/wrong-typed fields | Fail the whole row | Skip the alert | low | no | agent |
+| D13 | Invalid mapped fields | Fail the row; copied summary rejects NUL | Skip the alert | low | no | agent |
 | D14 | Identity, display, time | Reuse event library | Generic-specific | high | no | agent |
 | D15 | Mapping bounds | 64 KiB file, 64 KiB serialized mappings, explicit caps | Raise the file cap | low | no | agent |
 | D16 | Ingress snapshot read | Per request, unchanged | Cache by snapshot id | low | no | agent |
@@ -448,6 +454,9 @@ Scope decisions S1–S6 are in `proposal.md`; they appear in the summary table.
 - **C12:** Binary downgrade after schema step 10 is unsupported, and a generic source stays enabled until its
   pending rows finish before removal. Kind: invariant. Destination: spec: specs/source-ingress/spec.md →
   Requirement: Generic sources drain before removal
+- **C14:** Only copied summaries reject U+0000. Other copied display fields keep their existing validation.
+  Destination: "Display fields copy or take a constant" (`integration-generic-webhook`).
+
 - **C13:** A mapped observation id names one state change, never the alert object; a reused id turns a resolve
   into a duplicate. Kind: invariant. Destination: spec: specs/integration-generic-webhook/spec.md → Requirement:
   Generic alert identity

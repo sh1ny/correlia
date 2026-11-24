@@ -81,6 +81,34 @@ void main() {
         await expectFailure(input, '{"sender-secret":', 'invalid_json', '');
       });
 
+      test('nul_in_copied_summary_fails_at_its_pointer', () async {
+        final input = await publishGenericConfig(session, now: _now);
+        await expectFailure(
+          input,
+          jsonEncode({...genericAlert(_now), 'summary': 'bad\u0000summary'}),
+          'invalid_text',
+          '/summary',
+        );
+      });
+
+      test('nul_summary_path_is_bounded', () async {
+        final key = 'x' * 256;
+        final revised = await publishGenericConfig(
+          session,
+          now: _now,
+          mapping: {
+            ...checkMapping(),
+            'summary': {'copy': '/$key'},
+          },
+        );
+        await expectFailure(
+          revised,
+          jsonEncode({...genericAlert(_now)..remove('summary'), key: '\u0000'}),
+          'invalid_text',
+          '/*',
+        );
+      });
+
       test('canonical_failure_while_decoding', () async {
         final input = await publishGenericConfig(
           session,
@@ -123,19 +151,23 @@ void main() {
         final input = await publishGenericConfig(
           session,
           now: _now,
-          mapping: {...checkMapping(), 'items': '/alerts'},
+          mapping: {
+            ...checkMapping(),
+            'items': '/items',
+            'severity': {
+              'pointer': '/severity',
+              'values': {'CRITICAL': 'critical'},
+            },
+          },
         );
         final body = jsonEncode({
-          'alerts': [
-            genericAlert(_now),
-            {
-              ...genericAlert(_now, host: 'secret-value'),
-              'sender-secret': {'10': true},
-            },
-            genericAlert(_now, host: 'database'),
+          'items': [
+            {...genericAlert(_now), 'severity': 'CRITICAL'},
+            {...genericAlert(_now, host: 'cache'), 'severity': 'secret-value'},
+            {...genericAlert(_now, host: 'database'), 'severity': 'CRITICAL'},
           ],
         });
-        await expectFailure(input, body, 'unmapped_field', '/alerts/1/*/*');
+        await expectFailure(input, body, 'unlisted_value', '/items/1/severity');
       });
     },
     rollbackDatabase: RollbackDatabase.disabled,

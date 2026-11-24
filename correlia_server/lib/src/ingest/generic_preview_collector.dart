@@ -55,6 +55,7 @@ final class _PreviewCollector {
 
   final _heap = <GenericPreviewDiagnostic>[];
   var _total = 0;
+  var _highWater = 0;
   var errorCount = 0;
 
   void error(EventValidationError error, int? index) {
@@ -92,6 +93,7 @@ final class _PreviewCollector {
     if (_heap.length < _maxEntries) {
       var index = _heap.length;
       _heap.add(value);
+      if (_heap.length > _highWater) _highWater = _heap.length;
       while (index > 0) {
         final parent = (index - 1) ~/ 2;
         if (_compare(_heap[parent], value) >= 0) break;
@@ -125,7 +127,7 @@ final class _PreviewCollector {
       List.unmodifiable(_heap),
       _total - _heap.length,
       errorCount != 0,
-      _heap.length,
+      _highWater,
     );
   }
 

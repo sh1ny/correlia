@@ -286,6 +286,21 @@ void main() {
     );
   });
 
+  test('nul_in_copied_label_and_description_is_preserved', () {
+    const text = 'before\u0000after';
+    final event = _decode(
+      {..._alert(), 'output': text},
+      {
+        'description': {'copy': '/output'},
+        'labels': {
+          'output': {'copy': '/output'},
+        },
+      },
+    ).events.single;
+    expect(event.description, text);
+    expect(event.labels['output'], text);
+  });
+
   test('copied_and_constant_display_fields', () {
     final event = _decode(
       {

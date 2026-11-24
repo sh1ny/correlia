@@ -255,6 +255,10 @@ final class _GenericDecoder {
         if (required) throw const EventFieldError('', 'required');
         return null;
       }
+      // The required summary is also persisted in PostgreSQL alert-state text.
+      if (required && text.contains('\u0000')) {
+        throw const EventFieldError('', 'invalid_text');
+      }
       return normalizeDisplayText(text, maxScalars: max);
     }),
   };

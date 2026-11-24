@@ -47,3 +47,12 @@ Author's note (required changes applied):
 
 - **Required change 1 — applied.** The proposal's preview bullet and S4 now describe events and decode failures as computed with preview metadata, not a prediction of production results. `Results computed with preview metadata` keeps the label and no-estimate assertions and adds the boundary case: the same sample and mapping, decoded in production with shorter and longer receipt metadata, are accepted and fail `event_too_large` respectively, and the preview result matches a decode under its stated metadata.
 - **Required change 2 — applied.** A1 no longer names an automatic fallback: if Ruler cannot drop the label, apply stops and the owner decides; the drop run stays required; `excluded_identity_labels` stays documented as the second option only.
+
+## D13 amendment review (round 6)
+
+Codex (`codex-cli 0.167.0`, isolated read-only route) reviewed the
+owner-confirmed D13 amendment and approved with changes, with no critical
+findings. All three required changes were applied: retain diagnostic path
+bounds and test the `/*` boundary in both modes; cite the alert-state write
+and PostgreSQL text column; carry the summary-only exception to the durable
+spec and prove NUL is preserved in copied labels and descriptions.
