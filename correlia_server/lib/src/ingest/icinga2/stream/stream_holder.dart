@@ -432,6 +432,7 @@ final class _StreamAttempt {
         if (!paused &&
             (due || _oversize || now >= next || await _requested())) {
           final start = await progress.start(_lease, connectionId: id);
+          holder.owner._onSyncDecision?.call(start.disposition);
           if (!_live) return;
           switch (start.disposition) {
             case SyncStartDisposition.leaseLost:

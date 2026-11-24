@@ -100,6 +100,7 @@ final class Icinga2StreamSupervisor {
     Future<void> Function()? beforeNumberCommitForTest,
     void Function(String, Future<pg.Connection>)? onConsumerOpenForTest,
     void Function(int)? afterAcquisitionScanForTest,
+    void Function(SyncStartDisposition)? onSyncDecisionForTest,
     Duration? headerDeadlineForTest,
   }) : _beforeAdmissionCommit = runMode == 'test'
            ? beforeAdmissionCommit
@@ -118,6 +119,7 @@ final class Icinga2StreamSupervisor {
            ? beforeNumberCommitForTest
            : null,
        _onConsumerOpen = runMode == 'test' ? onConsumerOpenForTest : null,
+       _onSyncDecision = runMode == 'test' ? onSyncDecisionForTest : null,
        _afterAcquisitionScan = runMode == 'test'
            ? afterAcquisitionScanForTest
            : null,
@@ -144,6 +146,7 @@ final class Icinga2StreamSupervisor {
   final Future<void> Function()? _beforeNumberCommit;
   final void Function(String, Future<pg.Connection>)? _onConsumerOpen;
   final void Function(int)? _afterAcquisitionScan;
+  final void Function(SyncStartDisposition)? _onSyncDecision;
   final Duration _headerDeadline;
   Duration _leaseNow() => _leaseClock?.call() ?? _watch.elapsed;
   final _watch = Stopwatch()..start();

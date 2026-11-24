@@ -672,10 +672,23 @@ void main() {
       });
 
       test('reclamation_stops_without_waiting_for_locks', () async {
-        Future<int> reclaim() async {
+        Future<int> reclaim({List<Duration>? deadlines}) async {
           final connection = await openStreamDatabase(session.serverpod);
           try {
-            return await TombstoneSweep(connection).runOnce();
+            final sweep = TombstoneSweep(connection);
+            if (deadlines == null) return await sweep.runOnce();
+            var arming = true;
+            final result = runZoned(
+              sweep.runOnce,
+              zoneSpecification: ZoneSpecification(
+                createTimer: (self, parent, zone, delay, callback) {
+                  if (arming) deadlines.add(delay);
+                  return parent.createTimer(zone, delay, callback);
+                },
+              ),
+            );
+            arming = false;
+            return await result;
           } finally {
             await connection.close(force: true);
           }
@@ -716,7 +729,9 @@ void main() {
           await observer.execute(
             'SELECT singleton FROM raw_admission_cutoff FOR UPDATE',
           );
-          expect(await reclaim(), 0);
+          final deadlines = <Duration>[];
+          expect(await reclaim(deadlines: deadlines), 0);
+          expect(deadlines, contains(const Duration(seconds: 1)));
           expect(
             (await session.db.unsafeQuery(
               'SELECT count(*) FROM alerts',

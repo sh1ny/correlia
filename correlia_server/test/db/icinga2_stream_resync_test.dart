@@ -9,6 +9,7 @@ import 'package:correlia_server/src/ingest/bootstrap.dart';
 import 'package:correlia_server/src/ingest/icinga2/stream/database.dart';
 import 'package:correlia_server/src/ingest/icinga2/stream/status.dart';
 import 'package:correlia_server/src/ingest/icinga2/stream/supervisor.dart';
+import 'package:correlia_server/src/ingest/icinga2/stream/sync_progress.dart';
 import 'package:correlia_server/src/pipeline/pipeline.dart';
 import 'package:serverpod/serverpod.dart';
 import 'package:test/test.dart';
@@ -74,6 +75,7 @@ void main() {
         Duration? interval,
         StreamReaderClock? clock,
         _Backoffs? backoffs,
+        void Function(SyncStartDisposition)? onSyncDecision,
       }) async {
         final endpoint = await StreamDatabaseEndpoint.resolve(
           session.serverpod,
@@ -88,6 +90,7 @@ void main() {
           readerClockForTest: clock == null ? null : () => clock.elapsed,
           readerScheduleForTest: clock?.schedule,
           backoffScheduleForTest: backoffs?.schedule,
+          onSyncDecisionForTest: onSyncDecision,
           log: (_) {},
           loadTargets: () async => [
             StreamTarget(
@@ -506,7 +509,15 @@ void main() {
 
       test('connection_flapping', () async {
         final backoffs = _Backoffs();
-        final status = await start(backoffs: backoffs);
+        Completer<SyncStartDisposition>? decision;
+        final status = await start(
+          backoffs: backoffs,
+          onSyncDecision: (value) {
+            final pending = decision;
+            if (pending != null && !pending.isCompleted)
+              pending.complete(value);
+          },
+        );
         Future<void> finishSync(int sequence) async {
           await ready(status, sequence: sequence);
           final result = await queryRows(session, '''
@@ -527,16 +538,25 @@ void main() {
           await server.subscriptions.last.close();
           final syncDue = step % 12 == 0;
           await backoffs.retry(
-            () => session.db.unsafeExecute('''
+            () {
+              decision = Completer<SyncStartDisposition>();
+              return session.db.unsafeExecute('''
             UPDATE icinga2_sync_progress SET started_at=clock_timestamp() +
               interval '${syncDue ? '-61 seconds' : '1 day'}'
             WHERE sync_id=(SELECT sync_id FROM icinga2_sync_progress ORDER BY started_at DESC LIMIT 1)
-          '''),
+              ''');
+            },
           );
           await server.waitForSubscriptions(step + 1);
           expect(
             (await status.read(icinga2DbSourceId))!.connectionSeq,
             step + 1,
+          );
+          expect(
+            await decision!.future,
+            syncDue
+                ? SyncStartDisposition.started
+                : SyncStartDisposition.tooSoon,
           );
           if (syncDue) await finishSync(step + 1);
         }
