@@ -264,8 +264,8 @@ overflow count. It writes nothing and gives no row-budget estimate.
 - **THEN** the result lists the body-level field first, then the first 99 alert paths in order, with an overflow count of 199901, and the collector never holds more than 100 entries
 
 #### Scenario: Results computed with preview metadata
-- **WHEN** a sample is previewed
-- **THEN** its events and decode failures are labelled as computed with preview metadata, the result carries no row-budget estimate, and a sample at an event-size bound may decode differently in production
+- **WHEN** a sample whose one event serializes exactly at the per-event byte limit under the preview's own metadata is previewed, and the same sample and mapping are decoded in production twice, once with receipt metadata a few bytes shorter and once a few bytes longer
+- **THEN** the preview result matches a decode under its stated metadata and is labelled as computed with preview metadata, it carries no row-budget estimate, the shorter production context accepts the event and the longer one fails with `event_too_large`
 
 #### Scenario: Preview of an invalid draft
 - **WHEN** the draft mapping declares no source time pointer

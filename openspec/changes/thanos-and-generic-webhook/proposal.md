@@ -40,8 +40,9 @@ tenant, `default`, in 1.0).
   immutable configuration snapshot. Activation validates every mapping and rejects one without a source
   time (stricter than RUL-8, which needs an observation id or a source time).
 - **Mapping preview.** A read-only API method, under the console access policy, maps a pasted sample with
-  the active mapping or a draft one and returns the events it would produce, with the unmapped and
-  rejected fields up to a stated bound. It stores nothing.
+  the active mapping or a draft one and returns the events and decode failures, computed with preview
+  metadata rather than predicting production results, with the unmapped and rejected fields up to a stated
+  bound. It stores nothing.
 
 ## Capabilities
 
@@ -113,8 +114,9 @@ DECISION_MAKING: important
 ### S4: The mapping preview
 
 - **Choice:** A read-only API method under the console access policy: it takes a sample payload and the
-  active mapping or a draft one, returns the events it would produce and every unmapped or rejected
-  field (within the result bounds the owner approved in design D8), and stores nothing.
+  active mapping or a draft one, returns the events and decode failures computed with preview metadata
+  (not a prediction of production results) and every unmapped or rejected field (within the result bounds
+  the owner approved in design D8), and stores nothing.
 - **Rejected:** a CLI command only (no path for the M4 console); both (two surfaces to keep equal).
 - **Reversal cost:** low
 - **Important:** yes (changes behaviour users see: a new API method)

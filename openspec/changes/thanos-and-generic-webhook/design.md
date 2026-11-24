@@ -413,9 +413,9 @@ Scope decisions S1–S6 are in `proposal.md`; they appear in the summary table.
 
 - **A1:** Thanos Ruler can drop its replica label before sending to Alertmanager through its own flag, and sends
   through Alertmanager's v2 API, which the pinned Alertmanager forwards as ordinary v4 webhooks. Not checked
-  because it is external behaviour; the capture task proves it, and if Ruler cannot drop it, the setup relies on
-  `excluded_identity_labels`, which already exists. If Ruler cannot drop it, apply stops before Thanos support is
-  claimed and the owner decides the setup (S1 is not changed silently); the drop-run scenario stays required. The sent-alert counter name is
+  because it is external behaviour; the capture task proves it. If Ruler cannot drop it, apply stops before Thanos
+  support is claimed and the owner decides the setup (S1 is not changed silently); the drop-run scenario stays
+  required. `excluded_identity_labels` stays documented as the second option, never an automatic fallback. The sent-alert counter name is
   checked during the capture. Depends on it: D18, the Thanos tasks.
 - **A2:** The last four Thanos minor releases publish multi-arch images that run under Docker on the developer
   machine. Not checked because the capture runs during apply. Depends on it: S6, D18.
