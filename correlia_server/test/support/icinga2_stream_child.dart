@@ -6,6 +6,7 @@ import 'package:test/test.dart';
 
 import 'child_server.dart';
 import 'icinga2_consumer_loopback.dart';
+import 'icinga2_test_db_changes.dart';
 import 'icinga2_pipeline.dart';
 import 'icinga2_stream_fixture.dart';
 import 'shared_cluster.dart';
@@ -21,6 +22,7 @@ final class Icinga2StreamChild {
   final IcingaConsumerLoopback upstream;
   final Directory files;
   final children = <ChildServer>[];
+  IcingaTestDbChanges? _changes;
 
   /// Creates a fixture and registers teardown in dependency order.
   static Future<Icinga2StreamChild> create() async {
@@ -28,26 +30,30 @@ final class Icinga2StreamChild {
     addTearDown(cluster.drop);
     final files = Directory.systemTemp.createTempSync('correlia-stream-child-');
     addTearDown(() => files.deleteSync(recursive: true));
-    final db = await Connection.open(
-      Endpoint(
-        host: socketHostFor(
-          cluster.socketPath,
-          workingDirectory: Directory.current.path,
-        ),
-        port: cluster.port,
-        database: cluster.name,
-        username: 'postgres',
-        isUnixSocket: true,
-      ),
-      settings: const ConnectionSettings(sslMode: SslMode.disable),
-    );
+    final db = await _open(cluster);
     addTearDown(db.close);
     final upstream = await IcingaConsumerLoopback.start();
     addTearDown(upstream.close);
     final result = Icinga2StreamChild._(cluster, db, upstream, files);
+    addTearDown(() async => result._changes?.close(dropObjects: false));
     addTearDown(() => tearDownChildren(result.children));
     return result;
   }
+
+  static Future<Connection> _open(SharedClusterDatabase cluster) =>
+      Connection.open(
+        Endpoint(
+          host: socketHostFor(
+            cluster.socketPath,
+            workingDirectory: Directory.current.path,
+          ),
+          port: cluster.port,
+          database: cluster.name,
+          username: 'postgres',
+          isUnixSocket: true,
+        ),
+        settings: const ConnectionSettings(sslMode: SslMode.disable),
+      );
 
   Map<String, Object?> source({bool enabled = true, Uri? url}) {
     final value = streamSource(_source, enabled: enabled);
@@ -63,6 +69,25 @@ final class Icinga2StreamChild {
     List<Object?>? sources,
     Map<String, Object?>? material,
   }) async {
+    if (_changes == null) {
+      final bootstrap = await ChildServer.startOnSharedCluster(
+        serverDir: Directory.current,
+        database: cluster,
+        args: ['--mode', 'test', '--apply-migrations', '--process-role', 'api'],
+      );
+      children.add(bootstrap);
+      await bootstrap.waitForReadyEvent();
+      expect(
+        await bootstrap.closeStdin(deadline: null),
+        0,
+        reason: bootstrap.output,
+      );
+      _changes = await IcingaTestDbChanges.onConnection(
+        await _open(cluster),
+        ['raw_inbox', 'events', 'icinga2_sync_progress'],
+        journalStreamStatus: true,
+      );
+    }
     final env = {
       'CORRELIA_SECRET_KEY_FILE': cluster.secretKeyFile,
       'SERVERPOD_DATABASE_REQUIRE_SSL': 'false',
@@ -91,11 +116,11 @@ final class Icinga2StreamChild {
     if (mode != 'test') {
       addTearDown(() async {
         if (!child.hasExited) {
-          expect(await child.stop(), 0, reason: child.output);
+          expect(await child.stop(deadline: null), 0, reason: child.output);
         }
       });
     }
-    await child.waitUntilReady();
+    await child.waitForReadyEvent();
     return child;
   }
 
@@ -115,14 +140,58 @@ final class Icinga2StreamChild {
     )).isNotEmpty,
   );
 
-  Future<void> until(Future<bool> Function() condition) async {
-    final deadline = Stopwatch()..start();
-    while (!await condition()) {
-      if (deadline.elapsed > const Duration(seconds: 45)) {
-        fail(
-          'State not reached. ${children.map((child) => child.output).join('\n')}',
-        );
-      }
-    }
+  /// Waits for committed fixture changes, with no per-step deadline.
+  Future<void> until(Future<bool> Function() condition) =>
+      _changes!.until(condition);
+
+  /// Reads the first committed backoff for the fresh source.
+  Future<ResultRow> firstBackoff() async {
+    late ResultRow backoff;
+    await until(() async {
+      final rows = await db.execute(
+        Sql.named('''
+        SELECT error_class, connection_seq, gap_count
+        FROM icinga2_test_transitions
+        WHERE source_id = @source:uuid AND state = 'backoff'
+        ORDER BY seq LIMIT 1
+      '''),
+        parameters: {'source': _source},
+      );
+      if (rows.isEmpty) return false;
+      backoff = rows.single;
+      return true;
+    });
+    return backoff;
+  }
+
+  /// Checks the exact source and raw key, failing on a terminal row without an event.
+  Future<void> expectDelivery(String source, String bodyMarker) async {
+    await until(() async {
+      final rows = await db.execute(
+        Sql.named('''
+        SELECT r.status, r.outcome_json, r.raw_id::text, (
+          SELECT count(*) FROM events e
+          WHERE (e.raw_observed_at, e.raw_id, e.source_id) =
+            (r.observed_at, r.raw_id, r.source_id)
+        )
+        FROM raw_inbox r
+        WHERE r.source_id = @source:uuid
+          AND strpos(convert_from(r.body, 'UTF8'), @marker:text) > 0
+      '''),
+        parameters: {'source': source, 'marker': bodyMarker},
+      );
+      if (rows.isEmpty) return false;
+      expect(
+        rows,
+        hasLength(1),
+        reason: 'raw delivery for $source: $bodyMarker',
+      );
+      final row = rows.single;
+      if (row[0] != 'done' && row[0] != 'failed') return false;
+      final reason = 'source $source raw ${row[2]}: ${row[1]}';
+      expect(row[0], 'done', reason: reason);
+      expect(row[3], 1, reason: reason);
+      return true;
+    });
   }
 }

@@ -32,8 +32,14 @@ final class IcingaTestDbChanges {
   static Future<IcingaTestDbChanges> start(
     Serverpod pod,
     List<String> tables,
-  ) async {
-    final connection = await openStreamDatabase(pod);
+  ) async => onConnection(await openStreamDatabase(pod), tables);
+
+  /// Installs test witnesses on a connection this observer takes ownership of.
+  static Future<IcingaTestDbChanges> onConnection(
+    pg.Connection connection,
+    List<String> tables, {
+    bool journalStreamStatus = false,
+  }) async {
     final changes = IcingaTestDbChanges._(connection);
     try {
       await connection.runTx((tx) async {
@@ -48,6 +54,35 @@ final class IcingaTestDbChanges {
           await tx.execute('''
             CREATE TRIGGER $_channel AFTER INSERT OR UPDATE OR DELETE ON $table
             FOR EACH STATEMENT EXECUTE FUNCTION $_channel()
+          ''');
+        }
+        if (journalStreamStatus) {
+          await tx.execute('''
+            CREATE TABLE icinga2_test_transitions (
+              seq bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+              source_id uuid NOT NULL, connection_id text, connection_seq bigint,
+              state text NOT NULL, error_class text, gap_count bigint NOT NULL
+            )
+          ''');
+          await tx.execute('''
+            CREATE FUNCTION icinga2_test_transition() RETURNS trigger LANGUAGE plpgsql AS \$\$
+            BEGIN
+              IF TG_OP = 'INSERT' OR
+                  (NEW.state, NEW."connectionId", NEW."connectionSeq", NEW."lastErrorClass", NEW."gapCount")
+                  IS DISTINCT FROM
+                  (OLD.state, OLD."connectionId", OLD."connectionSeq", OLD."lastErrorClass", OLD."gapCount") THEN
+                INSERT INTO icinga2_test_transitions
+                  (source_id, connection_id, connection_seq, state, error_class, gap_count)
+                VALUES (NEW."sourceId", NEW."connectionId", NEW."connectionSeq",
+                  NEW.state, NEW."lastErrorClass", NEW."gapCount");
+                PERFORM pg_notify('$_channel', TG_TABLE_NAME);
+              END IF;
+              RETURN NULL;
+            END \$\$
+          ''');
+          await tx.execute('''
+            CREATE TRIGGER icinga2_test_transition AFTER INSERT OR UPDATE ON icinga2_stream_status
+            FOR EACH ROW EXECUTE FUNCTION icinga2_test_transition()
           ''');
         }
         await tx.execute('LISTEN $_channel');
@@ -74,9 +109,16 @@ final class IcingaTestDbChanges {
   }
 
   /// Removes the listener and its test-only database objects.
-  Future<void> close() async {
+  Future<void> close({bool dropObjects = true}) async {
     await _subscription.cancel();
     try {
+      if (!dropObjects) return;
+      await _connection.execute(
+        'DROP FUNCTION IF EXISTS icinga2_test_transition() CASCADE',
+      );
+      await _connection.execute(
+        'DROP TABLE IF EXISTS icinga2_test_transitions',
+      );
       await _connection.execute('DROP FUNCTION $_channel() CASCADE');
     } finally {
       await _connection.close(force: true);

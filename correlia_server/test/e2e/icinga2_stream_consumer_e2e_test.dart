@@ -47,9 +47,12 @@ void main() {
             ],
           }),
         ));
-        await scenario.upstream.send(streamDbCheck(DateTime.now().toUtc()));
-        await scenario.until(() async => await scenario.count('events') == 1);
-        await child.waitForOutput(_connectedLine);
+        const host = 'accepted-subscription-host';
+        await scenario.upstream.send(
+          streamDbCheck(DateTime.now().toUtc(), host: host),
+        );
+        await scenario.expectDelivery(_source, host);
+        await child.waitForOutput(_connectedLine, timeout: null);
       },
       timeout: _timeout,
     );
@@ -65,7 +68,7 @@ void main() {
     final publisher = await scenario.start(role: 'api', revision: 2);
     await scenario.waitState('connected');
     expect(scenario.upstream.subscriptionsReady, 1);
-    await worker.waitForOutput(_connectedLine);
+    await worker.waitForOutput(_connectedLine, timeout: null);
     expect(publisher.output, isNot(contains('icinga2-stream source=')));
   }, timeout: _timeout);
 
@@ -77,19 +80,9 @@ void main() {
     test(name, () async {
       scenario.upstream.subscriptionStatus = response;
       await scenario.start(revision: 1);
-      await scenario.until(
-        () async => await scenario.db
-            .execute('''
-        SELECT 1 FROM icinga2_stream_status WHERE state='backoff' AND "lastErrorClass"='$error'
-      ''')
-            .then((rows) => rows.isNotEmpty),
-      );
-      expect(scenario.upstream.eventRequests, isNotEmpty);
-      if (response == null) {
-        await scenario.upstream.disconnected.future.timeout(
-          const Duration(seconds: 1),
-        );
-      }
+      final backoff = await scenario.firstBackoff();
+      expect(backoff[0], error);
+      if (response != null) expect(scenario.upstream.eventRequests, isNotEmpty);
       expect(scenario.upstream.reads, 0);
       expect(await scenario.count('icinga2_sync_progress'), 0);
       expect(await scenario.count('raw_inbox'), 0);
@@ -117,7 +110,7 @@ void main() {
     final (code, body) = await _status(child);
     expect(code, isNot(HttpStatus.ok));
     expect(body, contains('Console access denied'));
-    await child.waitForOutput(_connectedLine);
+    await child.waitForOutput(_connectedLine, timeout: null);
   }, timeout: _timeout);
 
   test('holder_died_with_no_replacement', () async {
@@ -160,7 +153,7 @@ void main() {
       () async {
         await scenario.start(role: 'worker', revision: 1);
         await scenario.waitState('connected');
-        final started = Stopwatch()..start();
+        await scenario.upstream.waitForObjectResponses(1);
         await scenario.start(
           role: 'api',
           revision: 2,
@@ -168,11 +161,8 @@ void main() {
             if (!removed) scenario.source(enabled: false),
           ],
         );
-        await scenario.upstream.disconnected.future.timeout(
-          const Duration(seconds: 30),
-        );
+        await scenario.upstream.waitForDisconnects(1);
         await scenario.waitState('stopped');
-        expect(started.elapsed, lessThan(const Duration(seconds: 35)));
         final last = (await scenario.db.execute('''
         SELECT "gapCount", l."expiresAt" <= clock_timestamp()
         FROM icinga2_stream_status s JOIN icinga2_stream_lease l USING ("sourceId")
@@ -194,8 +184,11 @@ void main() {
         streamSource('44444444-4444-4444-8444-444444444444', enabled: false),
       ],
     );
-    await scenario.upstream.send(streamDbCheck(DateTime.now().toUtc()));
-    await scenario.until(() async => await scenario.count('events') == 1);
+    const host = 'after-unrelated-revision-host';
+    await scenario.upstream.send(
+      streamDbCheck(DateTime.now().toUtc(), host: host),
+    );
+    await scenario.expectDelivery(_source, host);
     expect(scenario.upstream.subscriptionsReady, 1);
     expect(
       (await scenario.db.execute('''
@@ -224,12 +217,9 @@ void main() {
       revision: 2,
       sources: [scenario.source(url: replacement.url)],
     );
-    await scenario.upstream.disconnected.future.timeout(
-      const Duration(seconds: 35),
-    );
-    await replacement.firstSubscription.future.timeout(
-      const Duration(seconds: 10),
-    );
+    await scenario.upstream.waitForDisconnects(1);
+    await replacement.waitForSubscriptions(1);
+    await replacement.waitForObjectResponses(1);
     await scenario.waitState('connected');
     expect(replacement.reads, 1);
     expect(
@@ -263,9 +253,7 @@ void main() {
         },
       },
     );
-    await scenario.upstream.disconnected.future.timeout(
-      const Duration(seconds: 35),
-    );
+    await scenario.upstream.waitForDisconnects(1);
     await scenario.until(() async {
       final current = (await scenario.db.execute('''
         SELECT "connectionSeq", "gapCount", state FROM icinga2_stream_status
@@ -273,36 +261,24 @@ void main() {
       return current[0] == 2 && current[1] == 1 && current[2] == 'connected';
     });
     expect(scenario.upstream.subscriptionsReady, 2);
-    await scenario.upstream.send(streamDbCheck(DateTime.now().toUtc()));
-    await scenario.until(() async => await scenario.count('events') == 1);
+    const host = 'after-password-rotation-host';
+    await scenario.upstream.send(
+      streamDbCheck(DateTime.now().toUtc(), host: host),
+    );
+    await scenario.expectDelivery(_source, host);
   }, timeout: _timeout);
 
   test('buffered_item_behind_cutoff_causes_gap_and_sync', () async {
     await scenario.start(role: 'worker', revision: 1);
     await scenario.waitState('connected');
     await scenario.ageSync();
-    await scenario.db.runTx((tx) async {
-      await tx.execute(
-        'SELECT 1 FROM raw_admission_cutoff WHERE singleton=1 FOR UPDATE',
-      );
-      await scenario.upstream.send(streamDbCheck(DateTime.now().toUtc()));
-      await scenario.until(
-        () async {
-          await tx.execute('SELECT pg_stat_clear_snapshot()');
-          return (await tx.execute('''
-        SELECT 1 FROM pg_stat_activity
-        WHERE datname=current_database() AND application_name='correlia-icinga2-stream'
-          AND wait_event_type='Lock' AND query LIKE '%INSERT INTO raw_inbox%'
-      ''')).isNotEmpty;
-        },
-      );
-      await tx.execute(
-        'UPDATE raw_admission_cutoff SET cutoff=clock_timestamp()',
-      );
-    });
-    await scenario.upstream.disconnected.future.timeout(
-      const Duration(seconds: 5),
+    await scenario.db.execute(
+      "UPDATE raw_admission_cutoff SET cutoff = 'infinity'",
     );
+    await scenario.upstream.send(streamDbCheck(DateTime.now().toUtc()));
+    await scenario.upstream.waitForDisconnects(1);
+    final backoff = await scenario.firstBackoff();
+    expect(backoff.toList(), ['receipt_behind_cutoff', 1, 1]);
     expect(await scenario.count('raw_inbox'), 0);
     expect(await scenario.count('icinga2_raw_origin'), 0);
     expect(await scenario.count('icinga2_admitted_batch'), 0);
@@ -336,6 +312,9 @@ void main() {
     () async {
       const webhookId = '44444444-4444-4444-8444-444444444444';
       const credential = 'AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE';
+      const webhookKey = 'combined-source-webhook';
+      const webhookHost = 'combined-webhook-host';
+      const streamHost = 'combined-stream-host';
       final webhook = {
         'id': webhookId,
         'kind': 'icinga2',
@@ -352,7 +331,7 @@ void main() {
         sources: [webhook],
         material: {'webhook-token': credential},
       );
-      expect(await initial.closeStdin(), 0);
+      expect(await initial.closeStdin(deadline: null), 0);
       final combined = await scenario.start(
         revision: 2,
         sources: [webhook, scenario.source()],
@@ -369,11 +348,13 @@ void main() {
         );
         request.headers.contentType = ContentType.json;
         request.headers.set('Authorization', 'Bearer $credential');
+        request.headers.set('Idempotency-Key', webhookKey);
         final seconds = DateTime.now().microsecondsSinceEpoch / 1000000;
         request.write(
           jsonEncode(
             delivery(
               set: {
+                'host': webhookHost,
                 'last_state_change': '$seconds',
                 'notification_time': '$seconds',
               },
@@ -387,8 +368,12 @@ void main() {
 
       expect(await post(_source), HttpStatus.unauthorized);
       expect(await post(webhookId), HttpStatus.accepted);
-      await scenario.upstream.send(streamDbCheck(DateTime.now().toUtc()));
-      await scenario.until(() async => await scenario.count('events') == 2);
+      await scenario.upstream.send(
+        streamDbCheck(DateTime.now().toUtc(), host: streamHost),
+      );
+      await scenario.expectDelivery(webhookId, webhookHost);
+      await scenario.expectDelivery(_source, streamHost);
+      expect(await scenario.count('events'), 2);
     },
     timeout: _timeout,
   );

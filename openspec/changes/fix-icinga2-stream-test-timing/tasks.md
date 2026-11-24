@@ -6,8 +6,8 @@ No spec delta. The existing suites remain the product acceptance checks; the lis
 
 ## 1. Real-child outcomes
 
-- [ ] 1.1 Replace the consumer E2E aggregate poll with exact committed raw and event witnesses; journal status before activation and verify header/cutoff outcomes without child fault IPC.
-- [ ] 1.2 Convert readiness, shutdown and redaction waits in the shared child harness, `shutdown_e2e_test.dart` and `icinga2_stream_secrets_e2e_test.dart` to events; verify all three E2E suites.
+- [x] 1.1 Replace the consumer E2E aggregate poll with exact committed raw and event witnesses; journal status before activation and verify header/cutoff outcomes without child fault IPC.
+- [x] 1.2 Convert readiness, shutdown and redaction waits in the shared child harness, `shutdown_e2e_test.dart` and `icinga2_stream_secrets_e2e_test.dart` to events; verify all three E2E suites.
 
 ## 2. PostgreSQL ordering
 
