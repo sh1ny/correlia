@@ -173,7 +173,7 @@ group re-runs that test. Every other row starts `red` and turns green when its g
 
 ## 9. Integration
 
-- [ ] 9.1 Run `mise run test:all` and `mise run check`. Verify: both pass and every test-map row reads `green`.
+- [x] 9.1 Run `mise run test:all` and `mise run check`. Verify: both pass and every test-map row reads `green`.
 
 ## Workflow follow-up
 

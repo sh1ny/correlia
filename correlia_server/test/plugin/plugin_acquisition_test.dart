@@ -1,4 +1,5 @@
 @Tags(['plugin'])
+@Timeout(Duration(minutes: 5))
 library;
 
 import 'dart:async';
@@ -8,12 +9,45 @@ import 'package:correlia_server/src/plugin/plugin_host.dart';
 import 'package:correlia_server/src/plugin/plugin_rpc_connection.dart';
 import 'package:test/test.dart';
 
+/// Captures the watchdog only after the fixture has entered its acquisition.
+final class _AcquisitionDeadline implements Timer {
+  var armed = false;
+  void Function()? _callback;
+
+  Future<void> start(PluginHost host) => runZoned(
+    host.start,
+    zoneSpecification: ZoneSpecification(
+      createTimer: (self, parent, zone, delay, callback) {
+        if (!armed) return parent.createTimer(zone, delay, callback);
+        armed = false;
+        _callback = callback;
+        return this;
+      },
+    ),
+  );
+
+  void expire() {
+    final callback = _callback!;
+    cancel();
+    callback();
+  }
+
+  @override
+  void cancel() => _callback = null;
+
+  @override
+  bool get isActive => _callback != null;
+
+  @override
+  int get tick => isActive ? 0 : 1;
+}
+
 void main() {
   PluginHostConfig config() => PluginHostConfig(
     executable: '/bin/true',
     arguments: [],
     identity: PluginClientIdentity(certificatePem: [], privateKeyPem: []),
-    timeout: const Duration(milliseconds: 200),
+    timeout: const Duration(minutes: 3),
   );
 
   test(
@@ -21,27 +55,34 @@ void main() {
     () async {
       final started = Completer<Process>();
       final release = Completer<void>();
+      final deadline = _AcquisitionDeadline();
       final host = createPluginHostForTesting(
         config(),
         controls: PluginHostTestControls(
           processStarter: (executable, arguments, environment) async {
-            final process = await Process.start('/bin/sh', [
+            final pending = Process.start('/bin/sh', [
               '-c',
               'exec /bin/cat',
             ]);
+            deadline.armed = true;
+            final process = await pending;
             started.complete(process);
             await release.future;
             return process;
           },
         ),
       );
-      final starting = host.start();
+      final failed = expectLater(
+        deadline.start(host),
+        throwsA(isA<PluginStartupException>()),
+      )..ignore();
       final process = await started.future;
       try {
-        await expectLater(starting, throwsA(isA<PluginStartupException>()));
+        deadline.expire();
+        await failed;
         expect(await File('/proc/${process.pid}/stat').exists(), isTrue);
         release.complete();
-        await process.exitCode.timeout(const Duration(seconds: 5));
+        await process.exitCode;
         expect(await File('/proc/${process.pid}/stat').exists(), isFalse);
       } finally {
         if (!release.isCompleted) release.complete();
@@ -58,21 +99,27 @@ void main() {
       final directory = await Directory.systemTemp.createTemp('correlia-late-');
       final release = Completer<void>();
       final entered = Completer<void>();
+      final deadline = _AcquisitionDeadline();
       final host = createPluginHostForTesting(
         config(),
         controls: PluginHostTestControls(
           directoryStarter: () async {
+            deadline.armed = true;
             entered.complete();
             await release.future;
             return directory;
           },
         ),
       );
-      final starting = host.start();
+      final failed = expectLater(
+        deadline.start(host),
+        throwsA(isA<PluginStartupException>()),
+      )..ignore();
       await entered.future;
       StreamSubscription<FileSystemEvent>? subscription;
       try {
-        await expectLater(starting, throwsA(isA<PluginStartupException>()));
+        deadline.expire();
+        await failed;
         expect(await directory.exists(), isTrue);
         final deleted = Completer<void>();
         subscription = directory.parent
@@ -83,7 +130,7 @@ void main() {
               }
             });
         release.complete();
-        await deleted.future.timeout(const Duration(seconds: 5));
+        await deleted.future;
         expect(await directory.exists(), isFalse);
       } finally {
         await subscription?.cancel();

@@ -372,17 +372,10 @@ VALUES
         final versions = await session.db.unsafeQuery(
           'SELECT version FROM correlia_schema_versions ORDER BY version',
         );
-        expect(versions.map((row) => row.toColumnMap()['version']), [
-          1,
-          2,
-          3,
-          4,
-          5,
-          6,
-          7,
-          8,
-          9,
-        ]);
+        expect(
+          versions.map((row) => row.toColumnMap()['version']),
+          schemaSteps.map((step) => step.version),
+        );
       });
     },
     rollbackDatabase: RollbackDatabase.disabled,
