@@ -42,3 +42,15 @@ Codex CLI 0.167.0, isolated `codex` route (OMP skipped as current harness; actua
 2. **Moderate — Cover a lost commit acknowledgement in the gap spec.** D12 defines the recovery correctly, but the existing death scenario covers a known durable number. Add a case that times out or cancels while the numbering commit outcome is unknown. In both outcomes, assert peer closure, zero HTTP bytes, and no replacement allocation while the old operation can still commit. Then assert exactly one gap if numbering committed and zero if it rolled back. [D12](openspec/changes/icinga2-event-streams/design.md#L530) · [Gaps counted once per connection](openspec/changes/icinga2-event-streams/specs/icinga2-event-streams/spec.md#L864)
 
 3. **Moderate — Fence pre-numbering status by attempt identity.** A DNS, TCP, or TLS failure can publish `backoff` before it has a connection ID, so D12’s connection-ID check cannot distinguish a late failure from the active attempt. Specify that only the current attempt’s terminal outcome can update retry status, including when an earlier attempt’s status write overlaps the next attempt. Test that delayed completion cannot overwrite a successor’s `syncing` or `connected` state, and that an authenticated HTTP refusal sets `backoff` and counts its numbered connection once. [D12](openspec/changes/icinga2-event-streams/design.md#L536) · [Reconnect with backoff](openspec/changes/icinga2-event-streams/specs/icinga2-event-streams/spec.md#L831)
+
+## Pre-ship review: draft PR fallback
+
+Local Codex CLI 0.167.0 rejected the full review input before reviewing it:
+1,871,163 characters against a 1,048,576-character limit. No local pre-ship
+verdict was issued. The design review verdict above is unchanged.
+
+On 2026-11-24, Ormy authorized the fallback on the owner's behalf, citing
+the owner's 2026-11-23 decision for Kaname's ESI generator: “fall back to
+CI+Codex if too big.” Run Linux verification and request GitHub Codex review
+of the complete diff on a draft PR. Leave marking it ready, merging, and
+archiving to the owner.
