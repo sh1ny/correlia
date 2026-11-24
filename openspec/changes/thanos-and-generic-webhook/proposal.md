@@ -40,8 +40,8 @@ tenant, `default`, in 1.0).
   immutable configuration snapshot. Activation validates every mapping and rejects one without a source
   time (stricter than RUL-8, which needs an observation id or a source time).
 - **Mapping preview.** A read-only API method, under the console access policy, maps a pasted sample with
-  the active mapping or a draft one and returns the events it would produce, with every unmapped or
-  rejected field. It stores nothing.
+  the active mapping or a draft one and returns the events it would produce, with the unmapped and
+  rejected fields up to a stated bound. It stores nothing.
 
 ## Capabilities
 
@@ -69,8 +69,9 @@ tenant, `default`, in 1.0).
 - Docs: the Thanos setup and the mapping document format (runbooks beside
   `docs/runbooks/alertmanager-compatibility.md`).
 - No new dependencies are expected; the capture runs Docker images on the developer machine only.
-- No database migration is expected beyond what storing mapping documents in the configuration
-  snapshot needs; design decides.
+- One schema step raises the configuration publisher version to 2, so older processes cannot publish
+  once this release runs (design D22). Mappings live in the existing snapshot JSON; the new kind needs
+  no column change.
 
 ## Decision Making
 

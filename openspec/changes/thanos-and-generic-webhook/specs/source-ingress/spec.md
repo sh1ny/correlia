@@ -69,7 +69,7 @@ with its bearer or HMAC credentials, with the same rotation overlap as other kin
 
 #### Scenario: Generic source with a known mapping
 - **WHEN** a `generic` source declares `mapping: checks`, mapping `checks` exists, and a delivery carries a valid HMAC signature
-- **THEN** activation succeeds and the delivery is admitted as a raw row pinned to the new snapshot
+- **THEN** activation succeeds and the delivery is admitted as a raw row with no pin; the pin is set at first claim
 
 #### Scenario: Unknown mapping name
 - **WHEN** a `generic` source declares `mapping: missing` and no mapping has that name
@@ -96,3 +96,17 @@ not valid JSON, or that its mapping rejects, SHALL fail its raw row in the pipel
 #### Scenario: Wrong content type on the generic route
 - **WHEN** a body is posted to the generic route with content type `application/x-www-form-urlencoded`
 - **THEN** Correlia answers 415 and no raw row is inserted
+
+### Requirement: Older publishers cannot publish
+
+This release SHALL raise the configuration publisher version to 2, so a process of an older release cannot
+publish any configuration once this release's schema is applied. Operators SHALL upgrade every role before
+publishing a configuration with a `generic` source, as the runbook states.
+
+#### Scenario: Current publisher
+- **WHEN** a process of this release publishes a configuration with a `generic` source after every role is upgraded
+- **THEN** activation succeeds
+
+#### Scenario: Older publisher after the upgrade
+- **WHEN** a process that publishes with publisher version 1 tries to publish a configuration after this release's schema step
+- **THEN** the insert is refused with `outdated configuration publisher` and the prior snapshot stays active

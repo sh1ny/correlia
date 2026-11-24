@@ -11,8 +11,8 @@ each delivery into canonical events, with the same identity, time and bound guar
 
 The bootstrap configuration SHALL accept a top-level `mappings` list. Each mapping SHALL have a unique `name`
 and `mapping_format: 1`, and SHALL publish and activate atomically with the sources in the configuration
-snapshot. An unknown field, an unsupported `mapping_format` or a duplicate name SHALL fail activation with a
-bounded field error.
+snapshot. An unknown field, an unsupported `mapping_format`, a duplicate name, or a file over the 64 KiB configuration
+cap SHALL fail activation with a bounded error.
 
 #### Scenario: Mapping published with its source
 - **WHEN** a configuration declares mapping `checks` with `mapping_format: 1` and a `generic` source naming it
@@ -21,6 +21,10 @@ bounded field error.
 #### Scenario: Unsupported mapping format
 - **WHEN** a mapping declares `mapping_format: 2`
 - **THEN** activation fails with a field error naming `mappings[i].mapping_format`, and the prior snapshot stays active
+
+#### Scenario: Mappings over the file cap
+- **WHEN** a configuration file grows over 64 KiB because of its mappings and is published from disk
+- **THEN** activation fails with a bounded file-size error, and the prior snapshot stays active
 
 #### Scenario: Duplicate mapping name
 - **WHEN** two mappings are both named `checks`
@@ -64,9 +68,13 @@ ever derived from arrival time (RUL-8).
 
 ### Requirement: Batched payloads through an items pointer
 
-A mapping MAY declare an `items` pointer selecting an array; each element SHALL then be decoded as one alert,
-and without it the whole body SHALL be one alert. A delivery whose `items` pointer selects no array SHALL fail
-with that pointer named.
+A mapping MAY declare an `items` pointer selecting an array of at most 1000 alerts; without it the body is one
+alert. A delivery whose `items` pointer selects no array SHALL fail with that pointer named. Decoding SHALL stop
+and fail the row once its decoded text passes 16 MiB, before more events are built.
+
+#### Scenario: Copies that expand past the decode budget
+- **WHEN** a mapping copies one 900-byte field into 128 labels and a delivery holds 1000 alerts
+- **THEN** decoding stops once the decoded bytes pass 16 MiB, the row fails with `decode_bound`, and no event commits
 
 #### Scenario: Three alerts in one delivery
 - **WHEN** a delivery's `items` array holds three alerts with distinct identity fields
@@ -100,9 +108,9 @@ mapped, else status, severity and reported source time. Batch position and arriv
 
 ### Requirement: Status and severity value tables
 
-A mapping SHALL declare `status` and `severity`. Status (`firing` or `resolved`) SHALL come from a value table;
-severity from a value table or a constant level. Each table maps the sender's value and may declare a default; a
-value missing from its table with no default SHALL fail the raw row, naming the pointer, never the value.
+A mapping SHALL declare `status` as a value table and `severity` as a value table or constant level. Table inputs
+SHALL be JSON strings or integers; a default covers only unlisted values. An absent value, another type, or an
+unlisted value with no default SHALL fail the raw row, naming the pointer, never the value.
 
 #### Scenario: Mapped status and severity
 - **WHEN** a mapping maps status `OK` to `resolved` and severity `CRIT` to `critical`, and an alert carries those values
@@ -112,19 +120,27 @@ value missing from its table with no default SHALL fail the raw row, naming the 
 - **WHEN** an alert's severity value is not in the table and the table declares default `warning`
 - **THEN** the event's severity is `warning`
 
+#### Scenario: Status value absent
+- **WHEN** the status pointer selects nothing in an alert and the status table declares a default
+- **THEN** the raw row fails with a field error naming the status pointer; the default is not used
+
 #### Scenario: Unlisted value without a default
 - **WHEN** an alert's status value is not in the table and the table declares no default
 - **THEN** the raw row fails with a field error naming the status pointer, and the failure evidence holds no payload value
 
 ### Requirement: Declared time formats
 
-Each time pointer SHALL declare `rfc3339`, `epoch_seconds` or `epoch_millis`. The reported evidence SHALL be the
-RFC 3339 text as sent, or the exact UTC RFC 3339 rendering of an epoch value; the normalized time SHALL go
-through the existing skew clamp. An RFC 3339 value without an offset, or a value of another type, SHALL fail the raw row.
+Each time pointer SHALL declare `rfc3339`, `epoch_seconds` or `epoch_millis`. An epoch value SHALL be a JSON integer
+from 0 to year 9999; its reported evidence SHALL be its UTC RFC 3339 rendering, with no fraction for seconds and
+three digits for millis. RFC 3339 text is kept as sent. Other values SHALL fail the row; times use the skew clamp.
 
 #### Scenario: Epoch milliseconds
 - **WHEN** a source time pointer declared `epoch_millis` selects `1795497600123`
 - **THEN** the event's source time and its reported evidence are both `2026-11-24T05:20:00.123Z`, and the same value in another delivery gives the same event id
+
+#### Scenario: Fractional or negative epoch value
+- **WHEN** a pointer declared `epoch_seconds` selects `1795497600.5`, or `-1`
+- **THEN** the raw row fails with a field error naming that pointer, and no rounded time is used
 
 #### Scenario: RFC 3339 without an offset
 - **WHEN** a pointer declared `rfc3339` selects `2026-11-24T05:20:00`
@@ -136,9 +152,9 @@ through the existing skew clamp. An RFC 3339 value without an offset, or a value
 
 ### Requirement: Display fields copy or take a constant
 
-A mapping SHALL declare `summary` and MAY declare `description`, up to 128 `labels` and up to 16 `links`, each
-copying one pointer's value or taking a constant; no templating. Display text over its bound SHALL be truncated
-with the marker, without changing identity. A copied non-scalar, or a link that is not an http(s) URL, SHALL fail the row.
+A mapping SHALL declare `summary` and MAY declare `description`, up to 128 `labels` and 16 `links`, each copying a
+pointer or taking a constant; no templates. Activation SHALL refuse a constant the event could not hold. Long
+display text SHALL be truncated with the marker. A copied non-scalar or non-http(s) link SHALL fail the row.
 
 #### Scenario: Copied and constant display fields
 - **WHEN** a mapping copies `/check/output` into the description and sets label `team` to the constant `ops`
@@ -151,6 +167,10 @@ with the marker, without changing identity. A copied non-scalar, or a link that 
 #### Scenario: Link that is not a URL
 - **WHEN** a link copies `/runbook` and an alert carries `see wiki` there
 - **THEN** the raw row fails with a field error naming `/runbook`
+
+#### Scenario: Empty summary constant
+- **WHEN** a mapping declares `summary: {constant: ""}`
+- **THEN** activation fails with a field error naming `mappings[i].summary`
 
 #### Scenario: Mapping without a summary
 - **WHEN** a mapping declares no `summary`
@@ -180,9 +200,9 @@ not itself name stored as `*`. Under `count` such fields SHALL be counted on the
 
 ### Requirement: Mapping preview
 
-A read-only API method under the console access policy SHALL map a sample of at most 1 MiB and 100 alerts with
-the source's active mapping or a draft, and SHALL return the events of the alerts that decode, whether the row would
-fail, and every unmapped path and field error, capped at 100 entries and 64 KiB. It SHALL store and publish nothing.
+A read-only method under the console access policy SHALL map a sample (1 MiB, 100 alerts) with the source's active
+mapping or a draft, returning the decoded events, whether decoding and the per-row budget would fail the row, and
+unmapped paths and field errors in alert then path order up to 100 entries and 64 KiB, plus an overflow count.
 
 #### Scenario: Preview with a draft mapping
 - **WHEN** the method is called in development mode from loopback with a sample of two alerts and a draft mapping
@@ -191,6 +211,14 @@ fail, and every unmapped path and field error, capped at 100 entries and 64 KiB.
 #### Scenario: Preview of a sample with several errors
 - **WHEN** a sample holds one valid alert and two alerts each with a different field error
 - **THEN** the result holds the valid alert's event, both field errors with their pointers, and states that the row would fail
+
+#### Scenario: Diagnostics over the cap
+- **WHEN** a sample's diagnostics repeat a long escaped ancestor path until they exceed 64 KiB before 100 entries
+- **THEN** the result holds the diagnostics that fit in alert and path order, and an overflow count of the rest
+
+#### Scenario: Row over the per-row budget
+- **WHEN** every alert of a sample maps successfully but the events and their output fan-out exceed the per-row budget
+- **THEN** the result states that the row would fail with `batch_bound`
 
 #### Scenario: Preview of an invalid draft
 - **WHEN** the draft mapping declares no source time pointer

@@ -68,3 +68,16 @@ Round-1 re-check:
 - **Moderate 6 — partial.** D18 adds reload-driven transition, sequence captures and manifest fields. The dropped-label run still lacks independent proof of both sends.
 - **Moderate 7 — partial.** C6 has one ADR destination; C7’s named destination carries pinning but omits replay deferral.
 - **Moderate 8 — partial.** The actual worker loader, fingerprint tuple, Docker launch and run-mode size settings are now cited. The remaining mismatches are listed above.
+Author, round 2 (owner chose H1a and H2a after escalation, 2026-11-24; all fixed for re-check):
+- Critical 1 fixed: source-ingress scenario now asserts an unset pin at admission; design Flow & State Gaps qualify removed sources (`source_not_configured`).
+- Critical 2 fixed: D22 (owner H2a) raises the publisher gate to version 2 in schema step 10; upgrade order in runbook and ADR 0031 (C9); new source-ingress requirement "Older publishers cannot publish"; mixed-version gap stated.
+- Critical 3 fixed: D8 defines `wouldFail` as decode, decode budget and per-row fan-out budget with the source's outputs; durable-state checks excluded; spec scenario for `batch_bound`.
+- Critical 4 fixed: D21 (owner H1a) counts decoded bytes during decoding, `decode_bound` at 16 MiB; spec scenario with repeated-pointer expansion.
+- Moderate 1 fixed: integer-only epochs, range 0 to year 9999, fixed rendering per format; fractional/negative scenario.
+- Moderate 2 fixed: D12 `GenericFieldError` with structured segments, three path origins, segment-boundary cut; durable requirement and canonical-failure scenario covering both catches.
+- Moderate 3 fixed: D8 ordering, per-path cut, overflow count; spec requirement and over-cap scenario; proposal wording bounded.
+- Moderate 4 fixed: D7 severity constant form; D13 table input types, absent vs unlisted, activation rejects impossible constants and outputs; D14 observation id immutability; spec scenarios.
+- Moderate 5 fixed: D15 file 64 KiB, snapshot 128 KiB `snapshot_bound`, ≤512 KiB per lookup; file-cap activation scenario.
+- Moderate 6 fixed: D18 per-Ruler sent counters, drop-run assertions; spec drop-run scenario; tenant scenario uses distinct Idempotency-Keys.
+- Moderate 7 fixed: durable requirement states replay is outside automatic retry (C7); C8 records no-cache.
+- Moderate 8 fixed: retry citation narrowed, endpoint calls cited at :18-34, receiver start at :62-63, global RPC limit impact stated in D17 and Risks.

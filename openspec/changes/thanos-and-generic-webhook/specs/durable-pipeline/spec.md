@@ -5,8 +5,9 @@
 ### Requirement: Rows decode by their source's kind
 
 The pipeline SHALL decode a raw row with the decoder of its pinned source's kind and, for an `icinga2` source in
-mode `event_streams`, of the row's stored format; a `generic` row SHALL use the mapping of its pinned snapshot. A
-kind or format with no decoder SHALL fail the row with a bounded error, never fall back to another decoder.
+mode `event_streams`, of the row's stored format. A `generic` row SHALL use its pinned snapshot's mapping on every
+retry; decoding with a later mapping is operator replay, outside automatic retry. A kind or format with no decoder
+SHALL fail the row with a bounded error, never fall back to another decoder.
 
 #### Scenario: Two kinds in one batch
 - **WHEN** pending rows from an `alertmanager` source and an `icinga2` source are processed
@@ -64,13 +65,17 @@ kind or format with no decoder SHALL fail the row with a bounded error, never fa
 
 ### Requirement: Generic decode failures name paths, never values
 
-A failed `generic` row SHALL record a bounded error code and an RFC 6901 path of at most 256 bytes. A path segment
-SHALL be kept only where the pinned mapping names that segment at that position, or as an index of an array the
-path traverses; every other segment SHALL be `*`. No payload value SHALL be stored. No event or output intent commits.
+A failed `generic` row SHALL record a bounded code and a path: an RFC 6901 sender path keeping only segments the
+pinned mapping names at that position and indexes of traversed arrays, others `*`, cut at a segment boundary within
+256 bytes; a canonical field name; or none. No payload key or value is stored, and no event or output intent commits.
 
 #### Scenario: Invalid JSON body
 - **WHEN** a `generic` row's body is not valid JSON
 - **THEN** the row fails with `invalid_json`, the error holds no part of the body, and no event commits
+
+#### Scenario: Canonical failure after mapping
+- **WHEN** a generic row maps successfully but its event fails canonical validation with `event_too_large`
+- **THEN** the stored path is the canonical field name or none, never a sender pointer, in both the decode and the commit stage
 
 #### Scenario: Numeric object key
 - **WHEN** a mapping reads `/check/name` and a failing alert carries an object key `0042` under `/check`

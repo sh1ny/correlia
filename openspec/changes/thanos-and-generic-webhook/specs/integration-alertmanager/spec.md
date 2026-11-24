@@ -40,6 +40,10 @@ SHALL yield one fingerprint; with neither, the documentation SHALL state that th
 - **WHEN** two Ruler replicas fire the same rule, differing only in the replica label, and the source excludes that label
 - **THEN** both notifications yield the same fingerprint
 
+#### Scenario: Replica label dropped by Ruler
+- **WHEN** both Ruler replicas send the rule, each send shown by that replica's own sent-alert counter, and Ruler drops the replica label
+- **THEN** the captured notifications carry no replica label and yield one fingerprint with no identity exclusions on the source
+
 #### Scenario: Replica label kept in identity
 - **WHEN** the same two notifications arrive at a source that neither excludes nor drops the replica label
 - **THEN** they yield two distinct fingerprints, as the setup documentation states
@@ -55,5 +59,5 @@ change neither identity nor routing.
 - **THEN** the alerts have distinct fingerprints and distinct event ids
 
 #### Scenario: Tenant header on a delivery
-- **WHEN** the same notification is delivered twice to one source, once with a `THANOS-TENANT: team-a` header and once without
-- **THEN** both decode to the same fingerprint and event id
+- **WHEN** the same notification is delivered twice to one source with distinct `Idempotency-Key` values, once with a `THANOS-TENANT: team-a` header and once without
+- **THEN** two raw rows are processed, both decode to the same fingerprint and event id, and the second is a duplicate observation
