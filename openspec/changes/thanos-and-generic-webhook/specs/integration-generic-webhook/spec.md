@@ -11,8 +11,8 @@ each delivery into canonical events, with the same identity, time and bound guar
 
 The bootstrap configuration SHALL accept a top-level `mappings` list. Each mapping SHALL have a unique `name`
 and `mapping_format: 1`, and SHALL publish and activate atomically with the sources in the configuration
-snapshot. An unknown field, an unsupported `mapping_format`, a duplicate name, or a file over the 64 KiB configuration
-cap SHALL fail activation with a bounded error.
+snapshot. An unknown field, an unsupported `mapping_format`, a duplicate name, a file over the 64 KiB configuration cap,
+or serialized mappings over 64 KiB SHALL fail activation with a bounded error.
 
 #### Scenario: Mapping published with its source
 - **WHEN** a configuration declares mapping `checks` with `mapping_format: 1` and a `generic` source naming it
@@ -69,16 +69,20 @@ ever derived from arrival time (RUL-8).
 ### Requirement: Batched payloads through an items pointer
 
 A mapping MAY declare an `items` pointer selecting an array of at most 1000 alerts; without it the body is one
-alert. A delivery whose `items` pointer selects no array SHALL fail with that pointer named. Decoding SHALL stop
-and fail the row once its decoded text passes 16 MiB, before more events are built.
+alert. A delivery whose `items` pointer selects no array SHALL fail with that pointer named. Decoding SHALL charge
+each event's serialized bytes as it is built and fail the row with `decode_bound` past 16 MiB.
 
 #### Scenario: Copies that expand past the decode budget
-- **WHEN** a mapping copies one 900-byte field into 128 labels and a delivery holds 1000 alerts
-- **THEN** decoding stops once the decoded bytes pass 16 MiB, the row fails with `decode_bound`, and no event commits
+- **WHEN** a mapping copies one field of 150 NUL characters into 128 labels and a delivery holds 900 alerts
+- **THEN** decoding stops once the events' serialized bytes pass 16 MiB, before the remaining events are built, the row fails with `decode_bound`, and no event commits
 
 #### Scenario: Three alerts in one delivery
 - **WHEN** a delivery's `items` array holds three alerts with distinct identity fields
 - **THEN** three events commit, one per element
+
+#### Scenario: More than 1000 items
+- **WHEN** the `items` array of a delivery holds 1001 elements
+- **THEN** the raw row fails with `items_bound` and no event commits
 
 #### Scenario: Items pointer selects an object
 - **WHEN** the `items` pointer selects an object instead of an array
@@ -130,17 +134,21 @@ unlisted value with no default SHALL fail the raw row, naming the pointer, never
 
 ### Requirement: Declared time formats
 
-Each time pointer SHALL declare `rfc3339`, `epoch_seconds` or `epoch_millis`. An epoch value SHALL be a JSON integer
-from 0 to year 9999; its reported evidence SHALL be its UTC RFC 3339 rendering, with no fraction for seconds and
+Each time pointer SHALL declare `rfc3339`, `epoch_seconds` or `epoch_millis`. An epoch value SHALL be a JSON integer, at most
+253402300799 seconds or 253402300799999 millis (year 9999); its reported evidence SHALL be its UTC RFC 3339 rendering, with no fraction for seconds and
 three digits for millis. RFC 3339 text is kept as sent. Other values SHALL fail the row; times use the skew clamp.
 
 #### Scenario: Epoch milliseconds
 - **WHEN** a source time pointer declared `epoch_millis` selects `1795497600123`
 - **THEN** the event's source time and its reported evidence are both `2026-11-24T05:20:00.123Z`, and the same value in another delivery gives the same event id
 
-#### Scenario: Fractional or negative epoch value
-- **WHEN** a pointer declared `epoch_seconds` selects `1795497600.5`, or `-1`
+#### Scenario: Fractional, exponent or negative epoch value
+- **WHEN** a pointer declared `epoch_seconds` selects `1795497600.5`, `1.7954976e9` or `-1`
 - **THEN** the raw row fails with a field error naming that pointer, and no rounded time is used
+
+#### Scenario: Epoch range boundary
+- **WHEN** an `epoch_millis` pointer selects `253402300799999`, and in another delivery `253402300800000`
+- **THEN** the first is accepted as `9999-12-31T23:59:59.999Z` and the second fails the raw row naming the pointer
 
 #### Scenario: RFC 3339 without an offset
 - **WHEN** a pointer declared `rfc3339` selects `2026-11-24T05:20:00`
@@ -152,9 +160,9 @@ three digits for millis. RFC 3339 text is kept as sent. Other values SHALL fail 
 
 ### Requirement: Display fields copy or take a constant
 
-A mapping SHALL declare `summary` and MAY declare `description`, up to 128 `labels` and 16 `links`, each copying a
-pointer or taking a constant; no templates. Activation SHALL refuse a constant the event could not hold. Long
-display text SHALL be truncated with the marker. A copied non-scalar or non-http(s) link SHALL fail the row.
+A mapping SHALL declare `summary`; `description`, 128 `labels` and 16 `links` are optional, each a copy or a constant.
+A copied string, number or boolean is used as its JSON text; null or absent omits an optional field and fails a
+summary. An object, array or non-http(s) link SHALL fail the row. Impossible constants fail activation.
 
 #### Scenario: Copied and constant display fields
 - **WHEN** a mapping copies `/check/output` into the description and sets label `team` to the constant `ops`
@@ -163,6 +171,14 @@ display text SHALL be truncated with the marker. A copied non-scalar or non-http
 #### Scenario: ID-3 long display text
 - **WHEN** a copied description is 5000 scalars long
 - **THEN** the description is truncated to 4096 scalars with the truncation marker and the fingerprint equals that of the same alert with a short description
+
+#### Scenario: Null and absent optional fields
+- **WHEN** a label copies `/env`, which is `null` in one alert and absent in another, and the summary copies the number `42`
+- **THEN** both events omit that label and have the summary `42`
+
+#### Scenario: Null summary
+- **WHEN** the summary pointer selects `null`
+- **THEN** the raw row fails with a field error naming the summary pointer
 
 #### Scenario: Link that is not a URL
 - **WHEN** a link copies `/runbook` and an alert carries `see wiki` there
@@ -182,9 +198,9 @@ display text SHALL be truncated with the marker. A copied non-scalar or non-http
 
 ### Requirement: Unmapped payload fields
 
-Each mapping SHALL declare `unmapped_fields` as `reject` (the default) or `count`. Under `reject` an alert with a
-field the mapping does not read SHALL fail the raw row, naming the field paths with each segment the mapping does
-not itself name stored as `*`. Under `count` such fields SHALL be counted on the raw outcome, never by name or value.
+`unmapped_fields` SHALL be `reject` (default) or `count`. A body leaf is unmapped unless an item pointer selects
+it or it lies on the `items` path. Under `reject` one fails the row, naming its path with segments the mapping does
+not name stored as `*`; under `count` unmapped leaves are counted on the raw outcome, never by name or value.
 
 #### Scenario: Extra field rejected by default
 - **WHEN** a mapping without `unmapped_fields` reads `/labels/host` and receives an alert carrying `/labels/token`
@@ -194,15 +210,19 @@ not itself name stored as `*`. Under `count` such fields SHALL be counted on the
 - **WHEN** the same alert is sent to the mapping preview
 - **THEN** the preview lists `/labels/token` as unmapped, because the preview stores nothing
 
+#### Scenario: Metadata beside the items array
+- **WHEN** a mapping with `items: /data/results` and `unmapped_fields: count` receives a body with `/data/page` beside the array
+- **THEN** the row commits and the outcome counts `/data/page` as one unmapped leaf
+
 #### Scenario: Extra fields counted
 - **WHEN** a mapping with `unmapped_fields: count` receives an alert carrying two fields it does not read
 - **THEN** the event commits and the raw outcome records two unmapped fields, with no field name or value
 
 ### Requirement: Mapping preview
 
-A read-only method under the console access policy SHALL map a sample (1 MiB, 100 alerts) with the source's active
-mapping or a draft, returning the decoded events, whether decoding and the per-row budget would fail the row, and
-unmapped paths and field errors in alert then path order up to 100 entries and 64 KiB, plus an overflow count.
+A read-only method under the console access policy SHALL map a sample (1 MiB, 100 alerts) with the active or a draft
+mapping and return the decoded events, decode failures, a labelled upper-bound row-budget estimate, and diagnostics
+ordered by alert then path bytes, up to 100 entries and 64 KiB serialized, with an overflow count. It writes nothing.
 
 #### Scenario: Preview with a draft mapping
 - **WHEN** the method is called in development mode from loopback with a sample of two alerts and a draft mapping
@@ -213,12 +233,16 @@ unmapped paths and field errors in alert then path order up to 100 entries and 6
 - **THEN** the result holds the valid alert's event, both field errors with their pointers, and states that the row would fail
 
 #### Scenario: Diagnostics over the cap
-- **WHEN** a sample's diagnostics repeat a long escaped ancestor path until they exceed 64 KiB before 100 entries
-- **THEN** the result holds the diagnostics that fit in alert and path order, and an overflow count of the rest
+- **WHEN** a sample's unmapped keys hold control characters, so 60 diagnostics serialize to more than 64 KiB
+- **THEN** the result holds the diagnostics that fit, ordered by alert then path bytes, and an overflow count of the rest
 
-#### Scenario: Row over the per-row budget
-- **WHEN** every alert of a sample maps successfully but the events and their output fan-out exceed the per-row budget
-- **THEN** the result states that the row would fail with `batch_bound`
+#### Scenario: Several errors in one alert
+- **WHEN** one alert has an unlisted status value and an identity value that is a number
+- **THEN** both field errors are returned for that alert, ordered by their path bytes
+
+#### Scenario: Row-budget estimate
+- **WHEN** every alert of a sample maps, and the events' bytes times one plus the source's output count exceed 16 MiB
+- **THEN** the result flags that the row may exceed the row budget, labelled an upper bound that assumes every event is new and routed
 
 #### Scenario: Preview of an invalid draft
 - **WHEN** the draft mapping declares no source time pointer

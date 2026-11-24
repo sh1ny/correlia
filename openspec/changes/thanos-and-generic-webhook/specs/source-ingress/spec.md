@@ -110,3 +110,17 @@ publishing a configuration with a `generic` source, as the runbook states.
 #### Scenario: Older publisher after the upgrade
 - **WHEN** a process that publishes with publisher version 1 tries to publish a configuration after this release's schema step
 - **THEN** the insert is refused with `outdated configuration publisher` and the prior snapshot stays active
+
+### Requirement: Generic sources drain before removal
+
+The runbook SHALL give one rollback path for a generic source: rotate it to a credential no sender holds, keep it
+enabled until it has no pending rows, then remove it. Removing or disabling it with pending unpinned rows fails
+them with `source_not_configured`. Binary downgrade after this release's schema step SHALL be unsupported.
+
+#### Scenario: Drained source removed
+- **WHEN** a generic source with pending rows is rotated to an unused credential, its rows finish, and a configuration without it activates
+- **THEN** new deliveries answer 401, every earlier row completes, and no row fails with `source_not_configured`
+
+#### Scenario: Source removed before draining
+- **WHEN** a configuration without a generic source activates while that source has pending unpinned rows
+- **THEN** those rows fail with `source_not_configured`, as the runbook warns

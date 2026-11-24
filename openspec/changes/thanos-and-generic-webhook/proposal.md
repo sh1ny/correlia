@@ -114,7 +114,7 @@ DECISION_MAKING: important
 
 - **Choice:** A read-only API method under the console access policy: it takes a sample payload and the
   active mapping or a draft one, returns the events it would produce and every unmapped or rejected
-  field, and stores nothing.
+  field (within the result bounds the owner approved in design D8), and stores nothing.
 - **Rejected:** a CLI command only (no path for the M4 console); both (two surfaces to keep equal).
 - **Reversal cost:** low
 - **Important:** yes (changes behaviour users see: a new API method)

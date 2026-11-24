@@ -67,15 +67,19 @@ SHALL fail the row with a bounded error, never fall back to another decoder.
 
 A failed `generic` row SHALL record a bounded code and a path: an RFC 6901 sender path keeping only segments the
 pinned mapping names at that position and indexes of traversed arrays, others `*`, cut at a segment boundary within
-256 bytes; a canonical field name; or none. No payload key or value is stored, and no event or output intent commits.
+256 bytes; a canonical field name; or none. Only mapping-named keys and no values are stored, and nothing commits.
 
 #### Scenario: Invalid JSON body
 - **WHEN** a `generic` row's body is not valid JSON
 - **THEN** the row fails with `invalid_json`, the error holds no part of the body, and no event commits
 
-#### Scenario: Canonical failure after mapping
-- **WHEN** a generic row maps successfully but its event fails canonical validation with `event_too_large`
-- **THEN** the stored path is the canonical field name or none, never a sender pointer, in both the decode and the commit stage
+#### Scenario: Canonical failure while decoding
+- **WHEN** a generic alert maps but its event fails construction with `event_too_large`
+- **THEN** the row fails with `event_too_large` and the stored path is `event`, never a sender pointer
+
+#### Scenario: Budget failure while committing
+- **WHEN** a generic row's events and fan-out exceed the per-row budget
+- **THEN** the row fails with `batch_bound` and no stored path
 
 #### Scenario: Numeric object key
 - **WHEN** a mapping reads `/check/name` and a failing alert carries an object key `0042` under `/check`
