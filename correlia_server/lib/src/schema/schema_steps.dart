@@ -159,9 +159,13 @@ Future<void> applySchemaSteps(
 }
 
 /// Initializes the installed SQL-owned schema.
+///
+/// The fixture hooks observe the real startup backfill and its contested writes.
 Future<void> initializeSchema(
   Session session, {
   Duration lockTimeout = defaultSchemaLockTimeout,
+  Future<void> Function(Transaction, bool)? beforeBackfillWriteForTest,
+  int? backfillWriteTimeoutInSecondsForTest,
 }) async {
   final List<SchemaStep> steps;
   try {
@@ -170,5 +174,9 @@ Future<void> initializeSchema(
     throw const SchemaStepException(1);
   }
   await applySchemaSteps(session, steps, lockTimeout: lockTimeout);
-  await backfillSecretReuse(session);
+  await backfillSecretReuse(
+    session,
+    beforeWriteForTest: beforeBackfillWriteForTest,
+    writeTimeoutInSecondsForTest: backfillWriteTimeoutInSecondsForTest,
+  );
 }

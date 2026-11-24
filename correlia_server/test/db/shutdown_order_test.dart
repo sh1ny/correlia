@@ -205,20 +205,31 @@ void main() {
           await workers.start();
           await server.waitForObjectResponses(1);
           final lockAcquired = Completer<void>();
-          final unlock = Completer<void>();
+          final unlock = ContentionGate();
           final lock = locked
-              ? session.db.transaction((tx) async {
-                  await pooledLockActor(session, tx);
-                  await session.db.unsafeQuery(
-                    'SELECT 1 FROM icinga2_stream_lease FOR UPDATE',
-                    transaction: tx,
-                  );
-                  lockAcquired.complete();
-                  await unlock.future;
-                })
+              ? unlock.run(
+                  () => session.db.transaction((tx) async {
+                    await pooledLockActor(session, tx);
+                    await session.db.unsafeQuery(
+                      'SELECT 1 FROM icinga2_stream_lease FOR UPDATE',
+                      transaction: tx,
+                    );
+                    lockAcquired.complete();
+                    await unlock.future;
+                  }),
+                )
               : null;
           try {
-            if (locked) await lockAcquired.future;
+            if (lock != null) {
+              await Future.any([
+                lockAcquired.future,
+                lock.then<void>(
+                  (_) => throw StateError(
+                    'Lease locker exited before acquiring the lock',
+                  ),
+                ),
+              ]);
+            }
             offline = unreachable;
             await workers.stop();
             expect(
@@ -227,9 +238,9 @@ void main() {
             );
             expect(expiredAtPipelineStop, !locked && !unreachable);
           } finally {
-            unlock.complete();
-            await lock;
+            await unlock.join();
           }
+          await lock;
         });
       }
     },

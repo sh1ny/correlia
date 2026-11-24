@@ -9,7 +9,6 @@ import 'package:correlia_server/src/ingest/bootstrap.dart';
 import 'package:correlia_server/src/ingest/config_repository.dart';
 import 'package:correlia_server/src/schema/schema_steps.dart';
 import 'package:correlia_server/src/secrets/commitments.dart';
-import 'package:correlia_server/src/secrets/reuse_backfill.dart';
 import 'package:serverpod/serverpod.dart';
 import 'package:test/test.dart';
 
@@ -351,10 +350,12 @@ void main() {
         final scanSession = builder.build();
         final scanActor = Completer<LockActor>();
         final scanning = release.run(
-          () => backfillSecretReuse(
+          () => initializeSchema(
             scanSession,
-            writeTimeoutInSecondsForTest: const Duration(minutes: 5).inSeconds,
-            beforeWriteForTest: (tx, completing) async {
+            backfillWriteTimeoutInSecondsForTest: const Duration(
+              minutes: 5,
+            ).inSeconds,
+            beforeBackfillWriteForTest: (tx, completing) async {
               if (!completing) {
                 scanActor.complete(
                   await pooledLockActor(
@@ -476,10 +477,12 @@ void main() {
         final scanSession = builder.build();
         final scanActor = Completer<LockActor>();
         final scanning = release.run(
-          () => backfillSecretReuse(
+          () => initializeSchema(
             scanSession,
-            writeTimeoutInSecondsForTest: const Duration(minutes: 5).inSeconds,
-            beforeWriteForTest: (tx, completing) async {
+            backfillWriteTimeoutInSecondsForTest: const Duration(
+              minutes: 5,
+            ).inSeconds,
+            beforeBackfillWriteForTest: (tx, completing) async {
               if (completing) {
                 scanActor.complete(
                   await pooledLockActor(
