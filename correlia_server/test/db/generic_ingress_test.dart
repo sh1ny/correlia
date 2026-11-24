@@ -167,6 +167,21 @@ void main() {
         expect(row[3], utf8.encode(_rejectedBody));
       });
 
+      test('body_the_mapping_rejects', () async {
+        expect(await post(), 202);
+        final rawId = (await session.db.unsafeQuery(
+          'SELECT raw_id::text FROM raw_inbox',
+        )).single[0];
+        final pipeline = PipelineRepository(session, clock: () => _now);
+        expect(await pipeline.pinOne(), isTrue);
+        expect(await pipeline.processOne(), isTrue);
+        expect((await rawRows()).single[1], 'failed');
+        final failure = (await session.db.unsafeQuery(
+          'SELECT "rawId"::text, "errorClass", "fieldPath" FROM pipeline_failures',
+        )).single;
+        expect(failure.toList(), [rawId, 'identity_type', '/host']);
+      });
+
       test('generic_admission_keeps_body_rate_and_transport_limits', () async {
         expect(await post(body: ' ' * 129), 413);
         expect(await rawRows(), isEmpty);

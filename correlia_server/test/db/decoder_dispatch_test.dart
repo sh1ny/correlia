@@ -14,6 +14,8 @@ import 'package:serverpod/serverpod.dart';
 import 'package:test/test.dart';
 
 import '../integration/test_tools/serverpod_test_tools.dart';
+import '../support/generic_pipeline_fixture.dart';
+import '../support/generic_webhook_fixture.dart';
 import '../support/icinga2_delivery.dart' as icinga2;
 import '../support/icinga2_stream_decode_fixture.dart';
 import '../support/icinga2_stream_fixture.dart';
@@ -608,6 +610,61 @@ VALUES (@time,CAST(@id AS uuid),CAST(@source AS uuid),@body,@digest,'application
           expect(await failure(raw), 'source_not_configured');
         }
         expect(stub.calls, 0);
+        expect(await count('events'), 0);
+      });
+
+      for (final claimFirst in [false, true]) {
+        test(
+          claimFirst
+              ? 'generic_mapping_changes_after_the_first_claim'
+              : 'generic_mapping_changes_before_the_first_claim',
+          () async {
+            final original = await publishGenericConfig(session, now: _now);
+            final raw = await admitGeneric(
+              session,
+              original,
+              jsonEncode(genericAlert(_now)),
+              _now,
+            );
+            final pipeline = PipelineRepository(session, clock: () => _now);
+            if (claimFirst) expect(await pipeline.pinOne(), isTrue);
+            final active = await publishGenericConfig(
+              session,
+              now: _now,
+              revision: 2,
+              mapping: {
+                ...checkMapping(),
+                'summary': {'constant': 'Revision 2'},
+                'unmapped_fields': 'count',
+              },
+            );
+            if (!claimFirst) expect(await pipeline.pinOne(), isTrue);
+            expect(await pipeline.processOne(), isTrue);
+            expect(await status(raw), 'done');
+            final event = (await genericEvents(session)).single;
+            expect(event.summary, claimFirst ? 'Check status' : 'Revision 2');
+            expect(
+              (await rows(
+                "SELECT config_snapshot_id FROM raw_inbox WHERE raw_id=CAST('$raw' AS uuid)",
+              )).single.single,
+              claimFirst ? original.snapshotId : active.snapshotId,
+            );
+          },
+        );
+      }
+
+      test('generic_row_pinned_to_a_snapshot_without_its_mapping', () async {
+        await publishGenericConfig(session, now: _now);
+        final missing = await derive((json) => json.remove('mappings'));
+        final raw = await seed(
+          genericPipelineSource,
+          Uint8List.fromList(utf8.encode(jsonEncode(genericAlert(_now)))),
+          pin: missing,
+        );
+        final pipeline = PipelineRepository(session, clock: () => _now);
+        expect(await pipeline.processOne(), isTrue);
+        expect(await status(raw), 'failed');
+        expect(await failure(raw), 'unsupported_mapping');
         expect(await count('events'), 0);
       });
     },

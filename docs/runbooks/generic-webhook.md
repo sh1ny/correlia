@@ -110,3 +110,20 @@ with `unsupported_kind`.
 
 Binary downgrade after step 10 is unsupported. Do not publish a generic
 source until the upgrade is complete.
+
+## Drain before removing a source
+
+1. Stop senders or rotate the source's credential references to credentials
+   no sender holds. Keep the source enabled, with its mapping and outputs
+   still configured. Do not leave an old credential active.
+2. Confirm there are no pending deliveries for the source. An operator with
+   read access can check PostgreSQL using the source UUID as `$1`:
+
+   ```sql
+   SELECT count(*) FROM raw_inbox
+   WHERE source_id = $1::uuid AND status = 'pending';
+   ```
+
+3. Publish the configuration without the source only after that count reaches
+   zero. Otherwise rows not yet pinned fail `source_not_configured`; rows
+   already pinned use the snapshot and mapping from their first claim.
