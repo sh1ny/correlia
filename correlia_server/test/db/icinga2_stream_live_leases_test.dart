@@ -44,6 +44,7 @@ void main() {
         ''');
         changes = await IcingaTestDbChanges.start(session.serverpod, [
           'icinga2_stream_status',
+          'icinga2_stream_lease',
           'icinga2_sync_progress',
         ]);
         addTearDown(changes.close);
@@ -520,6 +521,83 @@ void main() {
 
       for (final remove in [false, true]) {
         test(
+          'quiet_source_${remove ? 'removed' : 'disabled'}_on_first_revision_tick',
+          () async {
+            final initialPass = Completer<void>();
+            final secondPass = Completer<void>();
+            final ready = Completer<void>();
+            final leaseClock = StreamReaderClock();
+            final loader = StreamTargetLoader(
+              session.serverpod,
+              testSecretResolver(session),
+            );
+            final worker = Icinga2StreamSupervisor(
+              loadTargets: loader.load,
+              openDatabase: (_) => endpoint.open(),
+              holder: 'quiet-worker',
+              runMode: 'test',
+              leaseClockForTest: () => leaseClock.elapsed,
+              leaseScheduleForTest: leaseClock.schedule,
+              afterRevisionPassForTest: () {
+                if (!initialPass.isCompleted) {
+                  initialPass.complete();
+                } else if (!secondPass.isCompleted) {
+                  secondPass.complete();
+                }
+              },
+              log: (message) {
+                if (message.endsWith(' connected') && !ready.isCompleted) {
+                  ready.complete();
+                }
+              },
+            );
+            addTearDown(worker.stop);
+            late _RevisionTick ticker;
+            runZoned(
+              worker.start,
+              zoneSpecification: ZoneSpecification(
+                createPeriodicTimer: (_, _, _, interval, tick) {
+                  expect(interval, const Duration(seconds: 30));
+                  return ticker = _RevisionTick(tick);
+                },
+              ),
+            );
+            await Future.wait([initialPass.future, ready.future]);
+            await http.waitForObjectResponses(1);
+            await session.db.unsafeExecute(
+              '''UPDATE icinga2_stream_lease SET "expiresAt"='infinity' ''',
+            );
+            final disabled = streamSource(icinga2DbSourceId, enabled: false);
+            (disabled['api']! as Map<String, Object?>)['url'] = http.url
+                .toString();
+            await IngestConfigRepository(
+              session,
+              secretStore: testSecretStore,
+            ).publishConfig(
+              streamBootstrap(2, [if (!remove) disabled]),
+              remove ? <String, Object?>{} : streamMaterial(),
+              runMode: 'test',
+            );
+            expect((await status()).state, StreamConsumerState.connected);
+            expect((await status()).gapCount, 0);
+            ticker.fire();
+            await secondPass.future;
+            await http.waitForDisconnects(1);
+            await changes.until(
+              () async =>
+                  (await status()).state == StreamConsumerState.stopped &&
+                  (await leaseRow())[2] == false,
+            );
+            expect((await status()).gapCount, 1);
+            expect((await status()).lastGapSeq, 1);
+            expect(http.subscriptionsReady, 1);
+            expect(ticker.tick, 1);
+          },
+        );
+      }
+
+      for (final remove in [false, true]) {
+        test(
           remove
               ? 'source_removed_during_a_database_outage'
               : 'status_write_during_a_database_outage',
@@ -612,6 +690,27 @@ void main() {
     rollbackDatabase: RollbackDatabase.disabled,
     testGroupTagsOverride: ['db'],
   );
+}
+
+final class _RevisionTick implements Timer {
+  _RevisionTick(this._callback);
+
+  final void Function(Timer) _callback;
+
+  @override
+  bool isActive = true;
+
+  @override
+  int tick = 0;
+
+  void fire() {
+    if (!isActive) throw StateError('Revision timer stopped');
+    tick++;
+    _callback(this);
+  }
+
+  @override
+  void cancel() => isActive = false;
 }
 
 final class _Worker {

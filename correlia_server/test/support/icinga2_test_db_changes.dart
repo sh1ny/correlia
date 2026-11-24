@@ -114,6 +114,7 @@ final class IcingaTestDbChanges {
 
   /// Removes the listener and its test-only database objects.
   Future<void> close({bool dropObjects = true}) async {
+    _fail(StateError('Icinga2 test database listener closed'));
     await _subscription.cancel();
     try {
       if (!dropObjects) return;

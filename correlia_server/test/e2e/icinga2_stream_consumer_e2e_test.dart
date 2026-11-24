@@ -118,8 +118,19 @@ void main() {
     final worker = await scenario.start(role: 'worker', revision: 1);
     await scenario.waitState('connected');
     final api = await scenario.start(role: 'api');
+    final pending = expectLater(
+      scenario.waitState('stopped'),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          contains('Stream child ${worker.pid} exited'),
+        ),
+      ),
+    );
     worker.kill();
     await worker.exitCode;
+    await pending;
     await scenario.db.execute(
       'UPDATE icinga2_stream_lease SET "expiresAt"=clock_timestamp()',
     );

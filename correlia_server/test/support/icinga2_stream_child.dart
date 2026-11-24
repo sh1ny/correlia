@@ -28,6 +28,7 @@ final class Icinga2StreamChild {
   final Directory files;
   final children = <ChildServer>[];
   IcingaTestDbChanges? _changes;
+  ChildServer? _consumer;
 
   /// Creates a fixture and registers teardown in dependency order.
   static Future<Icinga2StreamChild> create() async {
@@ -126,6 +127,7 @@ final class Icinga2StreamChild {
       });
     }
     await child.waitForReadyEvent();
+    if (role != 'api') _consumer = child;
     return child;
   }
 
@@ -146,8 +148,19 @@ final class Icinga2StreamChild {
   );
 
   /// Waits for committed fixture changes, with no per-step deadline.
-  Future<void> until(Future<bool> Function() condition) =>
-      _changes!.until(condition);
+  Future<void> until(Future<bool> Function() condition) {
+    final producer =
+        _consumer ?? (throw StateError('No stream consumer started'));
+    return Future.any([
+      _changes!.until(condition),
+      producer.exitCode.then<void>((code) {
+        throw StateError(
+          'Stream child ${producer.pid} exited with $code before its DB outcome.\n'
+          '${producer.output}',
+        );
+      }),
+    ]);
+  }
 
   /// Reads the first committed backoff for the fresh source.
   Future<ResultRow> firstBackoff() async {

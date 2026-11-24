@@ -257,20 +257,21 @@ void main() {
       test('repeated_short_pauses', () async {
         final entered = StreamController<Completer<void>>.broadcast();
         final releases = <Completer<void>>[];
-        addTearDown(() async {
-          for (final release in releases) {
-            if (!release.isCompleted) release.complete();
-          }
-          await entered.close();
-        });
         await start(
-          beforeCommit: (_) async {
+          beforeCommit: (tx) async {
+            await tx.execute('SET LOCAL idle_in_transaction_session_timeout=0');
             final release = Completer<void>();
             releases.add(release);
             entered.add(release);
             await release.future;
           },
         );
+        addTearDown(() async {
+          for (final release in releases) {
+            if (!release.isCompleted) release.complete();
+          }
+          await entered.close();
+        });
 
         Future<void> delayedFlush(DateTime timestamp) async {
           final next = entered.stream.first;
@@ -302,20 +303,21 @@ void main() {
       test('initial_backlog_with_growing_excess_lag', () async {
         final entered = StreamController<Completer<void>>.broadcast();
         final releases = <Completer<void>>[];
-        addTearDown(() async {
-          for (final release in releases) {
-            if (!release.isCompleted) release.complete();
-          }
-          await entered.close();
-        });
         await start(
-          beforeCommit: (_) async {
+          beforeCommit: (tx) async {
+            await tx.execute('SET LOCAL idle_in_transaction_session_timeout=0');
             final release = Completer<void>();
             releases.add(release);
             entered.add(release);
             await release.future;
           },
         );
+        addTearDown(() async {
+          for (final release in releases) {
+            if (!release.isCompleted) release.complete();
+          }
+          await entered.close();
+        });
         final socket = server.subscriptions.single;
         final now = DateTime.now().toUtc();
         final baseline =
