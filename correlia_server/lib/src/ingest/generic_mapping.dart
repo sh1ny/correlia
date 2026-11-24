@@ -164,6 +164,25 @@ final class GenericMapping {
   /// Optional link targets, keyed by their canonical relationships.
   final Map<String, GenericDisplayValue> links;
 
+  /// All pointers relative to an alert, excluding the body's items pointer.
+  Iterable<GenericPointer> get alertPointers sync* {
+    yield* identity.values;
+    if (observationId case final pointer?) yield pointer;
+    yield sourceTime.pointer;
+    yield status.pointer;
+    if (severity case GenericValueTable<EventSeverity>(:final pointer)) {
+      yield pointer;
+    }
+    if (summary case GenericDisplayCopy(:final pointer)) yield pointer;
+    if (description case GenericDisplayCopy(:final pointer)) yield pointer;
+    for (final field in labels.values) {
+      if (field case GenericDisplayCopy(:final pointer)) yield pointer;
+    }
+    for (final field in links.values) {
+      if (field case GenericDisplayCopy(:final pointer)) yield pointer;
+    }
+  }
+
   final Map<String, Object?> _json;
   final int _jsonBytes;
 

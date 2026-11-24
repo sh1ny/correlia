@@ -86,6 +86,18 @@ are not supported.
 - A delivery is subject to its source's body cap (default 1 MiB) and can hold
   at most 1,000 alerts.
 
+## Identity and observation IDs
+
+Every identity pointer must select a JSON string. Correlia derives the alert
+fingerprint from the configured namespace, kind `generic`, and those mapped
+identity fields, independently of batching and receipt time.
+
+An `observation_id` must name one immutable state change, not the alert object.
+If a sender uses the same ID for a firing alert and its resolve, Correlia records
+the resolve as a duplicate rather than applying it. Omit `observation_id` if
+the sender cannot provide a per-change ID; Correlia then uses the mapped
+status, severity and reported source time for the observation key.
+
 ## Upgrade order
 
 Upgrade every `api`, `worker` and `all` process to this release before
