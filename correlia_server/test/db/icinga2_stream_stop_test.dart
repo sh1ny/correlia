@@ -348,14 +348,58 @@ void main() {
       });
 
       test('lease_row_still_locked_at_stop', () async {
-        final fixture = await startSupervisor();
+        await observer.execute('''
+          CREATE SEQUENCE stop_release_deadline;
+          CREATE FUNCTION observe_stop_release_deadline() RETURNS trigger
+          LANGUAGE plpgsql AS \$\$
+          BEGIN
+            IF current_setting('application_name') = 'icinga2-stop-release-test' THEN
+              -- This runs before row locking. The witness survives rollback.
+              PERFORM setval('stop_release_deadline', CASE
+                WHEN current_setting('lock_timeout')::interval = interval '1 second'
+                 AND current_setting('statement_timeout')::interval = interval '1 second'
+                THEN 1 ELSE 2 END);
+            END IF;
+            RETURN NULL;
+          END \$\$;
+          CREATE TRIGGER observe_stop_release_deadline
+            BEFORE UPDATE ON icinga2_stream_lease FOR EACH STATEMENT
+            EXECUTE FUNCTION observe_stop_release_deadline()
+        ''', queryMode: pg.QueryMode.simple);
+        addTearDown(() async {
+          await observer.execute('''
+            DROP TRIGGER observe_stop_release_deadline ON icinga2_stream_lease;
+            DROP FUNCTION observe_stop_release_deadline();
+            DROP SEQUENCE stop_release_deadline
+          ''', queryMode: pg.QueryMode.simple);
+        });
+        var stopping = false;
+        final endpoint = await StreamDatabaseEndpoint.resolve(
+          session.serverpod,
+        );
+        final fixture = await startSupervisor(
+          openDatabase: (timeout) async {
+            final db = await endpoint.open(timeout: timeout);
+            if (stopping) {
+              await db.execute(
+                "SET application_name = 'icinga2-stop-release-test'",
+              );
+            }
+            return db;
+          },
+        );
         await connected(1);
         await observer.execute('BEGIN');
         try {
           final before = await observer.execute(
             "SELECT \"expiresAt\" FROM icinga2_stream_lease WHERE \"sourceId\"='$icinga2DbSourceId' FOR UPDATE",
           );
+          stopping = true;
           await _stopIdle(fixture.supervisor);
+          final deadline = await observer.execute(
+            'SELECT is_called, last_value FROM stop_release_deadline',
+          );
+          expect(deadline.single.toList(), [true, 1]);
           final after = await observer.execute(
             "SELECT \"expiresAt\" FROM icinga2_stream_lease WHERE \"sourceId\"='$icinga2DbSourceId'",
           );
