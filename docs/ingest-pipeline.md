@@ -89,6 +89,10 @@ base64url of the UTF-8 password or the PEM bundle bytes. Use the CA that signed
 the endpoint certificate and a hostname matching the certificate. The client
 uses only this CA bundle, TLS 1.2 or newer, no proxy, and no redirects. Do not
 set webhook `credentials` on the stream source.
+If a worker logs `missing_secret_pin`, check the reported source and credential
+role against the restored secret store. The worker cannot adopt that revision
+until both referenced records are available; the diagnostic omits secret names
+and material.
 `state_type_policy` defaults to `hard_only`; use `soft_and_hard` to apply SOFT
 problems as well as HARD problems. Confirm that the expected check state is
 current before migrating a notification-only source.

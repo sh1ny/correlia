@@ -56,17 +56,24 @@ final class StreamTargetLoader {
           final pins = {
             for (final row in commitments) row[0]! as String: row[1]! as String,
           };
+          final passwordPin = pins[passwordRef];
+          final caPin = pins[caRef];
+          if (passwordPin == null || caPin == null) {
+            final credential = switch ((passwordPin, caPin)) {
+              (null, null) => 'password,ca',
+              (null, _) => 'password',
+              _ => 'ca',
+            };
+            throw StreamTargetSecretMissing(id, credential);
+          }
           targets.add(
             StreamTarget(
               sourceId: id,
               snapshotId: snapshot,
               namespace: namespace,
               excludedLabels: labels.cast<String>(),
-              password: await _resolver.resolve(
-                passwordRef,
-                pins[passwordRef]!,
-              ),
-              ca: await _resolver.resolve(caRef, pins[caRef]!),
+              password: await _resolver.resolve(passwordRef, passwordPin),
+              ca: await _resolver.resolve(caRef, caPin),
               options: IcingaStreamOptions(
                 url: Uri.parse(url),
                 username: username,

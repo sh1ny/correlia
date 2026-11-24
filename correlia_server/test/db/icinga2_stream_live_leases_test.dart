@@ -143,6 +143,45 @@ void main() {
         }
       }
 
+      for (final (credential, reference) in [
+        ('password', 'icinga-password'),
+        ('ca', 'icinga-ca'),
+      ]) {
+        test('reports_missing_${credential}_pin', () async {
+          Future<void> rename(String from, String to) async {
+            await observer.execute(
+              pg.Sql.named(
+                'UPDATE secret_record SET reference=@to WHERE reference=@from',
+              ),
+              parameters: {'from': from, 'to': to},
+            );
+          }
+
+          final hidden = '$reference-missing';
+          await rename(reference, hidden);
+          addTearDown(() => rename(hidden, reference));
+          final diagnostic = Completer<String>();
+          final targets = StreamTargetLoader(
+            session.serverpod,
+            testSecretResolver(session),
+          );
+          start(
+            'missing-secret',
+            loadTargets: targets.load,
+            onLog: (message) {
+              if (!diagnostic.isCompleted) diagnostic.complete(message);
+            },
+          );
+          expect(
+            await diagnostic.future.timeout(const Duration(seconds: 5)),
+            'icinga2-stream source=$icinga2DbSourceId '
+            'missing_secret_pin credential=$credential',
+          );
+          expect(await countRows(session, 'icinga2_stream_lease'), 0);
+          expect(http.subscriptionsReady, 0);
+        });
+      }
+
       test('first_start_of_a_new_source', () async {
         expect(
           await observer.execute('SELECT 1 FROM icinga2_stream_lease'),

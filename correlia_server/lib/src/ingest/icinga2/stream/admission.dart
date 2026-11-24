@@ -195,6 +195,8 @@ final class ConsumerAdmission {
           ),
           parameters: batchKey,
         );
+        // PostgreSQL waits for an uncommitted unique-key conflict to settle.
+        // A rollback lets this insert claim the batch instead.
         if (claimed.isEmpty) return StreamAdmissionResult.committed;
 
         for (final row in batch.rows) {

@@ -69,6 +69,14 @@ bool _same<T>(List<T> left, List<T> right) {
   return true;
 }
 
+/// An active stream source lacks a stored password or CA commitment.
+final class StreamTargetSecretMissing implements Exception {
+  const StreamTargetSecretMissing(this.sourceId, this.credential);
+
+  final String sourceId;
+  final String credential;
+}
+
 /// Owns worker-local Icinga consumers and their dedicated database connections.
 final class Icinga2StreamSupervisor {
   Icinga2StreamSupervisor({
@@ -193,6 +201,13 @@ final class Icinga2StreamSupervisor {
       } finally {
         _maintenance = null;
         if (db.isOpen) await db.close(force: true);
+      }
+    } on StreamTargetSecretMissing catch (error) {
+      if (!_stopping) {
+        log(
+          'icinga2-stream source=${error.sourceId} '
+          'missing_secret_pin credential=${error.credential}',
+        );
       }
     } on Object {
       if (!_stopping) log('icinga2-stream supervisor database_or_config');
