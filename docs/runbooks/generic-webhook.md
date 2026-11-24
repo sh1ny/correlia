@@ -85,3 +85,16 @@ are not supported.
   input keys at most 256 UTF-8 bytes.
 - A delivery is subject to its source's body cap (default 1 MiB) and can hold
   at most 1,000 alerts.
+
+## Upgrade order
+
+Upgrade every `api`, `worker` and `all` process to this release before
+publishing a configuration with a generic source. Schema step 10 raises the
+configuration publisher gate to version 2 under the publication lock. It
+prevents a version-1 binary from publishing a new snapshot; it does not stop
+old processes or detect an old process starting with an already active,
+identical configuration. An old worker that claims a generic row fails it
+with `unsupported_kind`.
+
+Binary downgrade after step 10 is unsupported. Do not publish a generic
+source until the upgrade is complete.

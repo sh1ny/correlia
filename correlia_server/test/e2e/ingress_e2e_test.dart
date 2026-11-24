@@ -281,7 +281,7 @@ void main() {
       expect(await _post(child, path, bearer: _token), 202);
       final next = fixture.input(2, includeSource: false);
       await db.runTx((tx) async {
-        await tx.execute("SET LOCAL correlia.publisher_version = '1'");
+        await tx.execute("SET LOCAL correlia.publisher_version = '2'");
         await tx.execute(
           pg.Sql.named(
             'INSERT INTO ingest_config_snapshot ("snapshotId", revision, "publicJson") VALUES (@id:text, 2, @json:text)',
