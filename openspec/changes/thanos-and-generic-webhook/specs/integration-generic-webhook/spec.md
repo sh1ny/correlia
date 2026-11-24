@@ -34,11 +34,16 @@ or serialized mappings over 64 KiB SHALL fail activation with a bounded error.
 
 Every field a mapping reads SHALL be named by a JSON Pointer (RFC 6901) into one alert object. A pointer that is
 not valid RFC 6901 syntax SHALL fail activation. A pointer that selects nothing in a delivery SHALL count as an
-absent field.
+absent field. A body with two equal member names in one object SHALL fail with `duplicate_field` before any
+pointer is evaluated, in delivery and preview alike.
 
 #### Scenario: Key containing dots and slashes
 - **WHEN** a mapping reads `/labels/kubernetes.io~1name` and the alert has label `kubernetes.io/name: api`
 - **THEN** the selected value is `api`
+
+#### Scenario: Duplicate member name
+- **WHEN** an alert holds two `host` members under `/labels` with different values, and a mapping reads `/labels/host` as an identity field
+- **THEN** the raw row fails with `duplicate_field`, and neither value becomes the alert's identity
 
 #### Scenario: Invalid pointer
 - **WHEN** a mapping declares the pointer `labels/host`, which lacks the leading `/`
@@ -92,7 +97,8 @@ each event's serialized bytes as it is built and fail the row with `decode_bound
 
 A generic fingerprint SHALL hash tenant, namespace, kind `generic` and the mapping's identity fields, whose values
 SHALL be JSON strings, with the canonical tuple encoding. The observation key SHALL be the observation id when
-mapped, else status, severity and reported source time. Batch position and arrival SHALL NOT affect either.
+mapped, else status, severity and reported source time. Batch position and arrival SHALL NOT affect either. A
+mapped observation id SHALL name one state change, never the alert object, as the mapping runbook states.
 
 #### Scenario: ID-6 re-batched generic alerts
 - **WHEN** the same two alerts arrive once in one delivery and again as two single deliveries, in reverse order
@@ -105,6 +111,10 @@ mapped, else status, severity and reported source time. Batch position and arriv
 #### Scenario: Identity value that is not a string
 - **WHEN** an identity pointer selects the JSON number `1` in one alert
 - **THEN** the raw row fails with `identity_type` naming that pointer, so it never shares an identity with the string `"1"`
+
+#### Scenario: Observation id reused for the resolve
+- **WHEN** a mapping's observation id pointer selects the alert's own id, which the sender repeats on the firing and the resolved delivery
+- **THEN** the resolve is recorded as a duplicate observation, which is why the runbook requires an id per state change
 
 #### Scenario: Observation id absent in one alert
 - **WHEN** a mapping declares an observation id pointer and an alert lacks a value there
@@ -150,6 +160,10 @@ three digits for millis. RFC 3339 text is kept as sent. Other values SHALL fail 
 - **WHEN** an `epoch_millis` pointer selects `253402300799999`, and in another delivery `253402300800000`
 - **THEN** the first is accepted as `9999-12-31T23:59:59.999Z` and the second fails the raw row naming the pointer
 
+#### Scenario: Epoch seconds range boundary
+- **WHEN** an `epoch_seconds` pointer selects `253402300799`, and in another delivery `253402300800`
+- **THEN** the first is accepted as `9999-12-31T23:59:59Z` and the second fails the raw row naming the pointer
+
 #### Scenario: RFC 3339 without an offset
 - **WHEN** a pointer declared `rfc3339` selects `2026-11-24T05:20:00`
 - **THEN** the raw row fails with a field error naming that pointer
@@ -161,12 +175,12 @@ three digits for millis. RFC 3339 text is kept as sent. Other values SHALL fail 
 ### Requirement: Display fields copy or take a constant
 
 A mapping SHALL declare `summary`; `description`, 128 `labels` and 16 `links` are optional, each a copy or a constant.
-A copied string, number or boolean is used as its JSON text; null or absent omits an optional field and fails a
-summary. An object, array or non-http(s) link SHALL fail the row. Impossible constants fail activation.
+A copied string is used verbatim and a number or boolean as its JSON text; null or absent omits an optional field
+and fails a summary. An object, array or non-http(s) link SHALL fail the row. Impossible constants fail activation.
 
 #### Scenario: Copied and constant display fields
 - **WHEN** a mapping copies `/check/output` into the description and sets label `team` to the constant `ops`
-- **THEN** the event's description is that output and its labels include `team: ops`
+- **THEN** the event's description is that output, verbatim and without JSON quotes, and its labels include `team: ops`
 
 #### Scenario: ID-3 long display text
 - **WHEN** a copied description is 5000 scalars long
@@ -198,8 +212,8 @@ summary. An object, array or non-http(s) link SHALL fail the row. Impossible con
 
 ### Requirement: Unmapped payload fields
 
-`unmapped_fields` SHALL be `reject` (default) or `count`. A body leaf is unmapped unless an item pointer selects
-it or it lies on the `items` path. Under `reject` one fails the row, naming its path with segments the mapping does
+`unmapped_fields` SHALL be `reject` (default) or `count`. A body leaf is unmapped unless a field pointer selects it
+or an ancestor, even when that field then fails, or it lies on the `items` path. Under `reject` one fails the row, naming its path with segments the mapping does
 not name stored as `*`; under `count` unmapped leaves are counted on the raw outcome, never by name or value.
 
 #### Scenario: Extra field rejected by default
@@ -214,6 +228,10 @@ not name stored as `*`; under `count` unmapped leaves are counted on the raw out
 - **WHEN** a mapping with `items: /data/results` and `unmapped_fields: count` receives a body with `/data/page` beside the array
 - **THEN** the row commits and the outcome counts `/data/page` as one unmapped leaf
 
+#### Scenario: Wrong-typed object with children
+- **WHEN** the summary pointer selects an object holding two scalar members and the sample goes to the preview
+- **THEN** the preview reports the summary field error and lists neither member as unmapped
+
 #### Scenario: Extra fields counted
 - **WHEN** a mapping with `unmapped_fields: count` receives an alert carrying two fields it does not read
 - **THEN** the event commits and the raw outcome records two unmapped fields, with no field name or value
@@ -221,8 +239,9 @@ not name stored as `*`; under `count` unmapped leaves are counted on the raw out
 ### Requirement: Mapping preview
 
 A read-only method under the console access policy SHALL map a sample (1 MiB, 100 alerts) with the active or a draft
-mapping and return the decoded events, decode failures, a labelled upper-bound row-budget estimate, and diagnostics
-ordered by alert then path bytes, up to 100 entries and 64 KiB serialized, with an overflow count. It writes nothing.
+mapping and return events and decode failures, labelled as computed with preview metadata, and diagnostics ordered
+by alert (body first), path bytes, code: at most 100 entries and 64 KiB, kept bounded while collected, with an
+overflow count. It writes nothing and gives no row-budget estimate.
 
 #### Scenario: Preview with a draft mapping
 - **WHEN** the method is called in development mode from loopback with a sample of two alerts and a draft mapping
@@ -240,9 +259,13 @@ ordered by alert then path bytes, up to 100 entries and 64 KiB serialized, with 
 - **WHEN** one alert has an unlisted status value and an identity value that is a number
 - **THEN** both field errors are returned for that alert, ordered by their path bytes
 
-#### Scenario: Row-budget estimate
-- **WHEN** every alert of a sample maps, and the events' bytes times one plus the source's output count exceed 16 MiB
-- **THEN** the result flags that the row may exceed the row budget, labelled an upper bound that assumes every event is new and routed
+#### Scenario: Dense unmapped subtree
+- **WHEN** one alert of a sample holds 200000 unmapped scalar leaves and a body-level field sits beside the `items` array
+- **THEN** the result lists the body-level field first, then the first 99 alert paths in order, with an overflow count of 199901, and the collector never holds more than 100 entries
+
+#### Scenario: Results computed with preview metadata
+- **WHEN** a sample is previewed
+- **THEN** its events and decode failures are labelled as computed with preview metadata, the result carries no row-budget estimate, and a sample at an event-size bound may decode differently in production
 
 #### Scenario: Preview of an invalid draft
 - **WHEN** the draft mapping declares no source time pointer

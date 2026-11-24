@@ -156,18 +156,23 @@ Scope decisions S1–S6 are in `proposal.md`; they appear in the summary table.
   status, severity, summary, source time), unmapped paths, field errors (pointer and code) and the validation
   error, if any. Bounds: sample at most 1 MiB decoded and 100 alerts, draft at most 32 KiB; errors and unmapped
   paths at most 100 entries and 64 KiB of serialized diagnostics (the JSON the result carries), ordered by alert
-  index, then path UTF-8 bytes, then code, the same for active and draft mappings; preview paths are unredacted
-  (nothing is stored) and cut at a segment boundary within 256 bytes; `overflow` counts the entries left out.
-  Alerts are decoded independently in a collecting mode of the same decoder (D10). Decode failures and
-  `decode_bound` are exact. `mayExceedRowBudget` is a labelled upper bound: the events' serialized bytes times one
-  plus the source's output count, assuming every event is new, ready and routed; production may store a batch the
-  estimate flags, because it charges only inserted, routed events (`pipeline.dart:498-545`, `:640-670`).
+  index, then path UTF-8 bytes, then code, the same for active and draft mappings; body-level diagnostics (beside
+  the `items` array, no alert index) come first. Preview paths are unredacted (nothing is stored) and cut at a
+  segment boundary within 256 bytes; `overflow` counts the entries left out. The cap holds while collecting: the
+  collector keeps at most the 100 smallest entries by that order (a bounded max-heap) and counts the rest, so its
+  memory never grows with the number of unmapped leaves; the 64 KiB cut is applied to those 100 in order.
+  Alerts are decoded independently in a collecting mode of the same decoder (D10). Each event is built with preview
+  metadata: the nil UUID and the call time as raw reference, observed and processed times. Production metadata
+  (`pipeline.dart:419-436`) is serialized into the same bytes (`canonical_event.dart:412-464`), so the result is
+  labelled "computed with preview metadata": near the per-event or D21 bound, production may decide differently.
+  There is no row-budget estimate (owner, J1a, 2026-11-24): the worker's charge depends on production metadata and
+  on which events are new and routed, which the preview cannot know.
 - **Rejected:** no source id, with fixed preview identity values, because its fingerprints would not match the
   real source's and could not be compared with stored events.
 - **Reversal cost:** medium (public RPC contract the M4 console uses)
 - **Important:** yes (binds future changes: public interface)
 - **Chosen by:** user (owner via Ormy, 2026-11-24: "E2a"; draft format corrected from YAML to JSON by the agent, as
-  the configuration file is JSON, and reported to the owner)
+  the configuration file is JSON, and reported to the owner; row-budget estimate dropped, "J1a")
 
 ### D9: Mappings in the stored snapshot
 
@@ -193,12 +198,14 @@ Scope decisions S1–S6 are in `proposal.md`; they appear in the summary table.
 
 ### D11: What counts as a read field
 
-- **Choice:** One rule over the body: a leaf (scalar, or empty object or array) is read when an item pointer
-  selects it or one of its ancestors in some alert, or when it lies on the `items` path itself. Every other leaf
-  is unmapped, whether inside an alert or beside the `items` array. Under `count`, each unmapped leaf of the body
-  counts once.
-- **Rejected:** treating a selected object's whole subtree as read, because a pointer to `/labels` used as a
-  label source does not exist in D7 and would hide extra fields.
+- **Choice:** One rule over the body: a leaf (scalar, or empty object or array) is read when a field pointer
+  selects it or one of its ancestors in some alert, whether or not that field then validates, or when it lies on
+  the `items` path itself. Every other leaf is unmapped, whether inside an alert or beside the `items` array. Every
+  field but `items` needs a scalar, so a pointer that selects a container always fails with its own field error;
+  the container's children are covered by that error, not listed again. Under `count`, each unmapped leaf of the
+  body counts once.
+- **Rejected:** counting only selected leaves as read, because a wrong-typed container would then be reported
+  twice, once as a field error and again leaf by leaf.
 - **Reversal cost:** low
 - **Important:** no
 - **Chosen by:** agent
@@ -208,7 +215,8 @@ Scope decisions S1–S6 are in `proposal.md`; they appear in the summary table.
 - **Choice:** A generic arm of `safeFailurePath` renders RFC 6901 paths: a segment is kept only where some pointer
   of the pinned mapping has that segment at that position under the same kept prefix; an index is kept only
   where the decoder traversed an array; everything else is `*`. The path is cut at a segment boundary within 256
-  bytes, so no UTF-8 character or `~0`/`~1` escape is split. A new `EventPointerError`, a final subtype added in
+  bytes, so no UTF-8 character or `~0`/`~1` escape is split; when not even the first segment fits (pointers may
+  be 512 bytes), the stored path is `/*`, distinct from the empty pointer of a root failure. A new `EventPointerError`, a final subtype added in
   `event/validation.dart` beside the sealed base, carries the structured segments (token, array flag); the decoder
   raises it, and only the decode-stage catch (`pipeline.dart:457-465`) receives it. Sender paths are redacted
   structurally; canonical paths, such as `event` from `event_too_large` at construction, keep the existing
@@ -225,8 +233,11 @@ Scope decisions S1–S6 are in `proposal.md`; they appear in the summary table.
   an absent value or one of the wrong JSON type fails the whole raw row with the safe path and a code (identity
   values must be strings, D20). Table inputs must be strings or integers (an integer is looked up by its
   decimal text); a native observation id must be a string. A default covers an unlisted value, never an absent
-  one. A copied display value that is a string, number or boolean is used as its JSON text; `null` and absent omit an
-  optional field and fail `summary`. Activation refuses constants the event cannot hold (empty summary, over-bound text, a non-http(s) link) and
+  one. A copied string is used verbatim; a copied number or boolean is used as its JSON text (`42`, `true`);
+  `null` and absent omit an optional field and fail `summary`. Before any pointer is evaluated, a body with two
+  equal member names in one object fails with `duplicate_field`, in delivery and preview, as the Icinga2 parser
+  does (`icinga2/webhook_parser.dart:47-55`), because `jsonDecode` keeps the last value and a pointer would read
+  a member nobody validated. Activation refuses constants the event cannot hold (empty summary, over-bound text, a non-http(s) link) and
   table outputs outside the canonical enums.
 - **Rejected:** skipping the bad alert and committing the rest, because a partial batch hides data loss.
 - **Reversal cost:** low
@@ -301,8 +312,12 @@ Scope decisions S1–S6 are in `proposal.md`; they appear in the summary table.
   notifications. Every wait is bounded at 5 minutes and fails the run. The receiver writes every notification with a
   sequence number, never overwriting. Two runs are captured per release: replica label kept (two fingerprints
   expected) and dropped by Ruler (one). `fixtures/thanos/manifest.json` lists each file with its sequence, run,
-  replica labels seen, each Ruler's sent-alert counter before and after, and the image names and digests; a test
-  checks files and manifest match. Recording each Ruler's own counter so both replicas are shown to have sent even
+  replica labels seen, each Ruler's sent-alert counter before and after, and the Thanos, Alertmanager and
+  Prometheus image names and digests. Ruler's `--alert.query-url` and Alertmanager's `--web.external-url` are valid
+  HTTP URLs, so captured `externalURL` and `generatorURL` pass the decoder's link checks
+  (`alertmanager_decoder.dart:245-251`) without the receiver rewriting them. The fixture test checks files and
+  manifest match, that every pinned release × run (kept, dropped) × status (firing, resolved) is present, and that
+  each run shows both replicas' counters rising. Recording each Ruler's own counter so both replicas are shown to have sent even
   when Alertmanager merges them. The drop run asserts no replica label and one fingerprint with no source exclusions.
 - **Rejected:** a second capture script, because receiver, ports and cleanup would be duplicated.
 - **Reversal cost:** low
@@ -344,8 +359,12 @@ Scope decisions S1–S6 are in `proposal.md`; they appear in the summary table.
 
 ### D22: Rollout guard for generic sources
 
-- **Choice:** Schema step 10 replaces `correlia_require_publisher_version` to require version 2, and this
-  release's publisher sets `'2'`. An older process can no longer publish. Operators upgrade every role before
+- **Choice:** Schema step 10 first takes the publication advisory lock, as step 5 does
+  (`0005_secret_reuse.sql:1`) and as the publisher holds it for its whole transaction (`config_repository.dart:136-152`),
+  then replaces `correlia_require_publisher_version` to require version 2; this release's publisher sets `'2'`. An
+  old publication in flight finishes before the step applies, and no older process can publish a new snapshot
+  after it. The gate does not prove old processes stopped: an equal-snapshot startup takes the no-op path and runs
+  no trigger (`config_repository.dart:202-225`). A test holds an old-version publication open across the step. Operators upgrade every role before
   publishing a generic source; the runbook and ADR 0031 say so, following ADR 0030. Older workers still running
   are not detected. Rollback (owner, R1a): rotate the source to a credential no sender holds, keep it enabled
   until it has no pending rows, then remove it; disabling or removing it earlier fails unpinned rows
@@ -374,10 +393,10 @@ Scope decisions S1–S6 are in `proposal.md`; they appear in the summary table.
 | D5 | Unmapped fields | `reject` default or `count` | Always `count` | medium | yes | user |
 | D6 | Authentication | Bearer/HMAC, no path tokens | Path tokens | low | yes | user |
 | D7 | Mapping key layout | Flat keys | Grouped sections | high | yes | user |
-| D8 | Preview API shape | Source id, sample, optional draft | No source id | medium | yes | user |
+| D8 | Preview API shape | Source id, sample, optional draft; no row-budget estimate | No source id | medium | yes | user |
 | D9 | Mappings in the snapshot | Only when declared | Always written | high | yes | user |
 | D10 | Where mapping runs | Pipeline only | At ingress | medium | no | agent |
-| D11 | Read fields | Selected leaves and ancestors | Whole subtrees | low | no | agent |
+| D11 | Read fields | Selected nodes and their subtrees | Selected leaves only | low | no | agent |
 | D12 | Safe failure paths | Mapping-named segments only | Fixed allow-list | low | no | agent |
 | D13 | Required/wrong-typed fields | Fail the whole row | Skip the alert | low | no | agent |
 | D14 | Identity, display, time | Reuse event library | Generic-specific | high | no | agent |
@@ -395,8 +414,8 @@ Scope decisions S1–S6 are in `proposal.md`; they appear in the summary table.
 - **A1:** Thanos Ruler can drop its replica label before sending to Alertmanager through its own flag, and sends
   through Alertmanager's v2 API, which the pinned Alertmanager forwards as ordinary v4 webhooks. Not checked
   because it is external behaviour; the capture task proves it, and if Ruler cannot drop it, the setup relies on
-  `excluded_identity_labels`, which already exists. If Ruler cannot drop it, the drop-run scenario is replaced by the
-  exclusion scenario and the setup documents exclusion only; the owner is told. The sent-alert counter name is
+  `excluded_identity_labels`, which already exists. If Ruler cannot drop it, apply stops before Thanos support is
+  claimed and the owner decides the setup (S1 is not changed silently); the drop-run scenario stays required. The sent-alert counter name is
   checked during the capture. Depends on it: D18, the Thanos tasks.
 - **A2:** The last four Thanos minor releases publish multi-arch images that run under Docker on the developer
   machine. Not checked because the capture runs during apply. Depends on it: S6, D18.
@@ -417,8 +436,8 @@ Scope decisions S1–S6 are in `proposal.md`; they appear in the summary table.
   specs/integration-alertmanager/spec.md → Requirement: Thanos Ruler through Alertmanager
 - **C10:** Correlia reads no tenant header; each Thanos tenant is its own source (D20). Kind: rejected alternative.
   Destination: spec: specs/integration-alertmanager/spec.md → Requirement: One source per Thanos tenant
-- **C11:** The preview stores and publishes nothing, and its row-budget flag is an upper bound only. Kind:
-  invariant. Destination: spec: specs/integration-generic-webhook/spec.md → Requirement: Mapping preview
+- **C11:** The preview stores and publishes nothing, labels its results as computed with preview metadata, and
+  gives no row-budget estimate. Kind: invariant. Destination: spec: specs/integration-generic-webhook/spec.md → Requirement: Mapping preview
 - **C6:** Mappings are authored only in the bootstrap configuration file; there is no second activation path
   until M4 adds console editing. Kind: deliberate gap. Destination: ADR 0031
 - **C8:** Ingress reads the active snapshot per request with no cache; growth is bounded by D15's mappings cap.
@@ -426,6 +445,12 @@ Scope decisions S1–S6 are in `proposal.md`; they appear in the summary table.
   active-snapshot lookup
 - **C9:** Every role must run this release before a generic source is published; the publisher gate is version 2.
   Kind: invariant. Destination: ADR 0031
+- **C12:** Binary downgrade after schema step 10 is unsupported, and a generic source stays enabled until its
+  pending rows finish before removal. Kind: invariant. Destination: spec: specs/source-ingress/spec.md →
+  Requirement: Generic sources drain before removal
+- **C13:** A mapped observation id names one state change, never the alert object; a reused id turns a resolve
+  into a duplicate. Kind: invariant. Destination: spec: specs/integration-generic-webhook/spec.md → Requirement:
+  Generic alert identity
 - **C7:** A generic row always decodes with the mapping of its pinned snapshot; retries never re-pin, and
   decoding with a repaired mapping is operator replay, deferred to change 7. Kind: deliberate gap. Destination:
   spec: specs/durable-pipeline/spec.md → Requirement: Rows decode by their source's kind
@@ -440,7 +465,7 @@ flowchart LR
   B --> S[(ingest_config_snapshot<br/>publicJson with mappings)]
   Sender -->|POST /hooks/generic/id| I[Ingress]
   I -->|reads per request| S
-  I --> R[(raw_inbox, pinned)]
+  I --> R[(raw_inbox, unpinned)]
   R --> P[Pipeline worker]
   P -->|ConfigRepository.snapshot| S
   P --> G[decodeGeneric]
@@ -458,12 +483,12 @@ sequenceDiagram
   participant W as Worker
   participant DB as Postgres
   participant D as decodeGeneric
-  W->>DB: claim row, load pinned snapshot
+  W->>DB: claim row, pin at first claim, load pinned snapshot
   W->>D: bytes + mapping named by source
   alt mapping missing in snapshot
     W->>DB: fail row unsupported_mapping
   else decode error
-    D-->>W: EventFieldError(pointer, code)
+    D-->>W: EventPointerError(segments, code)
     W->>DB: fail row, safeFailurePath(pointer)
   else events
     D-->>W: DecodedBatch(events, unmapped count)
@@ -511,9 +536,9 @@ flowchart TB
 |---|---|---|---|---|
 | Generic body | Source body limit, default 1 MiB; depth 32 | 413 / `depth_bound` | Existing ingress | Unchanged: per-source limit |
 | Alerts per delivery | 1000 (D15) | Row fails `items_bound` | Existing processing deadline | 10x senders batch less; bound holds |
-| Decoded text per row | 16 MiB counted while decoding (D21) | Row fails `decode_bound` | Existing deadline | Constant |
+| Serialized events per row | 16 MiB counted while decoding (D21) | Row fails `decode_bound` | Existing deadline | Constant |
 | Preview request | 2.5 MiB wire; 1 MiB sample, 32 KiB draft, 100 alerts (D8, D17) | Typed error; over the wire cap Serverpod refuses | RPC default | Dev/test only |
-| Preview diagnostics | 100 entries and 64 KiB, then a count | Count of the rest | n/a | Constant |
+| Preview diagnostics | 100 entries kept while collecting (bounded heap), 64 KiB returned, then a count | Count of the rest | n/a | Constant |
 | Mappings in the file | 64 KiB file cap (D15) | Activation fails | n/a | Fixed by the cap |
 | Serialized mappings | 64 KiB per snapshot (D15) | Activation fails `mappings_bound` | n/a | Fixed by the cap |
 

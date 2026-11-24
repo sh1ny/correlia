@@ -67,7 +67,8 @@ SHALL fail the row with a bounded error, never fall back to another decoder.
 
 A failed `generic` row SHALL record a bounded code and a path: an RFC 6901 sender path keeping only segments the
 pinned mapping names at that position and indexes of traversed arrays, others `*`, cut at a segment boundary within
-256 bytes; a canonical field name; or none. Only mapping-named keys and no values are stored, and nothing commits.
+256 bytes, or `/*` when no segment fits (a root failure stores the empty pointer); a canonical field name; or none.
+Only mapping-named keys and no values are stored, and nothing commits.
 
 #### Scenario: Invalid JSON body
 - **WHEN** a `generic` row's body is not valid JSON
@@ -88,3 +89,11 @@ pinned mapping names at that position and indexes of traversed arrays, others `*
 #### Scenario: Failure in the second of three alerts
 - **WHEN** the second alert of a three-alert delivery has a severity value its table does not list and no default
 - **THEN** the whole row fails with an error naming `/items/1` and the severity pointer, without the value, and none of the three events commits
+
+#### Scenario: First segment longer than the path bound
+- **WHEN** a mapping reads a field under a 300-byte key and that field has the wrong type
+- **THEN** the stored path is `/*`, distinct from the empty pointer stored for a body that is not an object
+
+#### Scenario: Multibyte segment at the path bound
+- **WHEN** a failing path's next mapping-named segment holds multibyte or `~1`-escaped characters that would cross 256 bytes
+- **THEN** the stored path ends before that segment, and no character or escape is split

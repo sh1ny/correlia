@@ -18,13 +18,22 @@ through one pinned Alertmanager release, SHALL decode with identity equal to the
 
 ### Requirement: Thanos fixtures are captured, never hand-authored
 
-Each Thanos fixture SHALL be recorded by the capture tool from real Ruler and Alertmanager containers, and SHALL
-be listed in a manifest naming the Thanos and Alertmanager images and digests that produced it. A fixture file
-the manifest does not list, or a manifest entry without its file, SHALL fail the fixture test.
+Each Thanos fixture SHALL be recorded by the capture tool from real Ruler, Alertmanager and query containers with
+valid HTTP(S) external and generator URLs, and listed in a manifest naming those images and digests. The fixture
+test SHALL fail on a file without an entry, an entry without its file, a missing release, run or status of the
+pinned matrix, or a run without both replicas' sent-alert evidence.
 
 #### Scenario: Manifest matches the fixtures
 - **WHEN** the fixture test runs over the Thanos fixture directory
-- **THEN** every fixture has a manifest entry with image names and digests, and every entry has its fixture
+- **THEN** every fixture has a manifest entry with the Thanos, Alertmanager and query image names and digests, and every entry has its fixture
+
+#### Scenario: Capture matrix incomplete
+- **WHEN** the manifest and fixtures of one release lack the resolved notification of the drop run, though files and entries still match
+- **THEN** the fixture test fails naming that release, run and status
+
+#### Scenario: Replica evidence missing
+- **WHEN** a run's manifest entry shows no rise in one Ruler replica's sent-alert counter
+- **THEN** the fixture test fails naming that run and replica
 
 #### Scenario: Fixture added by hand
 - **WHEN** a Thanos fixture file is present that the manifest does not list
@@ -34,7 +43,8 @@ the manifest does not list, or a manifest entry without its file, SHALL fail the
 
 The documented Thanos setup SHALL keep Ruler's HA replica label out of identity, by dropping it in Ruler or by
 listing it in the source's `excluded_identity_labels`. With either, the same rule fired by two Ruler replicas
-SHALL yield one fingerprint; with neither, the documentation SHALL state that the replicas yield two.
+SHALL yield one fingerprint; with neither, the documentation SHALL state that the replicas yield two. If the capture
+shows Ruler cannot drop the label, Thanos support SHALL NOT be claimed until the owner decides the setup.
 
 #### Scenario: Two Ruler replicas, replica label excluded
 - **WHEN** two Ruler replicas fire the same rule, differing only in the replica label, and the source excludes that label

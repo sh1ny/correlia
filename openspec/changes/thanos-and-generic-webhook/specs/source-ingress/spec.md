@@ -99,13 +99,17 @@ not valid JSON, or that its mapping rejects, SHALL fail its raw row in the pipel
 
 ### Requirement: Older publishers cannot publish
 
-This release SHALL raise the configuration publisher version to 2, so a process of an older release cannot
-publish any configuration once this release's schema is applied. Operators SHALL upgrade every role before
-publishing a configuration with a `generic` source, as the runbook states.
+This release SHALL raise the configuration publisher version to 2, under the publication lock, so a process of an
+older release cannot publish a new configuration once this release's schema is applied. The gate does not show that
+older processes stopped; operators SHALL upgrade every role before publishing a `generic` source, as the runbook states.
 
 #### Scenario: Current publisher
 - **WHEN** a process of this release publishes a configuration with a `generic` source after every role is upgraded
 - **THEN** activation succeeds
+
+#### Scenario: Older publication in flight during the schema step
+- **WHEN** a publisher-version-1 transaction holds the publication lock and has inserted its snapshot when this release's schema step starts
+- **THEN** the step waits for that transaction to end, and the next publisher-version-1 insert after the step is refused
 
 #### Scenario: Older publisher after the upgrade
 - **WHEN** a process that publishes with publisher version 1 tries to publish a configuration after this release's schema step
