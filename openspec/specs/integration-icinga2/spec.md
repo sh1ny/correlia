@@ -9,7 +9,7 @@ stable identity and ordering.
 
 ### Requirement: Icinga2 webhook document
 
-`/hooks/icinga2/<source>` SHALL accept one JSON object per delivery in Correlia's Icinga2 webhook format,
+`/hooks/icinga2/<source>` of a source in mode `webhook` SHALL accept one JSON object per delivery in Correlia's Icinga2 webhook format,
 `format: "correlia.icinga2.v1"`: required object type, host, state, state type, notification type and
 time, `service` for a service object; optional `output`, author and comment. A missing required field (`missing_field`), a wrong type (`invalid_type`) or an unknown
 field (`unknown_field`) SHALL fail decoding with a bounded field path.
@@ -33,6 +33,10 @@ field (`unknown_field`) SHALL fail decoding with a bounded field path.
 #### Scenario: Unsupported format version
 - **WHEN** a delivery declares `format: "correlia.icinga2.v2"`
 - **THEN** the raw row fails with error code `unsupported_version` and stored failure path `format`
+
+#### Scenario: Delivery to a stream source
+- **WHEN** a delivery reaches `/hooks/icinga2/<source>` for a source in mode `event_streams`
+- **THEN** it is refused as for an unknown source, and no raw row is written
 
 ### Requirement: State change time is required only for state notifications
 

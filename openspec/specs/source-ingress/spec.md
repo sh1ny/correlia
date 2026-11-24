@@ -108,7 +108,7 @@ The system SHALL atomically publish immutable source/output snapshots with incre
 
 ### Requirement: Source configuration format
 
-The bootstrap configuration SHALL accept format version 2, where each source declares `kind`, `credentials`, an optional `namespace`, `body_limit_bytes` and `rate_limit`, and the root may declare `namespaces`. Format version 1 SHALL still be accepted and read as one bearer credential from `token_ref`, kind `alertmanager` and the default rate limit. Unknown fields and kinds SHALL fail with a bounded field error.
+The bootstrap configuration SHALL accept format version 2, where each source declares `kind`, `credentials`, an optional `namespace`, `body_limit_bytes` and `rate_limit`, and the root may declare `namespaces`. Format version 1 SHALL still be accepted and read as one bearer credential from `token_ref`, kind `alertmanager` and the default rate limit. Unknown fields, kinds and modes SHALL fail with a bounded field error.
 
 #### Scenario: Version 1 file still starts
 - **GIVEN** an M1 database with a format version 1 configuration active at revision N
@@ -125,9 +125,26 @@ The bootstrap configuration SHALL accept format version 2, where each source dec
 - **WHEN** a version 2 file declares one source of kind `alertmanager` and one of kind `icinga2`
 - **THEN** activation succeeds and each source accepts deliveries only under its own kind's route
 
+### Requirement: Icinga2 source mode
+
+An `icinga2` source MAY declare `mode`: `webhook`, the default, or `event_streams`. A stream source SHALL
+declare the stream settings instead of `credentials`, `body_limit_bytes` and `rate_limit`.
+
+#### Scenario: Webhook mode by default
+- **WHEN** an `icinga2` source declares no `mode`
+- **THEN** it is a webhook source and behaves as before this change
+
+#### Scenario: Existing snapshot republished after the upgrade
+- **WHEN** a database's active version 2 snapshot at revision N has webhook sources, and the same file is published at revision N after the upgrade
+- **THEN** the snapshot id is unchanged and activation is a no-op, because webhook mode is not written into the snapshot
+
+#### Scenario: Mode on another kind or unknown mode
+- **WHEN** an `alertmanager` source declares `mode`, or an `icinga2` source declares `mode: poll`
+- **THEN** activation fails with a field error naming `sources[i].mode`
+
 ### Requirement: Credential rotation with overlap
 
-A source SHALL hold 1 to 4 credentials, each with a distinct secret reference and an optional `not_before` and `not_after` instant (`not_before` < `not_after`). A credential SHALL authenticate only within its window, evaluated at receipt time. At least one credential SHALL have no `not_after` or a `not_after` in the future at activation.
+A webhook-mode source SHALL hold 1 to 4 credentials, each with a distinct secret reference and an optional `not_before` and `not_after` instant (`not_before` < `not_after`). A credential SHALL authenticate only within its window, evaluated at receipt time. At least one credential SHALL have no `not_after` or a `not_after` in the future at activation.
 
 #### Scenario: Overlapping rotation
 - **WHEN** revision B adds a new bearer credential beside the current one, then revision C removes the old one
@@ -144,6 +161,10 @@ A source SHALL hold 1 to 4 credentials, each with a distinct secret reference an
 #### Scenario: Activation without a usable credential
 - **WHEN** a publication gives a source five credentials, two credentials with the same reference, or only credentials already expired
 - **THEN** activation fails with a bounded field error and the prior snapshot stays active
+
+#### Scenario: Stream source holds no credentials
+- **WHEN** an `icinga2` source with `mode: event_streams` is published without `credentials`
+- **THEN** activation succeeds, and the source has no webhook credential that could authenticate a delivery
 
 ### Requirement: HMAC signed deliveries
 
@@ -171,7 +192,7 @@ The signing input SHALL be the exact bytes `<timestamp>.<K>.<body>`: the timesta
 
 ### Requirement: Per source request rate
 
-Each source SHALL have a request-rate budget (`rate_limit.per_second` 1 to 1000, default 20; `rate_limit.burst` 1 to 10000, default 40) enforced per process after successful authentication. A request over budget SHALL receive 429 with a `Retry-After` header in whole seconds and SHALL create no raw row; it SHALL count as rejected for that source.
+Each webhook-mode source SHALL have a request-rate budget (`rate_limit.per_second` 1 to 1000, default 20; `rate_limit.burst` 1 to 10000, default 40) enforced per process after successful authentication. A request over budget SHALL receive 429 with a `Retry-After` header in whole seconds and SHALL create no raw row; it SHALL count as rejected for that source.
 
 #### Scenario: Burst within budget
 - **WHEN** an authenticated source sends its burst size of requests at once
@@ -184,6 +205,10 @@ Each source SHALL have a request-rate budget (`rate_limit.per_second` 1 to 1000,
 #### Scenario: Unauthenticated traffic spends no budget
 - **WHEN** a stranger sends many requests with invalid credentials to a source, then the source sends a valid request
 - **THEN** the stranger's requests receive 401 and the valid request is admitted
+
+#### Scenario: Stream source has no request budget
+- **WHEN** an `icinga2` source with `mode: event_streams` is published
+- **THEN** it has no request-rate budget, and its ingest is bounded by `max_pending_rows` instead
 
 ### Requirement: Declared shared namespaces
 
@@ -240,3 +265,58 @@ built from host and service, not labels.
 #### Scenario: Icinga2 source declares excluded identity labels
 - **WHEN** an `icinga2` source declares `excluded_identity_labels: ["service"]`
 - **THEN** activation fails with a field error naming `sources[i].excluded_identity_labels`, and the prior snapshot stays active
+
+### Requirement: A source's mode never changes
+
+An `icinga2` source UUID SHALL keep the mode it was first published with, also across disable and
+re-enable. A configuration that gives it another mode SHALL fail activation with `mode_changed`, so a raw
+row always decodes in the mode it was admitted under.
+
+#### Scenario: Mode change refused
+- **WHEN** a source published as `webhook` is republished with the same UUID and `mode: event_streams`
+- **THEN** activation fails with a field error naming `sources[i].mode` and code `mode_changed`, and the prior snapshot stays active
+
+#### Scenario: New source for the stream
+- **WHEN** the operator adds a new source UUID with `mode: event_streams` beside the webhook source
+- **THEN** activation succeeds and both sources run
+
+### Requirement: Stream sources refuse webhook deliveries
+
+The webhook route of an `icinga2` source in mode `event_streams` SHALL answer every request with 401, exactly
+as for an unknown source, without reading the body or inserting any row.
+
+#### Scenario: Delivery to a stream source
+- **WHEN** a request with any bearer token or HMAC signature is sent to `/hooks/icinga2/<stream source id>`
+- **THEN** the response is 401 with the same body as for an unknown source, and no raw or transport-key row is written
+
+#### Scenario: Webhook source unaffected
+- **WHEN** a valid delivery is sent to a webhook-mode `icinga2` source in the same configuration
+- **THEN** it is accepted with 202
+
+### Requirement: New raw admissions honor the reclamation cutoff
+
+The durable admission cutoff SHALL advance monotonically with reclamation and fence all new raw inserts.
+Receipts below it SHALL roll back admission. Consumer rows SHALL use their earliest item receipt. Exact
+webhook retries within their transport window and retained batch receipts SHALL return the committed
+result without inserting. A live explicit key with a different body SHALL still return 409. Terminal
+rows below the cutoff SHALL NOT be requeued.
+
+#### Scenario: Webhook reaches admission after its receipt falls behind the cutoff
+- **WHEN** a valid webhook read began before the cutoff and attempts a new admission after the cutoff advances past its receipt
+- **THEN** it gets 503 and no raw row or transport reservation is committed; a fresh delivery can be admitted
+
+#### Scenario: A buffered stream item falls behind the cutoff
+- **WHEN** a new consumer batch contains an item received before the cutoff
+- **THEN** no raw row, origin record or batch receipt commits, and the consumer closes, records a gap and resyncs on reconnect
+
+#### Scenario: Committed batch receipt survives advancement of the cutoff
+- **WHEN** a consumer retries a batch whose commit acknowledgement was lost and whose earliest receipt is older than the cutoff
+- **THEN** while its batch receipt is retained, it gets the committed result without inserting another raw row
+
+#### Scenario: Webhook reservation inside and outside the transport window
+- **WHEN** retries of an already committed webhook reach admission with receipts behind the cutoff, one inside the original deduplication window and one after it
+- **THEN** the first returns the committed duplicate result and the second returns 503; neither creates a raw row or changes the original reservation
+
+#### Scenario: Conflicting live webhook key behind the cutoff
+- **WHEN** a delivery behind the cutoff reuses a still-live explicit key with a different body
+- **THEN** admission returns 409 without changing the reservation or inserting a raw row

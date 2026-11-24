@@ -4,7 +4,7 @@
 
 ### Requirement: Source configuration format
 
-The bootstrap configuration SHALL accept format version 2, where each source declares `kind`, `credentials`, an optional `namespace`, `body_limit_bytes` and `rate_limit`, and the root may declare `namespaces`. An `icinga2` source MAY declare `mode` (`webhook`, the default, or `event_streams`); a stream source declares the stream settings instead of `credentials`, `body_limit_bytes` and `rate_limit`. Format version 1 SHALL still be accepted and read as one bearer credential from `token_ref`, kind `alertmanager` and the default rate limit. Unknown fields, kinds and modes SHALL fail with a bounded field error.
+The bootstrap configuration SHALL accept format version 2, where each source declares `kind`, `credentials`, an optional `namespace`, `body_limit_bytes` and `rate_limit`, and the root may declare `namespaces`. Format version 1 SHALL still be accepted and read as one bearer credential from `token_ref`, kind `alertmanager` and the default rate limit. Unknown fields, kinds and modes SHALL fail with a bounded field error.
 
 #### Scenario: Version 1 file still starts
 - **GIVEN** an M1 database with a format version 1 configuration active at revision N
@@ -20,18 +20,6 @@ The bootstrap configuration SHALL accept format version 2, where each source dec
 #### Scenario: Supported kinds
 - **WHEN** a version 2 file declares one source of kind `alertmanager` and one of kind `icinga2`
 - **THEN** activation succeeds and each source accepts deliveries only under its own kind's route
-
-#### Scenario: Webhook mode by default
-- **WHEN** an `icinga2` source declares no `mode`
-- **THEN** it is a webhook source and behaves as before this change
-
-#### Scenario: Existing snapshot republished after the upgrade
-- **WHEN** a database's active version 2 snapshot at revision N has webhook sources, and the same file is published at revision N after the upgrade
-- **THEN** the snapshot id is unchanged and activation is a no-op, because webhook mode is not written into the snapshot
-
-#### Scenario: Mode on another kind or unknown mode
-- **WHEN** an `alertmanager` source declares `mode`, or an `icinga2` source declares `mode: poll`
-- **THEN** activation fails with a field error naming `sources[i].mode`
 
 ### Requirement: Credential rotation with overlap
 
@@ -78,6 +66,23 @@ Each webhook-mode source SHALL have a request-rate budget (`rate_limit.per_secon
 - **THEN** it has no request-rate budget, and its ingest is bounded by `max_pending_rows` instead
 
 ## ADDED Requirements
+
+### Requirement: Icinga2 source mode
+
+An `icinga2` source MAY declare `mode`: `webhook`, the default, or `event_streams`. A stream source SHALL
+declare the stream settings instead of `credentials`, `body_limit_bytes` and `rate_limit`.
+
+#### Scenario: Webhook mode by default
+- **WHEN** an `icinga2` source declares no `mode`
+- **THEN** it is a webhook source and behaves as before this change
+
+#### Scenario: Existing snapshot republished after the upgrade
+- **WHEN** a database's active version 2 snapshot at revision N has webhook sources, and the same file is published at revision N after the upgrade
+- **THEN** the snapshot id is unchanged and activation is a no-op, because webhook mode is not written into the snapshot
+
+#### Scenario: Mode on another kind or unknown mode
+- **WHEN** an `alertmanager` source declares `mode`, or an `icinga2` source declares `mode: poll`
+- **THEN** activation fails with a field error naming `sources[i].mode`
 
 ### Requirement: A source's mode never changes
 

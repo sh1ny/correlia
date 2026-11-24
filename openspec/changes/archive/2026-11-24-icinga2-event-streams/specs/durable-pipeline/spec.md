@@ -24,7 +24,7 @@ Processing SHALL atomically commit observation keys, events, alert changes, acti
 
 ### Requirement: Durable observation deduplication and quarantine
 
-Processing SHALL enforce durable event-id uniqueness with original ordering evidence before effects. Duplicates SHALL emit no events/outputs and advance only eligible alerts' `last_observed_at`, never late/future alerts. Beyond-limit source times SHALL be stored as future_dated without keys/outputs/state; late observations SHALL be stored as late without outputs/state. Items of Icinga2 stream and sync rows are the exception: a late or future-dated item SHALL be counted on its row and SHALL NOT be stored. Classification SHALL use accepted lateness/skew/future policy, never clamped identity evidence.
+Processing SHALL enforce durable event-id uniqueness with original ordering evidence before effects. Duplicates SHALL emit no events/outputs and advance only eligible alerts' `last_observed_at`, never late/future alerts. Beyond-limit source times SHALL be stored as future_dated without keys/outputs/state; late observations SHALL be stored as late without outputs/state, except Icinga2 items. Classification SHALL use accepted lateness/skew/future policy, never clamped identity evidence.
 
 #### Scenario: ORD-5b rebatching and expired transport window
 - **WHEN** equal observations arrive in different bodies concurrently or after transport dedup expiry
@@ -53,10 +53,6 @@ Processing SHALL enforce durable event-id uniqueness with original ordering evid
 #### Scenario: Late observation evidence
 - **WHEN** effective source time is older than the lateness horizon, for an observation other than an Icinga2 stream or sync item
 - **THEN** processing retains late evidence and creates no output intent and no alert state; it is not counted as a current observation
-
-#### Scenario: Late or future stream item
-- **WHEN** a sync row holds one reconcile observation older than the lateness horizon and a stream row holds one item beyond the future limit
-- **THEN** the rows' outcomes count one `late` and one `future_dated`, and no event, observation key or output intent is stored for either
 
 ### Requirement: Rows decode by their source's kind
 
@@ -132,6 +128,15 @@ queries; exact ordering SHALL use the canonical evidence. Expiry, windows and re
 - **THEN** no event is stored, the raw outcome counts one clamped observation, and the fence holds the effective time
 
 ## ADDED Requirements
+
+### Requirement: Late and future-dated stream items are counted, not stored
+
+An item of an Icinga2 stream or sync row that is late or future-dated SHALL be counted on its row's outcome and
+SHALL NOT be stored: it creates no event, observation key or output intent.
+
+#### Scenario: Late or future stream item
+- **WHEN** a sync row holds one reconcile observation older than the lateness horizon and a stream row holds one item beyond the future limit
+- **THEN** the rows' outcomes count one `late` and one `future_dated`, and no event, observation key or output intent is stored for either
 
 ### Requirement: Processing errors retry within a budget
 
