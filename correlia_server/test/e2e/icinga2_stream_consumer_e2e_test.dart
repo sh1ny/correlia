@@ -104,6 +104,7 @@ void main() {
     expect(body, isNot(contains('fixture password')));
     expect(body, isNot(contains('BEGIN CERTIFICATE')));
     expect(body, isNot(contains('commitment')));
+    expect(await child.stop(deadline: null), 0, reason: child.output);
   }, timeout: _timeout);
 
   test('status_method_in_production', () async {
@@ -113,6 +114,7 @@ void main() {
     expect(code, isNot(HttpStatus.ok));
     expect(body, contains('Console access denied'));
     await child.waitForOutput(_connectedLine, timeout: null);
+    expect(await child.stop(deadline: null), 0, reason: child.output);
   }, timeout: _timeout);
 
   test('holder_died_with_no_replacement', () async {

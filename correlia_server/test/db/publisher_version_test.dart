@@ -114,7 +114,11 @@ void main() {
             beforeStepForTest: (tx, step) async {
               if (step.version == 5) {
                 entered.complete(
-                  await pooledLockActor(cutoverSession, tx, waiter: true),
+                  await pooledLockActor(
+                    cutoverSession,
+                    tx,
+                    waiter: SqlTimeouts.schemaStep,
+                  ),
                 );
               }
             },

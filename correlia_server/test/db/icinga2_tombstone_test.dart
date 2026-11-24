@@ -385,8 +385,9 @@ void main() {
         final scanner = TombstoneSweep(
           sweepConnection,
           clock: () => boundary.add(const Duration(hours: 1)),
-          beforeCutoffLockForTest: (tx) async =>
-              sweepEntered.complete(await lockActor(tx, waiter: true)),
+          beforeCutoffLockForTest: (tx) async => sweepEntered.complete(
+            await lockActor(tx, waiter: SqlTimeouts.sweep),
+          ),
         );
         final waiting = release.run(scanner.runOnce);
         try {
@@ -462,7 +463,11 @@ void main() {
           final admission = unlock.run(
             () => writer.db.transaction((tx) async {
               admissionEntered.complete(
-                await pooledLockActor(writer, tx, waiter: true),
+                await pooledLockActor(
+                  writer,
+                  tx,
+                  waiter: SqlTimeouts.poolDefault,
+                ),
               );
               await rawAt(writer, oldReceipt, tx: tx);
             }),

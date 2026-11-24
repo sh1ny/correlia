@@ -251,7 +251,9 @@ void main() {
         final repository = ConsumerAdmission(
           contender,
           beforeWriteForTest: (tx, _) async {
-            entered.complete(await lockActor(tx, waiter: true));
+            entered.complete(
+              await lockActor(tx, waiter: SqlTimeouts.streamWrite),
+            );
           },
         );
         Future<StreamAdmissionResult>? writing;
@@ -334,7 +336,11 @@ void main() {
             revision: 2,
             apiUrl: 'https://other-icinga.example:5665',
             beforePublicationWrites: (tx) async => entered.complete(
-              await pooledLockActor(publisher, tx, waiter: true),
+              await pooledLockActor(
+                publisher,
+                tx,
+                waiter: SqlTimeouts.publication,
+              ),
             ),
           ),
         );

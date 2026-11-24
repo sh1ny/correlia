@@ -357,7 +357,11 @@ void main() {
             beforeWriteForTest: (tx, completing) async {
               if (!completing) {
                 scanActor.complete(
-                  await pooledLockActor(scanSession, tx, waiter: true),
+                  await pooledLockActor(
+                    scanSession,
+                    tx,
+                    waiter: SqlTimeouts.poolDefault,
+                  ),
                 );
               }
             },
@@ -391,7 +395,11 @@ void main() {
                   minutes: 5,
                 ).inSeconds,
                 beforeInventoryForTest: (tx) async => publishActor.complete(
-                  await pooledLockActor(publisher, tx, waiter: true),
+                  await pooledLockActor(
+                    publisher,
+                    tx,
+                    waiter: SqlTimeouts.publication,
+                  ),
                 ),
               ),
             ),
@@ -474,7 +482,11 @@ void main() {
             beforeWriteForTest: (tx, completing) async {
               if (completing) {
                 scanActor.complete(
-                  await pooledLockActor(scanSession, tx, waiter: true),
+                  await pooledLockActor(
+                    scanSession,
+                    tx,
+                    waiter: SqlTimeouts.poolDefault,
+                  ),
                 );
               }
             },

@@ -19,6 +19,7 @@ import '../support/icinga2_consumer_loopback.dart';
 import '../support/icinga2_pipeline.dart';
 import '../support/icinga2_stream_pipeline.dart';
 import '../support/icinga2_test_db_changes.dart';
+import '../support/postgres_lock_witness.dart';
 import '../support/stream_reader_clock.dart';
 
 void main() {
@@ -83,6 +84,7 @@ void main() {
       Future<void> start({
         Future<void> Function(pg.TxSession)? beforeCommit,
         Future<void> Function(pg.TxSession, StreamRawBatch)? beforeWrite,
+        Future<void> Function()? beforeAdmit,
         void Function(StreamRawBatch, pg.ServerException)? writeError,
       }) async {
         final endpoint = await StreamDatabaseEndpoint.resolve(
@@ -120,6 +122,7 @@ void main() {
           backoffRandomForTest: () => 0.5,
           beforeRawWriteForTest: beforeWrite,
           rawWriteErrorForTest: writeError,
+          beforeAdmitForTest: beforeAdmit,
           beforeAdmissionCommit: beforeCommit,
           log: (line) {
             logs.add(line);
@@ -220,7 +223,16 @@ void main() {
           await retry.cancel();
           await retries.close();
         });
+        final thirdAttempt = Completer<void>();
+        final allowThirdAttempt = Completer<void>();
+        var admissionCalls = 0;
         await start(
+          beforeAdmit: () async {
+            if (++admissionCalls != 3) return;
+            thirdAttempt.complete();
+            // Hold the retry before it can take any SQL lock.
+            await allowThirdAttempt.future;
+          },
           beforeWrite: (tx, _) async {
             expect(
               (await tx.execute('SHOW statement_timeout')).single[0],
@@ -232,16 +244,23 @@ void main() {
           writeError: (batch, error) =>
               attempts.add((batch.id, error.code, error.message)),
         );
+        void releaseThirdAttempt() {
+          if (!allowThirdAttempt.isCompleted) allowThirdAttempt.complete();
+        }
+
+        addTearDown(releaseThirdAttempt);
         final lockConnection = await openStreamDatabase(session.serverpod);
         addTearDown(lockConnection.close);
         final locked = Completer<void>();
-        final unlock = Completer<void>();
-        final locker = lockConnection.runTx((tx) async {
-          await tx.execute('SET LOCAL idle_in_transaction_session_timeout=0');
-          await tx.execute('LOCK TABLE icinga2_raw_origin IN SHARE MODE');
-          locked.complete();
-          await unlock.future;
-        });
+        final unlock = ContentionGate();
+        final locker = unlock.run(
+          () => lockConnection.runTx((tx) async {
+            await tx.execute('SET LOCAL idle_in_transaction_session_timeout=0');
+            await tx.execute('LOCK TABLE icinga2_raw_origin IN SHARE MODE');
+            locked.complete();
+            await unlock.future;
+          }),
+        );
         try {
           await Future.any([
             locked.future,
@@ -271,12 +290,32 @@ void main() {
           clock.advance(retry.current - clock.elapsed);
           expect(await failures.moveNext(), isTrue);
           expect(failures.current, (batchId, code, message));
-          clock.advance(outage - clock.elapsed);
+          // A newly armed retry proves the reader handled the second SQL failure
+          // and stayed in the admission loop.
+          expect(await retry.moveNext(), isTrue);
+          final justBefore = outage - const Duration(milliseconds: 1);
+          expect(retry.current, lessThan(justBefore));
+          clock.advance(justBefore - clock.elapsed);
+          await Future.any([
+            thirdAttempt.future,
+            server.disconnected.future.then<void>(
+              (_) => throw StateError(
+                'Subscription closed before the outage deadline',
+              ),
+            ),
+          ]);
+          expect(server.subscriptionsReady, 1);
+          final stillOpen = (await status.read(icinga2DbSourceId))!;
+          expect(stillOpen.state, StreamConsumerState.connected);
+          expect(stillOpen.gapCount, 0);
+          expect(server.disconnected.isCompleted, isFalse);
+          clock.advance(const Duration(milliseconds: 1));
           await expectGap('backpressure');
         } finally {
-          unlock.complete();
-          await locker;
+          releaseThirdAttempt();
+          await unlock.join();
         }
+        await locker;
         expect(await countRows(session, 'raw_inbox'), lessThanOrEqualTo(1));
         expect(
           await countRows(session, 'icinga2_admitted_batch'),

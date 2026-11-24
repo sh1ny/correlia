@@ -495,8 +495,9 @@ void main() {
           () => SyncProgressStore(contender).retire(
             icinga2DbSourceId,
             generation: lease.generation,
-            beforeSourceLockForTest: (tx) async =>
-                entered.complete(await lockActor(tx, waiter: true)),
+            beforeSourceLockForTest: (tx) async => entered.complete(
+              await lockActor(tx, waiter: SqlTimeouts.streamWrite),
+            ),
           ),
         );
         try {

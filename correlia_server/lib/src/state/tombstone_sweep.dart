@@ -14,6 +14,7 @@ final class TombstoneSweep {
 
   final pg.Connection connection;
   final DateTime Function()? clock;
+  static const _deadline = Duration(seconds: 1);
   final Future<void> Function(pg.TxSession)? beforeCommit;
 
   /// Holds the real cutoff query under fixture-owned timing instead of the
@@ -25,10 +26,12 @@ final class TombstoneSweep {
     final watch = Stopwatch()..start();
     try {
       final beforeCutoffLock = beforeCutoffLockForTest;
+      var fixtureOwnsTimeout = false;
       final work = connection.runTx((tx) async {
         Duration? remaining() {
-          if (beforeCutoffLock != null) return null;
-          final duration = const Duration(seconds: 1) - watch.elapsed;
+          if (fixtureOwnsTimeout) return null;
+          if (beforeCutoffLock != null) return _deadline;
+          final duration = _deadline - watch.elapsed;
           if (duration <= Duration.zero) throw const _SweepDeadline();
           return duration;
         }
@@ -45,7 +48,12 @@ final class TombstoneSweep {
           );
         }
 
-        await beforeCutoffLock?.call(tx);
+        if (beforeCutoffLock != null) {
+          await bound();
+          // Let the fixture verify the normal SQL settings before overriding them.
+          await beforeCutoffLock(tx);
+          fixtureOwnsTimeout = true;
+        }
         await bound();
         final state = (await tx.execute(
           pg.Sql.named('''
@@ -143,7 +151,7 @@ final class TombstoneSweep {
       });
       if (beforeCutoffLock != null) return await work;
       return await work.timeout(
-        const Duration(seconds: 1),
+        _deadline,
         onTimeout: () {
           unawaited(connection.close(force: true));
           return 0;

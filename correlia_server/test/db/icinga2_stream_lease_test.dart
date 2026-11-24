@@ -197,8 +197,9 @@ void main() {
           final enteredTakeover = Completer<LockActor>();
           final claimant = StreamLeaseStore(
             secondConnection,
-            beforeLeaseQueryForTest: (tx) async =>
-                enteredTakeover.complete(await lockActor(tx, waiter: true)),
+            beforeLeaseQueryForTest: (tx) async => enteredTakeover.complete(
+              await lockActor(tx, waiter: SqlTimeouts.streamWrite),
+            ),
           );
           takeover = finish.run(
             () => claimant.acquire(icinga2DbSourceId, 'worker-b'),
@@ -271,8 +272,9 @@ void main() {
             final entered = Completer<LockActor>();
             final contender = StreamLeaseStore(
               firstConnection,
-              beforeLeaseQueryForTest: (tx) async =>
-                  entered.complete(await lockActor(tx, waiter: true)),
+              beforeLeaseQueryForTest: (tx) async => entered.complete(
+                await lockActor(tx, waiter: SqlTimeouts.streamWrite),
+              ),
             );
             final attempt = unlock.run(
               () => renewal

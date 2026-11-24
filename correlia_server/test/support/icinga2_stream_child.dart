@@ -119,13 +119,6 @@ final class Icinga2StreamChild {
       environment: env,
     );
     children.add(child);
-    if (mode != 'test') {
-      addTearDown(() async {
-        if (!child.hasExited) {
-          expect(await child.stop(deadline: null), 0, reason: child.output);
-        }
-      });
-    }
     await child.waitForReadyEvent();
     if (role != 'api') _consumer = child;
     return child;

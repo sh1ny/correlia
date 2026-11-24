@@ -78,6 +78,33 @@ const _observeWaitSql =
 const _parkSql = '''SET LOCAL idle_in_transaction_session_timeout=0;
   SET LOCAL lock_timeout=0; SET LOCAL statement_timeout=0''';
 
+const _timeoutsSql = '''SELECT setting::int FROM pg_settings
+  WHERE name IN ('idle_in_transaction_session_timeout', 'lock_timeout', 'statement_timeout')
+  ORDER BY name''';
+
+/// Expected ordinary SQL settings, in milliseconds, on the contested transaction.
+enum SqlTimeouts {
+  streamWrite(5000, 2000, 2000),
+  sweep(5000, 1000, 1000),
+  poolDefault(0, 0, 0),
+  publication(0, 5000, 5000),
+  schemaStep(0, 30000, 0);
+
+  const SqlTimeouts(this.idle, this.lock, this.statement);
+
+  final int idle;
+  final int lock;
+  final int statement;
+
+  void verify(Iterable<List<Object?>> rows) {
+    expect(
+      rows.map((row) => row.single),
+      [idle, lock, statement],
+      reason: '$name idle-in-transaction, lock and statement timeout (ms)',
+    );
+  }
+}
+
 LockActor _actor(List<Object?> row) => (
   pid: row[0]! as int,
   started: row[1]! as String,
@@ -86,10 +113,13 @@ LockActor _actor(List<Object?> row) => (
 );
 
 /// Prepares a dedicated fixture transaction and records its backend identity.
-Future<LockActor> lockActor(pg.TxSession tx, {bool waiter = false}) async {
+Future<LockActor> lockActor(pg.TxSession tx, {SqlTimeouts? waiter}) async {
+  waiter?.verify(await tx.execute(_timeoutsSql));
   await tx.execute(_parkSql, queryMode: pg.QueryMode.simple);
   await tx.execute(_tagActor(), queryMode: pg.QueryMode.simple);
-  if (waiter) await tx.execute(_observeWaitSql, queryMode: pg.QueryMode.simple);
+  if (waiter != null) {
+    await tx.execute(_observeWaitSql, queryMode: pg.QueryMode.simple);
+  }
   return _actor((await tx.execute(_actorSql)).single);
 }
 
@@ -97,11 +127,14 @@ Future<LockActor> lockActor(pg.TxSession tx, {bool waiter = false}) async {
 Future<LockActor> pooledLockActor(
   Session session,
   Transaction tx, {
-  bool waiter = false,
+  SqlTimeouts? waiter,
 }) async {
+  if (waiter != null) {
+    waiter.verify(await session.db.unsafeQuery(_timeoutsSql, transaction: tx));
+  }
   await session.db.unsafeSimpleExecute(_parkSql, transaction: tx);
   await session.db.unsafeSimpleExecute(_tagActor(), transaction: tx);
-  if (waiter) {
+  if (waiter != null) {
     await session.db.unsafeSimpleExecute(_observeWaitSql, transaction: tx);
   }
   return _actor(
