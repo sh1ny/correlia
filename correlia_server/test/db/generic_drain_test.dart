@@ -2,8 +2,11 @@
 library;
 
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:correlia_server/src/ingest/ingress.dart';
 import 'package:correlia_server/src/pipeline/pipeline.dart';
+import 'package:correlia_server/src/runtime/subsystem.dart';
 import 'package:serverpod/serverpod.dart';
 import 'package:test/test.dart';
 
@@ -12,6 +15,14 @@ import '../support/generic_pipeline_fixture.dart';
 import '../support/icinga2_pipeline.dart' show clearPipelineTables;
 
 final _now = DateTime.utc(2026, 11, 24, 12);
+
+final class _Routes implements RouteHost {
+  _Routes(this.web);
+  final WebServer web;
+
+  @override
+  void addRoute(Route route, String path) => web.addRoute(route, path);
+}
 
 void main() {
   withServerpod(
@@ -40,6 +51,19 @@ void main() {
           revision: 2,
           bearer: 2,
         );
+        final web = WebServer(serverpod: session.serverpod);
+        final ingress = IngressSubsystem(
+          pod: session.serverpod,
+          bootstrap: () => active,
+          ready: () => true,
+          log: (_) {},
+          clock: () => later,
+        );
+        ingress.mountRoutes(_Routes(web));
+        await ingress.start();
+        addTearDown(ingress.stop);
+        expect(await web.start(), isTrue);
+        addTearDown(web.stop);
         expect(active.sources.single.enabled, isTrue);
         final pipeline = PipelineRepository(session, clock: () => later);
         for (final _ in [1, 2]) {
@@ -54,6 +78,23 @@ void main() {
           includeSource: false,
           bearer: 2,
         );
+        final client = HttpClient();
+        addTearDown(() => client.close(force: true));
+        final request = await client.post(
+          '127.0.0.1',
+          web.port!,
+          '/hooks/generic/$genericPipelineSource',
+        );
+        request.headers.contentType = ContentType.json;
+        request.headers.set('Authorization', 'Bearer ${genericTestToken(2)}');
+        request.write(body);
+        final response = await request.close();
+        await response.drain<void>();
+        expect(response.statusCode, 401);
+        final raw = await session.db.unsafeQuery(
+          'SELECT status FROM raw_inbox',
+        );
+        expect(raw.map((row) => row[0]), ['done', 'done']);
         expect(await pipeline.processOne(), isFalse);
         expect(
           await session.db.unsafeQuery('SELECT 1 FROM pipeline_failures'),

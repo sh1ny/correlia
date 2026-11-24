@@ -143,14 +143,18 @@ void main() {
       test('tenant_header_on_a_delivery', () async {
         await deliver(_teamA, 1, 'without-header');
         await deliver(_teamA, 1, 'with-header', tenant: 'team-a');
+        await deliver(_teamA, 1, 'with-conflicting-header', tenant: 'team-b');
         final raw = await session.db.unsafeQuery(
           'SELECT status, outcome_json, source_id::text FROM raw_inbox ORDER BY observed_at',
         );
-        expect(raw.map((row) => row[0]), ['done', 'done']);
+        expect(raw.map((row) => row[0]), ['done', 'done', 'done']);
         expect(raw.map((row) => row[2]), everyElement(_teamA));
         final outcomes = raw.map((row) => jsonDecode(row[1]! as String));
         expect(outcomes.first, containsPair('committed', 1));
-        expect(outcomes.last, containsPair('duplicate_observation', 1));
+        expect(
+          outcomes.skip(1),
+          everyElement(containsPair('duplicate_observation', 1)),
+        );
         final event = (await committed()).single;
         expect(event.source.tenant, 'default');
         expect(event.source.namespace, 'team-a');

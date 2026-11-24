@@ -5,6 +5,7 @@ import 'dart:convert';
 
 import 'package:correlia_server/event.dart';
 import 'package:correlia_server/src/ingest/bootstrap.dart';
+import 'package:correlia_server/src/ingest/config_repository.dart';
 import 'package:correlia_server/src/pipeline/pipeline.dart';
 import 'package:serverpod/serverpod.dart';
 import 'package:test/test.dart';
@@ -66,6 +67,47 @@ void main() {
         expect(event.source.sourceKind, 'generic');
         expect((await outcomeOf(session, raw))['unmapped_fields'], 1);
       });
+
+      test(
+        'invalid_mapping_cannot_replace_a_snapshot_pinned_by_pending_work',
+        () async {
+          final active = await publishGenericConfig(session, now: _now);
+          await admitGeneric(
+            session,
+            active,
+            jsonEncode(genericAlert(_now)),
+            _now,
+          );
+          final pipeline = PipelineRepository(session, clock: () => _now);
+          expect(await pipeline.pinOne(), isTrue);
+          await expectLater(
+            publishGenericConfig(
+              session,
+              now: _now,
+              revision: 2,
+              mapping: {
+                ...checkMapping(),
+                'summary': {'constant': 'bad\u0000text'},
+              },
+            ),
+            throwsA(
+              isA<BootstrapError>()
+                  .having(
+                    (error) => error.field,
+                    'field',
+                    'mappings[0].summary',
+                  )
+                  .having((error) => error.code, 'code', 'invalid_text'),
+            ),
+          );
+          final snapshot = await IngestConfigRepository(
+            session,
+          ).activeSnapshot();
+          expect(snapshot?['snapshotId'], active.snapshotId);
+          expect(await pipeline.processOne(), isTrue);
+          expect((await genericEvents(session)).single.summary, 'Check status');
+        },
+      );
 
       test('ord_4_future_source_time', () async {
         final config = await publishGenericConfig(session, now: _now);

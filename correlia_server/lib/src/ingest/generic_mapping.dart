@@ -341,6 +341,9 @@ void _validateMappingText(
   String field,
   ({int? min, int? max}) bound,
 ) {
+  // Pinned snapshots are also read as jsonb, and named pointer tokens may
+  // become PostgreSQL text in a failure path. Neither can represent NUL.
+  if (text.contains('\u0000')) _bad('config', field, 'invalid_text');
   try {
     validateText(text, field, min: bound.min ?? 0, max: bound.max!);
   } on EventValidationError catch (error) {

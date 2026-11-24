@@ -83,6 +83,8 @@ are not supported.
 - Per mapping: at most 128 identity fields, 128 labels, and 16 links. Pointers
   are at most 512 UTF-8 bytes. Each value table has at most 256 entries with
   input keys at most 256 UTF-8 bytes.
+- Mapping text may not contain NUL (`U+0000`): PostgreSQL cannot represent
+  it in snapshots cast to JSONB or in recorded field paths.
 - A delivery is subject to its source's body cap (default 1 MiB) and can hold
   at most 1,000 alerts.
 

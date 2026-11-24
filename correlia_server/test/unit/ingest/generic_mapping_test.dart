@@ -87,6 +87,39 @@ void main() {
     }
   });
 
+  test('postgres_unsafe_mapping_text_is_refused_before_activation', () {
+    for (final (fields, path) in [
+      (
+        {
+          'identity': {'host': '/labels/ho\u0000st'},
+        },
+        'identity.host',
+      ),
+      (
+        {
+          'summary': {'constant': 'not\u0000text'},
+        },
+        'summary',
+      ),
+      (
+        {
+          'status': {
+            'pointer': '/state',
+            'values': {'PRO\u0000BLEM': 'firing'},
+          },
+        },
+        'status.values',
+      ),
+    ]) {
+      expect(
+        () => _parse([
+          {...checkMapping(), ...fields},
+        ]),
+        _error('mappings[0].$path', 'invalid_text'),
+      );
+    }
+  });
+
   test('mapping_with_a_source_time_only', () {
     final mapping = checkMapping();
     final bootstrap = _parse([mapping]);

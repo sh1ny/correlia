@@ -626,11 +626,31 @@ VALUES (@time,CAST(@id AS uuid),CAST(@source AS uuid),@body,@digest,'application
               jsonEncode(genericAlert(_now)),
               _now,
             );
-            final pipeline = PipelineRepository(session, clock: () => _now);
-            if (claimFirst) expect(await pipeline.pinOne(), isTrue);
+            var now = _now;
+            var failFirstAttempt = claimFirst;
+            final pipeline = PipelineRepository(
+              session,
+              clock: () => now,
+              afterClaim: () async {
+                if (failFirstAttempt) {
+                  failFirstAttempt = false;
+                  throw const SocketException('injected transient disconnect');
+                }
+              },
+            );
+            if (claimFirst) {
+              expect(await pipeline.pinOne(), isTrue);
+              expect(await pipeline.processOne(), isTrue);
+              final retriable = (await rows(
+                "SELECT status, config_snapshot_id, next_attempt_at FROM raw_inbox WHERE raw_id=CAST('$raw' AS uuid)",
+              )).single;
+              expect(retriable.take(2), ['pending', original.snapshotId]);
+              expect(await genericEvents(session), isEmpty);
+              now = retriable[2]! as DateTime;
+            }
             final active = await publishGenericConfig(
               session,
-              now: _now,
+              now: now,
               revision: 2,
               mapping: {
                 ...checkMapping(),

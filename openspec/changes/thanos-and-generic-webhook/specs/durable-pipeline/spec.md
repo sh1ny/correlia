@@ -6,8 +6,8 @@
 
 The pipeline SHALL decode a raw row with the decoder of its pinned source's kind and, for an `icinga2` source in
 mode `event_streams`, of the row's stored format. A `generic` row SHALL use its pinned snapshot's mapping on every
-retry; decoding with a later mapping is operator replay, outside automatic retry. A kind or format with no decoder
-SHALL fail the row with a bounded error, never fall back to another decoder.
+retry; decoding with a later mapping is operator replay, outside automatic retry and deferred to M2 change 7.
+A kind or format with no decoder SHALL fail the row with a bounded error, never fall back to another decoder.
 
 #### Scenario: Two kinds in one batch
 - **WHEN** pending rows from an `alertmanager` source and an `icinga2` source are processed
@@ -65,10 +65,11 @@ SHALL fail the row with a bounded error, never fall back to another decoder.
 
 ### Requirement: Generic decode failures name paths, never values
 
-A failed `generic` row SHALL record a bounded code and a path: an RFC 6901 sender path keeping only segments the
-pinned mapping names at that position and indexes of traversed arrays, others `*`, cut at a segment boundary within
-256 bytes, or `/*` when no segment fits (a root failure stores the empty pointer); a canonical field name; or none.
-Only mapping-named keys and no values are stored, and nothing commits.
+A failed `generic` row SHALL record a bounded code and no events. Its path is a canonical field, absent, or an
+RFC 6901 pointer retaining only tokens the pinned mapping names at that prefix and traversed array indexes,
+with other tokens `*`. Cut pointers at a segment boundary within 256 bytes; store `/*` if no segment fits,
+or the empty pointer for a root failure. Failure records, logs and metrics SHALL NOT include keys or values
+taken from the sender's body.
 
 #### Scenario: Invalid JSON body
 - **WHEN** a `generic` row's body is not valid JSON
