@@ -944,6 +944,8 @@ set keepalives and a 10-second TCP user timeout.
 - **WHEN** the worker is stopped while the insert transaction runs an interruptible statement that a test hook makes last 30 seconds with its statement timeout lifted
 - **THEN** within 5 seconds of the stop an independent connection sees the session gone and its locks released
 
+Verification: drive the four-second Dart abort and inspect the ten-second stop timer with a manual clock. Separately verify PostgreSQL's configured one-second connection check. Witness cancellation and transaction/session lock release on an independent connection before releasing the fixture's blockers. The 30-second sleep stages the blocking statement; elapsed runner time is not a test assertion.
+
 #### Scenario: Insert finishing as stop begins
 - **WHEN** an insert's commit and the stop happen at the same moment
 - **THEN** the insert either committed wholly or left no row, and no other session's work is affected
@@ -958,6 +960,8 @@ release time is promised for every backend state or topology, and the documentat
 #### Scenario: Many sources
 - **WHEN** a worker running 64 stream consumers is stopped, each with an insert in flight
 - **THEN** stop returns within 10 seconds
+
+Verification: hold all 64 admissions, manually drive the individual abort deadlines, and verify stop completes and disarms its shared ten-second timer without firing it or releasing the admission gates.
 
 #### Scenario: Stop while reading
 - **WHEN** the worker is stopped while the consumer waits for the next line
