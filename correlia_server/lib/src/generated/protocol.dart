@@ -33,6 +33,10 @@ import 'ingest_secret_commitment.dart' as _iupiayjd;
 import 'ingest_source.dart' as _inhmna33;
 import 'ingest_source_credential.dart' as _ib6287mr;
 import 'invalid_cursor_exception.dart' as _iil3cq3h;
+import 'mapping_preview_diagnostic.dart' as _ibaui0zg;
+import 'mapping_preview_event.dart' as _i20s3xik;
+import 'mapping_preview_result.dart' as _ines6tzx;
+import 'mapping_preview_validation_error.dart' as _i2ozkwub;
 import 'observation_key.dart' as _ii70ink4;
 import 'pipeline_failure.dart' as _ir1rifdz;
 import 'plugin_definition_health.dart' as _iqfe2rop;
@@ -59,6 +63,10 @@ export 'ingest_secret_commitment.dart';
 export 'ingest_source.dart';
 export 'ingest_source_credential.dart';
 export 'invalid_cursor_exception.dart';
+export 'mapping_preview_diagnostic.dart';
+export 'mapping_preview_event.dart';
+export 'mapping_preview_result.dart';
+export 'mapping_preview_validation_error.dart';
 export 'observation_key.dart';
 export 'pipeline_failure.dart';
 export 'plugin_definition_health.dart';
@@ -99,6 +107,10 @@ class Protocol extends _is.DatabaseSerializationManager
           _is.getType<_inhmna33.IngestSourceRow>,
           _is.getType<_ib6287mr.IngestSourceCredential>,
           _is.getType<_iil3cq3h.InvalidCursorException>,
+          _is.getType<_ibaui0zg.MappingPreviewDiagnostic>,
+          _is.getType<_i20s3xik.MappingPreviewEvent>,
+          _is.getType<_ines6tzx.MappingPreviewResult>,
+          _is.getType<_i2ozkwub.MappingPreviewValidationError>,
           _is.getType<_ii70ink4.ObservationKeyRow>,
           _is.getType<_ir1rifdz.PipelineFailure>,
           _is.getType<_iqfe2rop.PluginDefinitionHealth>,
@@ -125,6 +137,10 @@ class Protocol extends _is.DatabaseSerializationManager
           _is.getType<_inhmna33.IngestSourceRow?>,
           _is.getType<_ib6287mr.IngestSourceCredential?>,
           _is.getType<_iil3cq3h.InvalidCursorException?>,
+          _is.getType<_ibaui0zg.MappingPreviewDiagnostic?>,
+          _is.getType<_i20s3xik.MappingPreviewEvent?>,
+          _is.getType<_ines6tzx.MappingPreviewResult?>,
+          _is.getType<_i2ozkwub.MappingPreviewValidationError?>,
           _is.getType<_ii70ink4.ObservationKeyRow?>,
           _is.getType<_ir1rifdz.PipelineFailure?>,
           _is.getType<_iqfe2rop.PluginDefinitionHealth?>,
@@ -134,6 +150,8 @@ class Protocol extends _is.DatabaseSerializationManager
           _is.getType<List<_i897ft9c.AlertView>>,
           _is.getType<List<_iywqxrq6.FeedEntry>>,
           _is.getType<Map<String, int>>,
+          _is.getType<List<_i20s3xik.MappingPreviewEvent>>,
+          _is.getType<List<_ibaui0zg.MappingPreviewDiagnostic>>,
         ],
         modules: const [_isp.Protocol.new],
         classNames: const [
@@ -157,6 +175,10 @@ class Protocol extends _is.DatabaseSerializationManager
           'IngestSourceRow',
           'IngestSourceCredential',
           'InvalidCursorException',
+          'MappingPreviewDiagnostic',
+          'MappingPreviewEvent',
+          'MappingPreviewResult',
+          'MappingPreviewValidationError',
           'ObservationKeyRow',
           'PipelineFailure',
           'PluginDefinitionHealth',
@@ -1549,6 +1571,18 @@ class Protocol extends _is.DatabaseSerializationManager
     if (t == _iil3cq3h.InvalidCursorException) {
       return _iil3cq3h.InvalidCursorException.fromJson(data) as T;
     }
+    if (t == _ibaui0zg.MappingPreviewDiagnostic) {
+      return _ibaui0zg.MappingPreviewDiagnostic.fromJson(data) as T;
+    }
+    if (t == _i20s3xik.MappingPreviewEvent) {
+      return _i20s3xik.MappingPreviewEvent.fromJson(data) as T;
+    }
+    if (t == _ines6tzx.MappingPreviewResult) {
+      return _ines6tzx.MappingPreviewResult.fromJson(data) as T;
+    }
+    if (t == _i2ozkwub.MappingPreviewValidationError) {
+      return _i2ozkwub.MappingPreviewValidationError.fromJson(data) as T;
+    }
     if (t == _ii70ink4.ObservationKeyRow) {
       return _ii70ink4.ObservationKeyRow.fromJson(data) as T;
     }
@@ -1664,6 +1698,30 @@ class Protocol extends _is.DatabaseSerializationManager
               : null)
           as T;
     }
+    if (t == _is.getType<_ibaui0zg.MappingPreviewDiagnostic?>()) {
+      return (data != null
+              ? _ibaui0zg.MappingPreviewDiagnostic.fromJson(data)
+              : null)
+          as T;
+    }
+    if (t == _is.getType<_i20s3xik.MappingPreviewEvent?>()) {
+      return (data != null
+              ? _i20s3xik.MappingPreviewEvent.fromJson(data)
+              : null)
+          as T;
+    }
+    if (t == _is.getType<_ines6tzx.MappingPreviewResult?>()) {
+      return (data != null
+              ? _ines6tzx.MappingPreviewResult.fromJson(data)
+              : null)
+          as T;
+    }
+    if (t == _is.getType<_i2ozkwub.MappingPreviewValidationError?>()) {
+      return (data != null
+              ? _i2ozkwub.MappingPreviewValidationError.fromJson(data)
+              : null)
+          as T;
+    }
     if (t == _is.getType<_ii70ink4.ObservationKeyRow?>()) {
       return (data != null ? _ii70ink4.ObservationKeyRow.fromJson(data) : null)
           as T;
@@ -1708,6 +1766,18 @@ class Protocol extends _is.DatabaseSerializationManager
           )
           as T;
     }
+    if (t == List<_i20s3xik.MappingPreviewEvent>) {
+      return (data as List)
+              .map((e) => deserialize<_i20s3xik.MappingPreviewEvent>(e))
+              .toList()
+          as T;
+    }
+    if (t == List<_ibaui0zg.MappingPreviewDiagnostic>) {
+      return (data as List)
+              .map((e) => deserialize<_ibaui0zg.MappingPreviewDiagnostic>(e))
+              .toList()
+          as T;
+    }
     final modules = deserializationMetadata.modulesForDeserialization(
       t,
       className: rawDataClassName,
@@ -1743,6 +1813,11 @@ class Protocol extends _is.DatabaseSerializationManager
       _inhmna33.IngestSourceRow => 'IngestSourceRow',
       _ib6287mr.IngestSourceCredential => 'IngestSourceCredential',
       _iil3cq3h.InvalidCursorException => 'InvalidCursorException',
+      _ibaui0zg.MappingPreviewDiagnostic => 'MappingPreviewDiagnostic',
+      _i20s3xik.MappingPreviewEvent => 'MappingPreviewEvent',
+      _ines6tzx.MappingPreviewResult => 'MappingPreviewResult',
+      _i2ozkwub.MappingPreviewValidationError =>
+        'MappingPreviewValidationError',
       _ii70ink4.ObservationKeyRow => 'ObservationKeyRow',
       _ir1rifdz.PipelineFailure => 'PipelineFailure',
       _iqfe2rop.PluginDefinitionHealth => 'PluginDefinitionHealth',
@@ -1803,6 +1878,14 @@ class Protocol extends _is.DatabaseSerializationManager
         return 'IngestSourceCredential';
       case _iil3cq3h.InvalidCursorException():
         return 'InvalidCursorException';
+      case _ibaui0zg.MappingPreviewDiagnostic():
+        return 'MappingPreviewDiagnostic';
+      case _i20s3xik.MappingPreviewEvent():
+        return 'MappingPreviewEvent';
+      case _ines6tzx.MappingPreviewResult():
+        return 'MappingPreviewResult';
+      case _i2ozkwub.MappingPreviewValidationError():
+        return 'MappingPreviewValidationError';
       case _ii70ink4.ObservationKeyRow():
         return 'ObservationKeyRow';
       case _ir1rifdz.PipelineFailure():
@@ -1888,6 +1971,18 @@ class Protocol extends _is.DatabaseSerializationManager
     }
     if (dataClassName == 'InvalidCursorException') {
       return deserialize<_iil3cq3h.InvalidCursorException>(data['data']);
+    }
+    if (dataClassName == 'MappingPreviewDiagnostic') {
+      return deserialize<_ibaui0zg.MappingPreviewDiagnostic>(data['data']);
+    }
+    if (dataClassName == 'MappingPreviewEvent') {
+      return deserialize<_i20s3xik.MappingPreviewEvent>(data['data']);
+    }
+    if (dataClassName == 'MappingPreviewResult') {
+      return deserialize<_ines6tzx.MappingPreviewResult>(data['data']);
+    }
+    if (dataClassName == 'MappingPreviewValidationError') {
+      return deserialize<_i2ozkwub.MappingPreviewValidationError>(data['data']);
     }
     if (dataClassName == 'ObservationKeyRow') {
       return deserialize<_ii70ink4.ObservationKeyRow>(data['data']);

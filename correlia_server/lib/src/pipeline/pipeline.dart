@@ -456,7 +456,7 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
         }
         final kind = _kindOf(snapshot, source);
         final mapping = kind is GenericSourceKind
-            ? _mappingOf(snapshot, source['mapping'])
+            ? GenericMapping.fromSnapshot(snapshot, source['mapping'])
             : null;
         if (kind is GenericSourceKind && mapping == null) {
           await _fail(tx, deadline, raw, 'unsupported_mapping', null);
@@ -932,17 +932,6 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
     1 => SourceKind.alertmanager,
     _ => SourceKind.named(source['kind']),
   };
-
-  GenericMapping? _mappingOf(Map<String, Object?> snapshot, Object? name) {
-    final rows = snapshot['mappings'];
-    if (name is! String || rows is! List<Object?>) return null;
-    for (final entry in rows) {
-      if (entry case final Map<String, Object?> row when row['name'] == name) {
-        return GenericMapping.parse(row);
-      }
-    }
-    return null;
-  }
 
   /// The decoder for the resolved kind and its pinned mapping, if required.
   KindDecoder? _decoderFor(SourceKind? kind, GenericMapping? mapping) =>

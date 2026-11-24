@@ -13,6 +13,7 @@
 import 'package:serverpod/serverpod.dart' as _is;
 import '../endpoints/alert_console_endpoint.dart' as _izj6k6t1;
 import '../endpoints/icinga2_stream_endpoint.dart' as _i11286m8;
+import '../endpoints/mapping_preview_endpoint.dart' as _idbsfgu3;
 
 class Endpoints extends _is.EndpointDispatch {
   @override
@@ -28,6 +29,12 @@ class Endpoints extends _is.EndpointDispatch {
         ..initialize(
           server,
           'icinga2Stream',
+          null,
+        ),
+      'mappingPreview': _idbsfgu3.MappingPreviewEndpoint()
+        ..initialize(
+          server,
+          'mappingPreview',
           null,
         ),
     };
@@ -110,6 +117,45 @@ class Endpoints extends _is.EndpointDispatch {
                       .status(
                         session,
                         params['sourceId'],
+                      ),
+        ),
+      },
+    );
+    connectors['mappingPreview'] = _is.EndpointConnector(
+      name: 'mappingPreview',
+      endpoint: endpoints['mappingPreview']!,
+      methodConnectors: {
+        'preview': _is.MethodConnector(
+          name: 'preview',
+          params: {
+            'sourceId': _is.ParameterDescription(
+              name: 'sourceId',
+              type: _is.getType<String>(),
+              nullable: false,
+            ),
+            'sample': _is.ParameterDescription(
+              name: 'sample',
+              type: _is.getType<String>(),
+              nullable: false,
+            ),
+            'draftMapping': _is.ParameterDescription(
+              name: 'draftMapping',
+              type: _is.getType<String?>(),
+              nullable: true,
+            ),
+          },
+          call:
+              (
+                _is.Session session,
+                Map<String, dynamic> params,
+              ) async =>
+                  (endpoints['mappingPreview']
+                          as _idbsfgu3.MappingPreviewEndpoint)
+                      .preview(
+                        session,
+                        params['sourceId'],
+                        params['sample'],
+                        draftMapping: params['draftMapping'],
                       ),
         ),
       },

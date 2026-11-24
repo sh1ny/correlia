@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:correlia_server/event.dart';
-import 'package:correlia_server/src/event/validation.dart';
 import 'package:correlia_server/src/ingest/bootstrap.dart';
 import 'package:correlia_server/src/ingest/generic_decoder.dart';
 import 'package:correlia_server/src/ingest/source_decoder.dart';

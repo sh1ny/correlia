@@ -18,6 +18,8 @@ import 'package:correlia_server/src/generated/feed_page.dart' as _iz0uuwqz;
 import 'package:correlia_server/src/generated/feed_wake_up.dart' as _iusodja6;
 import 'package:correlia_server/src/generated/icinga2_consumer_status.dart'
     as _i12hxr9i;
+import 'package:correlia_server/src/generated/mapping_preview_result.dart'
+    as _i53f9ie1;
 import 'package:serverpod/serverpod.dart' as _is;
 import 'package:serverpod_test/serverpod_test.dart' as _ist;
 import 'package:correlia_server/src/generated/protocol.dart';
@@ -156,6 +158,8 @@ class TestEndpoints {
   late final _AlertConsoleEndpoint alertConsole;
 
   late final _Icinga2StreamEndpoint icinga2Stream;
+
+  late final _MappingPreviewEndpoint mappingPreview;
 }
 
 class _InternalTestEndpoints extends TestEndpoints
@@ -170,6 +174,10 @@ class _InternalTestEndpoints extends TestEndpoints
       serializationManager,
     );
     icinga2Stream = _Icinga2StreamEndpoint(
+      endpoints,
+      serializationManager,
+    );
+    mappingPreview = _MappingPreviewEndpoint(
       endpoints,
       serializationManager,
     );
@@ -318,6 +326,54 @@ class _Icinga2StreamEndpoint {
                   _localCallContext.arguments,
                 )
                 as _ida.Future<_i12hxr9i.Icinga2ConsumerStatus?>);
+        return _localReturnValue;
+      } finally {
+        await _localUniqueSession.close();
+      }
+    });
+  }
+}
+
+class _MappingPreviewEndpoint {
+  _MappingPreviewEndpoint(
+    this._endpointDispatch,
+    this._serializationManager,
+  );
+
+  final _is.EndpointDispatch _endpointDispatch;
+
+  final _is.SerializationManager _serializationManager;
+
+  _ida.Future<_i53f9ie1.MappingPreviewResult> preview(
+    _ist.TestSessionBuilder sessionBuilder,
+    String sourceId,
+    String sample, {
+    String? draftMapping,
+  }) async {
+    return _ist.callAwaitableFunctionAndHandleExceptions(() async {
+      var _localUniqueSession =
+          (sessionBuilder as _ist.InternalTestSessionBuilder).internalBuild(
+            endpoint: 'mappingPreview',
+            method: 'preview',
+          );
+      try {
+        var _localCallContext = await _endpointDispatch.getMethodCallContext(
+          createSessionCallback: (_) => _localUniqueSession,
+          endpointPath: 'mappingPreview',
+          methodName: 'preview',
+          parameters: _ist.testObjectToJson({
+            'sourceId': sourceId,
+            'sample': sample,
+            'draftMapping': draftMapping,
+          }),
+          serializationManager: _serializationManager,
+        );
+        var _localReturnValue =
+            await (_localCallContext.method.call(
+                  _localUniqueSession,
+                  _localCallContext.arguments,
+                )
+                as _ida.Future<_i53f9ie1.MappingPreviewResult>);
         return _localReturnValue;
       } finally {
         await _localUniqueSession.close();

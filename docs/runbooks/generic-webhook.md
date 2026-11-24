@@ -127,3 +127,27 @@ source until the upgrade is complete.
 3. Publish the configuration without the source only after that count reaches
    zero. Otherwise rows not yet pinned fail `source_not_configured`; rows
    already pinned use the snapshot and mapping from their first claim.
+
+## Preview a mapping
+
+From loopback in development or test mode on an `api` or `all` process, call
+`mappingPreview.preview(sourceId, sample, draftMapping: ...)` using the
+generated client. `sample` is JSON text (at most 1 MiB decoded and 100
+alerts). Omit `draftMapping` to use the source's active mapping, or pass one
+mapping document as JSON text (at most 32 KiB decoded). The active generic
+source supplies the source ID and namespace in both cases.
+
+Output includes the valid alerts, field errors and unmapped paths, and
+whether the whole delivery would fail. Diagnostics come in body-first
+order, then by alert index, UTF-8 path bytes and code. Each path is cut at
+a segment boundary within 256 bytes. The response retains at most 100
+diagnostics or 64 KiB of diagnostic JSON, whichever fits first, and reports
+the number omitted as `overflow`. Preview paths can include sender field
+names; durable worker failures redact those names.
+
+The label `computed with preview metadata` means the preview uses the nil
+raw UUID and the call time for its raw reference, observation and processing
+times. This does not change the source-derived identity, but the byte
+length can change eligibility near a size limit. The preview writes and
+publishes nothing, does not activate a draft, and does not estimate a
+production row's fan-out budget.

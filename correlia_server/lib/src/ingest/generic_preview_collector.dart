@@ -22,14 +22,6 @@ final class GenericPreviewDiagnostic {
   final bool unmapped;
 
   final List<int> _pathBytes;
-
-  /// The diagnostic fields as serialized in the preview.
-  Map<String, Object?> toJson() => {
-    'alertIndex': ?alertIndex,
-    'path': path,
-    'code': code,
-    'unmapped': unmapped,
-  };
 }
 
 /// Independent alert results and bounded diagnostics, never persisted.
@@ -45,7 +37,7 @@ final class GenericPreviewDecode {
   /// Events that decoded successfully under the supplied preview metadata.
   final List<CanonicalEvent> events;
 
-  /// Diagnostics in body-first, index, UTF-8 path and code order.
+  /// At most 100 candidates in body-first, index, UTF-8 path and code order.
   final List<GenericPreviewDiagnostic> diagnostics;
 
   /// The number of diagnostics omitted by the entry or byte bound.
@@ -60,7 +52,6 @@ final class GenericPreviewDecode {
 
 final class _PreviewCollector {
   static const _maxEntries = 100;
-  static const _maxBytes = 64 * 1024;
 
   final _heap = <GenericPreviewDiagnostic>[];
   var _total = 0;
@@ -116,8 +107,9 @@ final class _PreviewCollector {
       var child = index * 2 + 1;
       if (child >= _heap.length) break;
       final right = child + 1;
-      if (right < _heap.length && _compare(_heap[right], _heap[child]) > 0)
+      if (right < _heap.length && _compare(_heap[right], _heap[child]) > 0) {
         child = right;
+      }
       if (_compare(value, _heap[child]) >= 0) break;
       _heap[index] = _heap[child];
       index = child;
@@ -127,19 +119,11 @@ final class _PreviewCollector {
 
   GenericPreviewDecode result(List<CanonicalEvent> events) {
     _heap.sort(_compare);
-    var bytes = 2; // Enclosing JSON array brackets.
-    var count = 0;
-    for (final diagnostic in _heap) {
-      bytes +=
-          utf8.encode(jsonEncode(diagnostic.toJson())).length +
-          (count == 0 ? 0 : 1);
-      if (bytes > _maxBytes) break;
-      count++;
-    }
+    // The RPC projection applies the byte cap to its actual serialized models.
     return GenericPreviewDecode._(
       events,
-      List.unmodifiable(_heap.take(count)),
-      _total - count,
+      List.unmodifiable(_heap),
+      _total - _heap.length,
       errorCount != 0,
       _heap.length,
     );

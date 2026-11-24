@@ -40,8 +40,9 @@ String boundedEventPointer(Iterable<EventPointerSegment> segments) {
   var remaining = 256;
   for (final segment in segments) {
     final token = segment.token;
-    if (token.length >= remaining)
+    if (token.length >= remaining) {
       return pointer.isEmpty ? '/*' : pointer.toString();
+    }
     final escaped = token.replaceAll('~', '~0').replaceAll('/', '~1');
     final size = utf8.encode(escaped).length + 1;
     if (size > remaining) return pointer.isEmpty ? '/*' : pointer.toString();

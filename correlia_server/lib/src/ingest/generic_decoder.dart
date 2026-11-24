@@ -2,7 +2,6 @@ import 'dart:convert';
 
 import '../event/canonical_event.dart';
 import '../event/identity.dart';
-import '../event/validation.dart';
 import '../event_generated/correlia/event/v1/event_bounds.dart';
 import 'body_depth.dart';
 import 'bootstrap.dart';
@@ -90,6 +89,7 @@ final class _GenericDecoder {
         _path.removeLast();
       }
     } else {
+      _index = 0;
       final event = _alert(body, covered, source, raw, pipeline);
       if (event != null) alerts.add(event);
     }
@@ -202,8 +202,9 @@ final class _GenericDecoder {
       return null;
     }
     _eventBytes += defaultStructuredEventBytes(event).length;
-    if (_eventBytes > _decodeBudget)
+    if (_eventBytes > _decodeBudget) {
       throw EventPointerError(const [], 'decode_bound');
+    }
     return event;
   }
 
@@ -318,8 +319,9 @@ String? _text(Object? value) => switch (value) {
   if (value == null) throw const EventFieldError('', 'required');
   switch (format) {
     case GenericTimeFormat.rfc3339:
-      if (value is! String)
+      if (value is! String) {
         throw const EventFieldError('', 'invalid_timestamp');
+      }
       return (EventTimestamp.parse(value), value);
     case GenericTimeFormat.epochSeconds || GenericTimeFormat.epochMillis:
       final millis = format == GenericTimeFormat.epochMillis;
@@ -478,8 +480,9 @@ final class _DuplicateScan {
       default:
         while (offset < text.length) {
           final byte = text.codeUnitAt(offset);
-          if (byte <= 0x20 || byte == 0x2c || byte == 0x5d || byte == 0x7d)
+          if (byte <= 0x20 || byte == 0x2c || byte == 0x5d || byte == 0x7d) {
             return;
+          }
           offset++;
         }
     }

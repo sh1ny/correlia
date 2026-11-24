@@ -103,10 +103,9 @@ final class GenericMapping {
     required this.description,
     required this.labels,
     required this.links,
-    required Map<String, Object?> json,
-    required int jsonBytes,
-  }) : _json = json,
-       _jsonBytes = jsonBytes;
+    required this._json,
+    required this._jsonBytes,
+  });
 
   /// The format-1 document's entire top-level key set.
   static const keys = {
@@ -188,6 +187,21 @@ final class GenericMapping {
 
   /// The canonical form persisted with the snapshot, without runtime state.
   Map<String, Object?> toJson() => _json;
+
+  /// Reads exactly the named document from a persisted snapshot.
+  static GenericMapping? fromSnapshot(
+    Map<String, Object?> snapshot,
+    Object? name,
+  ) {
+    final rows = snapshot['mappings'];
+    if (name is! String || rows is! List<Object?>) return null;
+    for (final entry in rows) {
+      if (entry case final Map<String, Object?> row when row['name'] == name) {
+        return GenericMapping.parse(row);
+      }
+    }
+    return null;
+  }
 
   /// Validates [document] without reflecting operator-supplied field values.
   static GenericMapping parse(
@@ -419,8 +433,9 @@ Map<String, GenericMapping> _parseMappings(Object? value) {
   for (final (i, document) in _list(value, 64, 'mappings').indexed) {
     final field = 'mappings[$i]';
     final mapping = GenericMapping.parse(document, field: field);
-    if (result.containsKey(mapping.name))
+    if (result.containsKey(mapping.name)) {
       _bad('config', '$field.name', 'duplicate');
+    }
     bytes += mapping._jsonBytes + (i == 0 ? 0 : 1);
     if (bytes > 64 * 1024) _bad('config', 'mappings', 'mappings_bound');
     result[mapping.name] = mapping;

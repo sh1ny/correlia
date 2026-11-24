@@ -487,8 +487,9 @@ IngestSource _parseSource(
       _bad('config', '$field.mapping', 'unknown_mapping');
     }
   } else {
-    if (row.containsKey('mapping'))
+    if (row.containsKey('mapping')) {
       _bad('config', '$field.mapping', 'generic_only');
+    }
     mapping = null;
   }
   final namespace = row['namespace'] == null
