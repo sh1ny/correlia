@@ -31,7 +31,9 @@ final class _StreamHolder {
   Future<void> run() async {
     try {
       if (!_live) return;
-      final db = await owner.openDatabase(_dbDeadline);
+      final opening = owner.openDatabase(_dbDeadline);
+      owner._onConsumerOpen?.call(lease.sourceId, opening);
+      final db = await opening;
       if (!_live) {
         await _forceClose(db);
         return;
@@ -430,6 +432,7 @@ final class _StreamAttempt {
         if (!paused &&
             (due || _oversize || now >= next || await _requested())) {
           final start = await progress.start(_lease, connectionId: id);
+          holder.owner._onSyncDecision?.call(start.disposition);
           if (!_live) return;
           switch (start.disposition) {
             case SyncStartDisposition.leaseLost:

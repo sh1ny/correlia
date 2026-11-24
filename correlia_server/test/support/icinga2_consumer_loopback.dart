@@ -3,8 +3,13 @@ import 'dart:convert';
 import 'dart:io';
 
 /// A local TLS Icinga2 API with an open event response and projected sync data.
+///
+/// With strict socket errors, only a peer close on a socket explicitly marked
+/// for shutdown is expected. Other transport errors fail waits and teardown.
 final class IcingaConsumerLoopback {
-  IcingaConsumerLoopback._(this.server, this.ca);
+  IcingaConsumerLoopback._(this.server, this.ca, this._strictSocketErrors) {
+    _failure.future.ignore();
+  }
 
   final HttpServer server;
   final List<int> ca;
@@ -23,11 +28,19 @@ final class IcingaConsumerLoopback {
   int servicesStatus = HttpStatus.ok;
   String? servicesBody;
   int subscriptionsReady = 0;
+  final bool _strictSocketErrors;
+  final _failure = Completer<Never>();
+  final _expectedDisconnects = <Socket>{};
+  var _changed = Completer<void>();
+  int _hostsResponses = 0;
+  int _disconnects = 0;
   Future<void> Function(HttpResponse response)? serveServices;
 
   Uri get url => Uri.https('127.0.0.1:${server.port}');
 
-  static Future<IcingaConsumerLoopback> start() async {
+  static Future<IcingaConsumerLoopback> start({
+    bool strictSocketErrors = false,
+  }) async {
     const path = '../correlia_icinga2_notify/test/fixtures';
     final server = await HttpServer.bindSecure(
       InternetAddress.loopbackIPv4,
@@ -39,18 +52,70 @@ final class IcingaConsumerLoopback {
     final fixture = IcingaConsumerLoopback._(
       server,
       await File('$path/ca_one.pem').readAsBytes(),
+      strictSocketErrors,
     );
     server.listen((request) async {
       try {
         await fixture._serve(request);
-      } on SocketException catch (error) {
-        // During stop the peer may close a socket while an object query writes.
-        if (error.osError?.errorCode case 32 || 104) return;
-        rethrow;
+      } catch (error, stack) {
+        fixture._socketError(error, stack);
       }
-    });
+    }, onError: fixture._reportError);
     return fixture;
   }
+
+  void _reportError(Object error, StackTrace stack) {
+    if (!_strictSocketErrors) {
+      Zone.current.handleUncaughtError(error, stack);
+    } else if (!_failure.isCompleted) {
+      _failure.completeError(error, stack);
+    }
+  }
+
+  void _socketError(Object error, StackTrace stack, {Socket? socket}) {
+    // Linux EPIPE / ECONNRESET, not arbitrary socket or TLS errors.
+    final peerClosed =
+        error is SocketException &&
+        (error.osError?.errorCode == 32 || error.osError?.errorCode == 104);
+    if (peerClosed &&
+        (!_strictSocketErrors || _expectedDisconnects.contains(socket))) {
+      return;
+    }
+    _reportError(error, stack);
+  }
+
+  void _signalChange() {
+    final changed = _changed;
+    _changed = Completer<void>();
+    changed.complete();
+  }
+
+  Future<void> _until(bool Function() ready) async {
+    while (!ready()) {
+      await checked(_changed.future);
+    }
+    if (_failure.isCompleted) await _failure.future;
+  }
+
+  /// Waits for [barrier] or an earlier unexpected fixture error.
+  Future<T> checked<T>(Future<T> barrier) =>
+      _strictSocketErrors ? Future.any<T>([barrier, _failure.future]) : barrier;
+
+  /// Waits for [count] flushed subscription headers.
+  Future<void> waitForSubscriptions(int count) =>
+      _until(() => subscriptionsReady >= count);
+
+  /// Waits for both projected object routes to have sent [count] responses.
+  Future<void> waitForObjectResponses(int count) =>
+      _until(() => _hostsResponses >= count && reads >= count);
+
+  /// Allows peer-close errors on the established event sockets about to stop.
+  void expectSubscriptionDisconnects() =>
+      _expectedDisconnects.addAll(subscriptions);
+
+  /// Waits for [count] event sockets to observe the other side closing.
+  Future<void> waitForDisconnects(int count) =>
+      _until(() => _disconnects >= count);
 
   Future<void> _serve(HttpRequest request) async {
     if (request.uri.path == '/v1/events') {
@@ -86,18 +151,29 @@ final class IcingaConsumerLoopback {
         }
         final socket = await response.detachSocket(writeHeaders: false);
         subscriptions.add(socket);
+        var readEnded = false;
+        void disconnect() {
+          if (readEnded) return;
+          readEnded = true;
+          _disconnects++;
+          if (!disconnected.isCompleted) disconnected.complete();
+          _signalChange();
+        }
+
         socket.listen(
           (_) {},
-          onDone: () {
-            if (!disconnected.isCompleted) disconnected.complete();
-          },
-          onError: (Object _, StackTrace _) {
-            // A reader that stops with unread TLS output may reset the peer.
-            if (!disconnected.isCompleted) disconnected.complete();
+          onDone: disconnect,
+          onError: (Object error, StackTrace stack) {
+            _socketError(error, stack, socket: socket);
+            disconnect();
           },
         );
         unawaited(
-          socket.done.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+          socket.done.then<void>(
+            (_) {},
+            onError: (Object error, StackTrace stack) =>
+                _socketError(error, stack, socket: socket),
+          ),
         );
         if (subscriptionStatus == null) return;
         socket.write(
@@ -107,25 +183,31 @@ final class IcingaConsumerLoopback {
         );
         try {
           await socket.flush();
-        } on SocketException {
-          return; // The peer stopped during the header write.
+        } on SocketException catch (error, stack) {
+          _socketError(error, stack, socket: socket);
+          return;
         }
         subscriptionsReady++;
+        _signalChange();
         if (!firstSubscription.isCompleted) firstSubscription.complete();
       case '/v1/objects/hosts':
         response.statusCode = hostsStatus;
         response.write(jsonEncode({'results': hosts}));
-        await response.close();
+        await Future.wait([response.close(), response.done]);
+        _hostsResponses++;
+        _signalChange();
       case '/v1/objects/services':
         response.statusCode = servicesStatus;
         if (serveServices case final serve?) {
           await serve(response);
           if (!serviceQueries.isClosed) serviceQueries.add(++reads);
+          _signalChange();
           return;
         }
         response.write(servicesBody ?? jsonEncode({'results': services}));
-        await response.close();
+        await Future.wait([response.close(), response.done]);
         if (!serviceQueries.isClosed) serviceQueries.add(++reads);
+        _signalChange();
       default:
         response.statusCode = HttpStatus.notFound;
         await response.close();
@@ -135,7 +217,7 @@ final class IcingaConsumerLoopback {
   Future<void> send(Object? value) => sendLine(jsonEncode(value));
 
   Future<void> sendLine(String line) async {
-    await firstSubscription.future.timeout(const Duration(seconds: 10));
+    await waitForSubscriptions(1);
     final response = subscriptions.last;
     if (chunked) {
       final body = utf8.encode('$line\n');
@@ -154,5 +236,6 @@ final class IcingaConsumerLoopback {
     }
     await server.close(force: true);
     await serviceQueries.close();
+    if (_failure.isCompleted) await _failure.future;
   }
 }
