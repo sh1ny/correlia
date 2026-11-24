@@ -281,6 +281,10 @@ final class _IngressRoute extends Route {
     }
   }
 
+  /// Authenticates and admits bytes without decoding or mapping the body.
+  ///
+  /// The active snapshot is read on every request, without a cache. Mappings
+  /// add at most 64 KiB of serialized JSON to each snapshot copy returned.
   Future<_Result> _authenticateAndAdmit(
     Session session,
     Request request,
