@@ -30,6 +30,72 @@ const _workLock = 7100;
 const _entryLock = 7101;
 const _sessionLock = 7103;
 
+// Capture only the timers armed synchronously by stop(), not timers created
+// later by real socket and database I/O. Drive the admission abort explicitly.
+final class _StopTimers {
+  final _timers = <_ManualTimer>[];
+
+  Future<void> stop(Icinga2StreamSupervisor supervisor) {
+    var arming = true;
+    try {
+      return runZoned(
+        supervisor.stop,
+        zoneSpecification: ZoneSpecification(
+          createTimer: (self, parent, zone, delay, callback) {
+            if (!arming) return parent.createTimer(zone, delay, callback);
+            final timer = _ManualTimer(delay, zone.bindCallback(callback));
+            _timers.add(timer);
+            return timer;
+          },
+        ),
+      );
+    } finally {
+      arming = false;
+    }
+  }
+
+  _ManualTimer abortAdmissions(int count) {
+    const abort = Duration(seconds: 4);
+    const stop = Duration(seconds: 10);
+    expect(
+      _timers.map((timer) => timer.delay),
+      unorderedEquals([
+        for (var i = 0; i < count; i++) abort,
+        stop,
+      ]),
+    );
+    for (final timer in _timers) {
+      if (timer.delay == abort) timer.fire();
+    }
+    return _timers.singleWhere((timer) => timer.delay == stop);
+  }
+}
+
+final class _ManualTimer implements Timer {
+  _ManualTimer(this.delay, this._callback);
+
+  final Duration delay;
+  final void Function() _callback;
+  bool _active = true;
+  int _tick = 0;
+
+  @override
+  bool get isActive => _active;
+
+  @override
+  int get tick => _tick;
+
+  @override
+  void cancel() => _active = false;
+
+  void fire() {
+    if (!_active) return;
+    _active = false;
+    _tick = 1;
+    _callback();
+  }
+}
+
 void main() {
   withServerpod(
     'stream shutdown and reclamation',
