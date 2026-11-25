@@ -10,6 +10,7 @@ Operators need to enrich normalized alerts without code and to change or restore
 - Use the same typed condition model for in-memory evaluation and parameterized PostgreSQL filtering of stored events.
 - Provision rules from YAML and activate them atomically with the configuration snapshot. Restore earlier matcher behavior by republishing it as a higher revision against the current registry.
 - Reject unknown outputs at activation. Skip and count failing rules against the pinned version and raise a self-alert in the activity feed. Only an operator publishes replacement configuration.
+- Require an offline upgrade from earlier releases. Stop admission, drain pending work and the outbox manually, then stop every old process before upgrading.
 - Simulator, query enrichment, classification, correlation policy, and console editing are outside this roadmap item.
 
 ## Capabilities

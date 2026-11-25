@@ -247,7 +247,10 @@ void main() {
         await process([streamDbCheck(before(30), sync: true)], sync: true);
         expect(await counts(), containsPair('confirmed', '1'));
         expect(await countRows(session, 'events'), 1);
-        expect(await countRows(session, 'outbox'), 1);
+        final deliveries = await session.db.unsafeQuery(
+          'SELECT payload FROM outbox',
+        );
+        expect(deliveries.single[0], data.single[0]);
         expect((await theAlert(session))['severity'], 'critical');
       });
 

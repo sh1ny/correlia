@@ -260,6 +260,7 @@ Accepted ADRs only.
 | [0030](../docs/adr/0030-pull-sources-leased-consumers.md) | Leased pull consumers, revision-fenced admission, bounded retained work, silent reconcile and receipt-safe tombstone reclamation | none (extends 0016, 0017, 0024, 0029) |
 | [0031](../docs/adr/0031-generic-webhook-mapping-documents.md) | Versioned generic webhook mappings, pinned snapshots, bootstrap-only authoring and publisher version 2 rollout | none |
 | [0032](../docs/adr/0032-matcher-rules-and-versions.md) | Typed matcher rules, Dart and SQL evaluation, guarded publication and operator rollback, pinned runtime failure counts | [0008](../docs/adr/0008-rule-language.md) |
+| [0033](../docs/adr/0033-offline-matcher-upgrade.md) | Offline matcher upgrade with a manual drain before shutdown | 0032 rollout only; matcher behavior and publication are unchanged |
 
 ### Superseded ADRs
 

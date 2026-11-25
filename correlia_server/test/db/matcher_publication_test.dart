@@ -12,7 +12,6 @@ import 'package:correlia_server/src/ingest/icinga2/stream/decoder.dart';
 import 'package:correlia_server/src/ingest/icinga2/stream/lease.dart';
 import 'package:correlia_server/src/matcher/matcher_document.dart';
 import 'package:correlia_server/src/pipeline/pipeline.dart';
-import 'package:correlia_server/src/schema/schema_steps.dart';
 import 'package:crypto/crypto.dart';
 import 'package:serverpod/serverpod.dart';
 import 'package:test/test.dart';
@@ -179,82 +178,6 @@ matcher:
         } finally {
           await directory.delete(recursive: true);
         }
-      });
-
-      test('v2 pin update and reconcile delete are fenced', () async {
-        final session = builder.build();
-        await initializeIngestSchema(session);
-        final repository = IngestConfigRepository(
-          session,
-          secretStore: testSecretStore,
-        );
-        final active = await repository.activeSnapshot();
-        final revision = ((active?['revision'] as int?) ?? 0) + 1;
-        final current = await repository.publishConfig(
-          _config(revision)
-            ..['expected_active_snapshot'] = active?['snapshotId']
-            ..['matcher'] = _section(),
-          const <String, Object?>{},
-          runMode: 'test',
-        );
-        await session.db.unsafeSimpleExecute('''
-INSERT INTO raw_inbox (observed_at, raw_id, source_id, body, body_sha256, content_type)
-VALUES ('2026-11-10T00:00:00Z', '11111111-1111-4111-8111-111111111111',
-        '22222222-2222-4222-8222-222222222222', ''::bytea, 'none', 'application/json')
-''');
-        final fenced = throwsA(
-          isA<DatabaseQueryException>().having(
-            (error) => error.code,
-            'SQLSTATE',
-            '55000',
-          ),
-        );
-        await expectLater(
-          session.db.unsafeSimpleExecute(
-            "UPDATE raw_inbox SET config_snapshot_id = '${current.snapshotId}'",
-          ),
-          fenced,
-        );
-        expect(await PipelineRepository(session).pinOne(), isTrue);
-        await expectLater(
-          session.db.unsafeSimpleExecute(
-            "UPDATE raw_inbox SET status = 'done'",
-          ),
-          fenced,
-        );
-        const sync = '33333333-3333-4333-8333-333333333333';
-        await session.db.unsafeSimpleExecute('''
-INSERT INTO icinga2_sync_progress(sync_id,source_id,phase,rows_admitted,started_at)
-VALUES ('$sync','22222222-2222-4222-8222-222222222222','applying',1,now())
-''');
-        await expectLater(
-          session.db.transaction((tx) async {
-            expect(
-              await session.db.unsafeExecute(
-                "UPDATE icinga2_sync_progress SET rows_done=rows_done+1 WHERE sync_id='$sync'",
-                transaction: tx,
-              ),
-              1,
-            );
-            await session.db.unsafeSimpleExecute(
-              'DELETE FROM raw_inbox',
-              transaction: tx,
-            );
-          }),
-          fenced,
-        );
-        final rows = await session.db.unsafeSimpleQuery(
-          'SELECT status, config_snapshot_id FROM raw_inbox',
-        );
-        expect(rows.single[0], 'pending');
-        expect(rows.single[1], current.snapshotId);
-        expect(
-          (await session.db.unsafeSimpleQuery(
-            "SELECT rows_done FROM icinga2_sync_progress WHERE sync_id='$sync'",
-          )).single[0],
-          0,
-        );
-        expect(await PipelineRepository(session).processOne(), isTrue);
       });
 
       test('invalid operands leave active unchanged', () async {
@@ -740,97 +663,6 @@ SELECT config_snapshot_id, payload FROM events WHERE source_id='$source' ORDER B
           ),
           ['ops', 'platform', 'ops'],
         );
-      });
-    },
-    rollbackDatabase: RollbackDatabase.disabled,
-    testGroupTagsOverride: ['db'],
-  );
-
-  withServerpod(
-    'matcher cutover on a populated database',
-    (builder, _) {
-      test('legacy row drains before cutover', () async {
-        final session = builder.build();
-        final steps = schemaSteps;
-        await applySchemaSteps(
-          session,
-          steps.where((step) => step.version < 13).toList(),
-        );
-        await session.db.transaction((tx) async {
-          await session.db.unsafeSimpleExecute(
-            "SET LOCAL correlia.publisher_version = '2'",
-            transaction: tx,
-          );
-          await session.db.unsafeExecute(
-            'INSERT INTO ingest_config_snapshot ("snapshotId", revision, "publicJson") VALUES (\'old\',1,@old), (\'active\',2,@active)',
-            parameters: QueryParameters.named({
-              'old': jsonEncode({
-                'sources': [
-                  {
-                    'id': _removedOutput,
-                    'enabled': true,
-                    'output_ids': ['old_output'],
-                  },
-                ],
-                'outputs': [
-                  {'id': 'old_output'},
-                ],
-              }),
-              'active': jsonEncode({
-                'sources': <Object?>[],
-                'outputs': List.generate(64, (i) => {'id': 'new_output_$i'}),
-              }),
-            }),
-            transaction: tx,
-          );
-          await session.db.unsafeSimpleExecute(
-            "INSERT INTO ingest_active_config (singleton, \"snapshotId\") VALUES (1, 'active')",
-            transaction: tx,
-          );
-        });
-        await session.db.unsafeSimpleExecute('''
-INSERT INTO raw_inbox (observed_at, raw_id, source_id, body, body_sha256, content_type, config_snapshot_id)
-VALUES ('2026-11-10T00:00:00Z','11111111-1111-4111-8111-111111111111',
-        '$_removedOutput',''::bytea,'none','application/json','old')
-''');
-        await expectLater(
-          applySchemaSteps(session, steps),
-          throwsA(
-            isA<SchemaStepException>().having(
-              (error) => error.version,
-              'version',
-              13,
-            ),
-          ),
-        );
-        final row = await session.db.unsafeSimpleQuery(
-          'SELECT status, config_snapshot_id FROM raw_inbox',
-        );
-        expect(row.single[0], 'pending');
-        expect(row.single[1], 'old');
-        await session.db.transaction((tx) async {
-          await session.db.unsafeSimpleExecute(
-            "SET LOCAL correlia.publisher_version = '2'",
-            transaction: tx,
-          );
-          await session.db.unsafeSimpleExecute(
-            "INSERT INTO ingest_config_snapshot (\"snapshotId\", revision, \"publicJson\") VALUES ('unused',3,'{}')",
-            transaction: tx,
-          );
-          await session.db.unsafeSimpleExecute(
-            "UPDATE raw_inbox SET status = 'done'",
-            transaction: tx,
-          );
-        });
-        await applySchemaSteps(session, steps);
-        final retained = await session.db.unsafeSimpleQuery(
-          'SELECT output_id FROM correlia_retained_output_ids()',
-        );
-        expect(retained, isEmpty);
-        final pin = await session.db.unsafeSimpleQuery(
-          'SELECT config_snapshot_id FROM raw_inbox',
-        );
-        expect(pin.single[0], 'old');
       });
     },
     rollbackDatabase: RollbackDatabase.disabled,

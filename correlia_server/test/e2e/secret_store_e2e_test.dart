@@ -165,7 +165,7 @@ Future<void> _seedHistoricalSnapshot(
   String legacy,
 ) => db.runTx((tx) async {
   // This fixture seeds an earlier public format after schema initialization.
-  await tx.execute("SET LOCAL correlia.publisher_version = '3'");
+  await tx.execute("SET LOCAL correlia.publisher_version = '2'");
   await tx.execute(
     Sql.named(
       'INSERT INTO ingest_config_snapshot ("snapshotId",revision,"publicJson") VALUES (@id,1,@json)',

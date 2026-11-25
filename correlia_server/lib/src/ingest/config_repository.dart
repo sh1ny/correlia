@@ -152,7 +152,7 @@ final class IngestConfigRepository {
           transaction: transaction,
         );
         await session.db.unsafeSimpleExecute(
-          "SET LOCAL correlia.publisher_version = '3'",
+          "SET LOCAL correlia.publisher_version = '2'",
           transaction: transaction,
         );
         await _store.checkKey(session, transaction);

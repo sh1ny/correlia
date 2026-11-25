@@ -64,6 +64,11 @@ void main() {
                   'when': {'field': 'summary', 'op': 'exists'},
                   'actions': [
                     {'type': 'team', 'value': 'first'},
+                    {
+                      'type': 'set_label',
+                      'key': 'region',
+                      'value': 'site-east',
+                    },
                     {'type': 'route', 'output_id': extraOutput},
                   ],
                 },
@@ -82,6 +87,13 @@ void main() {
                   'actions': [
                     {'type': 'team', 'value': 'last'},
                     {'type': 'route', 'output_id': extraOutput},
+                    {
+                      'type': 'extract',
+                      'field': 'labels.region',
+                      'pattern': 'site-([a-z]+)',
+                      'group': 1,
+                      'key': 'original_region',
+                    },
                   ],
                 },
               ],
@@ -91,9 +103,26 @@ void main() {
           runMode: 'test',
         );
         await support.seed(session, [
-          payload.alert(startsAt: '2026-11-10T12:00:00Z'),
+          payload.alert(
+            startsAt: '2026-11-10T12:00:00Z',
+            labels: {
+              'alertname': 'Example',
+              'severity': 'warning',
+              'region': 'site-west',
+            },
+          ),
         ]);
-        final worker = PipelineRepository(session, clock: () => support.now);
+        final regex = MatcherRegexWorker(
+          elapsed: () => Duration.zero,
+          arm: (_, _) => () {},
+        );
+        addTearDown(regex.close);
+        final worker = PipelineRepository(
+          session,
+          clock: () => support.now,
+          elapsedForTest: () => Duration.zero,
+          regexWorker: regex,
+        );
         expect(await worker.pinOne(), isTrue);
         expect(await worker.processOne(), isTrue);
         final rows = await session.db.unsafeQuery(
@@ -108,6 +137,8 @@ void main() {
         }
         final event = CloudEvent.decode(eventRow[0] as Uint8List).event;
         expect(event.labels['team'], 'last');
+        expect(event.labels['region'], 'site-east');
+        expect(event.labels['original_region'], 'west');
         expect(event.labels['owner'], isNull);
         final future = payload.alert(
           startsAt: '2026-11-12T12:00:00Z',

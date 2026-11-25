@@ -345,11 +345,10 @@ raw outcome for rules that did not start. Correlia never publishes a replacement
 
 ### Upgrade before enabling matcher rules
 
-Stop older workers and their supervisors before upgrading. Schema step 13 checks the existing
-64-output limit before enabling the publisher and worker compatibility checks. If it refuses the
-upgrade, start the older release again and let its pinned work and delivery intents drain. Stop the
-older processes, retry the upgrade, and verify that all roles start before publishing matcher rules.
-Do not edit pins or discard queued intents to make the upgrade pass.
+Live upgrades and mixed-version operation are not supported. Stop admitting new input and manually
+drain pending inbox work and the outbox on the old release. Then stop all Correlia processes and
+their supervisors before upgrading. Verify all roles start on the new release before resuming
+input or publishing matcher rules. Do not edit pins or discard queued deliveries to drain the outbox.
 
 ## Alertmanager sender setup and admission
 

@@ -62,6 +62,14 @@ For `exists`, an empty string SHALL count as present. A missing field or JSON nu
 - **WHEN** PostgreSQL cancels a matcher filter that reaches its statement budget
 - **THEN** the caller receives a filter error, not an empty or partial result
 
+### Requirement: Offline upgrade
+
+Operators SHALL drain pending inbox work and the outbox and stop all old processes before starting the new release. Mixed-version operation is not supported.
+
+#### Scenario: Enable matchers after an offline upgrade
+- **WHEN** the operator has drained pending work, stopped all old processes and upgraded every role
+- **THEN** the operator can publish matcher configuration through normal guarded publication
+
 ### Requirement: Atomic matcher publication and restore
 
 Ingest SHALL accept matcher rules in JSON or YAML, with separate secrets. A matcher change SHALL require an expected active ID. The publisher SHALL compare that ID under the publication lock and reject any supplied mismatch before atomic activation. Rollback SHALL republish earlier rules in the current configuration at a higher revision. An identical restart SHALL accept the original expectation without publishing again. Activation SHALL NOT rewrite pins.
@@ -78,10 +86,6 @@ Ingest SHALL accept matcher rules in JSON or YAML, with separate secrets. A matc
 - **WHEN** a publisher exits after a guarded rollback commits and the operator restarts using the exact normal file that published it
 - **THEN** the same revision and snapshot remain active, with current credentials and unchanged pins, without creating another snapshot
 
-#### Scenario: Older workers cannot commit under matcher pins
-- **WHEN** an older worker tries to claim a matcher-bearing pin, update a pinned outcome, or finalize reconciliation by deleting a pending matcher-pinned row
-- **THEN** the pin or outcome mutation is blocked, prior effects in the same transaction including sync progress roll back, and an upgraded worker can process the row with the pinned matcher set
-
 #### Scenario: DUR-5 unknown output blocks activation
 - **WHEN** a matcher configuration references an output absent from the candidate registry, including an empty registry
 - **THEN** validation rejects activation, names the missing output and leaves the active snapshot unchanged
@@ -94,10 +98,6 @@ Ingest SHALL accept matcher rules in JSON or YAML, with separate secrets. A matc
 - **WHEN** a first pin races a candidate publication and the candidate registry plus a removed route reachable from that pending pin would exceed 64 distinct output IDs
 - **THEN** if pinning wins, publication rejects before the route becomes an intent; if publication wins, the newly pinned row sees only the new registry
 - **AND** a candidate within the bound restarts identically after a pending route becomes a live intent
-
-#### Scenario: Legacy over-capacity work can drain before upgrade
-- **WHEN** a populated pre-upgrade database has a pending pin to an output outside the 64 active output IDs
-- **THEN** cutover fails without installing either fence or changing pins, old workers can drain that work, and after draining the upgrade and identical restart succeed
 
 #### Scenario: NUL operands do not break existing snapshot readers
 - **WHEN** a matcher with a literal U+0000 operand is published, a snapshot reader admits Icinga stream evidence, and a worker reads the pinned matcher

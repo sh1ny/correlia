@@ -198,7 +198,7 @@ Future<void> runSecretOutputTest(
   if (m1 != null) {
     await session.db.transaction((tx) async {
       await session.db.unsafeSimpleExecute(
-        "SET LOCAL correlia.publisher_version = '3'",
+        "SET LOCAL correlia.publisher_version = '2'",
         transaction: tx,
       );
       await session.db.unsafeExecute(

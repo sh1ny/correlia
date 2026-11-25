@@ -93,7 +93,7 @@ TIER: FULL
 - Important: yes (publication and restart behavior).
 - Chosen by: user.
 
-### D12: Reject over-capacity upgrades before fencing old workers
+### D12: Reject over-capacity upgrades before fencing old workers (superseded by D17)
 
 - Choice: Owner: “A: upgrade refuses until old work drains”. Stop older workers before attempting cutover. Under the publication lock, run the same capacity inventory for the active registry before installing either fence; an over-capacity result rolls back the schema step. Restart the old workers to drain pinned work and live intents without rewriting them, stop them again and retry cutover.
 - Rejected: Install fences then reject startup; neither worker generation could drain the row.
@@ -126,12 +126,20 @@ TIER: FULL
 - Important: yes (matching behavior).
 - Chosen by: user.
 
-### D16: Prove the legacy drain at the database boundary
+### D16: Prove the legacy drain at the database boundary (superseded by D17)
 
 - Choice: The owner chose a database-level test only. Seed a valid legacy pin, drain it through the legacy database protocol, then prove the unchanged active file starts and the original pin remains.
 - Rejected: Build and run a pre-change worker binary in the cutover fixture.
 - Reversal cost: low.
 - Important: yes (upgrade verification scope).
+- Chosen by: user.
+
+### D17: Require an offline matcher upgrade
+
+- Choice: The owner dropped live upgrade support because no installation needs an in-place upgrade. Stop admission and manually drain pending inbox work and the outbox on the old release. Stop all old processes and their supervisors before applying the upgrade.
+- Rejected: Support mixed-version operation, including a schema startup preflight and matcher-specific publisher and worker fences.
+- Reversal cost: medium.
+- Important: yes (supported upgrade path).
 - Chosen by: user.
 
 ### Decision summary
@@ -155,6 +163,7 @@ TIER: FULL
 | D14 | Matcher v1 shape | Ordered rules and typed actions, flat condition leaves | Operator-keyed leaf and action maps | medium | yes | user |
 | D15 | Presence | Non-null values, including empty strings | Distinguish explicit null from missing | medium | yes | user |
 | D16 | Legacy drain proof | Database protocol fixture | Pre-change worker binary | low | yes | user |
+| D17 | Offline upgrade | Manual drain and shutdown before upgrade | Live upgrade, startup preflight, and mixed-version fences | medium | yes | user |
 
 ## Assumptions
 
@@ -274,7 +283,7 @@ flowchart LR
 - Existing future-dated inserts charge only after an actual `INSERT … ON CONFLICT … RETURNING` win (`correlia_server/lib/src/pipeline/pipeline.dart:701-744`). Before reserving the batch baseline, perform those quarantine inserts with original bytes in stable event order inside the same savepoint. Omit conflicts from admission and matcher evaluation. A winner contributes its baseline once and updates its bytes within that transaction only if enrichment or a diagnostic changes them; the existing quarantine path still never routes or fences late valid evidence. Other retained events still insert final bytes once.
 - Observe isolate exit/error before readiness; timeout kills it, including late spawn resolution, and drops stale results. Guard all optional matcher evaluation, lookup, patch sizing and diagnostic serialization with the shared cutoff from Resource Bounds. Check before and after each bounded unit; if a rule crosses the cutoff, discard its entire pending patch and count its cutoff failure, then stop optional work for the remaining row. Record the number of unattempted evaluations by arithmetic from remaining rules/events in the raw outcome; do not add per-rule faults or diagnostics for them. Already-admitted patches remain. The raw deadline still applies to ordinary SQL writes (`correlia_server/lib/src/pipeline/pipeline.dart:34-36`). Test both an awaited regex and an ordinary condition/action hitting the cutoff with an injected clock.
 - Worker observes activation at its next unpinned claim, not between events within the same raw row; pinned retries read pinned matcher content. Reject stale startup files as before. No recovery scheduler, threshold, replacement, or runtime config mutation.
-- Before first activation, stop and await exit of older worker/all processes and any old supervisors that could restart them; deploy and verify all roles, then enable matcher content. Raise the publisher-version barrier under its lock (`correlia_server/schema/0010_publisher_version_2.sql:1-10`). Fence all first-pin assignments by older workers because they do not share-lock `ingest_active_config`; also fence mutation or pending deletion of existing matcher pins. Rejecting a pre-upgrade reconciliation delete rolls back its prior sync-progress writes (`correlia_server/lib/src/pipeline/pipeline.dart:830-859`). New claim, process and retry transactions assert the capability transaction-locally. Already-terminal rows remain deletable by maintenance.
+- Upgrade offline. Stop admission, manually drain pending inbox work and the outbox, and stop every old process and supervisor before starting the new release. Keep the 64-output capacity check on normal publication. Do not add a matcher-specific publisher fence, worker fence, or upgrade preflight.
 
 ## Mechanism Ledger (FULL)
 
@@ -296,8 +305,8 @@ flowchart LR
 
 ## ADRs
 
-- **In force, constraining this change:** 0008 (rule language), 0016 (durable staged pipeline), 0017 (state and activity), 0021 (canonical event contract) and 0028/0029 (configuration material and source boundary).
-- **To record during apply:** Supersede ADR 0008 with the carried matcher contract and owner-approved scope; update the architecture index, D29 status (order settled, implemented for matchers only), and RUL-7 acceptance to require operator-only corrective publication. Document mixed-version rollout and guarded rollback by normal publication. Do not edit accepted ADRs.
+- **In force before this change:** 0008 (rule language), 0016 (durable staged pipeline), 0017 (state and activity), 0021 (canonical event contract) and 0028/0029 (configuration material and source boundary).
+- **Recorded during apply:** ADR 0032 supersedes ADR 0008. ADR 0033 supersedes only the rollout procedure in ADR 0032. The architecture index records both decisions; D29 is settled for matchers only, and RUL-7 requires operator-only corrective publication.
 
 ## Review authorization
 
