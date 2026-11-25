@@ -4,9 +4,9 @@
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| durable-pipeline → The earliest same-ID member of a batch is the candidate | First input member is the candidate | `correlia_server/test/db/duplicate_order_test.dart` | `first_input_member_is_the_candidate` | red |
-| durable-pipeline → The earliest same-ID member of a batch is the candidate | Reversed input order | `correlia_server/test/db/duplicate_order_test.dart` | `reversed_input_order` | red |
-| durable-pipeline → The earliest same-ID member of a batch is the candidate | Stream copies straddle the future limit | `correlia_server/test/db/duplicate_order_test.dart` | `stream_copies_straddle_the_future_limit` | red |
+| durable-pipeline → The earliest same-ID member of a batch is the candidate | First input member is the candidate | `correlia_server/test/db/duplicate_order_test.dart` | `first_input_member_is_the_candidate` | green |
+| durable-pipeline → The earliest same-ID member of a batch is the candidate | Reversed input order | `correlia_server/test/db/duplicate_order_test.dart` | `reversed_input_order` | green |
+| durable-pipeline → The earliest same-ID member of a batch is the candidate | Stream copies straddle the future limit | `correlia_server/test/db/duplicate_order_test.dart` | `stream_copies_straddle_the_future_limit` | green |
 | durable-pipeline → Rows decode by their source's kind | Two kinds in one batch | `correlia_server/test/db/decoder_dispatch_test.dart` | `two_kinds_in_one_batch` | green |
 | durable-pipeline → Rows decode by their source's kind | Existing rows after the upgrade | `correlia_server/test/db/decoder_dispatch_test.dart` | `existing_rows_after_the_upgrade` | green |
 | durable-pipeline → Rows decode by their source's kind | Row pinned to a format version 1 snapshot | `correlia_server/test/db/decoder_dispatch_test.dart` | `row_pinned_to_a_format_version_1_snapshot` | green |
@@ -102,8 +102,8 @@ Every `db` test names its tier with `testGroupTagsOverride`; fast tests carry no
 
 ## 3. Deterministic duplicate order (D14)
 
-- [ ] 3.1 Write failing tests in `correlia_server/test/db/duplicate_order_test.dart` for `first_input_member_is_the_candidate` (a batch of more than 32 members, large enough that the previous unstable sort reorders equal IDs; show the fixture fails against the old sort), `reversed_input_order` (a fresh database) and `stream_copies_straddle_the_future_limit`. Verify: the first two fail for the right reason; the stream case passes already and stays as a regression.
-- [ ] 3.2 Order prepared events by event ID then input position in `pipeline.dart`, leaving the per-item stream gates before the same-ID check. C11 is checked at its spec destination in task 8.1. Verify: the 3.1 tests pass and flip their rows green; `mise run test -- --tags db` passes.
+- [x] 3.1 Write failing tests in `correlia_server/test/db/duplicate_order_test.dart` for `first_input_member_is_the_candidate` (a batch of more than 32 members, large enough that the previous unstable sort reorders equal IDs; show the fixture fails against the old sort), `reversed_input_order` (a fresh database) and `stream_copies_straddle_the_future_limit`. Verify: the first two fail for the right reason; the stream case passes already and stays as a regression.
+- [x] 3.2 Order prepared events by event ID then input position in `pipeline.dart`, leaving the per-item stream gates before the same-ID check. C11 is checked at its spec destination in task 8.1. Verify: the 3.1 tests pass and flip their rows green; `mise run test -- --tags db` passes.
 
 ## 4. Classify action and the reserved label (S3, S4, D13)
 

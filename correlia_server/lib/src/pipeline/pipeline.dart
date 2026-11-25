@@ -539,7 +539,15 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
           );
           return true;
         }
-        prepared.sort((a, b) => a.event.eventId.compareTo(b.event.eventId));
+        // `List.sort` is not stable, so equal event IDs are ordered by input
+        // position: the same-ID check below then admits the earliest member.
+        final inputOrder = {
+          for (final (index, item) in prepared.indexed) item: index,
+        };
+        prepared.sort((a, b) {
+          final byId = a.event.eventId.compareTo(b.event.eventId);
+          return byId != 0 ? byId : inputOrder[a]!.compareTo(inputOrder[b]!);
+        });
         var committed = 0,
             duplicates = 0,
             quarantines = 0,
