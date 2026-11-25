@@ -192,10 +192,17 @@ FROM raw_inbox WHERE outcome_json::jsonb->>'duplicate_quarantine' = '1'
                     'credentials': [
                       {'type': 'bearer', 'ref': 'token'},
                     ],
-                    'output_ids': <Object?>[],
+                    'output_ids': [fixture.outputId],
                   },
                 ],
-                'outputs': <Object?>[],
+                'outputs': [
+                  {
+                    'id': fixture.outputId,
+                    'kind': 'webhook',
+                    'url': 'http://127.0.0.1:8089/events',
+                    'signing_key_ref': 'signing',
+                  },
+                ],
                 'matcher': {
                   'language': 'matcher',
                   'version': 1,
@@ -228,7 +235,10 @@ FROM raw_inbox WHERE outcome_json::jsonb->>'duplicate_quarantine' = '1'
                   ],
                 },
               },
-              <String, Object?>{'token': fixture.token(1)},
+              <String, Object?>{
+                'token': fixture.token(1),
+                'signing': fixture.token(2),
+              },
               runMode: 'test',
             );
             if (!cutoff) {
@@ -313,6 +323,7 @@ FROM raw_inbox WHERE outcome_json::jsonb->>'duplicate_quarantine' = '1'
                   'regex_timeout',
                 );
               }
+              if (cutoff) expect(event.pipeline.enrichmentErrors, isEmpty);
             }
             final noticeTx =
                 (await session.db.unsafeQuery(
@@ -334,12 +345,16 @@ FROM raw_inbox WHERE outcome_json::jsonb->>'duplicate_quarantine' = '1'
             expect(failure.snapshotId, published.snapshotId);
             expect(failure.ruleId, 'blocked');
             expect(failure.failureCount, count);
-            expect(
-              (await session.db.unsafeSimpleQuery(
-                'SELECT count(*) FROM outbox',
-              )).single[0],
-              0,
-            );
+            final deliveries = await session.db.unsafeSimpleQuery('''
+SELECT events.payload = outbox.payload FROM outbox
+JOIN events ON events.event_id=outbox.event_id
+  AND events.observed_at=outbox.event_observed_at
+  AND events.disposition=outbox.event_disposition
+''');
+            expect(deliveries, hasLength(count));
+            for (final delivery in deliveries) {
+              expect(delivery[0], isTrue);
+            }
             expect(
               (await repository.activeSnapshot())?['snapshotId'],
               published.snapshotId,

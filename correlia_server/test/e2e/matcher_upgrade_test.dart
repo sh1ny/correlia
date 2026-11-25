@@ -5,6 +5,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
+import 'package:correlia_server/event.dart';
+import 'package:correlia_server/src/ingest/alertmanager_decoder.dart';
 import 'package:postgres/postgres.dart';
 import 'package:test/test.dart';
 
@@ -239,8 +241,50 @@ VALUES (now(),'$source','$source',convert_to(@body,'UTF8'),@digest,'application/
         await tx.execute(
           '''INSERT INTO ingest_config_snapshot ("snapshotId", revision, "publicJson") VALUES ('probe', 3, '{}')''',
         );
+        final time = EventTimestamp.parse('2026-11-10T01:00:00Z');
+        final event = decodeAlertmanager(
+          bytes: utf8.encode(body),
+          sourceInstance: source,
+          excludedLabels: const [],
+          rawRef: 'raw:$source',
+          rawSha256: digest,
+          observedAt: time,
+          processedAt: time,
+          configVersion: 'legacy',
+        ).events.single;
+        final bytes = CloudEvent(event: event).toJsonBytes();
+        await tx.execute(
+          Sql.named('''
+INSERT INTO events
+ (observed_at, event_id, disposition, raw_observed_at, raw_id, source_id,
+  config_snapshot_id, source_time, payload)
+SELECT observed_at, raw_id, 'ready', observed_at, raw_id, source_id,
+       config_snapshot_id, observed_at, @payload FROM raw_inbox
+'''),
+          parameters: {'payload': bytes},
+        );
+        await tx.execute(
+          Sql.named('''
+INSERT INTO outbox
+ (created_at, delivery_id, event_observed_at, event_id, event_disposition,
+  output_id, config_snapshot_id, target_url, signing_key_ref, signing_key_commitment, payload)
+SELECT now(), event_id, observed_at, event_id, disposition, '$output',
+       config_snapshot_id, 'http://127.0.0.1:8089/events', 'key', @commitment, payload
+FROM events WHERE config_snapshot_id='legacy'
+'''),
+          parameters: {'commitment': commitment},
+        );
         await tx.execute("UPDATE raw_inbox SET status = 'done'");
       });
+      final refusedWithDelivery = await start();
+      expect(await refusedWithDelivery.exitCode, 1);
+      expect(refusedWithDelivery.output, contains('Schema step 13 failed'));
+      expect(
+        await db.execute(
+          "UPDATE outbox SET status='delivered' WHERE config_snapshot_id='legacy' RETURNING status",
+        ),
+        hasLength(1),
+      );
       final upgraded = await start();
       await upgraded.waitUntilReady();
       expect(

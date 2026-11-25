@@ -269,6 +269,8 @@ VALUES ('$sync','22222222-2222-4222-8222-222222222222','applying',1,now())
           {'field': 'not_in_catalog', 'op': 'exists'},
           {'field': 'labels.invalid key', 'op': 'exists'},
           {'field': 'severity', 'op': 'equals', 'value': 'almost'},
+          for (final op in ['regex', 'glob'])
+            {'field': 'summary', 'op': op, 'value': jsonDecode(r'"\ud800"')},
         ]) {
           final input = _config(revision)
             ..['expected_active_snapshot'] = active?['snapshotId']

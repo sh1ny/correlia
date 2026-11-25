@@ -65,9 +65,9 @@ sealed class MatcherCondition {
                 value.length <= remaining =>
           value.map(operand).toSet(),
         'regex' when catalog.type == _Type.text && value is String =>
-          MatcherRegex.parse(value),
+          MatcherRegex.parse(operand(value) as String),
         'glob' when catalog.type == _Type.text && value is String =>
-          MatcherGlob.parse(value),
+          MatcherGlob.parse(operand(value) as String),
         'cidr' when catalog.type == _Type.text && value is String =>
           _Network.parse(value),
         _ => _invalid('condition_operand'),

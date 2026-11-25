@@ -157,6 +157,13 @@ SELECT correlia_matcher_data(convert_to(@doc, 'UTF8'))
           final doc = eventFixture();
           final data = doc['data']! as Map<String, Object?>;
           data['summary'] = summary;
+          data['labels'] = {
+            'ip': switch (disposition) {
+              'first' => '192.0.2.127',
+              'second' => '2001:db8::1',
+              _ => '192.0.2.999',
+            },
+          };
           originals[disposition] = CanonicalEvent.fromJson(data);
           await session.db.unsafeQuery(
             '''
@@ -219,6 +226,26 @@ VALUES (@observed, @id::uuid, @disposition, @observed, @id::uuid, @id::uuid,
             start: observedAt,
             end: end,
           );
+          expect(page.matches.map((key) => key.disposition), expected);
+        }
+        for (final (network, expected) in [
+          ('192.0.2.0/25', ['first']),
+          ('192.0.2.128/25', <String>[]),
+          ('2001:db8::1/128', ['second']),
+          ('2001:db8::2/128', <String>[]),
+        ]) {
+          final cidr = MatcherCondition.parse({
+            'field': 'labels.ip',
+            'op': 'cidr',
+            'value': network,
+          });
+          for (final entry in originals.entries) {
+            expect(
+              await cidr.matches(entry.value),
+              expected.contains(entry.key),
+            );
+          }
+          final page = await filter.scan(cidr, start: observedAt, end: end);
           expect(page.matches.map((key) => key.disposition), expected);
         }
       });
