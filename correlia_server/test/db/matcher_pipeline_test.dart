@@ -9,6 +9,7 @@ import 'package:correlia_server/src/ingest/bootstrap.dart';
 import 'package:correlia_server/src/ingest/config_repository.dart';
 import 'package:correlia_server/src/matcher/matcher_regex_worker.dart';
 import 'package:correlia_server/src/pipeline/pipeline.dart';
+import 'package:serverpod/serverpod.dart';
 import 'package:test/test.dart';
 
 import '../integration/test_tools/serverpod_test_tools.dart';
@@ -312,6 +313,18 @@ FROM raw_inbox WHERE outcome_json::jsonb->>'duplicate_quarantine' = '1'
                 );
               }
             }
+            final noticeTx =
+                (await session.db.unsafeQuery(
+                      "SELECT txid::text FROM activity WHERE entity_kind = 'matcher_failure'",
+                    )).single[0]
+                    as String;
+            // The feed uses the cluster-wide xmin. A concurrent suite can
+            // legitimately hold it behind the committed notice.
+            while ((await session.db.unsafeQuery(
+                  'SELECT pg_snapshot_xmin(pg_current_snapshot()) > @tx::xid8',
+                  parameters: QueryParameters.named({'tx': noticeTx}),
+                )).single[0] !=
+                true) {}
             final feed = await reader.feed(cursor, 100);
             final failure = feed.entries
                 .where((entry) => entry.entityKind == 'matcher_failure')
