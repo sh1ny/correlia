@@ -57,7 +57,7 @@
 
 ## 4. Integration gate
 
-- [ ] 4.1 Verify focused fast, DB and e2e scenarios against the integrated change; keep generous real-time hang guards only. Run the gaming check before heavy local work; if instructed to use CI, require Linux verification to cover `mise run check` and `mise run test:all` on the exact PR head. Validate specs and review dispositions before the pre-ship gate.
+- [x] 4.1 Verify focused fast, DB and e2e scenarios against the integrated change; keep generous real-time hang guards only. Run the gaming check before heavy local work; if instructed to use CI, require Linux verification to cover `mise run check` and `mise run test:all` on the exact PR head. Validate specs and review dispositions before the pre-ship gate.
 
 ## Workflow follow-up
 
