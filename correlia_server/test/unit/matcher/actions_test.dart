@@ -204,6 +204,42 @@ void main() {
     expect(result.payload, baseline);
     expect(batch.failures, {'too_large': 1});
   });
+
+  test(
+    'wire-full event omits diagnostic but keeps its delivery and fault',
+    () async {
+      const originalRoute = '22222222-2222-4222-8222-222222222222';
+      const extraRoute = '33333333-3333-4333-8333-333333333333';
+      final data = _event().toJson();
+      data['annotations'] = {
+        for (var i = 0; i < 125; i++) 'padding$i': '"' * 1024,
+      };
+      data['description'] = '';
+      final initial = CloudEvent(
+        event: CanonicalEvent.fromJson(data),
+      ).toJsonBytes();
+      data['description'] = 'x' * (262144 - initial.length);
+      final event = CanonicalEvent.fromJson(data);
+      final baseline = CloudEvent(event: event).toJsonBytes();
+      expect(baseline.length, 262144);
+      final worker = _worker();
+      addTearDown(worker.close);
+      final batch = _batch(
+        worker,
+        [
+          _rule('too_large', [
+            {'type': 'route', 'output_id': extraRoute},
+          ]),
+        ],
+        budget: 1024,
+        outputs: {originalRoute, extraRoute},
+      );
+      final result = await batch.enrich(event, baseline, {originalRoute}, true);
+      expect(result.payload, baseline);
+      expect(result.routes, isEmpty);
+      expect(batch.failures, {'too_large': 1});
+    },
+  );
 }
 
 CanonicalEvent _event({String? description}) {
