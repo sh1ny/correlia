@@ -29,7 +29,7 @@ Each event's canonical `kind` SHALL be set only by its source's decoder, per the
 
 ### Requirement: Noise class hints
 
-A `classify` action SHALL set the reserved label `correlia.noise_class` with origin `matcher` to one value from the closed set `heartbeat`, `informational`, `test`, `flapping` and `maintenance`. Publication and startup SHALL reject any other matcher write to that key in matcher content that differs from every stored snapshot's matcher content. A hint SHALL change neither kind, identity, alert state nor delivery eligibility.
+A `classify` action SHALL set the reserved label `correlia.noise_class` with origin `matcher` to one of `heartbeat`, `informational`, `test`, `flapping` or `maintenance`. Publication and startup SHALL reject any other matcher write to that key in new matcher content, equal to no stored snapshot's; stored content and pinned snapshots MAY still write it. A hint SHALL change neither kind, identity, alert state nor delivery eligibility.
 
 #### Scenario: Classify a watchdog alert
 - **WHEN** a rule matching `labels.alertname` equal to `Watchdog` has `classify: heartbeat`

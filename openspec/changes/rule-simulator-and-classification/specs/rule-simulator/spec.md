@@ -121,7 +121,7 @@ Each trace entry SHALL give the rule ID, a rule outcome (`matched`, `not matched
 
 ### Requirement: Simulation results match the pipeline
 
-The simulation SHALL use the pipeline's rule evaluation and patch code. The result SHALL show each action's effect, the kind, noise hint, final labels, links and severity, and the routes added beyond the source routes, marked hypothetical. A simulation has its own fresh budgets. For a stored event it SHALL also show the errors recorded on the stored event. Equal results are promised only for equal inputs and no budget reached in either run.
+The simulation SHALL use the pipeline's rule evaluation and patch code. The result SHALL show each action's effect, the kind, noise hint, final labels, links and severity, and the routes added beyond the source routes, marked hypothetical: delivery eligibility is not applied to them. A simulation has its own fresh budgets. For a stored event it SHALL also show the errors recorded on the stored event. Equal results are promised only for equal inputs and no budget reached in either run.
 
 #### Scenario: RUL-1 documented examples produce the documented decisions
 - **WHEN** each priority, label and topology example in `docs/ingest-pipeline.md` is simulated with its documented event and rules

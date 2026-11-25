@@ -134,7 +134,7 @@ Every `db` test names its tier with `testGroupTagsOverride`; fast tests carry no
 
 ## 8. Carried constraints
 
-- [ ] 8.1 Check that each spec-destination constraint is stated at its destination: C4 (event-classification → Noise class hints), C4b (rule-simulator → Simulate one event against active or draft rules), C4c (rule-simulator → Hints come only from simulated classify), C5 (event-classification → Decoder-owned event kind), C8 (rule-simulator → Simulation results match the pipeline), C8b (rule-simulator → Simulated fanout bound), C9 (matcher-rules → Short-circuit evaluation is preserved), C11 (durable-pipeline → The earliest same-ID member of a batch is the candidate). Verify: each requirement's text carries its fact; fix any gap in the delta and rerun `mise exec -- openspec validate rule-simulator-and-classification --strict`.
+- [x] 8.1 Check that each spec-destination constraint is stated at its destination: C4 (event-classification → Noise class hints), C4b (rule-simulator → Simulate one event against active or draft rules), C4c (rule-simulator → Hints come only from simulated classify), C5 (event-classification → Decoder-owned event kind), C8 (rule-simulator → Simulation results match the pipeline), C8b (rule-simulator → Simulated fanout bound), C9 (matcher-rules → Short-circuit evaluation is preserved), C11 (durable-pipeline → The earliest same-ID member of a batch is the candidate). Verify: each requirement's text carries its fact; fix any gap in the delta and rerun `mise exec -- openspec validate rule-simulator-and-classification --strict`.
 
 ## 9. Integration
 
