@@ -434,6 +434,27 @@ the access policy.
 | `raw_unavailable` | `eventId` | The stored event's raw row is gone or cannot be decoded again |
 | `ambiguous_member` | `eventId` | The raw row holds several events with that ID and the stored event does not tell which one was kept |
 
+#### Command line
+
+`correlia_server/tool/simulate.dart` calls the endpoint through the generated client against a running server
+(`--server <url>`, default `http://localhost:8080/`; the server must run as the local console). Run it from
+`correlia_server`:
+
+```sh
+# A stored event: its ID, its observed_at, and optionally --disposition
+mise exec -- dart run tool/simulate.dart --event-id <event-id> --observed-at <observed_at>
+
+# A pasted CloudEvent JSON file, optionally with a draft matcher section
+mise exec -- dart run tool/simulate.dart --event event.json --draft draft-matcher.json
+```
+
+It prints the rule source and snapshot, then each rule with its outcome, the condition tree (each leaf with its
+field, operator, outcome and reason), each action's effect, and the final kind, labels with origins, links,
+severity, routes (added ones marked hypothetical) and notes; for a stored event it adds the stored labels, errors
+and snapshot. `--json` prints the result document instead. The `--observed-at` text goes to the simulator as typed,
+so a timestamp it rejects comes back as its `invalid_input` error for `observedAt`. A simulator error prints
+`error: <code>` and `field: <field>` on stderr and exits 1; a usage error prints the usage and exits 64.
+
 #### Documented examples
 
 The examples below are run by `test/unit/simulator/rul1_docs_test.dart` (blocks marked `yaml rul1-example`), which

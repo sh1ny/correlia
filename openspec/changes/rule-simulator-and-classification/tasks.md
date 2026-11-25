@@ -82,9 +82,9 @@
 | rule-simulator → Simulation has no side effects | Failing rule in simulation is not counted | `correlia_server/test/db/rule_simulator_test.dart` | `failing_rule_in_simulation_is_not_counted` | green |
 | rule-simulator → Simulation has no side effects | The endpoint writes no session log | `correlia_server/test/db/rule_simulator_rpc_test.dart` | `the_endpoint_writes_no_session_log` | green |
 | rule-simulator → Simulation has no side effects | Simulation leaves stored state unchanged | `correlia_server/test/db/rule_simulator_rpc_test.dart` | `simulation_leaves_stored_state_unchanged` | green |
-| workspace-tooling → Simulator command line | Trace a stored event | `correlia_server/test/db/simulate_cli_test.dart` | `trace_a_stored_event` | red |
-| workspace-tooling → Simulator command line | Malformed timestamp | `correlia_server/test/unit/tool/simulate_cli_test.dart` | `malformed_timestamp` | red |
-| workspace-tooling → Simulator command line | Simulator error | `correlia_server/test/unit/tool/simulate_cli_test.dart` | `simulator_error` | red |
+| workspace-tooling → Simulator command line | Trace a stored event | `correlia_server/test/db/simulate_cli_test.dart` | `trace_a_stored_event` | green |
+| workspace-tooling → Simulator command line | Malformed timestamp | `correlia_server/test/unit/tool/simulate_cli_test.dart` | `malformed_timestamp` | green |
+| workspace-tooling → Simulator command line | Simulator error | `correlia_server/test/unit/tool/simulate_cli_test.dart` | `simulator_error` | green |
 
 Every `db` test names its tier with `testGroupTagsOverride`; fast tests carry no tag.
 
@@ -129,8 +129,8 @@ Every `db` test names its tier with `testGroupTagsOverride`; fast tests carry no
 
 ## 7. Simulator command line (D11)
 
-- [ ] 7.1 Write failing tests: `correlia_server/test/unit/tool/simulate_cli_test.dart` for output, timestamp passthrough and error exit codes, and `correlia_server/test/db/simulate_cli_test.dart` for tracing a stored event against a running test server. Verify: they fail because the tool does not exist.
-- [ ] 7.2 Implement `correlia_server/tool/simulate.dart` (readable and `--json` output, non-zero exit on errors) and document its use in `docs/ingest-pipeline.md`. Verify: 7.1 tests pass and flip green.
+- [x] 7.1 Write failing tests: `correlia_server/test/unit/tool/simulate_cli_test.dart` for output, timestamp passthrough and error exit codes, and `correlia_server/test/db/simulate_cli_test.dart` for tracing a stored event against a running test server. Verify: they fail because the tool does not exist.
+- [x] 7.2 Implement `correlia_server/tool/simulate.dart` (readable and `--json` output, non-zero exit on errors) and document its use in `docs/ingest-pipeline.md`. Verify: 7.1 tests pass and flip green.
 
 ## 8. Carried constraints
 
