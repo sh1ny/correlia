@@ -37,6 +37,7 @@ import 'mapping_preview_diagnostic.dart' as _ibaui0zg;
 import 'mapping_preview_event.dart' as _i20s3xik;
 import 'mapping_preview_result.dart' as _ines6tzx;
 import 'mapping_preview_validation_error.dart' as _i2ozkwub;
+import 'matcher_failure_view.dart' as _ik186lp1;
 import 'observation_key.dart' as _ii70ink4;
 import 'pipeline_failure.dart' as _ir1rifdz;
 import 'plugin_definition_health.dart' as _iqfe2rop;
@@ -67,6 +68,7 @@ export 'mapping_preview_diagnostic.dart';
 export 'mapping_preview_event.dart';
 export 'mapping_preview_result.dart';
 export 'mapping_preview_validation_error.dart';
+export 'matcher_failure_view.dart';
 export 'observation_key.dart';
 export 'pipeline_failure.dart';
 export 'plugin_definition_health.dart';
@@ -111,6 +113,7 @@ class Protocol extends _is.DatabaseSerializationManager
           _is.getType<_i20s3xik.MappingPreviewEvent>,
           _is.getType<_ines6tzx.MappingPreviewResult>,
           _is.getType<_i2ozkwub.MappingPreviewValidationError>,
+          _is.getType<_ik186lp1.MatcherFailureView>,
           _is.getType<_ii70ink4.ObservationKeyRow>,
           _is.getType<_ir1rifdz.PipelineFailure>,
           _is.getType<_iqfe2rop.PluginDefinitionHealth>,
@@ -141,6 +144,7 @@ class Protocol extends _is.DatabaseSerializationManager
           _is.getType<_i20s3xik.MappingPreviewEvent?>,
           _is.getType<_ines6tzx.MappingPreviewResult?>,
           _is.getType<_i2ozkwub.MappingPreviewValidationError?>,
+          _is.getType<_ik186lp1.MatcherFailureView?>,
           _is.getType<_ii70ink4.ObservationKeyRow?>,
           _is.getType<_ir1rifdz.PipelineFailure?>,
           _is.getType<_iqfe2rop.PluginDefinitionHealth?>,
@@ -179,6 +183,7 @@ class Protocol extends _is.DatabaseSerializationManager
           'MappingPreviewEvent',
           'MappingPreviewResult',
           'MappingPreviewValidationError',
+          'MatcherFailureView',
           'ObservationKeyRow',
           'PipelineFailure',
           'PluginDefinitionHealth',
@@ -1583,6 +1588,9 @@ class Protocol extends _is.DatabaseSerializationManager
     if (t == _i2ozkwub.MappingPreviewValidationError) {
       return _i2ozkwub.MappingPreviewValidationError.fromJson(data) as T;
     }
+    if (t == _ik186lp1.MatcherFailureView) {
+      return _ik186lp1.MatcherFailureView.fromJson(data) as T;
+    }
     if (t == _ii70ink4.ObservationKeyRow) {
       return _ii70ink4.ObservationKeyRow.fromJson(data) as T;
     }
@@ -1722,6 +1730,10 @@ class Protocol extends _is.DatabaseSerializationManager
               : null)
           as T;
     }
+    if (t == _is.getType<_ik186lp1.MatcherFailureView?>()) {
+      return (data != null ? _ik186lp1.MatcherFailureView.fromJson(data) : null)
+          as T;
+    }
     if (t == _is.getType<_ii70ink4.ObservationKeyRow?>()) {
       return (data != null ? _ii70ink4.ObservationKeyRow.fromJson(data) : null)
           as T;
@@ -1818,6 +1830,7 @@ class Protocol extends _is.DatabaseSerializationManager
       _ines6tzx.MappingPreviewResult => 'MappingPreviewResult',
       _i2ozkwub.MappingPreviewValidationError =>
         'MappingPreviewValidationError',
+      _ik186lp1.MatcherFailureView => 'MatcherFailureView',
       _ii70ink4.ObservationKeyRow => 'ObservationKeyRow',
       _ir1rifdz.PipelineFailure => 'PipelineFailure',
       _iqfe2rop.PluginDefinitionHealth => 'PluginDefinitionHealth',
@@ -1886,6 +1899,8 @@ class Protocol extends _is.DatabaseSerializationManager
         return 'MappingPreviewResult';
       case _i2ozkwub.MappingPreviewValidationError():
         return 'MappingPreviewValidationError';
+      case _ik186lp1.MatcherFailureView():
+        return 'MatcherFailureView';
       case _ii70ink4.ObservationKeyRow():
         return 'ObservationKeyRow';
       case _ir1rifdz.PipelineFailure():
@@ -1983,6 +1998,9 @@ class Protocol extends _is.DatabaseSerializationManager
     }
     if (dataClassName == 'MappingPreviewValidationError') {
       return deserialize<_i2ozkwub.MappingPreviewValidationError>(data['data']);
+    }
+    if (dataClassName == 'MatcherFailureView') {
+      return deserialize<_ik186lp1.MatcherFailureView>(data['data']);
     }
     if (dataClassName == 'ObservationKeyRow') {
       return deserialize<_ii70ink4.ObservationKeyRow>(data['data']);

@@ -141,6 +141,13 @@ final class _Upgrade {
       'ALTER TABLE events DROP COLUMN effective_source_time',
     );
     await connection.runTx((tx) async {
+      await tx.execute(
+        'DROP FUNCTION correlia_record_matcher_batch(text, jsonb, uuid, timestamptz)',
+      );
+      await tx.execute(
+        'DROP FUNCTION correlia_record_matcher_failure(text, text, bigint, uuid, timestamptz)',
+      );
+      await tx.execute('DROP TABLE matcher_failure');
       await tx.execute('DROP FUNCTION correlia_require_pin_worker() CASCADE');
       await tx.execute(
         'DROP FUNCTION correlia_retained_output_ids(), correlia_pinned_output_routes()',

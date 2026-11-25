@@ -332,6 +332,17 @@ rules, copy the earlier matcher section into the current file, preserve the curr
 and outputs, and publish at a higher revision. An identical restart uses that same file without
 publishing again. A `route` action must reference an output in the candidate registry.
 
+Rules read the original event, including when an earlier rule writes the same field. Matcher changes
+appear in retained events and their delivery payloads; live alert state uses the original severity.
+Matcher routes add to the source routes and follow the same delivery eligibility.
+
+If a rule times out, produces invalid metadata, or would exceed the batch fanout limit, Correlia
+discards that rule's whole patch and counts the failure against the pinned snapshot and rule.
+The existing activity feed reports one notice for each failing pair. Its detail includes the current
+failure count. An event may also include a sanitized `pipeline.enrichment_errors` entry if it fits.
+Before the write reserve, Correlia stops optional evaluation and records `matcher_unattempted` on the
+raw outcome for rules that did not start. Correlia never publishes a replacement automatically.
+
 ### Upgrade before enabling matcher rules
 
 Stop older workers and their supervisors before upgrading. Schema step 13 checks the existing

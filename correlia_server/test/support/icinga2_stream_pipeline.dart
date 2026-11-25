@@ -19,6 +19,8 @@ Future<String> publishStreamDb(
   bool shared = false,
   bool routed = true,
   String apiUrl = 'https://icinga.example:5665',
+  Map<String, Object?>? matcher,
+  String? matcherOutput,
   Future<void> Function(Transaction)? beforePublicationWrites,
 }) async {
   final source = streamSource(icinga2DbSourceId)
@@ -40,6 +42,10 @@ Future<String> publishStreamDb(
         'output_ids': [icinga2DbOutputIds.first],
       },
   ]);
+  if (matcher != null) {
+    config['matcher'] = matcher;
+    config['expected_active_snapshot'] = null;
+  }
   if (shared) config['namespaces'] = [icinga2SharedNamespace];
   config['outputs'] = [
     {
@@ -48,6 +54,13 @@ Future<String> publishStreamDb(
       'url': 'http://127.0.0.1:9191/events',
       'signing_key_ref': 'stream-output-key',
     },
+    if (matcherOutput != null)
+      {
+        'id': matcherOutput,
+        'kind': 'webhook',
+        'url': 'http://127.0.0.1:9191/matched',
+        'signing_key_ref': 'stream-output-key',
+      },
   ];
   final snapshot =
       await IngestConfigRepository(

@@ -89,6 +89,7 @@ List<SchemaStep> get schemaSteps => [
   SchemaStep(11, File('schema/0011_event_subject_text.sql').readAsStringSync()),
   SchemaStep(12, File('schema/0012_matcher_data.sql').readAsStringSync()),
   SchemaStep(13, File('schema/0013_matcher_pins.sql').readAsStringSync()),
+  SchemaStep(14, File('schema/0014_matcher_failures.sql').readAsStringSync()),
 ];
 
 /// Installs the publisher-version trigger and backfill boundaries in one

@@ -25,6 +25,7 @@ import 'mapping_preview_diagnostic.dart' as _ibaui0zg;
 import 'mapping_preview_event.dart' as _i20s3xik;
 import 'mapping_preview_result.dart' as _ines6tzx;
 import 'mapping_preview_validation_error.dart' as _i2ozkwub;
+import 'matcher_failure_view.dart' as _ik186lp1;
 export 'alert_snapshot.dart';
 export 'alert_view.dart';
 export 'console_access_denied_exception.dart';
@@ -38,6 +39,7 @@ export 'mapping_preview_diagnostic.dart';
 export 'mapping_preview_event.dart';
 export 'mapping_preview_result.dart';
 export 'mapping_preview_validation_error.dart';
+export 'matcher_failure_view.dart';
 export 'client.dart';
 
 class Protocol extends _isc.SerializationManager
@@ -66,6 +68,7 @@ class Protocol extends _isc.SerializationManager
           _isc.getType<_i20s3xik.MappingPreviewEvent>,
           _isc.getType<_ines6tzx.MappingPreviewResult>,
           _isc.getType<_i2ozkwub.MappingPreviewValidationError>,
+          _isc.getType<_ik186lp1.MatcherFailureView>,
           _isc.getType<_iz3t21fy.AlertSnapshot?>,
           _isc.getType<_i897ft9c.AlertView?>,
           _isc.getType<_i25sduw2.ConsoleAccessDeniedException?>,
@@ -79,6 +82,7 @@ class Protocol extends _isc.SerializationManager
           _isc.getType<_i20s3xik.MappingPreviewEvent?>,
           _isc.getType<_ines6tzx.MappingPreviewResult?>,
           _isc.getType<_i2ozkwub.MappingPreviewValidationError?>,
+          _isc.getType<_ik186lp1.MatcherFailureView?>,
           _isc.getType<List<_i897ft9c.AlertView>>,
           _isc.getType<List<_iywqxrq6.FeedEntry>>,
           _isc.getType<Map<String, int>>,
@@ -100,6 +104,7 @@ class Protocol extends _isc.SerializationManager
           'MappingPreviewEvent',
           'MappingPreviewResult',
           'MappingPreviewValidationError',
+          'MatcherFailureView',
         ],
       );
 
@@ -166,6 +171,9 @@ class Protocol extends _isc.SerializationManager
     if (t == _i2ozkwub.MappingPreviewValidationError) {
       return _i2ozkwub.MappingPreviewValidationError.fromJson(data) as T;
     }
+    if (t == _ik186lp1.MatcherFailureView) {
+      return _ik186lp1.MatcherFailureView.fromJson(data) as T;
+    }
     if (t == _isc.getType<_iz3t21fy.AlertSnapshot?>()) {
       return (data != null ? _iz3t21fy.AlertSnapshot.fromJson(data) : null)
           as T;
@@ -230,6 +238,10 @@ class Protocol extends _isc.SerializationManager
               : null)
           as T;
     }
+    if (t == _isc.getType<_ik186lp1.MatcherFailureView?>()) {
+      return (data != null ? _ik186lp1.MatcherFailureView.fromJson(data) : null)
+          as T;
+    }
     if (t == List<_i897ft9c.AlertView>) {
       return (data as List)
               .map((e) => deserialize<_i897ft9c.AlertView>(e))
@@ -279,6 +291,7 @@ class Protocol extends _isc.SerializationManager
       _ines6tzx.MappingPreviewResult => 'MappingPreviewResult',
       _i2ozkwub.MappingPreviewValidationError =>
         'MappingPreviewValidationError',
+      _ik186lp1.MatcherFailureView => 'MatcherFailureView',
       _ => null,
     };
   }
@@ -319,6 +332,8 @@ class Protocol extends _isc.SerializationManager
         return 'MappingPreviewResult';
       case _i2ozkwub.MappingPreviewValidationError():
         return 'MappingPreviewValidationError';
+      case _ik186lp1.MatcherFailureView():
+        return 'MatcherFailureView';
     }
     return null;
   }
@@ -367,6 +382,9 @@ class Protocol extends _isc.SerializationManager
     }
     if (dataClassName == 'MappingPreviewValidationError') {
       return deserialize<_i2ozkwub.MappingPreviewValidationError>(data['data']);
+    }
+    if (dataClassName == 'MatcherFailureView') {
+      return deserialize<_ik186lp1.MatcherFailureView>(data['data']);
     }
     return super.deserializeByClassName(data);
   }

@@ -75,12 +75,14 @@ LIMIT 500
       }
       final rows = await session.db.unsafeQuery(
         '''
-SELECT txid::text AS tx, id::text AS position_id, occurred_at, entity_kind,
-       entity_id, entity_version, change_kind
-FROM activity
-WHERE (txid, id) > (CAST(@tx AS xid8), CAST(@id AS bigint))
-  AND txid < CAST(@watermark AS xid8)
-ORDER BY txid, id LIMIT @limit
+SELECT a.txid::text AS tx, a.id::text AS position_id, a.occurred_at, a.entity_kind,
+       a.entity_id, a.entity_version, a.change_kind,
+       f.snapshot_id, f.rule_id, f.failure_count
+FROM activity a
+LEFT JOIN matcher_failure f ON a.entity_kind = 'matcher_failure' AND f.id = a.entity_id
+WHERE (a.txid, a.id) > (CAST(@tx AS xid8), CAST(@id AS bigint))
+  AND a.txid < CAST(@watermark AS xid8)
+ORDER BY a.txid, a.id LIMIT @limit
 ''',
         parameters: QueryParameters.named({
           'tx': position.txid.toString(),
@@ -129,6 +131,14 @@ SELECT id, version, status, severity, summary, "sourceInstance", "firingSince",
                 entityVersion: row['entity_version'] as int,
                 changeKind: row['change_kind'] as String,
                 occurredAt: row['occurred_at'] as DateTime,
+                matcherFailure: switch (row['snapshot_id']) {
+                  final String snapshot => MatcherFailureView(
+                    snapshotId: snapshot,
+                    ruleId: row['rule_id'] as String,
+                    failureCount: row['failure_count'] as int,
+                  ),
+                  _ => null,
+                },
               ),
             )
             .toList(),

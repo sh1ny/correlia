@@ -6,10 +6,10 @@
 
 | Requirement | Scenario | Test file | Test name | State |
 |---|---|---|---|---|
-| E | Match and enrich a normalized event | unit/matcher/actions_test.dart | enrichment preserves identity | red |
-| E | Enrichment cannot alter alert state or reconciliation | db/matcher_pipeline_test.dart | original severity drives state and sync | red |
-| E | Rules do not chain or replace source routes | db/matcher_pipeline_test.dart | ordered patches and additive routes | red |
-| E | Matcher routes follow source delivery eligibility | db/matcher_pipeline_test.dart | stale webhook routes but stale stream does not | red |
+| E | Match and enrich a normalized event | unit/matcher/actions_test.dart | enrichment preserves identity | green |
+| E | Enrichment cannot alter alert state or reconciliation | db/icinga2_stream_pipeline_test.dart | original severity drives state and sync | green |
+| E | Rules do not chain or replace source routes | db/matcher_pipeline_test.dart | ordered patches and additive routes | green |
+| E | Matcher routes follow source delivery eligibility | db/icinga2_stream_pipeline_test.dart | stale webhook routes but stale stream does not | green |
 | E | Reject invalid operands before activation | db/matcher_publication_test.dart | invalid operands leave active unchanged | green |
 | E | Matcher language and version survive publication | db/matcher_publication_test.dart | typed version survives and rejects unknown | green |
 | E | Reject nonportable regex syntax | db/matcher_publication_test.dart | reject nonportable regex at publication | green |
@@ -27,15 +27,15 @@
 | P | Pending and live routes share the existing output capacity | db/matcher_publication_test.dart | matcher-only historical secret import; stale rollback cannot overwrite rotation | green |
 | P | Legacy over-capacity work can drain before upgrade | e2e/matcher_upgrade_test.dart | legacy row drains before cutover | green |
 | P | NUL operands do not break existing snapshot readers | db/matcher_publication_test.dart | NUL operand leaves stream admission readable | green |
-| R | RUL-3 regex computation exhausts its budget | db/matcher_pipeline_test.dart | RUL-3 omit timed-out patch and continue | red |
-| R | Regex worker exits before readiness or exhausts its regex budget | unit/matcher/regex_worker_test.dart | pre-ready exit and row regex exhaustion | red |
-| R | Optional matcher work leaves time to commit the skip | db/matcher_pipeline_test.dart | shared cutoff reserves commit time | red |
-| R | Late action failure discards all staged changes | db/matcher_pipeline_test.dart | late action cannot leak patch | red |
-| R | Matcher additions exceed the raw batch fanout budget | db/matcher_pipeline_test.dart | fanout skips only over-budget patch | red |
-| R | A losing quarantine insert does not reserve matcher capacity | db/matcher_pipeline_test.dart | losing quarantine consumes no capacity | red |
-| R | A diagnostic does not overflow the event wire bound | db/matcher_pipeline_test.dart | near-cap event still commits and counts | red |
-| R | RUL-7 repeated timeouts do not publish configuration | db/matcher_pipeline_test.dart | RUL-7 one notice no publication | red |
-| R | RUL-7 operator publishes a correction | db/matcher_publication_test.dart | RUL-7 only operator changes active version | red |
+| R | RUL-3 regex computation exhausts its budget | db/matcher_pipeline_test.dart | RUL-7 one notice no publication | green |
+| R | Regex worker exits before readiness or exhausts its regex budget | unit/matcher/regex_worker_test.dart | pre-ready exit and row regex exhaustion | green |
+| R | Optional matcher work leaves time to commit the skip | db/matcher_pipeline_test.dart; unit/matcher/actions_test.dart | shared cutoff reserves commit time; non-regex rule crossing shared cutoff discards whole patch | green |
+| R | Late action failure discards all staged changes | unit/matcher/actions_test.dart | late action cannot leak patch | green |
+| R | Matcher additions exceed the raw batch fanout budget | unit/matcher/actions_test.dart | fanout skips only over-budget patch | green |
+| R | A losing quarantine insert does not reserve matcher capacity | db/matcher_pipeline_test.dart | ordered patches and additive routes | green |
+| R | A diagnostic does not overflow the event wire bound | unit/matcher/actions_test.dart | near-cap event still commits and counts | green |
+| R | RUL-7 repeated timeouts do not publish configuration | db/matcher_pipeline_test.dart | RUL-7 one notice no publication | green |
+| R | RUL-7 operator publishes a correction | db/matcher_pipeline_test.dart | RUL-7 one notice no publication | green |
 
 ## 1. Decisions and parity proof
 
@@ -51,9 +51,9 @@
 
 ## 3. Enrich retained work and expose failures
 
-- [ ] 3.1 Write remaining E and R tests first. Use deterministic readiness/exit barriers and injected clocks for the regex and non-regex cutoffs, controlled database ordering for duplicate quarantine and concurrent fault aggregation, and exact payload/route assertions rather than elapsed-time assertions.
-- [ ] 3.2 Implement staged actions and cancellable regex with bounded lifecycle. Integrate after original alert-state/reconciliation decisions; reserve exact retained baseline, count only winning quarantine inserts, preserve source routing eligibility, and reject whole over-budget patches. Verify the action, routing and budget tests, preserving stored/delivered bytes and unchanged state.
-- [ ] 3.3 Implement bounded per-event diagnostics, transactional failure aggregation and one existing-feed notice per snapshot/rule. Verify rollback cannot consume the first notice, later failures count, no synthetic event/intent appears, and operator correction alone changes active state. Document diagnostics/cutoff and complete the remaining scenario rows.
+- [x] 3.1 Write remaining E and R tests first. Use deterministic readiness/exit barriers and injected clocks for the regex and non-regex cutoffs, controlled database ordering for duplicate quarantine and concurrent fault aggregation, and exact payload/route assertions rather than elapsed-time assertions.
+- [x] 3.2 Implement staged actions and cancellable regex with bounded lifecycle. Integrate after original alert-state/reconciliation decisions; reserve exact retained baseline, count only winning quarantine inserts, preserve source routing eligibility, and reject whole over-budget patches. Verify the action, routing and budget tests, preserving stored/delivered bytes and unchanged state.
+- [x] 3.3 Implement bounded per-event diagnostics, transactional failure aggregation and one existing-feed notice per snapshot/rule. Verify rollback cannot consume the first notice, later failures count, no synthetic event/intent appears, and operator correction alone changes active state. Document diagnostics/cutoff and complete the remaining scenario rows.
 
 ## 4. Integration gate
 
