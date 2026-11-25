@@ -138,4 +138,4 @@ Every `db` test names its tier with `testGroupTagsOverride`; fast tests carry no
 
 ## 9. Integration
 
-- [ ] 9.1 Run `mise run check` and `mise run test:all`. Verify: both pass and every test-map row is green.
+- [x] 9.1 Run `mise run check` and `mise run test:all`. Verify: both pass and every test-map row is green.
