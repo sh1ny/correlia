@@ -315,3 +315,5 @@ After round 5 the owner authorized “Yes, round 6” for D11 and the three revi
 After round 6 the owner approved D12 and the delivery-eligibility clarification, and directed “No, go to tasks”. No seventh round or apply was authorized.
 
 During the build, the owner authorized exactly one additional pre-ship review after round 4. The extra round follows the regex reply deadline fix and proofs for PostgreSQL statement timeout and pinned rule behavior after rollback. If round 5 still blocks, return to the owner before further work.
+
+After approving D17, the owner chose to open the pull request without a sixth pre-ship review. Linux verification and pull request review still apply.
