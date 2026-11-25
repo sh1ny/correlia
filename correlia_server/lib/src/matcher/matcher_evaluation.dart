@@ -11,10 +11,38 @@ import 'matcher_regex_worker.dart';
 typedef MatcherCapture =
     Future<String?> Function(String pattern, String input, int group);
 
+/// What one action of a matching rule staged.
+enum MatcherActionEffect {
+  /// The action staged a change.
+  staged,
+
+  /// An `extract` or `location` action found no value in its field.
+  noInput,
+
+  /// An `extract` pattern did not capture the requested group.
+  noCapture,
+
+  /// No `location` entry matched the field value.
+  noEntry,
+
+  /// A `map_severity` action had no mapping for the event's severity.
+  noMapping,
+}
+
+/// Receives each action's position, its effect and a captured value, if any.
+typedef MatcherActionObserver =
+    void Function(int index, MatcherActionEffect effect, String? value);
+
 /// Stages and validates one rule's changes against the current event.
 ///
 /// A non-match yields `null`. Operands read [original] rather than changes
 /// from earlier rules. A thrown error discards the entire patch.
+///
+/// A caller that wants the condition trace passes [onExplained]: the
+/// condition is then evaluated once by [MatcherCondition.explain] and its
+/// explanation is reported before the rule's outcome is used, so a regex
+/// failure still rethrows as [MatcherRegexUnavailable]. [onAction] reports
+/// each staged action's effect; neither callback changes the result.
 Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
   MatcherRule rule, {
   required CanonicalEvent original,
@@ -22,28 +50,54 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
   MatcherRegexTest? regexTest,
   required MatcherCapture capture,
   void Function()? check,
+  void Function(ConditionExplanation explanation)? onExplained,
+  MatcherActionObserver? onAction,
 }) async {
   check?.call();
-  final matched = await rule.condition.matches(original, regexTest: regexTest);
+  final bool matched;
+  if (onExplained == null) {
+    matched = await rule.condition.matches(original, regexTest: regexTest);
+  } else {
+    final explanation = await rule.condition.explain(
+      original,
+      regexTest: regexTest,
+    );
+    onExplained(explanation);
+    matched =
+        explanation.matched ??
+        (throw MatcherRegexUnavailable(explanation.failureCode!));
+  }
   check?.call();
   if (!matched) return null;
   final labels = <String, String>{};
   final links = <EventLink>[];
   final routes = <String>{};
   EventSeverity? severity;
-  for (final action in rule.actions) {
+  for (final (index, action) in rule.actions.indexed) {
     check?.call();
     switch (action) {
       case MatcherLabel(:final key, :final value):
         labels[key] = value;
+        onAction?.call(index, MatcherActionEffect.staged, null);
       case MatcherClassify(:final value):
         labels[reservedNoiseKey] = value.name;
+        onAction?.call(index, MatcherActionEffect.staged, null);
       case MatcherRoute(:final outputId):
         routes.add(outputId);
+        onAction?.call(index, MatcherActionEffect.staged, null);
       case MatcherSeverity(:final values):
-        severity = values[original.severity] ?? severity;
+        final mapped = values[original.severity];
+        severity = mapped ?? severity;
+        onAction?.call(
+          index,
+          mapped == null
+              ? MatcherActionEffect.noMapping
+              : MatcherActionEffect.staged,
+          null,
+        );
       case MatcherLink(:final link):
         links.add(link);
+        onAction?.call(index, MatcherActionEffect.staged, null);
       case MatcherExtract(
         :final field,
         :final pattern,
@@ -51,13 +105,27 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
         :final group,
       ):
         final input = field.read(original);
-        if (input == null) continue;
+        if (input == null) {
+          onAction?.call(index, MatcherActionEffect.noInput, null);
+          continue;
+        }
         final value = await capture(pattern.dartPattern, input, group);
         check?.call();
         if (value != null) labels[key] = value;
+        onAction?.call(
+          index,
+          value == null
+              ? MatcherActionEffect.noCapture
+              : MatcherActionEffect.staged,
+          value,
+        );
       case MatcherLocation(:final field, :final entries):
         final input = field.read(original);
-        if (input == null) continue;
+        if (input == null) {
+          onAction?.call(index, MatcherActionEffect.noInput, null);
+          continue;
+        }
+        var found = false;
         for (final entry in entries) {
           if (entry.hostname == input ||
               entry.network?.contains(input) == true) {
@@ -65,9 +133,15 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
             if (entry.environment case final environment?) {
               labels['environment'] = environment;
             }
+            found = true;
             break;
           }
         }
+        onAction?.call(
+          index,
+          found ? MatcherActionEffect.staged : MatcherActionEffect.noEntry,
+          null,
+        );
     }
     check?.call();
   }
@@ -101,6 +175,27 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
   check?.call();
   return (event: event, routes: routes);
 }
+
+/// The routes in [patch] that no earlier source, baseline or rule supplied.
+List<String> routesAddedByPatch(
+  Set<String> patch,
+  Set<String> baseRoutes,
+  Set<String> alreadyAdded,
+) => [
+  for (final id in patch)
+    if (!baseRoutes.contains(id) && !alreadyAdded.contains(id)) id,
+];
+
+/// The extra bytes a patch costs when its event is [bytes] long.
+///
+/// The event is sent as [copies] plus [added] copies, and [cost] bytes are
+/// already charged. The pipeline and the simulator share this arithmetic.
+int fanoutDelta({
+  required int copies,
+  required int added,
+  required int bytes,
+  required int cost,
+}) => (copies + added) * bytes - cost;
 
 /// Adds bounded failure diagnostics without changing event identity.
 CanonicalEvent withMatcherDiagnostics(
@@ -192,13 +287,14 @@ final class MatcherBatch {
             ? payload
             : CloudEvent(event: patch.event).toJsonBytes();
         final added = deliverable
-            ? patch.routes
-                  .where(
-                    (id) => !baseRoutes.contains(id) && !routes.contains(id),
-                  )
-                  .toList()
+            ? routesAddedByPatch(patch.routes, baseRoutes, routes)
             : const <String>[];
-        final delta = (copies + added.length) * bytes.length - cost;
+        final delta = fanoutDelta(
+          copies: copies,
+          added: added.length,
+          bytes: bytes.length,
+          cost: cost,
+        );
         _check();
         if (delta > _available) {
           fail(rule.id, 'batch_bound');
@@ -233,7 +329,12 @@ final class MatcherBatch {
           accepted.add(error);
           final withErrors = withMatcherDiagnostics(event, accepted);
           final bytes = CloudEvent(event: withErrors).toJsonBytes();
-          final delta = bytes.length * copies - cost;
+          final delta = fanoutDelta(
+            copies: copies,
+            added: 0,
+            bytes: bytes.length,
+            cost: cost,
+          );
           _check();
           if (delta <= _available) {
             _available -= delta;

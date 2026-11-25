@@ -1,0 +1,25 @@
+class: RuleSimulationResult
+fields:
+  error: SimulationError?
+  ruleSource: String
+  snapshotId: String?
+  snapshotRevision: int?
+  noRulesActive: bool
+  eventKind: String
+  noiseClassHint: String?
+  trace: List<RuleTrace>
+  finalLabels: Map<String, String>
+  finalLabelOrigins: Map<String, String>
+  finalLinks: List<SimulatedLink>
+  finalSeverity: String
+  baselineRoutes: List<String>
+  addedRoutes: List<String>
+  routeNote: String
+  sourceAbsent: bool
+  baselineOverFanout: bool
+  notes: List<String>
+  storedSnapshotId: String?
+  storedLabels: Map<String, String>?
+  storedLabelOrigins: Map<String, String>?
+  storedEnrichmentErrors: List<StoredEnrichmentError>?
+  storedBudgetNote: String?

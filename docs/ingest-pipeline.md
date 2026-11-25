@@ -368,6 +368,167 @@ failure count. An event may also include a sanitized `pipeline.enrichment_errors
 Before the write reserve, Correlia stops optional evaluation and records `matcher_unattempted` on the
 raw outcome for rules that did not start. Correlia never publishes a replacement automatically.
 
+### Event kinds before matching
+
+The `kind` of an event is set by its decoder, before any rule runs; rules read it and never change it. The
+Icinga 2 webhook table in [Mapping](#mapping) gives the kind for each notification type. The other sources:
+
+| Source | Delivery | Kind |
+|---|---|---|
+| Alertmanager | each alert, firing or resolved | `alert` |
+| Generic webhook | each mapped alert | `alert` |
+| Icinga 2 Event Streams | `StateChange`, HARD or `soft_and_hard`, any state | `alert` |
+| Icinga 2 Event Streams | `StateChange`, SOFT non-OK under `hard_only` | no event; a lag observation only |
+| Icinga 2 Event Streams | `AcknowledgementSet`, `AcknowledgementCleared` | `ack` |
+| Icinga 2 Event Streams | `DowntimeStarted`, `DowntimeRemoved` | `downtime` |
+| Icinga 2 Event Streams | `Flapping` | `state` |
+| Icinga 2 Event Streams | any other stream type | rejected with `unsupported_type` at `type` |
+
+A `classify` action (see above) adds the noise class hint on top of the kind; it never replaces it.
+
+### Simulate rules against an event
+
+The rule simulator shows what the matcher rules would do to one event, rule by rule and condition by condition,
+and changes nothing. It is the `ruleSimulator.simulate` endpoint and follows the console access policy: outside
+the local console it throws the access error. Its calls write no session log.
+
+The request names the event in exactly one way:
+
+- `eventJson`: a CloudEvent JSON document, decoded and validated like a published event.
+- `eventId` and `observedAt`, with an optional `disposition` (`ready`, `late` or `future_dated`): an event the
+  pipeline stored. The simulator decodes the stored raw row again and picks the member the pipeline kept. Without
+  a `disposition` a `ready` or `late` row is preferred over a `future_dated` one.
+
+`draftMatcher` is optional text holding a `matcher` section as JSON (at most 64 KiB). Without it the rules of the
+active snapshot run. A draft is checked like a published one, including the reserved `correlia.noise_class` key,
+and is always new content. Nothing is published, stored or sent.
+
+The result carries:
+
+- `ruleSource` (`active` or `draft`), and for the active rules the snapshot ID and revision. `noRulesActive` is
+  true when there is no active matcher.
+- `trace`: one entry per rule in order, with the outcome (`matched`, `not matched`, `failed` or `not attempted`),
+  a `failureCode` for a failed rule, and the value each condition read and decided. Each action reports its
+  effect.
+- The final labels, label origins, links, severity and `eventKind`, plus `noiseClassHint` when a rule classified
+  the event.
+- `baselineRoutes` (the source's routes in the active snapshot) and `addedRoutes` from `route` actions. Added
+  routes are hypothetical: delivery eligibility is not evaluated. `sourceAbsent` is true when the event's source
+  is not in the active snapshot.
+- For a stored event, what the pipeline stored (`storedLabels`, `storedLabelOrigins`,
+  `storedEnrichmentErrors`, `storedSnapshotId`) next to the simulated result. The pipeline shares its regex and
+  time budgets across a whole raw row, while a simulation starts fresh budgets, so the result says so in
+  `storedBudgetNote`.
+
+A failure is a typed `error` in the result with a `code` and the `field` it concerns; the endpoint throws only for
+the access policy.
+
+| Code | Field | Cause |
+|---|---|---|
+| `invalid_input` | `eventJson`, `eventId`, `observedAt` or `disposition` | Both or neither way of naming the event, a partial or malformed key, an unknown disposition, or an `observedAt` that is not an RFC 3339 timestamp with an offset |
+| `too_large` | `eventJson` or `draftMatcher` | An event over the wire bound, or a draft over 64 KiB |
+| `invalid_json` | `draftMatcher` | The draft is not JSON |
+| an event validation code | the event field path | The pasted event fails validation |
+| a matcher validation code | the matcher field path | The draft fails the checks of publication, such as `reserved_key:correlia.noise_class;use_classify_or_rename_the_label` |
+| `event_not_found` | `eventId` | No stored event has that key |
+| `raw_unavailable` | `eventId` | The stored event's raw row is gone or cannot be decoded again |
+| `ambiguous_member` | `eventId` | The raw row holds several events with that ID and the stored event does not tell which one was kept |
+
+#### Documented examples
+
+The examples below are run by `test/unit/simulator/rul1_docs_test.dart` (blocks marked `yaml rul1-example`), which
+simulates each documented event against the documented rules and compares the per-rule outcomes and the final
+labels. Each event is an alert with the labels shown. Changing a block without changing the behavior it documents
+fails that test.
+
+**Rule priority.** Rules run in order and read the original event. When two rules that match write the same
+label, the later rule wins; a rule that does not match leaves the label alone.
+
+```yaml rul1-example
+name: priority
+event:
+  labels: {alertname: DiskFull, team: storage}
+matcher:
+  language: matcher
+  version: 1
+  rules:
+    - id: default-owner
+      when: {field: labels.alertname, op: exists}
+      actions:
+        - {type: set_label, key: owner, value: on-call}
+    - id: storage-owner
+      when: {field: labels.team, op: equals, value: storage}
+      actions:
+        - {type: set_label, key: owner, value: storage-team}
+    - id: network-owner
+      when: {field: labels.team, op: equals, value: network}
+      actions:
+        - {type: set_label, key: owner, value: network-team}
+expect:
+  rules:
+    default-owner: matched
+    storage-owner: matched
+    network-owner: not matched
+  labels: {alertname: DiskFull, team: storage, owner: storage-team}
+```
+
+**Labels.** `set_label` writes a fixed value. `extract` copies a capture group of a regular expression applied to
+a field; the first match is used, and the pattern dialect has no anchors.
+
+```yaml rul1-example
+name: labels
+event:
+  labels: {alertname: HighLatency, instance: "api-12.example.org:9100"}
+matcher:
+  language: matcher
+  version: 1
+  rules:
+    - id: tag-and-extract
+      when: {field: labels.alertname, op: equals, value: HighLatency}
+      actions:
+        - {type: set_label, key: tier, value: frontend}
+        - {type: extract, field: labels.instance, pattern: "([a-z]+-[0-9]+)", group: 1, key: node}
+expect:
+  rules:
+    tag-and-extract: matched
+  labels:
+    alertname: HighLatency
+    instance: "api-12.example.org:9100"
+    tier: frontend
+    node: api-12
+```
+
+**Topology.** A `location` action looks up the value of a field in an ordered table and sets `site` and
+`environment` from the first entry that matches by `hostname` or `cidr`. When no entry matches, the rule still
+matches and the labels stay as they were.
+
+```yaml rul1-example
+name: topology
+event:
+  labels: {alertname: HostDown, hostname: db-2.example.org}
+matcher:
+  language: matcher
+  version: 1
+  rules:
+    - id: site-of-host
+      when: {field: labels.hostname, op: exists}
+      actions:
+        - type: location
+          field: labels.hostname
+          entries:
+            - {hostname: db-1.example.org, site: fra1, environment: production}
+            - {hostname: db-2.example.org, site: ams2, environment: production}
+            - {hostname: lab-1.example.org, site: ams2, environment: staging}
+expect:
+  rules:
+    site-of-host: matched
+  labels:
+    alertname: HostDown
+    hostname: db-2.example.org
+    site: ams2
+    environment: production
+```
+
 ### Upgrade before enabling matcher rules
 
 Live upgrades and mixed-version operation are not supported. Stop admitting new input and manually

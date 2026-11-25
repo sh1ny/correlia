@@ -33,7 +33,9 @@ import 'row_decode.dart';
 
 /// Monotonic processing budget for a claimed raw row.
 const pipelineRowDeadline = Duration(seconds: 10);
-const _fanoutLimit = 16 * 1024 * 1024;
+
+/// The most bytes one raw row's retained events and their copies may take.
+const pipelineFanoutLimit = 16 * 1024 * 1024;
 
 /// The maximum source clock lead used by alert-state ordering.
 const skewAllowance = Duration(minutes: 5);
@@ -763,7 +765,7 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
             aggregate +=
                 item.payload.length *
                 (1 + (effect.routes ? outputs.length : 0));
-            if (aggregate > (fanoutLimitForTest ?? _fanoutLimit)) {
+            if (aggregate > (fanoutLimitForTest ?? pipelineFanoutLimit)) {
               throw const EventFieldError('alerts', 'batch_bound');
             }
             retained.add(effect);
@@ -776,7 +778,8 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
               matcher,
               regex.newRow(remaining),
               remaining,
-              availableBytes: (fanoutLimitForTest ?? _fanoutLimit) - aggregate,
+              availableBytes:
+                  (fanoutLimitForTest ?? pipelineFanoutLimit) - aggregate,
             );
           }
           for (final effect in retained) {
