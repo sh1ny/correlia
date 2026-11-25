@@ -22,12 +22,20 @@ void main() {
     var elapsed = Duration.zero;
     final worker = MatcherRegexWorker(
       elapsed: () => elapsed,
-      arm: (_, _) => () {},
+      arm: (limit, _) {
+        if (limit <= const Duration(milliseconds: 20)) {
+          elapsed += const Duration(milliseconds: 10);
+        }
+        return () {};
+      },
     );
     try {
       final row = worker.newRow(() => const Duration(minutes: 1));
       expect(await row.matches('a', 'a'), isTrue);
-      elapsed = const Duration(milliseconds: 100);
+      elapsed += const Duration(seconds: 1);
+      for (var i = 0; i < 8; i++) {
+        expect(await row.matches('a', 'a'), isTrue);
+      }
       await expectLater(
         row.matches('a', 'b'),
         throwsA(isA<MatcherRegexUnavailable>()),

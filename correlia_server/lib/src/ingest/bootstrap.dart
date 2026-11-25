@@ -707,12 +707,14 @@ Future<Object?> _readFile(String path, String kind) async {
   );
   try {
     final text = utf8.decode(bytes);
-    if (secrets) return jsonDecode(text);
-    try {
-      return jsonDecode(text);
-    } on FormatException {
+    final lowerPath = path.toLowerCase();
+    if (!secrets &&
+        (lowerPath.endsWith('.yaml') || lowerPath.endsWith('.yml'))) {
       return _yamlData(loadYamlNode(text));
     }
+    return jsonDecode(text);
+  } on BootstrapError {
+    rethrow;
   } catch (_) {
     throw BootstrapError(kind, r'$', 'read_or_parse');
   }

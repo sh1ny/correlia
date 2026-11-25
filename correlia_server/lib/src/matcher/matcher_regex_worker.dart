@@ -159,7 +159,7 @@ final class MatcherRegexRow {
   final MatcherRegexWorker _worker;
   final Duration Function() _optional;
   bool _unavailable = false;
-  Duration? _expiresAt;
+  Duration _spent = Duration.zero;
 
   /// Tests an expression in the isolate.
   Future<bool> matches(String pattern, String input) async =>
@@ -171,9 +171,11 @@ final class MatcherRegexRow {
 
   Future<Object?> _call(String pattern, String input, int? group) async {
     if (_unavailable) throw const MatcherRegexUnavailable('regex_budget');
-    final expiresAt = _expiresAt ??=
-        _worker._now() + const Duration(milliseconds: 100);
-    Duration remaining() => _min(expiresAt - _worker._now(), _optional());
+    final startedAt = _worker._now();
+    Duration remaining() => _min(
+      const Duration(milliseconds: 100) - _spent - (_worker._now() - startedAt),
+      _optional(),
+    );
     try {
       final available = remaining();
       if (available <= Duration.zero) {
@@ -190,6 +192,8 @@ final class MatcherRegexRow {
     } on MatcherRegexUnavailable {
       _unavailable = true;
       rethrow;
+    } finally {
+      _spent += _worker._now() - startedAt;
     }
   }
 }

@@ -202,6 +202,8 @@ Alertmanager's upstream fingerprint is retained in raw input and, when present, 
 
 ## Bootstrap and rotation
 
+Use a `.yaml` or `.yml` extension for YAML. Other file names are parsed as JSON.
+
 Set `CORRELIA_INGEST_CONFIG` to a regular JSON or YAML file (at most 64 KiB) and
 `CORRELIA_SECRET_KEY_FILE` to the external 32-byte encryption key file. Both the key and optional
 `CORRELIA_INGEST_SECRETS` import file must be regular, non-symlink files owned by the process user,
