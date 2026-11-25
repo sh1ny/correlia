@@ -408,8 +408,8 @@ The result carries:
 - `ruleSource` (`active` or `draft`), and for the active rules the snapshot ID and revision. `noRulesActive` is
   true when there is no active matcher.
 - `trace`: one entry per rule in order, with the outcome (`matched`, `not matched`, `failed` or `not attempted`),
-  a `failureCode` for a failed rule, and the value each condition read and decided. Each action reports its
-  effect.
+  a `failureCode` for a failed rule, and each condition's field, operator, outcome and any failure code. Each
+  action reports its effect: staged, skipped with the reason, failed with its failure code, or not run.
 - The final labels, label origins, links, severity and `eventKind`, plus `noiseClassHint` when a rule classified
   the event.
 - `baselineRoutes` (the source's routes in the active snapshot) and `addedRoutes` from `route` actions. Added

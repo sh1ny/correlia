@@ -526,6 +526,18 @@ SELECT observed_at,event_id,'future_dated',raw_observed_at,raw_id,source_id,conf
         expect(result.trace, isEmpty);
       });
 
+      test('processing_snapshot_no_longer_stored', () async {
+        await _publish(session);
+        await _process(session, [_alert()]);
+        final stored = (await _stored(session)).single;
+        await session.db.unsafeExecute(
+          "UPDATE events SET config_snapshot_id='00000000-0000-4000-8000-000000000000'",
+        );
+        final result = await _simulateStored(session, stored);
+        expect(result.error?.code, 'raw_unavailable');
+        expect(result.trace, isEmpty);
+      });
+
       test('invalid_draft', () async {
         await _publish(session);
         final base = _rule('r', _anySummary, [_label('a', '1')]);

@@ -27,6 +27,10 @@ enum MatcherActionEffect {
 
   /// A `map_severity` action had no mapping for the event's severity.
   noMapping,
+
+  /// The action failed, which discards the whole rule's patch. The observed
+  /// value is the failure code when there is one.
+  failed,
 }
 
 /// Receives each action's position, its effect and a captured value, if any.
@@ -109,8 +113,18 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
           onAction?.call(index, MatcherActionEffect.noInput, null);
           continue;
         }
-        final value = await capture(pattern.dartPattern, input, group);
-        check?.call();
+        final String? value;
+        try {
+          value = await capture(pattern.dartPattern, input, group);
+          check?.call();
+        } catch (error) {
+          onAction?.call(
+            index,
+            MatcherActionEffect.failed,
+            error is MatcherRegexUnavailable ? error.code : null,
+          );
+          rethrow;
+        }
         if (value != null) labels[key] = value;
         onAction?.call(
           index,

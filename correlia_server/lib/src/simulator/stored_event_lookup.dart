@@ -111,6 +111,15 @@ ${request.disposition == null ? '' : 'AND disposition=@disposition'}''',
     timeoutInSeconds: 5,
   );
   if (raw.isEmpty) return _failure(simulationRawUnavailable, 'eventId');
+  // Neither the event nor the raw row has a foreign key to its processing
+  // snapshot, so the pin can be gone; without it the row cannot decode.
+  final pinned = await session.db.unsafeQuery(
+    'SELECT 1 FROM ingest_config_snapshot WHERE "snapshotId"=@pin',
+    parameters: QueryParameters.named({'pin': pin}),
+    transaction: tx,
+    timeoutInSeconds: 5,
+  );
+  if (pinned.isEmpty) return _failure(simulationRawUnavailable, 'eventId');
   final inputs = await readDecodeInputs(session, tx, rawKey, pin);
   if (inputs.rejection != null) {
     return _failure(simulationRawUnavailable, 'eventId');

@@ -402,7 +402,10 @@ ActionTrace _actionTrace(
     MatcherLink(:final link) => ('link', '${link.relation} ${link.href}'),
     MatcherExtract(:final key) => (
       'extract',
-      effect?.$2 == null ? key : '$key = ${effect!.$2}',
+      switch (effect) {
+        (MatcherActionEffect.staged, final String value) => '$key = $value',
+        _ => key,
+      },
     ),
     MatcherLocation() => ('location', 'location table lookup'),
   };
@@ -416,6 +419,8 @@ ActionTrace _actionTrace(
       MatcherActionEffect.noCapture => 'skipped: nothing captured',
       MatcherActionEffect.noEntry => 'skipped: no entry matched',
       MatcherActionEffect.noMapping => 'skipped: no mapping for severity',
+      MatcherActionEffect.failed =>
+        effect?.$2 == null ? 'failed' : 'failed: ${effect!.$2}',
       null => 'not run',
     },
     applied: applied,

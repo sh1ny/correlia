@@ -465,6 +465,46 @@ void main() {
     expect(result.finalLabels, isNot(contains('long')));
   });
 
+  test('failed_extraction_is_reported_as_failed', () async {
+    final result = await _simulate(
+      _event(),
+      _document([
+        _rule('extracts', [
+          _label('staged', 'x'),
+          {
+            'type': 'extract',
+            'field': 'summary',
+            'pattern': '(a+)+b',
+            'group': 1,
+            'key': 'slow',
+          },
+          _label('after', 'y'),
+        ]),
+        _rule('works', [_label('kept', 'z')]),
+      ]),
+      capture: (pattern, input, group) async =>
+          throw const MatcherRegexUnavailable('regex_timeout'),
+    );
+    final extracts = result.trace[0];
+    expect(
+      (extracts.outcome, extracts.failureCode),
+      (
+        'failed',
+        'regex_timeout',
+      ),
+    );
+    expect(extracts.actions.map((a) => a.effect), [
+      'staged',
+      'failed: regex_timeout',
+      'not run',
+    ]);
+    expect(extracts.actions.map((a) => a.applied), [false, false, false]);
+    expect(result.finalLabels, isNot(contains('staged')));
+    expect(result.finalLabels, isNot(contains('slow')));
+    expect(result.finalLabels, isNot(contains('after')));
+    expect(result.trace[1].outcome, 'matched');
+  });
+
   test('simulated_effect_beyond_the_fanout_bound', () async {
     final event = _event();
     final size = CloudEvent(event: event).toJsonBytes().length;

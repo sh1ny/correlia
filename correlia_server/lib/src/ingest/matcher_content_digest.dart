@@ -129,6 +129,15 @@ Future<void> ensureMatcherDigestFill(
   );
 }
 
+/// The client timeout, in seconds, of the fill's lock query for [lockTimeout].
+///
+/// Serverpod cancels a query after 60 seconds unless told otherwise, which is
+/// no longer than the default lock timeout. The client must outlast the server
+/// by a margin, so a lock wait that runs out fails with SQLSTATE 55P03 rather
+/// than a driver cancellation.
+int matcherFillClientTimeoutSeconds(Duration lockTimeout) =>
+    (lockTimeout.inMilliseconds / 1000).ceil() + 30;
+
 /// Runs the fill in its own transaction under the publication lock.
 ///
 /// A wait for the lock longer than [lockTimeout] fails with SQLSTATE 55P03; the
@@ -147,6 +156,7 @@ Future<void> runMatcherDigestFill(
   await session.db.unsafeQuery(
     'SELECT pg_advisory_xact_lock($publicationLockKey)',
     transaction: transaction,
+    timeoutInSeconds: matcherFillClientTimeoutSeconds(lockTimeout),
   );
   await ensureMatcherDigestFill(
     session,
