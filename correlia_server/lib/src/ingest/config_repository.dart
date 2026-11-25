@@ -51,11 +51,16 @@ final class IngestConfigRepository {
   /// Returns the active public snapshot, if ingest has ever been configured.
   Future<Map<String, Object?>?> activeSnapshot({
     Transaction? transaction,
+  }) => _activeSnapshot(transaction);
+
+  Future<Map<String, Object?>?> _activeSnapshot(
+    Transaction? transaction, {
+    bool lock = false,
   }) async {
     final rows = await session.db.unsafeQuery(
       '''SELECT c."snapshotId", c.revision, c."publicJson"
       FROM ingest_active_config a JOIN ingest_config_snapshot c ON c."snapshotId"=a."snapshotId"
-      WHERE a.singleton=1''',
+      WHERE a.singleton=1 ${lock ? 'FOR UPDATE OF a' : ''}''',
       transaction: transaction,
       timeoutInSeconds: 5,
     );
@@ -152,7 +157,32 @@ final class IngestConfigRepository {
         );
         await _store.checkKey(session, transaction);
         final input = await prepare(transaction);
-        final active = await activeSnapshot(transaction: transaction);
+        final active = await _activeSnapshot(transaction, lock: true);
+        if (active?['snapshotId'] != input.snapshotId) {
+          final old = active == null
+              ? null
+              : (jsonDecode(active['publicJson']! as String)
+                    as Map<String, Object?>)['matcher'];
+          final replacement = input.matcher.rules.isEmpty
+              ? null
+              : input.matcher.snapshotJson;
+          final expectation = input.expectation;
+          if (expectation != null) {
+            if (expectation.snapshotId != active?['snapshotId']) {
+              throw const BootstrapError(
+                'config',
+                'expected_active_snapshot',
+                'snapshot_mismatch',
+              );
+            }
+          } else if (sha256Digest(old) != sha256Digest(replacement)) {
+            throw const BootstrapError(
+              'config',
+              'expected_active_snapshot',
+              'required',
+            );
+          }
+        }
         if (active != null && active['snapshotId'] != input.snapshotId) {
           final stored = await session.db.unsafeQuery(
             'SELECT 1 FROM ingest_config_snapshot WHERE "snapshotId"=@id',
@@ -184,7 +214,7 @@ final class IngestConfigRepository {
           await validateLiveSecrets(transaction: transaction);
         }
         final retained = await session.db.unsafeQuery(
-          "SELECT DISTINCT output_id::text FROM outbox WHERE status IN ('queued','delivering')",
+          'SELECT output_id FROM correlia_retained_output_ids()',
           transaction: transaction,
         );
         final lanes = {
@@ -372,17 +402,12 @@ final class IngestConfigRepository {
       final rows = await session.db.unsafeQuery(
         // Read both sides of the pending-to-outbox transition in one MVCC
         // snapshot: a processing commit cannot hide a pin between reads.
-        '''WITH pending_routes AS (
-          SELECT DISTINCT config_snapshot_id,source_id FROM raw_inbox
-          WHERE status='pending' AND config_snapshot_id IS NOT NULL
-        ), pinned_outputs AS (
+        '''WITH pinned_outputs AS (
           SELECT output
-          FROM pending_routes r
-          JOIN ingest_config_snapshot s ON s."snapshotId"=r.config_snapshot_id
-          CROSS JOIN LATERAL jsonb_array_elements(s."publicJson"::jsonb->'sources') source
+          FROM correlia_pinned_output_routes() r
+          JOIN ingest_config_snapshot s ON s."snapshotId"=r.snapshot_id
           CROSS JOIN LATERAL jsonb_array_elements(s."publicJson"::jsonb->'outputs') output
-          WHERE source->>'id'=r.source_id::text AND source->'enabled'='true'::jsonb
-            AND (source->'output_ids') ? (output->>'id')
+          WHERE output->>'id'=r.output_id
           UNION
           SELECT output
           FROM outbox o

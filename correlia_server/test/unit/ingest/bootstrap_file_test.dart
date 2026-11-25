@@ -32,6 +32,45 @@ void main() {
   });
   tearDown(() => root.delete(recursive: true));
 
+  test('only YAML file names select YAML parsing', () async {
+    const content =
+        '{"format_version": 2, "revision": 1, "sources": [], "outputs": [],}';
+    await config.writeAsString(content);
+    final yaml = File('${root.path}/config.yaml');
+    await yaml.writeAsString(content);
+    Future<IngestBootstrap?> load(File file) => IngestBootstrap.load({
+      'CORRELIA_INGEST_CONFIG': file.path,
+    }, runMode: 'test');
+    await expectLater(
+      load(config),
+      throwsA(
+        isA<BootstrapError>().having(
+          (e) => e.code,
+          'code',
+          'read_or_parse',
+        ),
+      ),
+    );
+    expect((await load(yaml))!.revision, 1);
+    for (final (invalid, code) in [
+      ('${'[' * 33}null${']' * 33}', 'yaml_bound'),
+      ('revision: .nan', 'yaml_value'),
+      ('1: value', 'yaml_key'),
+    ]) {
+      await yaml.writeAsString(invalid);
+      await expectLater(
+        load(yaml),
+        throwsA(
+          isA<BootstrapError>().having(
+            (e) => e.code,
+            'code',
+            code,
+          ),
+        ),
+      );
+    }
+  });
+
   test('accepts config-only input and never reflects paths', () async {
     expect(await IngestBootstrap.load({}, runMode: 'test'), isNull);
     expect(

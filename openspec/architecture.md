@@ -178,12 +178,12 @@ run in every role unless they are switched off:
   Every migration is forward-only and tested against a populated database. Serverpod repair migrations try
   to drop tables outside the migration system. Review every repair and remove operations against SQL-owned
   tables and their indexes/constraints before applying it; see `docs/ingest-pipeline.md`.
-- **Ingest configuration:** operator-owned JSON bootstrap files publish immutable public snapshots and
+- **Ingest configuration:** operator-owned JSON or YAML bootstrap files publish immutable public snapshots and
   credential rows atomically. Revisions only advance, including deliberate reverts. Credentials and
   signing material resolve from PostgreSQL records encrypted under an external key; the operator
   secret file is an import input, not a runtime dependency. Pending work pins its snapshot and secret
   commitments (ADRs 0028 and 0029).
-- **Rule documents:** a versioned JSON/YAML format with a `language` field (ADR 0008).
+- **Rule documents:** a versioned JSON/YAML format with a `language` field (ADR 0032).
 
 ## Resource bounds and failure visibility
 
@@ -219,7 +219,7 @@ not only a future test. Scenario ids refer to `docs/plan/acceptance-scenarios.md
 | B5 group key collisions | Structured group keys with length-prefixed canonical encoding | ADR 0017, 0024 | ID-1 |
 | B6 valid input fails later on length | One bounds contract end to end; identity hashed, display truncated, renders limited | ADR 0004, 0024 | ID-3 |
 | B7 naive datetime gives a 500 | All malformed API input gives 400/422 problem+json | Boundaries above | ID-5 |
-| B8 empty registry skips validation | Atomic config versions validated against an explicit registry; empty is a registry | ADR 0008 | DUR-5 |
+| B8 empty registry skips validation | Atomic config versions validated against an explicit registry; empty is a registry | ADR 0032 | DUR-5 |
 | B9 converter promises atomicity it lacks | Excluded: no legacy config converter in scope (assumption 2) | Strategy | n/a |
 | B10 re-ack mixes first time and last actor | Ack = ownership; re-ack by another actor transfers; ledger keeps both | ADR 0017 | COR-8 |
 | B11 multiline subject suppresses email | Rendered fields folded and limited per channel | ADR 0004 | DUR-7 |
@@ -246,7 +246,6 @@ Accepted ADRs only.
 | [0016](../docs/adr/0016-durable-staged-pipeline.md) | Durable staged pipeline, transactional outboxes, retention by state, storage budgets, replay vs reprocess; no processing order; replay uses current config; short batch transactions | [0005](../docs/adr/0005-durable-staged-pipeline.md) |
 | [0020](../docs/adr/0020-plugin-architecture.md) | Hybrid plugins: built-ins in process, external over go-plugin-compatible gRPC; spike gate on Linux with stdin-EOF exit and Unix-socket fallback | [0015](../docs/adr/0015-plugin-architecture-linux.md) |
 | [0017](../docs/adr/0017-alert-and-incident-state-model.md) | Authoritative alert state with ordering fences and `last_observed_at`; one StateMutationService lock protocol; `(txid, id)` change feed | [0007](../docs/adr/0007-alert-and-incident-state-model.md) |
-| [0008](../docs/adr/0008-rule-language.md) | Matcher rule tree with in-memory and SQL evaluators, field catalog, atomic config versions; CEL later | none |
 | [0009](../docs/adr/0009-identity-and-access.md) | Serverpod auth (invite-only) for people, scoped tokens for machines; redaction | none |
 | [0018](../docs/adr/0018-nats-output-as-go-plugin.md) | NATS output as the first external plugin, in Go; exits on stdin close; no delivery order per alert | [0011](../docs/adr/0011-nats-output-as-go-plugin.md) |
 | [0024](../docs/adr/0024-identities-and-upstream-evidence.md) | Four identities and durable observation dedup; upstream fingerprint is extension evidence | [0019](../docs/adr/0019-identities.md) |
@@ -260,6 +259,8 @@ Accepted ADRs only.
 | [0029](../docs/adr/0029-source-credentials-and-admission-limits.md) | Source kinds, credential overlap and transactional admission, HMAC input, declared namespaces and per-process rate budgets | none |
 | [0030](../docs/adr/0030-pull-sources-leased-consumers.md) | Leased pull consumers, revision-fenced admission, bounded retained work, silent reconcile and receipt-safe tombstone reclamation | none (extends 0016, 0017, 0024, 0029) |
 | [0031](../docs/adr/0031-generic-webhook-mapping-documents.md) | Versioned generic webhook mappings, pinned snapshots, bootstrap-only authoring and publisher version 2 rollout | none |
+| [0032](../docs/adr/0032-matcher-rules-and-versions.md) | Typed matcher rules, Dart and SQL evaluation, guarded publication and operator rollback, pinned runtime failure counts | [0008](../docs/adr/0008-rule-language.md) |
+| [0033](../docs/adr/0033-offline-matcher-upgrade.md) | Offline matcher upgrade with a manual drain before shutdown | 0032 rollout only; matcher behavior and publication are unchanged |
 
 ### Superseded ADRs
 
@@ -268,6 +269,7 @@ Accepted ADRs only.
 | [0005](../docs/adr/0005-durable-staged-pipeline.md) | [0016](../docs/adr/0016-durable-staged-pipeline.md) |
 | [0006](../docs/adr/0006-plugin-architecture.md) | [0015](../docs/adr/0015-plugin-architecture-linux.md) |
 | [0007](../docs/adr/0007-alert-and-incident-state-model.md) | [0017](../docs/adr/0017-alert-and-incident-state-model.md) |
+| [0008](../docs/adr/0008-rule-language.md) | [0032](../docs/adr/0032-matcher-rules-and-versions.md) |
 | [0011](../docs/adr/0011-nats-output-as-go-plugin.md) | [0018](../docs/adr/0018-nats-output-as-go-plugin.md) |
 | [0012](../docs/adr/0012-identities.md) | [0019](../docs/adr/0019-identities.md) |
 | [0019](../docs/adr/0019-identities.md) | [0024](../docs/adr/0024-identities-and-upstream-evidence.md) |

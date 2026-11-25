@@ -25,6 +25,9 @@ import '../ingest/generic_decoder.dart';
 import '../ingest/icinga2/decoder.dart';
 import '../ingest/icinga2/stream/decoder.dart';
 import '../ingest/source_decoder.dart';
+import '../matcher/matcher_document.dart';
+import '../matcher/matcher_evaluation.dart';
+import '../matcher/matcher_regex_worker.dart';
 import '../runtime/process_options.dart';
 import '../runtime/subsystem.dart';
 import '../state/alert_state_service.dart';
@@ -244,6 +247,15 @@ final class _Prepared {
   final Uint8List payload;
 }
 
+typedef _Retained = ({
+  _Prepared item,
+  String disposition,
+  DateTime observed,
+  DateTime effective,
+  String? stateOutcome,
+  bool routes,
+});
+
 final class _Deadline {
   _Deadline(this._testElapsed)
     : _stopwatch = _testElapsed == null ? (Stopwatch()..start()) : null;
@@ -251,6 +263,9 @@ final class _Deadline {
   final Duration Function()? _testElapsed;
   final Stopwatch? _stopwatch;
   Duration get _elapsed => _stopwatch?.elapsed ?? _testElapsed!();
+
+  Duration get optionalRemaining =>
+      pipelineRowDeadline - const Duration(seconds: 2) - _elapsed;
 
   void check() {
     if (_elapsed >= pipelineRowDeadline) {
@@ -291,6 +306,9 @@ final class PipelineRepository {
     this.stateSkewAllowance = skewAllowance,
     this.log,
     this.icinga2Decoder = decodeIcinga2Request,
+    this.regexWorker,
+    this.beforePinCommitForTest,
+    this.fanoutLimitForTest,
   }) : clock = clock ?? DateTime.now,
        _retryCounts = retryCounts ?? {},
        counters = counters ?? PipelineCounters();
@@ -321,6 +339,15 @@ final class PipelineRepository {
   /// that kind has no decoder.
   final KindDecoder? icinga2Decoder;
 
+  /// The shared optional-regex worker, if the caller owns one.
+  final MatcherRegexWorker? regexWorker;
+
+  /// Fixture barrier after a pin is written but before its lock is released.
+  final Future<void> Function(Transaction)? beforePinCommitForTest;
+
+  /// Fixture override for exact fanout boundary tests.
+  final int? fanoutLimitForTest;
+
   Future<void> _limits(Transaction tx, _Deadline deadline) async {
     await session.db.unsafeQuery(
       "SELECT set_config('statement_timeout', @timeout, true), set_config('lock_timeout', '5s', true)",
@@ -348,7 +375,7 @@ FOR UPDATE SKIP LOCKED LIMIT 1''',
       if (rows.isEmpty) return false;
       await _limits(tx, deadline);
       final active = await session.db.unsafeQuery(
-        'SELECT "snapshotId" FROM ingest_active_config WHERE singleton=1',
+        'SELECT "snapshotId" FROM ingest_active_config WHERE singleton=1 FOR SHARE',
         transaction: tx,
         timeoutInSeconds: 5,
       );
@@ -365,6 +392,7 @@ WHERE observed_at=@observed AND raw_id=CAST(@id AS uuid)''',
         transaction: tx,
         timeoutInSeconds: 5,
       );
+      await beforePinCommitForTest?.call(tx);
       deadline.check();
       return true;
     });
@@ -377,6 +405,7 @@ WHERE observed_at=@observed AND raw_id=CAST(@id AS uuid)''',
     _Raw? claimed;
     DecodedBatch? completedBatch;
     final deadline = _Deadline(elapsedForTest);
+    MatcherRegexWorker? ownedRegex;
     try {
       final processed = await session.db.transaction((tx) async {
         await _limits(tx, deadline);
@@ -434,10 +463,17 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
             .toSet();
         final outputRows = (snapshot['outputs'] as List<Object?>)
             .cast<Map<String, Object?>>();
-        final outputs = <_Output>[
+        final matcher = snapshot.containsKey('matcher')
+            ? MatcherDocument.fromSnapshot(
+                snapshot['matcher'],
+                {for (final output in outputRows) output['id'] as String},
+              )
+            : MatcherDocument.empty;
+        final registry = <String, _Output>{
           for (final output in outputRows)
-            if (outputIds.contains(output['id']))
-              switch (output['kind']) {
+            if (outputIds.contains(output['id']) ||
+                matcher.outputIds.contains(output['id']))
+              output['id'] as String: switch (output['kind']) {
                 'webhook' => _WebhookOutput(
                   output['id'] as String,
                   output['url'] as String,
@@ -450,10 +486,8 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
                 ),
                 _ => throw StateError('Invalid pinned output kind'),
               },
-        ];
-        if (outputs.length != outputIds.length) {
-          throw StateError('Invalid pinned routing');
-        }
+        };
+        final outputs = [for (final id in outputIds) registry[id]!];
         final kind = _kindOf(snapshot, source);
         final mapping = kind is GenericSourceKind
             ? GenericMapping.fromSnapshot(snapshot, source['mapping'])
@@ -543,6 +577,7 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
         var confirmed = 0, repaired = 0, tombstoned = 0, diverged = 0;
         final reconcile = syncId != null;
         var aggregate = 0;
+        MatcherBatch? matcherBatch;
         final seen = <String>{};
         final savepoint = await tx.createSavepoint();
         final effects = <_Prepared>[];
@@ -666,23 +701,45 @@ ON CONFLICT ("eventId") DO NOTHING RETURNING "eventId"''',
             }
           }
 
+          Future<bool> insertEvent(_Retained retained, Uint8List bytes) async {
+            final event = retained.item.event;
+            await _limits(tx, deadline);
+            final rows = await session.db.unsafeQuery(
+              '''INSERT INTO events
+(observed_at,event_id,disposition,raw_observed_at,raw_id,source_id,config_snapshot_id,source_time,payload,state_outcome,effective_source_time)
+VALUES (@observed,CAST(@event AS uuid),@disposition,@rawObserved,CAST(@raw AS uuid),CAST(@source AS uuid),@pin,@sourceTime,@payload,@stateOutcome,@effective)
+ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
+              parameters: QueryParameters.named({
+                'observed': retained.observed,
+                'rawObserved': raw.observed,
+                'event': event.eventId,
+                'disposition': retained.disposition,
+                'raw': raw.id,
+                'source': raw.source,
+                'pin': raw.pin,
+                'sourceTime': _date(event.sourceTime!),
+                'payload': bytes,
+                'stateOutcome': retained.stateOutcome,
+                'effective': retained.effective,
+              }),
+              transaction: tx,
+              timeoutInSeconds: 5,
+            );
+            return rows.isNotEmpty;
+          }
+
+          final retained = <_Retained>[];
           for (final item in effects) {
             deadline.check();
             final event = item.event;
-            final disposition = switch (item.disposition) {
-              EvidenceDisposition.ready => 'ready',
-              EvidenceDisposition.late => 'late',
-              EvidenceDisposition.futureDated => 'future_dated',
-            };
-            // The same function the fence uses; the column keeps microseconds.
             final effective = OrderingKey.fromSource(
               sourceTime: event.sourceTime!,
               observedAt: event.observedAt,
               eventId: event.eventId,
               skewAllowance: stateSkewAllowance,
-            );
+            ).effectiveAt;
             final isClamped =
-                compareTimestamps(event.sourceTime!, effective.effectiveAt) > 0;
+                compareTimestamps(event.sourceTime!, effective) > 0;
             final decision = stateOutcomes[event];
             if (reconcile && decision != null && !decision.keepsEvent) {
               if (isClamped) clamped++;
@@ -694,56 +751,89 @@ ON CONFLICT ("eventId") DO NOTHING RETURNING "eventId"''',
               );
               continue;
             }
-            final observed = stream ? _date(event.observedAt) : raw.observed;
-            final routes =
-                !(stream && decision?.outcome == StreamOutcome.stale);
-            await _limits(tx, deadline);
-            final inserted = await session.db.unsafeQuery(
-              '''INSERT INTO events
-(observed_at,event_id,disposition,raw_observed_at,raw_id,source_id,config_snapshot_id,source_time,payload,state_outcome,effective_source_time)
-VALUES (@observed,CAST(@event AS uuid),@disposition,@rawObserved,CAST(@raw AS uuid),CAST(@source AS uuid),@pin,@sourceTime,@payload,@stateOutcome,@effective)
-ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
-              parameters: QueryParameters.named({
-                'observed': observed,
-                'rawObserved': raw.observed,
-                'event': event.eventId,
-                'disposition': disposition,
-                'raw': raw.id,
-                'source': raw.source,
-                'pin': raw.pin,
-                'sourceTime': _date(event.sourceTime!),
-                'payload': item.payload,
-                'stateOutcome': switch (decision?.outcome) {
-                  StreamOutcome.applied || StreamOutcome.repaired => 'applied',
-                  StreamOutcome.stale => 'stale',
-                  _ => null,
-                },
-                'effective': _date(effective.effectiveAt),
-              }),
-              transaction: tx,
-              timeoutInSeconds: 5,
+            final effect = (
+              item: item,
+              disposition: switch (item.disposition) {
+                EvidenceDisposition.ready => 'ready',
+                EvidenceDisposition.late => 'late',
+                EvidenceDisposition.futureDated => 'future_dated',
+              },
+              observed: stream ? _date(event.observedAt) : raw.observed,
+              effective: _date(effective),
+              stateOutcome: switch (decision?.outcome) {
+                StreamOutcome.applied || StreamOutcome.repaired => 'applied',
+                StreamOutcome.stale => 'stale',
+                _ => null,
+              },
+              routes:
+                  item.disposition == EvidenceDisposition.ready &&
+                  !(stream && decision?.outcome == StreamOutcome.stale),
             );
-            if (inserted.isNotEmpty) {
-              if (isClamped) clamped++;
-              aggregate +=
-                  item.payload.length *
-                  (1 +
-                      (item.disposition == EvidenceDisposition.ready && routes
-                          ? outputs.length
-                          : 0));
-              if (aggregate > _fanoutLimit) {
-                throw const EventFieldError('alerts', 'batch_bound');
-              }
-            }
             if (item.disposition == EvidenceDisposition.futureDated) {
-              if (inserted.isEmpty) {
+              if (!await insertEvent(effect, item.payload)) {
                 duplicateQuarantine++;
-              } else {
-                quarantines++;
+                continue;
+              }
+              quarantines++;
+            }
+            if (isClamped) clamped++;
+            aggregate +=
+                item.payload.length *
+                (1 + (effect.routes ? outputs.length : 0));
+            if (aggregate > (fanoutLimitForTest ?? _fanoutLimit)) {
+              throw const EventFieldError('alerts', 'batch_bound');
+            }
+            retained.add(effect);
+          }
+
+          if (matcher.rules.isNotEmpty && retained.isNotEmpty) {
+            final regex = regexWorker ?? (ownedRegex = MatcherRegexWorker());
+            Duration remaining() => deadline.optionalRemaining;
+            matcherBatch = MatcherBatch(
+              matcher,
+              regex.newRow(remaining),
+              remaining,
+              availableBytes: (fanoutLimitForTest ?? _fanoutLimit) - aggregate,
+            );
+          }
+          for (final effect in retained) {
+            deadline.check();
+            final (
+              :item,
+              :observed,
+              :disposition,
+              :routes,
+              effective: _,
+              stateOutcome: _,
+            ) = effect;
+            final event = item.event;
+            final enriched = matcherBatch == null
+                ? null
+                : await matcherBatch.enrich(
+                    event,
+                    item.payload,
+                    outputIds,
+                    routes,
+                  );
+            final payload = enriched?.payload ?? item.payload;
+            final addedRoutes = enriched?.routes ?? const <String>{};
+            if (item.disposition == EvidenceDisposition.futureDated) {
+              if (!identical(payload, item.payload)) {
+                await _limits(tx, deadline);
+                await session.db.unsafeExecute(
+                  'UPDATE events SET payload=@payload WHERE observed_at=@observed AND event_id=@id::uuid AND disposition=@disposition',
+                  parameters: QueryParameters.named({
+                    'payload': payload,
+                    'observed': observed,
+                    'id': event.eventId,
+                    'disposition': disposition,
+                  }),
+                  transaction: tx,
+                );
               }
               continue;
             }
-            if (inserted.isEmpty) {
+            if (!await insertEvent(effect, payload)) {
               throw StateError('Eligible event key conflict');
             }
             if (item.disposition == EvidenceDisposition.late) {
@@ -752,11 +842,14 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
             }
             committed++;
             if (!routes) continue;
-            if (outputs.isEmpty) {
+            if (outputs.isEmpty && addedRoutes.isEmpty) {
               unrouted++;
             }
             final created = clock().toUtc();
-            for (final output in outputs) {
+            final destinations = addedRoutes.isEmpty
+                ? outputs
+                : [...outputs, for (final id in addedRoutes) registry[id]!];
+            for (final output in destinations) {
               await _limits(tx, deadline);
               await session.db.unsafeExecute(
                 '''INSERT INTO outbox
@@ -790,7 +883,7 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
                     _WebhookOutput(:final commitment) => commitment,
                     _PluginOutput() => null,
                   },
-                  'payload': item.payload,
+                  'payload': payload,
                 }),
                 transaction: tx,
                 timeoutInSeconds: 5,
@@ -813,6 +906,19 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
           return true;
         }
         await savepoint.release();
+        if (matcherBatch case final match? when match.failures.isNotEmpty) {
+          await _limits(tx, deadline);
+          await session.db.unsafeQuery(
+            'SELECT correlia_record_matcher_batch(@pin, @failures::jsonb, @raw::uuid, @occurred)',
+            parameters: QueryParameters.named({
+              'pin': raw.pin,
+              'failures': jsonEncode(match.failures),
+              'raw': raw.id,
+              'occurred': clock().toUtc(),
+            }),
+            transaction: tx,
+          );
+        }
         if (syncId != null) {
           final counts = {
             'applied': applied,
@@ -883,6 +989,8 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
               'applied': applied,
               'stale': stale,
               'clamped': clamped,
+              if (matcherBatch case final match? when match.unattempted != 0)
+                'matcher_unattempted': match.unattempted,
               if (stream) 'soft_info': batch.softInfo,
               if (stream) 'confirmed': confirmed,
               if (stream) 'repaired': repaired,
@@ -918,6 +1026,8 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
       if (claimed == null) rethrow;
       await _recordError(claimed!, error);
       return true;
+    } finally {
+      ownedRegex?.close();
     }
   }
 
@@ -1148,6 +1258,7 @@ final class PipelineSubsystem extends Subsystem {
   Completer<void>? _stopping;
   Future<void>? _run;
   final _retryCounts = <String, int>{};
+  final _regex = MatcherRegexWorker();
   final counters = PipelineCounters();
 
   @override
@@ -1175,6 +1286,7 @@ final class PipelineSubsystem extends Subsystem {
             counters: counters,
             retryDelay: retryDelay,
             log: log,
+            regexWorker: _regex,
           );
           didWork = await repository.pinOne();
           if (!_stopping!.isCompleted) {
@@ -1206,5 +1318,6 @@ final class PipelineSubsystem extends Subsystem {
     if (stopping == null) return;
     if (!stopping.isCompleted) stopping.complete();
     await _run;
+    _regex.close();
   }
 }

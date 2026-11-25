@@ -230,7 +230,14 @@ void main() {
       final snapshot = sha256.convert(utf8.encode(legacy)).toString();
       await _seedHistoricalSnapshot(db, snapshot, legacy);
       final rejected = await fixture.start();
-      expect(await rejected.exitCode.timeout(_awaitEvent), 1);
+      final result = await Future.any<int>([
+        rejected.exitCode,
+        rejected.waitUntilReady().then(
+          (_) => -1,
+          onError: (_) => rejected.exitCode,
+        ),
+      ]);
+      expect(result, 1);
       expect(rejected.output, contains('activation_conflict'));
       expect(await _activeJson(db), legacy);
       expect(await db.execute('SELECT reference FROM secret_record'), isEmpty);

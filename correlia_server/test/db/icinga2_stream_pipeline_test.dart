@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:typed_data';
 
+import 'package:correlia_server/event.dart';
 import 'package:correlia_server/src/pipeline/pipeline.dart';
 import 'package:serverpod/serverpod.dart';
 import 'package:test/test.dart';
@@ -223,6 +225,78 @@ void main() {
         expect(await countRows(session, 'events'), 2);
         expect(await countRows(session, 'outbox'), 2);
         expect(await countRows(session, 'activity'), 1);
+      });
+
+      test('original severity drives state and sync', () async {
+        await clearPipelineTables(session);
+        snapshot = await publishStreamDb(
+          session,
+          matcher: _matcher([
+            {
+              'type': 'map_severity',
+              'values': {'critical': 'info'},
+            },
+          ]),
+        );
+        await firing();
+        expect((await theAlert(session))['severity'], 'critical');
+        final data = await session.db.unsafeQuery('SELECT payload FROM events');
+        final event = CloudEvent.decode(data.single[0] as Uint8List).event;
+        expect(event.severity, EventSeverity.info);
+        await progress(1);
+        await process([streamDbCheck(before(30), sync: true)], sync: true);
+        expect(await counts(), containsPair('confirmed', '1'));
+        expect(await countRows(session, 'events'), 1);
+        final deliveries = await session.db.unsafeQuery(
+          'SELECT payload FROM outbox',
+        );
+        expect(deliveries.single[0], data.single[0]);
+        expect((await theAlert(session))['severity'], 'critical');
+      });
+
+      test('stale webhook routes but stale stream does not', () async {
+        const output = '99999999-9999-4999-8999-999999999999';
+        await clearPipelineTables(session);
+        snapshot = await publishStreamDb(
+          session,
+          shared: true,
+          matcherOutput: output,
+          matcher: _matcher([
+            {'type': 'route', 'output_id': output},
+          ]),
+        );
+        await firing();
+        final staleStream = await process([streamDbCheck(before(120))]);
+        final staleWebhook = await seedIcinga2(
+          session,
+          webhook.delivery(
+            set: {
+              'host': 'stream-host',
+              'service': 'stream-service',
+              'last_state_change': timeText(before(121)),
+              'notification_time': timeText(before(121)),
+            },
+          ),
+          now,
+          source: icinga2OtherDbSourceId,
+        );
+        await processIcinga2(session, now);
+        Future<List<Map<String, Object?>>> routes(String raw) => queryRows(
+          session,
+          '''SELECT output_id::text AS output FROM outbox
+JOIN events ON events.event_id=outbox.event_id AND events.observed_at=outbox.event_observed_at
+WHERE raw_id='$raw' ORDER BY output_id''',
+        );
+        expect(await outcomeOf(session, staleStream), containsPair('stale', 1));
+        expect(
+          await outcomeOf(session, staleWebhook),
+          containsPair('stale', 1),
+        );
+        expect(await routes(staleStream), isEmpty);
+        expect(
+          (await routes(staleWebhook)).map((row) => row['output']),
+          unorderedEquals([icinga2DbOutputIds.first, output]),
+        );
       });
 
       test('webhook_rows_unchanged', () async {
@@ -572,3 +646,15 @@ void main() {
     testGroupTagsOverride: ['db'],
   );
 }
+
+Map<String, Object?> _matcher(List<Map<String, Object?>> actions) => {
+  'language': 'matcher',
+  'version': 1,
+  'rules': [
+    {
+      'id': 'example',
+      'when': {'field': 'summary', 'op': 'exists'},
+      'actions': actions,
+    },
+  ],
+};

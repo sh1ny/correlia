@@ -141,6 +141,17 @@ final class _Upgrade {
       'ALTER TABLE events DROP COLUMN effective_source_time',
     );
     await connection.runTx((tx) async {
+      await tx.execute(
+        'DROP FUNCTION correlia_record_matcher_batch(text, jsonb, uuid, timestamptz)',
+      );
+      await tx.execute(
+        'DROP FUNCTION correlia_record_matcher_failure(text, text, bigint, uuid, timestamptz)',
+      );
+      await tx.execute('DROP TABLE matcher_failure');
+      await tx.execute(
+        'DROP FUNCTION correlia_retained_output_ids(), correlia_pinned_output_routes()',
+      );
+      await tx.execute('DROP FUNCTION correlia_matcher_data(bytea)');
       await tx.execute('DROP FUNCTION correlia_event_subject(bytea) CASCADE');
       await tx.execute(
         'DROP FUNCTION correlia_enforce_raw_admission_cutoff() CASCADE',
@@ -188,7 +199,7 @@ Future<List<int>> _versions(Connection connection) async => [
     row[0]! as int,
 ];
 
-const _currentVersions = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+const _currentVersions = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
 
 /// How long a lock request of another backend of [observer]'s database waits
 /// before it is no longer waiting: from when it is first seen ungranted in
@@ -377,7 +388,10 @@ RETURN convert_from(value, 'UTF8')::jsonb->>'subject'
           'DELETE FROM correlia_schema_versions WHERE version = 11',
         );
       });
-      expect(await _versions(connection), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+      expect(
+        await _versions(connection),
+        _currentVersions.where((v) => v != 11),
+      );
 
       final oldSubject = 'a' * 64;
       final newSubject = 'b' * 64;

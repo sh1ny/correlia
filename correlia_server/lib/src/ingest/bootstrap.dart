@@ -3,10 +3,12 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
+import 'package:yaml/yaml.dart';
 
 import '../event/canonical_event.dart';
 import '../event/validation.dart';
 import '../event_generated/correlia/event/v1/event_bounds.dart';
+import '../matcher/matcher_document.dart';
 
 part 'generic_mapping.dart';
 part 'source_config.dart';
@@ -14,7 +16,12 @@ part 'source_config.dart';
 /// A sanitized bootstrap rejection without operator-controlled values.
 final class BootstrapError implements Exception {
   /// Creates a rejection with a fixed file kind, field path and code.
-  const BootstrapError(this.fileKind, this.field, this.code);
+  const BootstrapError(
+    this.fileKind,
+    this.field,
+    this.code, {
+    this.missingOutputId,
+  });
 
   /// The input category.
   final String fileKind;
@@ -25,9 +32,13 @@ final class BootstrapError implements Exception {
   /// The allowlisted failure code.
   final String code;
 
+  /// The validated UUID of a missing matcher output.
+  final String? missingOutputId;
+
   @override
   String toString() =>
-      'ingest bootstrap $fileKind ${field.length > 256 ? field.substring(0, 256) : field}: $code';
+      'ingest bootstrap $fileKind ${field.length > 256 ? field.substring(0, 256) : field}: $code'
+      '${missingOutputId == null ? '' : ' ($missingOutputId)'}';
 }
 
 /// A validated output definition pinned in a configuration snapshot.
@@ -141,6 +152,8 @@ final class IngestBootstrap {
     List<IngestSource> sources,
     List<IngestOutput> outputs,
     this.mappings,
+    this.matcher,
+    this.expectation,
     Map<String, Uint8List> secrets,
   ) : sources = List.unmodifiable(sources),
       outputs = List.unmodifiable(outputs),
@@ -153,16 +166,30 @@ final class IngestBootstrap {
   /// The validated mappings in snapshot order, keyed by name.
   final Map<String, GenericMapping> mappings;
 
+  /// Rules persisted with the source and output registry.
+  final MatcherDocument matcher;
+
+  /// The publication-only expectation, if the operator supplied one.
+  final ({String? snapshotId})? expectation;
+
   IngestBootstrap._runtime(
     this.revision,
     this.sources,
     this.outputs,
     this.mappings,
+    this.matcher,
+    this.expectation,
   ) : _secrets = const {};
 
   /// Returns the validated configuration without its publication material.
-  IngestBootstrap withoutImport() =>
-      IngestBootstrap._runtime(revision, sources, outputs, mappings);
+  IngestBootstrap withoutImport() => IngestBootstrap._runtime(
+    revision,
+    sources,
+    outputs,
+    mappings,
+    matcher,
+    null,
+  );
   final Map<String, Uint8List> _secrets;
 
   /// The loaded reference names; values never enter persisted configuration.
@@ -182,6 +209,7 @@ final class IngestBootstrap {
     'outputs': outputs.map((output) => output.toJson()).toList(),
     if (mappings.isNotEmpty)
       'mappings': [for (final mapping in mappings.values) mapping.toJson()],
+    if (matcher.rules.isNotEmpty) 'matcher': _canonical(matcher.snapshotJson),
   });
 
   /// The content address, including revision but never secret bytes.
@@ -236,7 +264,12 @@ final class IngestBootstrap {
         'revision',
         'sources',
         'outputs',
-        if (version == 2) ...{'namespaces', 'mappings'},
+        if (version == 2) ...{
+          'namespaces',
+          'mappings',
+          'matcher',
+          'expected_active_snapshot',
+        },
       }, r'$');
       final revision = _integer(root['revision'], 1, 2147483647, 'revision');
       final namespaces = version == 2
@@ -365,9 +398,35 @@ final class IngestBootstrap {
       }
       sources.sort((a, b) => a.id.compareTo(b.id));
       outputs.sort((a, b) => a.id.compareTo(b.id));
-      return IngestBootstrap._(revision, sources, outputs, mappings, secrets);
+      final matcher = root.containsKey('matcher')
+          ? MatcherDocument.parse(root['matcher'], outputIds)
+          : MatcherDocument.empty;
+      final expected = root['expected_active_snapshot'];
+      if (expected != null &&
+          (expected is! String ||
+              !RegExp(r'^[a-f0-9]{64}$').hasMatch(expected))) {
+        _bad('config', 'expected_active_snapshot', 'snapshot_id');
+      }
+      return IngestBootstrap._(
+        revision,
+        sources,
+        outputs,
+        mappings,
+        matcher,
+        root.containsKey('expected_active_snapshot')
+            ? (snapshotId: expected as String?)
+            : null,
+        secrets,
+      );
     } on BootstrapError {
       rethrow;
+    } on MatcherDocumentError catch (error) {
+      throw BootstrapError(
+        'config',
+        error.field,
+        error.code,
+        missingOutputId: error.missingOutputId,
+      );
     } catch (_) {
       throw const BootstrapError('config', r'$', 'invalid');
     }
@@ -647,11 +706,50 @@ Future<Object?> _readFile(String path, String kind) async {
     private: secrets,
   );
   try {
-    return jsonDecode(utf8.decode(bytes));
+    final text = utf8.decode(bytes);
+    final lowerPath = path.toLowerCase();
+    if (!secrets &&
+        (lowerPath.endsWith('.yaml') || lowerPath.endsWith('.yml'))) {
+      return _yamlData(loadYamlNode(text));
+    }
+    return jsonDecode(text);
+  } on BootstrapError {
+    rethrow;
   } catch (_) {
     throw BootstrapError(kind, r'$', 'read_or_parse');
   }
 }
+
+Object? _yamlData(YamlNode root) {
+  var remaining = 64 * 1024;
+  Object? visit(YamlNode node, int depth) {
+    if (--remaining < 0 || depth > 32) _bad('config', r'$', 'yaml_bound');
+    return switch (node) {
+      YamlMap() => <String, Object?>{
+        for (final entry in node.nodes.entries)
+          _yamlKey(entry.key): visit(entry.value, depth + 1),
+      },
+      YamlList() => <Object?>[
+        for (final element in node.nodes) visit(element, depth + 1),
+      ],
+      YamlScalar(:final value)
+          when value == null ||
+              value is String ||
+              value is bool ||
+              value is int ||
+              (value is double && value.isFinite) =>
+        value,
+      _ => _bad('config', r'$', 'yaml_value'),
+    };
+  }
+
+  return visit(root, 1);
+}
+
+String _yamlKey(Object? key) => switch (key) {
+  YamlScalar(value: final String text) => text,
+  _ => _bad('config', r'$', 'yaml_key'),
+};
 
 Never _bad(String kind, String field, String code) =>
     throw BootstrapError(kind, field, code);

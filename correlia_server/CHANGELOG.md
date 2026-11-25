@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Add versioned matcher rules for event enrichment and routing. Live upgrades are unsupported:
+  stop intake, drain pending inbox work and the outbox manually, then stop Correlia before upgrading.
 - Add authenticated production output plugin connections with ephemeral in-memory identities,
   separated configuration secrets, bounded batch credits, per-event results and health deadlines.
 - Supervise pinned plugin definitions with verified launches, durable crash budgets, fair bounded

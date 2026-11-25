@@ -87,9 +87,9 @@ an interleaving. These tests clean up their own rows.
 | RUL-2 | A rule references a field missing from the event | Visible in the simulator as "no match: field missing"; never a silent fallback | M2 |
 | RUL-3 | A regex rule with catastrophic backtracking | Timed out; skipped and counted; the event continues | M2 |
 | RUL-6 | The same rule corpus evaluated in memory and as SQL over stored events (missing fields, nulls, case, severity order, wildcards in values) | Identical results in both evaluators | M2 |
-| RUL-7 | A rule that times out on every event: (a) its fallback is valid; (b) its fallback is a previous rule version that references an output removed from the current registry | Skipped and counted against the pinned version, with a self-alert; ingestion continues. (a) A new configuration version disabling or replacing the rule is validated and activated atomically on all workers. (b) The fallback is rejected by validation and does not activate. In both, existing raw-row pins are unchanged | M2 |
+| RUL-7 | A rule times out on every event. An operator publishes either a valid correction or earlier rules that reference a removed output. | Each committed event counts the skipped rule against its pinned version. One activity-feed notice is raised for that snapshot and rule, and ingestion continues. Runtime failures never publish configuration. A valid operator correction activates atomically; a correction with a missing output is rejected. Neither changes existing raw-row pins. | M2 |
 | RUL-8 | A generic mapping with neither an observation id nor a source time field | Activation fails with a validation error | M2 |
-| RUL-4 | Activating a new rule set version | Atomic: every worker switches at a version boundary; rollback restores the previous version | M2 |
+| RUL-4 | An operator activates new rules and then restores earlier rules in a higher revision | Each worker switches at a pin boundary. Rollback publishes earlier matcher content with the current registry and leaves existing raw-row pins unchanged. | M2 |
 | RUL-5 | A provisioned (YAML) rule edited in the UI | Refused: provisioned rules are read-only in the UI | M4 |
 
 ## Security

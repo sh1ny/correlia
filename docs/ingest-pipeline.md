@@ -202,7 +202,9 @@ Alertmanager's upstream fingerprint is retained in raw input and, when present, 
 
 ## Bootstrap and rotation
 
-Set `CORRELIA_INGEST_CONFIG` to a regular JSON file (at most 64 KiB) and
+Use a `.yaml` or `.yml` extension for YAML. Other file names are parsed as JSON.
+
+Set `CORRELIA_INGEST_CONFIG` to a regular JSON or YAML file (at most 64 KiB) and
 `CORRELIA_SECRET_KEY_FILE` to the external 32-byte encryption key file. Both the key and optional
 `CORRELIA_INGEST_SECRETS` import file must be regular, non-symlink files owned by the process user,
 mode 0600 or stricter. The import file is bounded at 512 KiB encoded and 256 KiB decoded across 128 entries.
@@ -299,11 +301,56 @@ Startup atomically publishes immutable public snapshots, credential commitments 
 Rotate all secrets under new references. The store retains historical material for pinned work without
 adding it to current configuration. Work with an unavailable signing key remains queued without consuming
 an attempt. Terminal rows retain commitments and do not require keys until future explicit replay.
-Active plus retained live output lanes cannot exceed 64.
+The active registry, routes reachable from pending pins, and queued or delivering output intents may
+refer to at most 64 distinct outputs. If publication rejects `retained_output_bound`, let pending work
+drain before retrying. Removing an output does not cancel existing work.
 
 Every configured process needs the external key. No admin/configuration/raw-payload API is exposed.
 Without bootstrap, a worker/all process refuses startup whenever an active snapshot or unfinished
 ingest/output work exists. An unconfigured api still serves workspace behavior and rejects hook admission.
+
+### Publish or restore matcher rules
+
+In a format-version-2 ingest file, set `matcher.language` to `matcher` and `matcher.version` to `1`.
+Keep rules in `matcher.rules` in evaluation order. A rule has `id`, `when`, and `actions`. A condition
+uses `field`, `op`, and `value`, or one of `all`, `any`, and `not`. Omit `value` for `exists`; null and
+missing are absent, but `""` is present.
+
+```yaml
+matcher:
+  language: matcher
+  version: 1
+  rules:
+    - id: route-platform
+      when: {field: labels.team, op: equals, value: platform}
+      actions:
+        - {type: set_label, key: owner, value: platform-on-call}
+```
+
+Set the top-level `expected_active_snapshot` to the current snapshot ID when adding, editing or
+removing matcher rules. Use an explicit `null` if there is no active snapshot. If another publication
+wins first, review the new active configuration before preparing another file. To roll back only the
+rules, copy the earlier matcher section into the current file, preserve the current sources, credentials
+and outputs, and publish at a higher revision. An identical restart uses that same file without
+publishing again. A `route` action must reference an output in the candidate registry.
+
+Rules read the original event, including when an earlier rule writes the same field. Matcher changes
+appear in retained events and their delivery payloads; live alert state uses the original severity.
+Matcher routes add to the source routes and follow the same delivery eligibility.
+
+If a rule times out, produces invalid metadata, or would exceed the batch fanout limit, Correlia
+discards that rule's whole patch and counts the failure against the pinned snapshot and rule.
+The existing activity feed reports one notice for each failing pair. Its detail includes the current
+failure count. An event may also include a sanitized `pipeline.enrichment_errors` entry if it fits.
+Before the write reserve, Correlia stops optional evaluation and records `matcher_unattempted` on the
+raw outcome for rules that did not start. Correlia never publishes a replacement automatically.
+
+### Upgrade before enabling matcher rules
+
+Live upgrades and mixed-version operation are not supported. Stop admitting new input and manually
+drain pending inbox work and the outbox on the old release. Then stop all Correlia processes and
+their supervisors before upgrading. Verify all roles start on the new release before resuming
+input or publishing matcher rules. Do not edit pins or discard queued deliveries to drain the outbox.
 
 ## Alertmanager sender setup and admission
 

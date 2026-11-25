@@ -10,7 +10,9 @@
 // ignore_for_file: invalid_use_of_internal_member
 
 // ignore_for_file: no_leading_underscores_for_library_prefixes
+import 'package:correlia_client/src/protocol/protocol.dart' as _iowdjkrj;
 import 'package:serverpod_client/serverpod_client.dart' as _isc;
+import 'matcher_failure_view.dart' as _ik186lp1;
 
 abstract class FeedEntry
     implements _isc.SerializableModel, _isc.ProtocolSerialization {
@@ -20,6 +22,7 @@ abstract class FeedEntry
     required this.entityVersion,
     required this.changeKind,
     required this.occurredAt,
+    this.matcherFailure,
   });
 
   factory FeedEntry({
@@ -28,6 +31,7 @@ abstract class FeedEntry
     required int entityVersion,
     required String changeKind,
     required DateTime occurredAt,
+    _ik186lp1.MatcherFailureView? matcherFailure,
   }) = _FeedEntryImpl;
 
   factory FeedEntry.fromJson(Map<String, dynamic> jsonSerialization) {
@@ -39,6 +43,11 @@ abstract class FeedEntry
       occurredAt: _isc.DateTimeJsonExtension.fromJson(
         jsonSerialization['occurredAt'],
       ),
+      matcherFailure: jsonSerialization['matcherFailure'] == null
+          ? null
+          : _iowdjkrj.Protocol().deserialize<_ik186lp1.MatcherFailureView>(
+              jsonSerialization['matcherFailure'],
+            ),
     );
   }
 
@@ -52,6 +61,8 @@ abstract class FeedEntry
 
   DateTime occurredAt;
 
+  _ik186lp1.MatcherFailureView? matcherFailure;
+
   /// Returns a shallow copy of this [FeedEntry]
   /// with some or all fields replaced by the given arguments.
   @_isc.useResult
@@ -61,6 +72,8 @@ abstract class FeedEntry
     int? entityVersion,
     String? changeKind,
     DateTime? occurredAt,
+    _ik186lp1.MatcherFailureView? matcherFailure =
+        const _UndefinedFeedEntry$matcherFailure(),
   });
   @override
   Map<String, dynamic> toJson() {
@@ -71,6 +84,7 @@ abstract class FeedEntry
       'entityVersion': entityVersion,
       'changeKind': changeKind,
       'occurredAt': occurredAt.toJson(),
+      if (matcherFailure != null) 'matcherFailure': matcherFailure?.toJson(),
     };
   }
 
@@ -83,6 +97,8 @@ abstract class FeedEntry
       'entityVersion': entityVersion,
       'changeKind': changeKind,
       'occurredAt': occurredAt.toJson(),
+      if (matcherFailure != null)
+        'matcherFailure': matcherFailure?.toJsonForProtocol(),
     };
   }
 
@@ -92,6 +108,11 @@ abstract class FeedEntry
   }
 }
 
+class _UndefinedFeedEntry$matcherFailure extends _isc.UndefinedSentinel
+    implements _ik186lp1.MatcherFailureView {
+  const _UndefinedFeedEntry$matcherFailure();
+}
+
 class _FeedEntryImpl extends FeedEntry {
   _FeedEntryImpl({
     required String entityKind,
@@ -99,12 +120,14 @@ class _FeedEntryImpl extends FeedEntry {
     required int entityVersion,
     required String changeKind,
     required DateTime occurredAt,
+    _ik186lp1.MatcherFailureView? matcherFailure,
   }) : super._(
          entityKind: entityKind,
          entityId: entityId,
          entityVersion: entityVersion,
          changeKind: changeKind,
          occurredAt: occurredAt,
+         matcherFailure: matcherFailure,
        );
 
   /// Returns a shallow copy of this [FeedEntry]
@@ -117,6 +140,8 @@ class _FeedEntryImpl extends FeedEntry {
     int? entityVersion,
     String? changeKind,
     DateTime? occurredAt,
+    _ik186lp1.MatcherFailureView? matcherFailure =
+        const _UndefinedFeedEntry$matcherFailure(),
   }) {
     return FeedEntry(
       entityKind: entityKind ?? this.entityKind,
@@ -124,6 +149,9 @@ class _FeedEntryImpl extends FeedEntry {
       entityVersion: entityVersion ?? this.entityVersion,
       changeKind: changeKind ?? this.changeKind,
       occurredAt: occurredAt ?? this.occurredAt,
+      matcherFailure: matcherFailure is _isc.UndefinedSentinel
+          ? this.matcherFailure?.copyWith()
+          : matcherFailure,
     );
   }
 }
