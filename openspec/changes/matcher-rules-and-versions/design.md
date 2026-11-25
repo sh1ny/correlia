@@ -110,6 +110,22 @@ TIER: FULL
 - Important: yes (which documents the matcher language accepts).
 - Chosen by: user.
 
+### D14: Use ordered, discriminated v1 rules
+
+- Choice: The owner chose an ordered `matcher.rules` list. Each rule is `{id, when, actions}`. A condition is `{field, op, value}` (without `value` for `exists`) or exactly one of `all`, `any`, or `not`. Actions are ordered objects discriminated by `type`.
+- Rejected: Map keys that vary with the condition operator or action type.
+- Reversal cost: medium.
+- Important: yes (persisted operator input format).
+- Chosen by: user.
+
+### D15: Treat null and missing canonical values as absent
+
+- Choice: The owner chose non-null canonical values for `exists`. Empty strings are present. Missing keys and JSON null are both absent, matching the Dart canonical event model.
+- Rejected: Carry explicit null presence alongside the event model.
+- Reversal cost: medium.
+- Important: yes (matching behavior).
+- Chosen by: user.
+
 ### Decision summary
 
 | # | Decision | Choice | Rejected | Reversal cost | Important | Chosen by |
@@ -128,6 +144,8 @@ TIER: FULL
 | D11 | Output capacity | Count pending pins and live intents in existing 64-ID bound | Count live intents only | medium | yes | user |
 | D12 | Legacy upgrade | Refuse cutover before either fence; drain using old workers | Fence before checking capacity | medium | yes | user |
 | D13 | Expanded regex complexity | Shared parse-time bound that includes SQL lowering and preserves simple `{255}` | PostgreSQL compile probes or blanket nesting ban | medium | yes | user |
+| D14 | Matcher v1 shape | Ordered rules and typed actions, flat condition leaves | Operator-keyed leaf and action maps | medium | yes | user |
+| D15 | Presence | Non-null values, including empty strings | Distinguish explicit null from missing | medium | yes | user |
 
 ## Assumptions
 
@@ -233,7 +251,7 @@ flowchart LR
 - Parse provisioned YAML with safe data-only decoding and map it into the existing strict typed input path. A matcher section declares `language: matcher` and `version: 1`; persist both unchanged, reject missing or unsupported values. An empty/absent section has no rules; omit it from canonical snapshots so pre-change input retains its ID. No runtime YAML parsing. An invalid output reference fails even for an empty output registry.
 - Preserve the matcher structure in `publicJson` with SQL-safe rule IDs and output UUIDs. Encode free-form matcher strings by schema position with the reversible alphabet below, including literal operands and regex source; decode on pinned reads. Structural keys and output references stay unchanged. Malformed encoded content fails closed, rather than dropping a rule. Whole-snapshot JSONB readers for Icinga admission and secret inventory still parse it (`correlia_server/lib/src/ingest/icinga2/stream/admission.dart:172-177`, `correlia_server/lib/src/ingest/config_repository.dart:375-392`).
 - After reading active under the lock, compare any supplied expected active ID on every new snapshot, even if the rules now happen to match. Require an expectation when typed matcher content changes, including removal. Reject before publication writes. Legacy inputs without matcher changes or an expectation keep existing semantics. Exact identity with the already-active snapshot is an identical restart, not another activation; normal secret and startup validation still runs. Rollback is an operator-authored current full file containing earlier rules, not an alternate input or startup path.
-- Add a typed matcher catalog over canonical fields and one stored projection: accept named scalar fields and validated resource/label/annotation keys; bind keys and values rather than inserting text into SQL. A null or missing scalar never matches a leaf other than presence testing; normalize SQL leaf nulls before boolean composition, and `exists` tests presence, not truthiness. Text predicates are case-sensitive. Glob translates only documented glob wildcards; escape SQL metacharacters. SQL filtering sees stored values, not a reconstruction of pre-enrichment data; conformance compares identical projections.
+- Add a typed matcher catalog over canonical fields and one stored projection: accept named scalar fields and validated resource/label/annotation keys; bind keys and values rather than inserting text into SQL. Missing and null fields do not satisfy any leaf. `exists` matches non-null values, including empty strings. Normalize SQL leaf nulls before boolean composition. Text predicates are case-sensitive. Glob translates only documented glob wildcards; escape SQL metacharacters. SQL filtering sees stored values, not a reconstruction of pre-enrichment data; conformance compares identical projections.
 - Stored payloads are CloudEvent bytes (`correlia_server/schema/0001_ingest.sql:17-27`, `correlia_server/lib/src/pipeline/pipeline.dart:701-725`). PostgreSQL JSONB cannot represent NUL; the subject-only projection mutates it (`correlia_server/schema/0011_event_subject_text.sql:1-18`) and cannot read matcher fields. Project query values into the reversible alphabet without changing stored or delivered event bytes. Reserve three ASCII characters: lead `~`, tails `!` and `^`. Encode the three reserved scalars and U+0000 as four distinct `~` plus two-tail tokens; emit other scalars unchanged. Rewrite the reserved characters and their actual JSON Unicode escapes before the JSONB cast while preserving escaped backslashes; bind the same encoding for keys and literal operands. Lower glob and regex atoms to complete tokens: a one-scalar wildcard matches one token or one unreserved scalar, and a class matches its unreserved members or whole encodings of its reserved members. Group lowered atoms before repetition. A nonempty match cannot start inside a token because no atom matches a naked tail. Restrict CIDR to its validated address alphabet. A1 proves NUL/U+0001/literal-escape and punctuation parity over existing stored rows.
 - Counted quantifiers admit `{n}`, `{n,}`, `{n,m}` with decimal bounds 0–255 and lower ≤ upper. Also allow `?`, `*`, `+`; reject lazy or stacked quantifiers. A1 explicitly covers counted-repeat limits, escaped punctuation, and cross-engine behavior on newline and Unicode.
 - Compute the expanded cost without materializing repeat copies. Use saturating arithmetic that stops at the limit, and include all alternatives and grouping introduced by the PostgreSQL projection. The parser uses the same limit for conditions and extraction. This limit is separate from statement and isolate deadlines.

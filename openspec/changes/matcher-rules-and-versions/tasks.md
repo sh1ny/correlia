@@ -13,11 +13,11 @@
 | E | Reject invalid operands before activation | db/matcher_publication_test.dart | invalid operands leave active unchanged | red |
 | E | Matcher language and version survive publication | db/matcher_publication_test.dart | typed version survives and rejects unknown | red |
 | E | Reject nonportable regex syntax | db/matcher_publication_test.dart | reject nonportable regex at publication | red |
-| F | RUL-6 condition corpus agrees in both evaluators | db/matcher_filter_test.dart | RUL-6 condition corpus parity | red |
-| F | Historical text with NUL stays distinct | db/matcher_filter_test.dart | historical NUL parity | red |
-| F | A page with no matches still advances | db/matcher_filter_test.dart | scan cursor advances across ties and misses | red |
-| F | SEC-2 SQL-shaped input is only data | db/matcher_filter_test.dart | SEC-2 operands remain literals | red |
-| F | Stored filter budget expiry is not a negative match | db/matcher_filter_test.dart | cancellation is an error | red |
+| F | RUL-6 condition corpus agrees in both evaluators | db/matcher_filter_test.dart | RUL-6 condition corpus parity; missing and null are false before negation | green |
+| F | Historical text with NUL stays distinct | db/matcher_filter_test.dart | historical NUL parity; scan cursor advances across ties and misses | green |
+| F | A page with no matches still advances | db/matcher_filter_test.dart | scan cursor advances across ties and misses | green |
+| F | SEC-2 SQL-shaped input is only data | db/matcher_filter_test.dart | scan cursor advances across ties and misses | green |
+| F | Stored filter budget expiry is not a negative match | db/matcher_filter_test.dart | cancellation is an error | green |
 | P | RUL-4 workers switch at a version boundary | db/matcher_publication_test.dart | RUL-4 pins activation and rollback | red |
 | P | Concurrent publication invalidates a prepared restore | db/matcher_publication_test.dart | stale rollback cannot overwrite rotation | red |
 | P | A successful rollback restarts from the exact same file | e2e/matcher_upgrade_test.dart | guarded YAML rollback restarts identically | red |
@@ -39,9 +39,9 @@
 
 ## 1. Decisions and parity proof
 
-- [ ] 1.1 Write the superseding rule ADR, update the architecture index and D29, and align the RUL-7 acceptance row with operator-only recovery. Verify against the proposal and `mise run spec:validate`; confirm C1–C12 each appears at its matcher-spec destination, supplementing as needed without changing approved behavior.
-- [ ] 1.2 Write DB-first RUL-6 and historical-text cases; settle A1 by exercising real PostgreSQL and the Dart semantics on the same cases, including NUL/U+0001, literal escapes, punctuation, Unicode, newlines, repeat limits and null/negation. Stop for design drift if the approved representation cannot pass.
-- [ ] 1.3 Write the remaining F tests first, including deterministic cancellation and keyset ties; implement the typed conditions, field catalog, portable grammar and bounded parameterized stored filter. Verify all F tests and update their rows.
+- [x] 1.1 Write the superseding rule ADR, update the architecture index and D29, and align the RUL-7 acceptance row with operator-only recovery. Verify against the proposal and `mise run spec:validate`; confirm C1–C12 each appears at its matcher-spec destination, supplementing as needed without changing approved behavior.
+- [x] 1.2 Write DB-first RUL-6 and historical-text cases; settle A1 by exercising real PostgreSQL and the Dart semantics on the same cases, including NUL/U+0001, literal escapes, punctuation, Unicode, newlines, repeat limits and null/negation. Prove the D13 complexity boundary, including simple `{255}` and rejection of an over-budget nested repeat in the shared parser. Stop for design drift if the approved representation cannot pass.
+- [x] 1.3 Write the remaining F tests first, including deterministic cancellation and keyset ties; implement the typed conditions, field catalog, portable grammar and bounded parameterized stored filter. Verify all F tests and update their rows.
 
 ## 2. Rules, publication, and cutover
 

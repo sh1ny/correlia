@@ -40,6 +40,8 @@ The system SHALL parse matcher documents against a typed field catalog and persi
 
 The system SHALL evaluate the same typed condition tree in memory and against stored events, with matching results for missing fields, nulls, case, severity order and wildcard values. SQL expressions SHALL come from the field catalog and bind all rule values; only declared glob syntax SHALL act as a wildcard.
 
+For `exists`, an empty string SHALL count as present. A missing field or JSON null SHALL count as absent and SHALL NOT satisfy any leaf condition.
+
 #### Scenario: RUL-6 condition corpus agrees in both evaluators
 - **WHEN** the same corpus of events and conditions is evaluated in memory and filtered from PostgreSQL
 - **THEN** the matching event IDs agree, including for missing and null values, case and wildcard characters, and both evaluators order severity as critical > error > warning > unknown > info
