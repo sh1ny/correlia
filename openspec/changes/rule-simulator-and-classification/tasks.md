@@ -90,8 +90,8 @@ Every `db` test names its tier with `testGroupTagsOverride`; fast tests carry no
 
 ## 1. ADR and architecture
 
-- [ ] 1.1 Write `docs/adr/0034-rule-simulator-and-event-classification.md` (status accepted): the read-only simulator over re-decoded stored events (D8-D10), decoder-owned kind (S4), the reserved `correlia.noise_class` label checked against new content only (D13), the `matcher_content_digest` and `matcher_content_digest_fill` SQL-owned tables, and the stable duplicate order (D14). Verify: the file exists and names each decision with its rejected alternative.
-- [ ] 1.2 Add ADR 0034 to the in-force index in `openspec/architecture.md`, and list `matcher_content_digest` and `matcher_content_digest_fill` among the SQL-owned tables outside Serverpod's managed models and repairs. Verify: `mise exec -- openspec validate --strict` passes and both table names appear in the SQL-owned list.
+- [x] 1.1 Write `docs/adr/0034-rule-simulator-and-event-classification.md` (status accepted): the read-only simulator over re-decoded stored events (D8-D10), decoder-owned kind (S4), the reserved `correlia.noise_class` label checked against new content only (D13), the `matcher_content_digest` and `matcher_content_digest_fill` SQL-owned tables, and the stable duplicate order (D14). Verify: the file exists and names each decision with its rejected alternative.
+- [x] 1.2 Add ADR 0034 to the in-force index in `openspec/architecture.md`, and list `matcher_content_digest` and `matcher_content_digest_fill` among the SQL-owned tables outside Serverpod's managed models and repairs. Verify: `mise exec -- openspec validate --strict` passes and both table names appear in the SQL-owned list.
 
 ## 2. Shared row decode (D12)
 

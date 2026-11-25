@@ -172,6 +172,9 @@ run in every role unless they are switched off:
   - `events`, `raw_inbox`, `outbox`: SQL-owned time-qualified composite primary keys, initially ordinary
     tables, with partition maintenance deferred to M2 (ADR 0016). Schema step 0002 adds nullable
     `events.state_outcome` to distinguish applied and stale observations.
+  - `matcher_content_digest`, `matcher_content_digest_fill`: schema step 0015 creates the digest of every
+    published matcher section (primary key `digest`) and the one-row completion marker of its upgrade fill,
+    so the reserved-label check is one primary-key probe (ADR 0034).
 
   `alerts` is a Serverpod-managed table with a unique tenant/fingerprint index.
 
@@ -261,6 +264,7 @@ Accepted ADRs only.
 | [0031](../docs/adr/0031-generic-webhook-mapping-documents.md) | Versioned generic webhook mappings, pinned snapshots, bootstrap-only authoring and publisher version 2 rollout | none |
 | [0032](../docs/adr/0032-matcher-rules-and-versions.md) | Typed matcher rules, Dart and SQL evaluation, guarded publication and operator rollback, pinned runtime failure counts | [0008](../docs/adr/0008-rule-language.md) |
 | [0033](../docs/adr/0033-offline-matcher-upgrade.md) | Offline matcher upgrade with a manual drain before shutdown | 0032 rollout only; matcher behavior and publication are unchanged |
+| [0034](../docs/adr/0034-rule-simulator-and-event-classification.md) | Read-only rule simulator over re-decoded stored events, decoder-owned kind, `classify` and the reserved noise label checked against new content, matcher content digest tables, stable duplicate order | none (extends 0032) |
 
 ### Superseded ADRs
 
