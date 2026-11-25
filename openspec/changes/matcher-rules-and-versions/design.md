@@ -126,6 +126,14 @@ TIER: FULL
 - Important: yes (matching behavior).
 - Chosen by: user.
 
+### D16: Prove the legacy drain at the database boundary
+
+- Choice: The owner chose a database-level test only. Seed a valid legacy pin, drain it through the legacy database protocol, then prove the unchanged active file starts and the original pin remains.
+- Rejected: Build and run a pre-change worker binary in the cutover fixture.
+- Reversal cost: low.
+- Important: yes (upgrade verification scope).
+- Chosen by: user.
+
 ### Decision summary
 
 | # | Decision | Choice | Rejected | Reversal cost | Important | Chosen by |
@@ -146,6 +154,7 @@ TIER: FULL
 | D13 | Expanded regex complexity | Shared parse-time bound that includes SQL lowering and preserves simple `{255}` | PostgreSQL compile probes or blanket nesting ban | medium | yes | user |
 | D14 | Matcher v1 shape | Ordered rules and typed actions, flat condition leaves | Operator-keyed leaf and action maps | medium | yes | user |
 | D15 | Presence | Non-null values, including empty strings | Distinguish explicit null from missing | medium | yes | user |
+| D16 | Legacy drain proof | Database protocol fixture | Pre-change worker binary | low | yes | user |
 
 ## Assumptions
 

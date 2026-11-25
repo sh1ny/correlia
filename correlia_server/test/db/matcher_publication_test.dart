@@ -12,6 +12,7 @@ import 'package:correlia_server/src/ingest/icinga2/stream/lease.dart';
 import 'package:correlia_server/src/matcher/matcher_document.dart';
 import 'package:correlia_server/src/pipeline/pipeline.dart';
 import 'package:correlia_server/src/schema/schema_steps.dart';
+import 'package:crypto/crypto.dart';
 import 'package:serverpod/serverpod.dart';
 import 'package:test/test.dart';
 
@@ -22,6 +23,7 @@ import '../support/icinga2_stream_pipeline.dart';
 import '../support/ingest_schema.dart';
 import '../support/secret_fixture.dart';
 import '../unit/event/fixture.dart';
+import '../unit/ingest/alertmanager_decoder_test.dart' as payload;
 
 const _removedOutput = '22222222-2222-4222-8222-222222222222';
 
@@ -219,8 +221,25 @@ VALUES ('2026-11-10T00:00:00Z', '11111111-1111-4111-8111-111111111111',
           ),
           fenced,
         );
+        const sync = '33333333-3333-4333-8333-333333333333';
+        await session.db.unsafeSimpleExecute('''
+INSERT INTO icinga2_sync_progress(sync_id,source_id,phase,rows_admitted,started_at)
+VALUES ('$sync','22222222-2222-4222-8222-222222222222','applying',1,now())
+''');
         await expectLater(
-          session.db.unsafeSimpleExecute('DELETE FROM raw_inbox'),
+          session.db.transaction((tx) async {
+            expect(
+              await session.db.unsafeExecute(
+                "UPDATE icinga2_sync_progress SET rows_done=rows_done+1 WHERE sync_id='$sync'",
+                transaction: tx,
+              ),
+              1,
+            );
+            await session.db.unsafeSimpleExecute(
+              'DELETE FROM raw_inbox',
+              transaction: tx,
+            );
+          }),
           fenced,
         );
         final rows = await session.db.unsafeSimpleQuery(
@@ -228,6 +247,13 @@ VALUES ('2026-11-10T00:00:00Z', '11111111-1111-4111-8111-111111111111',
         );
         expect(rows.single[0], 'pending');
         expect(rows.single[1], current.snapshotId);
+        expect(
+          (await session.db.unsafeSimpleQuery(
+            "SELECT rows_done FROM icinga2_sync_progress WHERE sync_id='$sync'",
+          )).single[0],
+          0,
+        );
+        expect(await PipelineRepository(session).processOne(), isTrue);
       });
 
       test('invalid operands leave active unchanged', () async {
@@ -378,10 +404,21 @@ VALUES ('2026-11-10T00:00:00Z', '11111111-1111-4111-8111-111111111111',
             ),
           ),
         );
-        await session.db.unsafeSimpleExecute('''
+        final body = utf8.encode(
+          jsonEncode(
+            payload.groupOf([payload.alert(startsAt: '2026-11-01T00:00:00Z')]),
+          ),
+        );
+        await session.db.unsafeExecute(
+          '''
 INSERT INTO raw_inbox (observed_at, raw_id, source_id, body, body_sha256, content_type)
-VALUES ('2026-11-11T00:00:00Z', '$source', '$source', ''::bytea, 'none', 'application/json')
-''');
+VALUES ('2026-11-01T00:00:00Z', '$source', '$source', @body, @digest, 'application/json')
+''',
+          parameters: QueryParameters.named({
+            'body': body,
+            'digest': sha256.convert(body).toString(),
+          }),
+        );
         final pinned = Completer<void>();
         final releasePin = Completer<void>();
         final observer = builder.build();
@@ -459,34 +496,35 @@ VALUES ('2026-11-11T00:00:00Z', '$source', '$source', ''::bytea, 'none', 'applic
         final replaced = await publish(2);
         expect(replaced.snapshotId, isNot(original.snapshotId));
         await refused();
-        await session.db.transaction((tx) async {
-          await session.db.unsafeSimpleExecute(
-            "SET LOCAL correlia.pin_worker_version = '3'",
-            transaction: tx,
-          );
-          await session.db.unsafeExecute(
-            '''
-INSERT INTO outbox
- (created_at, delivery_id, event_observed_at, event_id, event_disposition,
-  output_id, config_snapshot_id, target_url, signing_key_ref, signing_key_commitment, payload)
-VALUES (now(), @source::uuid, now(), @source::uuid, 'ready', @output::uuid,
-        @snapshot, 'http://127.0.0.1:8089/events', 'historical-key', @commitment, ''::bytea)
-''',
-            parameters: QueryParameters.named({
-              'source': source,
-              'output': _removedOutput,
-              'snapshot': original.snapshotId,
-              'commitment': (original.outputs.single as WebhookIngestOutput)
-                  .signingKeyCommitment,
-            }),
-            transaction: tx,
-          );
-          await session.db.unsafeExecute(
-            "UPDATE raw_inbox SET status='done' WHERE raw_id=@source::uuid",
-            parameters: QueryParameters.named({'source': source}),
-            transaction: tx,
-          );
-        });
+        expect(
+          await PipelineRepository(
+            session,
+            clock: () => DateTime.utc(2026, 11, 1),
+            elapsedForTest: () => Duration.zero,
+          ).processOne(),
+          isTrue,
+        );
+        expect(
+          (await session.db.unsafeSimpleQuery(
+            "SELECT status, outcome_json FROM raw_inbox WHERE raw_id='$source'",
+          )).single[0],
+          'done',
+        );
+        final historicalOutput = original.outputs.single as WebhookIngestOutput;
+        expect(
+          (await session.db.unsafeSimpleQuery('''
+SELECT output_id::text, config_snapshot_id, target_url, signing_key_ref,
+       signing_key_commitment
+FROM outbox WHERE config_snapshot_id = '${original.snapshotId}'
+''')).single,
+          [
+            _removedOutput,
+            original.snapshotId,
+            historicalOutput.url.toString(),
+            historicalOutput.signingKeyRef,
+            historicalOutput.signingKeyCommitment,
+          ],
+        );
         await refused();
         expect(
           (await repository.publishConfig(

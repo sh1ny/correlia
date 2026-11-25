@@ -4,11 +4,13 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:postgres/postgres.dart';
 import 'package:test/test.dart';
 
 import '../support/child_server.dart';
 import '../support/shared_cluster.dart';
+import '../unit/ingest/alertmanager_decoder_test.dart' as payload;
 
 void main() {
   test('guarded YAML rollback restarts identically', () async {
@@ -164,6 +166,9 @@ matcher:
       );
       const source = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
       const output = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+      final body = jsonEncode(payload.groupOf([payload.alert()]));
+      final digest = sha256.convert(utf8.encode(body)).toString();
+      final commitment = sha256.convert(List<int>.filled(32, 7)).toString();
       final active = (await db.execute(
         'SELECT "snapshotId" FROM ingest_active_config',
       )).single[0];
@@ -187,23 +192,38 @@ VALUES ('legacy',1,@public)
 '''),
           parameters: {
             'public': jsonEncode({
+              'format_version': 2,
+              'revision': 1,
               'sources': [
                 {
                   'id': source,
+                  'kind': 'alertmanager',
+                  'credentials': [
+                    {'type': 'bearer', 'ref': 'key', 'commitment': commitment},
+                  ],
                   'enabled': true,
                   'output_ids': [output],
                 },
               ],
               'outputs': [
-                {'id': output},
+                {
+                  'id': output,
+                  'kind': 'webhook',
+                  'url': 'http://127.0.0.1:8089/events',
+                  'signing_key_ref': 'key',
+                  'signing_key_commitment': commitment,
+                },
               ],
             }),
           },
         );
-        await tx.execute('''
+        await tx.execute(
+          Sql.named('''
 INSERT INTO raw_inbox (observed_at, raw_id, source_id, body, body_sha256, content_type, config_snapshot_id)
-VALUES (now(),'$source','$source',''::bytea,'none','application/json','legacy')
-''');
+VALUES (now(),'$source','$source',convert_to(@body,'UTF8'),@digest,'application/json','legacy')
+'''),
+          parameters: {'body': body, 'digest': digest},
+        );
       });
       final refused = await start();
       expect(await refused.exitCode, 1);
