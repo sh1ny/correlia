@@ -202,7 +202,7 @@ Alertmanager's upstream fingerprint is retained in raw input and, when present, 
 
 ## Bootstrap and rotation
 
-Set `CORRELIA_INGEST_CONFIG` to a regular JSON file (at most 64 KiB) and
+Set `CORRELIA_INGEST_CONFIG` to a regular JSON or YAML file (at most 64 KiB) and
 `CORRELIA_SECRET_KEY_FILE` to the external 32-byte encryption key file. Both the key and optional
 `CORRELIA_INGEST_SECRETS` import file must be regular, non-symlink files owned by the process user,
 mode 0600 or stricter. The import file is bounded at 512 KiB encoded and 256 KiB decoded across 128 entries.
@@ -299,11 +299,46 @@ Startup atomically publishes immutable public snapshots, credential commitments 
 Rotate all secrets under new references. The store retains historical material for pinned work without
 adding it to current configuration. Work with an unavailable signing key remains queued without consuming
 an attempt. Terminal rows retain commitments and do not require keys until future explicit replay.
-Active plus retained live output lanes cannot exceed 64.
+The active registry, routes reachable from pending pins, and queued or delivering output intents may
+refer to at most 64 distinct outputs. If publication rejects `retained_output_bound`, let pending work
+drain before retrying. Removing an output does not cancel existing work.
 
 Every configured process needs the external key. No admin/configuration/raw-payload API is exposed.
 Without bootstrap, a worker/all process refuses startup whenever an active snapshot or unfinished
 ingest/output work exists. An unconfigured api still serves workspace behavior and rejects hook admission.
+
+### Publish or restore matcher rules
+
+In a format-version-2 ingest file, set `matcher.language` to `matcher` and `matcher.version` to `1`.
+Keep rules in `matcher.rules` in evaluation order. A rule has `id`, `when`, and `actions`. A condition
+uses `field`, `op`, and `value`, or one of `all`, `any`, and `not`. Omit `value` for `exists`; null and
+missing are absent, but `""` is present.
+
+```yaml
+matcher:
+  language: matcher
+  version: 1
+  rules:
+    - id: route-platform
+      when: {field: labels.team, op: equals, value: platform}
+      actions:
+        - {type: set_label, key: owner, value: platform-on-call}
+```
+
+Set the top-level `expected_active_snapshot` to the current snapshot ID when adding, editing or
+removing matcher rules. Use an explicit `null` if there is no active snapshot. If another publication
+wins first, review the new active configuration before preparing another file. To roll back only the
+rules, copy the earlier matcher section into the current file, preserve the current sources, credentials
+and outputs, and publish at a higher revision. An identical restart uses that same file without
+publishing again. A `route` action must reference an output in the candidate registry.
+
+### Upgrade before enabling matcher rules
+
+Stop older workers and their supervisors before upgrading. Schema step 13 checks the existing
+64-output limit before enabling the publisher and worker compatibility checks. If it refuses the
+upgrade, start the older release again and let its pinned work and delivery intents drain. Stop the
+older processes, retry the upgrade, and verify that all roles start before publishing matcher rules.
+Do not edit pins or discard queued intents to make the upgrade pass.
 
 ## Alertmanager sender setup and admission
 

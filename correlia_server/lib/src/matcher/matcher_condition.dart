@@ -102,6 +102,35 @@ sealed class MatcherCondition {
   String _sql(String Function(Object) bind);
 }
 
+/// An addressable text field for lookup and extraction actions.
+final class MatcherTextField {
+  const MatcherTextField._(this._field);
+  final _Field _field;
+
+  /// Resolves a text path against the shared condition catalog.
+  static MatcherTextField parse(String path) {
+    final field = _Field.parse(path);
+    if (field.type != _Type.text) _invalid('condition_field');
+    return MatcherTextField._(field);
+  }
+
+  /// Reads the value from the original event.
+  String? read(CanonicalEvent event) => _field.read(event);
+}
+
+/// A validated CIDR used by the matcher location table.
+final class MatcherNetwork {
+  const MatcherNetwork._(this._network);
+  final _Network _network;
+
+  /// Parses a network using the same rules as the CIDR filter.
+  static MatcherNetwork parse(String source) =>
+      MatcherNetwork._(_Network.parse(source));
+
+  /// Whether a textual address lies in this network.
+  bool contains(String address) => _network.contains(address);
+}
+
 Future<bool> _localRegex(String pattern, String input) async =>
     RegExp(pattern, unicode: true, dotAll: true).hasMatch(input);
 

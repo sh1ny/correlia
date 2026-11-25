@@ -201,7 +201,7 @@ VALUES (@time,CAST(@id AS uuid),CAST(@source AS uuid),@body,@digest,'application
         final id = sha256.convert(utf8.encode(text)).toString();
         await session.db.transaction((tx) async {
           await session.db.unsafeSimpleExecute(
-            "SET LOCAL correlia.publisher_version = '2'",
+            "SET LOCAL correlia.publisher_version = '3'",
             transaction: tx,
           );
           await session.db.unsafeExecute(

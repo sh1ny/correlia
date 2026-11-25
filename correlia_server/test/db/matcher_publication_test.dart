@@ -1,0 +1,824 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:correlia_server/event.dart';
+import 'package:correlia_server/src/ingest/bootstrap.dart';
+import 'package:correlia_server/src/ingest/config_repository.dart';
+import 'package:correlia_server/src/ingest/icinga2/stream/admission.dart';
+import 'package:correlia_server/src/ingest/icinga2/stream/database.dart';
+import 'package:correlia_server/src/ingest/icinga2/stream/decoder.dart';
+import 'package:correlia_server/src/ingest/icinga2/stream/lease.dart';
+import 'package:correlia_server/src/matcher/matcher_document.dart';
+import 'package:correlia_server/src/pipeline/pipeline.dart';
+import 'package:correlia_server/src/schema/schema_steps.dart';
+import 'package:serverpod/serverpod.dart';
+import 'package:test/test.dart';
+
+import '../integration/test_tools/serverpod_test_tools.dart';
+import '../support/icinga2_pipeline.dart';
+import '../support/icinga2_stream_fixture.dart';
+import '../support/icinga2_stream_pipeline.dart';
+import '../support/ingest_schema.dart';
+import '../support/secret_fixture.dart';
+import '../unit/event/fixture.dart';
+
+const _removedOutput = '22222222-2222-4222-8222-222222222222';
+
+Map<String, Object?> _config(int revision) => {
+  'format_version': 2,
+  'revision': revision,
+  'sources': <Object?>[],
+  'outputs': <Object?>[],
+};
+
+Map<String, Object?> _section({
+  Object? version = 1,
+  Object? when = const {'field': 'summary', 'op': 'exists'},
+  Object? actions = const [
+    {'type': 'set_label', 'key': 'team', 'value': 'ops'},
+  ],
+}) => {
+  'language': 'matcher',
+  'version': ?version,
+  'rules': [
+    {'id': 'example', 'when': when, 'actions': actions},
+  ],
+};
+
+void main() {
+  withServerpod(
+    'matcher publication',
+    (builder, _) {
+      test('typed version survives and rejects unknown', () async {
+        final session = builder.build();
+        await initializeIngestSchema(session);
+        final repository = IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        );
+        final input = _config(1)
+          ..['expected_active_snapshot'] = null
+          ..['matcher'] = _section();
+        final published = await repository.publishConfig(
+          input,
+          const <String, Object?>{},
+          runMode: 'test',
+        );
+        expect(published.publicJson, contains('"language":"matcher"'));
+        for (final version in [null, 2]) {
+          final invalid = _config(3)
+            ..['expected_active_snapshot'] = published.snapshotId
+            ..['matcher'] = _section(version: version);
+          await expectLater(
+            repository.publishConfig(
+              invalid,
+              const <String, Object?>{},
+              runMode: 'test',
+            ),
+            throwsA(isA<BootstrapError>()),
+          );
+          expect(
+            (await repository.activeSnapshot())?['snapshotId'],
+            published.snapshotId,
+          );
+        }
+      });
+
+      test('DUR-5 unknown output and empty registry', () async {
+        final session = builder.build();
+        await initializeIngestSchema(session);
+        final repository = IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        );
+        final active = (await repository.activeSnapshot())?['snapshotId'];
+        final candidate = _config(4)
+          ..['expected_active_snapshot'] = active
+          ..['matcher'] = _section(
+            actions: const [
+              {'type': 'route', 'output_id': _removedOutput},
+            ],
+          );
+        await expectLater(
+          repository.publishConfig(
+            candidate,
+            const <String, Object?>{},
+            runMode: 'test',
+          ),
+          throwsA(
+            isA<BootstrapError>().having(
+              (error) => error.code,
+              'code',
+              'unknown_output',
+            ),
+          ),
+        );
+        expect((await repository.activeSnapshot())?['snapshotId'], active);
+      });
+
+      test('guarded YAML rollback restarts identically', () async {
+        final session = builder.build();
+        await initializeIngestSchema(session);
+        final repository = IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        );
+        final active = await repository.activeSnapshot();
+        final first = ((active?['revision'] as int?) ?? 0) + 1;
+        final directory = await Directory.systemTemp.createTemp(
+          'correlia-matcher-yaml-',
+        );
+        final file = File('${directory.path}/ingest.yaml');
+        Future<IngestBootstrap> load() async => (await IngestBootstrap.load(
+          {'CORRELIA_INGEST_CONFIG': file.path},
+          runMode: 'test',
+          publish: (config, secrets) =>
+              repository.publishConfig(config, secrets, runMode: 'test'),
+        ))!;
+        Future<IngestBootstrap> publish(
+          int revision,
+          String? expected,
+          String label,
+        ) async {
+          await file.writeAsString('''
+format_version: 2
+revision: $revision
+expected_active_snapshot: ${expected == null ? 'null' : '"$expected"'}
+sources: []
+outputs: []
+matcher:
+  language: matcher
+  version: 1
+  rules:
+    - id: example
+      when: {field: summary, op: exists}
+      actions:
+        - {type: set_label, key: team, value: "$label"}
+''');
+          return load();
+        }
+
+        try {
+          final a = await publish(
+            first,
+            active?['snapshotId'] as String?,
+            'original',
+          );
+          final b = await publish(first + 1, a.snapshotId, 'new');
+          final rollback = await publish(first + 2, b.snapshotId, 'original');
+          final restart = await load();
+          expect(restart.snapshotId, rollback.snapshotId);
+          expect(restart.matcher.snapshotJson, a.matcher.snapshotJson);
+          expect((await repository.activeSnapshot())?['revision'], first + 2);
+        } finally {
+          await directory.delete(recursive: true);
+        }
+      });
+
+      test('v2 pin update and reconcile delete are fenced', () async {
+        final session = builder.build();
+        await initializeIngestSchema(session);
+        final repository = IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        );
+        final active = await repository.activeSnapshot();
+        final revision = ((active?['revision'] as int?) ?? 0) + 1;
+        final current = await repository.publishConfig(
+          _config(revision)
+            ..['expected_active_snapshot'] = active?['snapshotId']
+            ..['matcher'] = _section(),
+          const <String, Object?>{},
+          runMode: 'test',
+        );
+        await session.db.unsafeSimpleExecute('''
+INSERT INTO raw_inbox (observed_at, raw_id, source_id, body, body_sha256, content_type)
+VALUES ('2026-11-10T00:00:00Z', '11111111-1111-4111-8111-111111111111',
+        '22222222-2222-4222-8222-222222222222', ''::bytea, 'none', 'application/json')
+''');
+        final fenced = throwsA(
+          isA<DatabaseQueryException>().having(
+            (error) => error.code,
+            'SQLSTATE',
+            '55000',
+          ),
+        );
+        await expectLater(
+          session.db.unsafeSimpleExecute(
+            "UPDATE raw_inbox SET config_snapshot_id = '${current.snapshotId}'",
+          ),
+          fenced,
+        );
+        expect(await PipelineRepository(session).pinOne(), isTrue);
+        await expectLater(
+          session.db.unsafeSimpleExecute(
+            "UPDATE raw_inbox SET status = 'done'",
+          ),
+          fenced,
+        );
+        await expectLater(
+          session.db.unsafeSimpleExecute('DELETE FROM raw_inbox'),
+          fenced,
+        );
+        final rows = await session.db.unsafeSimpleQuery(
+          'SELECT status, config_snapshot_id FROM raw_inbox',
+        );
+        expect(rows.single[0], 'pending');
+        expect(rows.single[1], current.snapshotId);
+      });
+
+      test('invalid operands leave active unchanged', () async {
+        final session = builder.build();
+        await initializeIngestSchema(session);
+        final repository = IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        );
+        final active = await repository.activeSnapshot();
+        final revision = ((active?['revision'] as int?) ?? 0) + 1;
+        for (final when in [
+          {'field': 'not_in_catalog', 'op': 'exists'},
+          {'field': 'labels.invalid key', 'op': 'exists'},
+          {'field': 'severity', 'op': 'equals', 'value': 'almost'},
+        ]) {
+          final input = _config(revision)
+            ..['expected_active_snapshot'] = active?['snapshotId']
+            ..['matcher'] = _section(when: when);
+          await expectLater(
+            repository.publishConfig(
+              input,
+              const <String, Object?>{},
+              runMode: 'test',
+            ),
+            throwsA(
+              isA<BootstrapError>().having(
+                (e) => e.field,
+                'field',
+                'matcher.rules[0].when',
+              ),
+            ),
+          );
+          expect(
+            (await repository.activeSnapshot())?['snapshotId'],
+            active?['snapshotId'],
+          );
+        }
+      });
+
+      test('reject nonportable regex at publication', () async {
+        final session = builder.build();
+        await initializeIngestSchema(session);
+        final repository = IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        );
+        final active = await repository.activeSnapshot();
+        final revision = ((active?['revision'] as int?) ?? 0) + 1;
+        for (final pattern in [
+          r'(a)\1',
+          'a(?=b)',
+          '(?i)z',
+          r'\d',
+          'a{256}',
+          '((a{255}){255}){255}|b',
+        ]) {
+          final input = _config(revision)
+            ..['expected_active_snapshot'] = active?['snapshotId']
+            ..['matcher'] = _section(
+              when: {'field': 'summary', 'op': 'regex', 'value': pattern},
+            );
+          await expectLater(
+            repository.publishConfig(
+              input,
+              const <String, Object?>{},
+              runMode: 'test',
+            ),
+            throwsA(
+              isA<BootstrapError>().having(
+                (e) => e.field,
+                'field',
+                'matcher.rules[0].when',
+              ),
+            ),
+          );
+          expect(
+            (await repository.activeSnapshot())?['snapshotId'],
+            active?['snapshotId'],
+          );
+        }
+      });
+
+      test('matcher-only historical secret import', () async {
+        final session = builder.build();
+        await initializeIngestSchema(session);
+        final repository = IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        );
+        final active = await repository.activeSnapshot();
+        final first = ((active?['revision'] as int?) ?? 0) + 1;
+        const source = '33333333-3333-4333-8333-333333333333';
+        String secret(int byte) =>
+            base64Url.encode(List<int>.filled(32, byte)).replaceAll('=', '');
+        final sources = [
+          {
+            'id': source,
+            'kind': 'alertmanager',
+            'enabled': true,
+            'credentials': [
+              {'type': 'bearer', 'ref': 'token'},
+            ],
+            'output_ids': <Object?>[],
+          },
+        ];
+        final original = await repository.publishConfig(
+          _config(first)
+            ..['expected_active_snapshot'] = active?['snapshotId']
+            ..['sources'] = sources
+            ..['outputs'] = [
+              {
+                'id': _removedOutput,
+                'kind': 'webhook',
+                'url': 'http://127.0.0.1:8089/events',
+                'signing_key_ref': 'historical-key',
+              },
+            ]
+            ..['matcher'] = _section(
+              actions: const [
+                {'type': 'route', 'output_id': _removedOutput},
+              ],
+            ),
+          <String, Object?>{'token': secret(1), 'historical-key': secret(2)},
+          runMode: 'test',
+        );
+        await session.db.unsafeSimpleExecute('''
+INSERT INTO raw_inbox (observed_at, raw_id, source_id, body, body_sha256, content_type)
+VALUES ('2026-11-11T00:00:00Z', '$source', '$source', ''::bytea, 'none', 'application/json')
+''');
+        final worker = PipelineRepository(session);
+        expect(await worker.pinOne(), isTrue);
+        final replacement = _config(first + 1)
+          ..['expected_active_snapshot'] = original.snapshotId
+          ..['sources'] = sources;
+        Future<IngestBootstrap> publish(int byte) => repository.publishConfig(
+          replacement,
+          <String, Object?>{'historical-key': secret(byte)},
+          runMode: 'test',
+        );
+        await expectLater(
+          publish(3),
+          throwsA(
+            isA<BootstrapError>().having(
+              (e) => e.code,
+              'code',
+              'reference_rebound',
+            ),
+          ),
+        );
+        expect(
+          (await repository.activeSnapshot())?['snapshotId'],
+          original.snapshotId,
+        );
+        final replaced = await publish(2);
+        expect(replaced.snapshotId, isNot(original.snapshotId));
+        final overCapacity = _config(first + 2)
+          ..['sources'] = sources
+          ..['outputs'] = [
+            for (var i = 0; i < 64; i++)
+              {
+                'id':
+                    'aaaaaaaa-aaaa-4aaa-8aaa-${i.toString().padLeft(12, '0')}',
+                'kind': 'webhook',
+                'url': 'http://127.0.0.1:8089/new',
+                'signing_key_ref': 'new-route-key',
+              },
+          ];
+        Future<void> refused() => expectLater(
+          repository.publishConfig(overCapacity, <String, Object?>{
+            'new-route-key': secret(4),
+          }, runMode: 'test'),
+          throwsA(
+            isA<BootstrapError>().having(
+              (e) => e.code,
+              'code',
+              'retained_output_bound',
+            ),
+          ),
+        );
+        await refused();
+        await session.db.transaction((tx) async {
+          await session.db.unsafeSimpleExecute(
+            "SET LOCAL correlia.pin_worker_version = '3'",
+            transaction: tx,
+          );
+          await session.db.unsafeExecute(
+            '''
+INSERT INTO outbox
+ (created_at, delivery_id, event_observed_at, event_id, event_disposition,
+  output_id, config_snapshot_id, target_url, signing_key_ref, signing_key_commitment, payload)
+VALUES (now(), @source::uuid, now(), @source::uuid, 'ready', @output::uuid,
+        @snapshot, 'http://127.0.0.1:8089/events', 'historical-key', @commitment, ''::bytea)
+''',
+            parameters: QueryParameters.named({
+              'source': source,
+              'output': _removedOutput,
+              'snapshot': original.snapshotId,
+              'commitment': (original.outputs.single as WebhookIngestOutput)
+                  .signingKeyCommitment,
+            }),
+            transaction: tx,
+          );
+          await session.db.unsafeExecute(
+            "UPDATE raw_inbox SET status='done' WHERE raw_id=@source::uuid",
+            parameters: QueryParameters.named({'source': source}),
+            transaction: tx,
+          );
+        });
+        await refused();
+        expect(
+          (await repository.publishConfig(
+            replacement,
+            const <String, Object?>{},
+            runMode: 'test',
+          )).snapshotId,
+          replaced.snapshotId,
+        );
+        final rows = await session.db.unsafeSimpleQuery(
+          "SELECT config_snapshot_id FROM raw_inbox WHERE raw_id = '$source'",
+        );
+        expect(rows.single[0], original.snapshotId);
+      });
+
+      test('RUL-4 pins activation and rollback', () async {
+        final session = builder.build();
+        await initializeIngestSchema(session);
+        final repository = IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        );
+        final current = await repository.activeSnapshot();
+        final revision = ((current?['revision'] as int?) ?? 0) + 1;
+        final firstMatcher = _section();
+        Future<IngestBootstrap> publish(
+          int next,
+          Object? expectation,
+          Object rules,
+        ) => repository.publishConfig(
+          _config(next)
+            ..['expected_active_snapshot'] = expectation
+            ..['matcher'] = rules,
+          const <String, Object?>{},
+          runMode: 'test',
+        );
+        final first = await publish(
+          revision,
+          current?['snapshotId'],
+          firstMatcher,
+        );
+        Future<String> pin(int number) async {
+          final id =
+              'bbbbbbbb-bbbb-4bbb-8bbb-${number.toString().padLeft(12, '0')}';
+          await session.db.unsafeExecute(
+            '''
+INSERT INTO raw_inbox (observed_at, raw_id, source_id, body, body_sha256, content_type)
+VALUES (now(), @id::uuid, @id::uuid, ''::bytea, 'none', 'application/json')
+''',
+            parameters: QueryParameters.named({'id': id}),
+          );
+          expect(await PipelineRepository(session).pinOne(), isTrue);
+          final rows = await session.db.unsafeQuery(
+            'SELECT config_snapshot_id FROM raw_inbox WHERE raw_id=@id::uuid',
+            parameters: QueryParameters.named({'id': id}),
+          );
+          return rows.single[0] as String;
+        }
+
+        expect(await pin(1), first.snapshotId);
+        final second = await publish(
+          revision + 1,
+          first.snapshotId,
+          _section(
+            actions: const [
+              {'type': 'team', 'value': 'platform'},
+            ],
+          ),
+        );
+        expect(await pin(2), second.snapshotId);
+        await expectLater(
+          publish(revision + 3, first.snapshotId, second.matcher.snapshotJson),
+          throwsA(
+            isA<BootstrapError>().having(
+              (e) => e.code,
+              'code',
+              'snapshot_mismatch',
+            ),
+          ),
+        );
+        final rollback = await publish(
+          revision + 2,
+          second.snapshotId,
+          firstMatcher,
+        );
+        expect(await pin(3), rollback.snapshotId);
+        final pins = await session.db.unsafeSimpleQuery('''
+SELECT config_snapshot_id FROM raw_inbox
+WHERE raw_id::text LIKE 'bbbbbbbb-bbbb-4bbb-8bbb-%' ORDER BY raw_id
+''');
+        expect(pins.map((row) => row[0]), [
+          first.snapshotId,
+          second.snapshotId,
+          rollback.snapshotId,
+        ]);
+      });
+    },
+    rollbackDatabase: RollbackDatabase.disabled,
+    testGroupTagsOverride: ['db'],
+  );
+
+  withServerpod(
+    'matcher cutover on a populated database',
+    (builder, _) {
+      test('legacy row drains before cutover', () async {
+        final session = builder.build();
+        final steps = schemaSteps;
+        await applySchemaSteps(
+          session,
+          steps.where((step) => step.version < 13).toList(),
+        );
+        await session.db.transaction((tx) async {
+          await session.db.unsafeSimpleExecute(
+            "SET LOCAL correlia.publisher_version = '2'",
+            transaction: tx,
+          );
+          await session.db.unsafeExecute(
+            'INSERT INTO ingest_config_snapshot ("snapshotId", revision, "publicJson") VALUES (\'old\',1,@old), (\'active\',2,@active)',
+            parameters: QueryParameters.named({
+              'old': jsonEncode({
+                'sources': [
+                  {
+                    'id': _removedOutput,
+                    'enabled': true,
+                    'output_ids': ['old_output'],
+                  },
+                ],
+                'outputs': [
+                  {'id': 'old_output'},
+                ],
+              }),
+              'active': jsonEncode({
+                'sources': <Object?>[],
+                'outputs': List.generate(64, (i) => {'id': 'new_output_$i'}),
+              }),
+            }),
+            transaction: tx,
+          );
+          await session.db.unsafeSimpleExecute(
+            "INSERT INTO ingest_active_config (singleton, \"snapshotId\") VALUES (1, 'active')",
+            transaction: tx,
+          );
+        });
+        await session.db.unsafeSimpleExecute('''
+INSERT INTO raw_inbox (observed_at, raw_id, source_id, body, body_sha256, content_type, config_snapshot_id)
+VALUES ('2026-11-10T00:00:00Z','11111111-1111-4111-8111-111111111111',
+        '$_removedOutput',''::bytea,'none','application/json','old')
+''');
+        await expectLater(
+          applySchemaSteps(session, steps),
+          throwsA(
+            isA<SchemaStepException>().having(
+              (error) => error.version,
+              'version',
+              13,
+            ),
+          ),
+        );
+        final row = await session.db.unsafeSimpleQuery(
+          'SELECT status, config_snapshot_id FROM raw_inbox',
+        );
+        expect(row.single[0], 'pending');
+        expect(row.single[1], 'old');
+        await session.db.transaction((tx) async {
+          await session.db.unsafeSimpleExecute(
+            "SET LOCAL correlia.publisher_version = '2'",
+            transaction: tx,
+          );
+          await session.db.unsafeSimpleExecute(
+            "INSERT INTO ingest_config_snapshot (\"snapshotId\", revision, \"publicJson\") VALUES ('unused',3,'{}')",
+            transaction: tx,
+          );
+          await session.db.unsafeSimpleExecute(
+            "UPDATE raw_inbox SET status = 'done'",
+            transaction: tx,
+          );
+        });
+        await applySchemaSteps(session, steps);
+        final retained = await session.db.unsafeSimpleQuery(
+          'SELECT output_id FROM correlia_retained_output_ids()',
+        );
+        expect(retained, isEmpty);
+        final pin = await session.db.unsafeSimpleQuery(
+          'SELECT config_snapshot_id FROM raw_inbox',
+        );
+        expect(pin.single[0], 'old');
+      });
+    },
+    rollbackDatabase: RollbackDatabase.disabled,
+    testGroupTagsOverride: ['db'],
+  );
+
+  withServerpod(
+    'matcher snapshot readers',
+    (builder, _) {
+      test('NUL operand leaves stream admission readable', () async {
+        final session = builder.build();
+        await initializeIngestSchema(session);
+        final repository = IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        );
+        final published = await repository.publishConfig(
+          streamBootstrap(1, [streamSource(icinga2DbSourceId)])
+            ..['expected_active_snapshot'] = null
+            ..['matcher'] = _section(
+              when: {'field': 'summary', 'op': 'equals', 'value': '\u0000'},
+            ),
+          streamMaterial(),
+          runMode: 'test',
+          clock: () => streamDbNow,
+        );
+        final db = await openStreamDatabase(session.serverpod);
+        addTearDown(db.close);
+        final lease = (await StreamLeaseStore(db).acquire(
+          icinga2DbSourceId,
+          'aaaaaaaa-0000-4000-8000-000000000002',
+        ))!;
+        expect(
+          await ConsumerAdmission(db).admit(
+            lease: lease,
+            snapshotId: published.snapshotId,
+            batch: StreamRawBatch(
+              id: 'aaaaaaaa-0000-4000-8000-000000000003',
+              connectionId: 'aaaaaaaa-0000-4000-8000-000000000001',
+              rows: [
+                [
+                  StreamAdmissionItem.text(
+                    streamDbNow,
+                    jsonEncode(streamDbCheck(streamDbNow)),
+                  ),
+                ],
+              ],
+              origin: IcingaStreamOrigin.stream,
+            ),
+          ),
+          StreamAdmissionResult.committed,
+        );
+        expect(await PipelineRepository(session).pinOne(), isTrue);
+        final row = (await session.db.unsafeSimpleQuery(
+          'SELECT config_snapshot_id FROM raw_inbox',
+        )).single;
+        final snapshot = await repository.snapshot(row[0] as String);
+        final pinned = MatcherDocument.fromSnapshot(
+          snapshot['matcher'],
+          const {},
+        );
+        for (final (summary, expected) in [
+          ('\u0000', true),
+          ('\u0001', false),
+          (r'\u0000', false),
+        ]) {
+          final data = eventFixture()['data']! as Map<String, Object?>;
+          data['summary'] = summary;
+          expect(
+            await pinned.rules.single.condition.matches(
+              CanonicalEvent.fromJson(data),
+            ),
+            expected,
+          );
+        }
+      });
+    },
+    rollbackDatabase: RollbackDatabase.disabled,
+    testGroupTagsOverride: ['db'],
+  );
+
+  withServerpod(
+    'matcher publication ordering',
+    (builder, _) {
+      test('stale rollback cannot overwrite rotation', () async {
+        final writer = builder.build();
+        final contender = builder.build();
+        final observer = builder.build();
+        await initializeIngestSchema(writer);
+        final initial = IngestConfigRepository(
+          writer,
+          secretStore: testSecretStore,
+        );
+        Map<String, Object?> config(int revision, String credential) =>
+            _config(revision)
+              ..['matcher'] = _section()
+              ..['sources'] = [
+                {
+                  'id': _removedOutput,
+                  'kind': 'alertmanager',
+                  'enabled': true,
+                  'credentials': [
+                    {'type': 'bearer', 'ref': credential},
+                  ],
+                  'output_ids': <Object?>[],
+                },
+              ];
+        String secret(int byte) =>
+            base64Url.encode(List<int>.filled(32, byte)).replaceAll('=', '');
+        final a = await initial.publishConfig(
+          config(1, 'credential-a')
+            ..['expected_active_snapshot'] = null
+            ..['outputs'] = [
+              {
+                'id': 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+                'kind': 'webhook',
+                'url': 'http://127.0.0.1:8089/events',
+                'signing_key_ref': 'removed-key',
+              },
+            ],
+          <String, Object?>{
+            'credential-a': secret(1),
+            'removed-key': secret(2),
+          },
+          runMode: 'test',
+        );
+        final entered = Completer<void>();
+        final release = Completer<void>();
+        final gated = IngestConfigRepository(
+          writer,
+          secretStore: testSecretStore,
+          beforeInventoryForTest: (tx) async {
+            entered.complete();
+            await release.future;
+          },
+        );
+        final activating = gated.publishConfig(
+          config(2, 'credential-b'),
+          <String, Object?>{'credential-b': secret(3)},
+          runMode: 'test',
+        );
+        try {
+          await entered.future;
+          await expectLater(
+            observer.db.unsafeSimpleQuery(
+              'SELECT singleton FROM ingest_active_config WHERE singleton=1 FOR SHARE NOWAIT',
+            ),
+            throwsA(
+              isA<DatabaseQueryException>().having(
+                (e) => e.code,
+                'code',
+                '55P03',
+              ),
+            ),
+          );
+          final restoring =
+              IngestConfigRepository(
+                contender,
+                secretStore: testSecretStore,
+              ).publishConfig(
+                config(3, 'credential-a')
+                  ..['expected_active_snapshot'] = a.snapshotId,
+                const <String, Object?>{},
+                runMode: 'test',
+              );
+          final rejected = expectLater(
+            restoring,
+            throwsA(
+              isA<BootstrapError>().having(
+                (e) => e.code,
+                'code',
+                'snapshot_mismatch',
+              ),
+            ),
+          );
+          release.complete();
+          final b = await activating;
+          await rejected;
+          expect((await initial.activeSnapshot())?['snapshotId'], b.snapshotId);
+          await observer.db.unsafeSimpleExecute('''
+INSERT INTO raw_inbox (observed_at, raw_id, source_id, body, body_sha256, content_type)
+VALUES (now(), '44444444-4444-4444-8444-444444444444',
+        '44444444-4444-4444-8444-444444444444', ''::bytea, 'none', 'application/json')
+''');
+          expect(await PipelineRepository(observer).pinOne(), isTrue);
+          expect(
+            (await observer.db.unsafeSimpleQuery(
+              'SELECT config_snapshot_id FROM raw_inbox',
+            )).single[0],
+            b.snapshotId,
+          );
+        } finally {
+          if (!release.isCompleted) release.complete();
+          await activating;
+        }
+      }, timeout: const Timeout(Duration(minutes: 5)));
+    },
+    rollbackDatabase: RollbackDatabase.disabled,
+    testGroupTagsOverride: ['db'],
+  );
+}

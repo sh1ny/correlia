@@ -9,7 +9,9 @@ Future<void> prepareHistoricalReuse(Session session) async {
     schemaSteps.where((step) => step.version < cutoverVersion).toList(),
   );
   await session.db.unsafeSimpleExecute('''
-    DELETE FROM correlia_schema_versions WHERE version IN ($cutoverVersion, 10);
+    DELETE FROM correlia_schema_versions WHERE version IN ($cutoverVersion, 10, 13);
+    DROP FUNCTION IF EXISTS correlia_require_pin_worker() CASCADE;
+    DROP FUNCTION IF EXISTS correlia_retained_output_ids(), correlia_pinned_output_routes();
     DROP FUNCTION IF EXISTS correlia_require_publisher_version() CASCADE;
     DROP FUNCTION IF EXISTS correlia_keep_retired_credential_digest() CASCADE;
     DROP FUNCTION IF EXISTS test_interrupt_inventory(), test_check_inventory_batch(), test_gate_inventory() CASCADE;

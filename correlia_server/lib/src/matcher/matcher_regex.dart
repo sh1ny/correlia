@@ -19,6 +19,39 @@ String encodeMatcherText(String text) {
   return out.toString();
 }
 
+/// Reads an encoded matcher string and rejects malformed scalar tokens.
+String decodeMatcherText(String text) {
+  if (text.contains('\u0000')) {
+    throw const FormatException('matcher_encoding');
+  }
+  final start = text.indexOf(_reservedText);
+  if (start == -1) return text;
+  final result = StringBuffer(text.substring(0, start));
+  for (var i = start; i < text.length; i++) {
+    final code = text.codeUnitAt(i);
+    if (code == 0x7e && i + 2 < text.length) {
+      final token = text.substring(i, i + 3);
+      final rune = switch (token) {
+        '~!!' => 0,
+        '~!^' => 0x21,
+        '~^!' => 0x5e,
+        '~^^' => 0x7e,
+        _ => throw const FormatException('matcher_encoding'),
+      };
+      result.writeCharCode(rune);
+      i += 2;
+    } else {
+      if (_tokens.containsKey(code)) {
+        throw const FormatException('matcher_encoding');
+      }
+      result.writeCharCode(code);
+    }
+  }
+  return result.toString();
+}
+
+final _reservedText = RegExp(r'[~!^]');
+
 /// A case-sensitive pattern validated for both matcher engines.
 final class MatcherRegex {
   const MatcherRegex._(this.dartPattern, this.sqlPattern, this.groupCount);

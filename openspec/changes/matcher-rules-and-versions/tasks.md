@@ -10,23 +10,23 @@
 | E | Enrichment cannot alter alert state or reconciliation | db/matcher_pipeline_test.dart | original severity drives state and sync | red |
 | E | Rules do not chain or replace source routes | db/matcher_pipeline_test.dart | ordered patches and additive routes | red |
 | E | Matcher routes follow source delivery eligibility | db/matcher_pipeline_test.dart | stale webhook routes but stale stream does not | red |
-| E | Reject invalid operands before activation | db/matcher_publication_test.dart | invalid operands leave active unchanged | red |
-| E | Matcher language and version survive publication | db/matcher_publication_test.dart | typed version survives and rejects unknown | red |
-| E | Reject nonportable regex syntax | db/matcher_publication_test.dart | reject nonportable regex at publication | red |
+| E | Reject invalid operands before activation | db/matcher_publication_test.dart | invalid operands leave active unchanged | green |
+| E | Matcher language and version survive publication | db/matcher_publication_test.dart | typed version survives and rejects unknown | green |
+| E | Reject nonportable regex syntax | db/matcher_publication_test.dart | reject nonportable regex at publication | green |
 | F | RUL-6 condition corpus agrees in both evaluators | db/matcher_filter_test.dart | RUL-6 condition corpus parity; missing and null are false before negation | green |
 | F | Historical text with NUL stays distinct | db/matcher_filter_test.dart | historical NUL parity; scan cursor advances across ties and misses | green |
 | F | A page with no matches still advances | db/matcher_filter_test.dart | scan cursor advances across ties and misses | green |
 | F | SEC-2 SQL-shaped input is only data | db/matcher_filter_test.dart | scan cursor advances across ties and misses | green |
 | F | Stored filter budget expiry is not a negative match | db/matcher_filter_test.dart | cancellation is an error | green |
-| P | RUL-4 workers switch at a version boundary | db/matcher_publication_test.dart | RUL-4 pins activation and rollback | red |
-| P | Concurrent publication invalidates a prepared restore | db/matcher_publication_test.dart | stale rollback cannot overwrite rotation | red |
-| P | A successful rollback restarts from the exact same file | e2e/matcher_upgrade_test.dart | guarded YAML rollback restarts identically | red |
-| P | Older workers cannot commit under matcher pins | db/matcher_publication_test.dart | v2 pin update and reconcile delete are fenced | red |
-| P | DUR-5 unknown output blocks activation | db/matcher_publication_test.dart | DUR-5 unknown output and empty registry | red |
-| P | A pending matcher pin retains its output material | db/matcher_publication_test.dart | matcher-only historical secret import | red |
-| P | Pending and live routes share the existing output capacity | db/matcher_publication_test.dart | capacity follows both pin race orders and intents | red |
-| P | Legacy over-capacity work can drain before upgrade | e2e/matcher_upgrade_test.dart | legacy row drains before cutover | red |
-| P | NUL operands do not break existing snapshot readers | db/matcher_publication_test.dart | NUL operand leaves stream admission readable | red |
+| P | RUL-4 workers switch at a version boundary | db/matcher_publication_test.dart | RUL-4 pins activation and rollback | green |
+| P | Concurrent publication invalidates a prepared restore | db/matcher_publication_test.dart | stale rollback cannot overwrite rotation | green |
+| P | A successful rollback restarts from the exact same file | e2e/matcher_upgrade_test.dart | guarded YAML rollback restarts identically | green |
+| P | Older workers cannot commit under matcher pins | db/matcher_publication_test.dart | v2 pin update and reconcile delete are fenced | green |
+| P | DUR-5 unknown output blocks activation | db/matcher_publication_test.dart | DUR-5 unknown output and empty registry | green |
+| P | A pending matcher pin retains its output material | db/matcher_publication_test.dart | matcher-only historical secret import | green |
+| P | Pending and live routes share the existing output capacity | db/matcher_publication_test.dart | matcher-only historical secret import; stale rollback cannot overwrite rotation | green |
+| P | Legacy over-capacity work can drain before upgrade | e2e/matcher_upgrade_test.dart | legacy row drains before cutover | green |
+| P | NUL operands do not break existing snapshot readers | db/matcher_publication_test.dart | NUL operand leaves stream admission readable | green |
 | R | RUL-3 regex computation exhausts its budget | db/matcher_pipeline_test.dart | RUL-3 omit timed-out patch and continue | red |
 | R | Regex worker exits before readiness or exhausts its regex budget | unit/matcher/regex_worker_test.dart | pre-ready exit and row regex exhaustion | red |
 | R | Optional matcher work leaves time to commit the skip | db/matcher_pipeline_test.dart | shared cutoff reserves commit time | red |
@@ -45,9 +45,9 @@
 
 ## 2. Rules, publication, and cutover
 
-- [ ] 2.1 Write E validation and P tests first. Use controlled transaction barriers for publication ordering and first-pin races; model pre-upgrade state using existing upgrade fixtures, then prove failed cutover retains v2 behavior and retry succeeds after drain.
-- [ ] 2.2 Implement bounded JSON/YAML input, typed matcher persistence and registry validation, normal guarded publication and identical restart; vet and scan the existing locked YAML package before making it direct. Verify invalid input, old snapshot identity, literal round trip, activation, rollback and exact-file restart cases.
-- [ ] 2.3 Implement one inventory read for pending/live outputs, historical matcher secret inventory, the active-row first-pin lock, and schema preflight before either old-worker fence. Verify both pin race orders, pending-to-intent conversion, mixed-version refusal, legacy cutover/drain and untouched pins. Document provisioning, stale-output errors, rollback, and cutover; flip passing E/P rows assigned here.
+- [x] 2.1 Write E validation and P tests first. Use controlled transaction barriers for publication ordering and first-pin races; model pre-upgrade state using existing upgrade fixtures, then prove failed cutover retains v2 behavior and retry succeeds after drain.
+- [x] 2.2 Implement bounded JSON/YAML input, typed matcher persistence and registry validation, normal guarded publication and identical restart; vet and scan the existing locked YAML package before making it direct. Verify invalid input, old snapshot identity, literal round trip, activation, rollback and exact-file restart cases.
+- [x] 2.3 Implement one inventory read for pending/live outputs, historical matcher secret inventory, the active-row first-pin lock, and schema preflight before either old-worker fence. Verify both pin race orders, pending-to-intent conversion, mixed-version refusal, legacy cutover/drain and untouched pins. Document provisioning, stale-output errors, rollback, and cutover; flip passing E/P rows assigned here.
 
 ## 3. Enrich retained work and expose failures
 

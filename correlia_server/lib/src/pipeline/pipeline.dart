@@ -321,9 +321,14 @@ final class PipelineRepository {
   /// that kind has no decoder.
   final KindDecoder? icinga2Decoder;
 
-  Future<void> _limits(Transaction tx, _Deadline deadline) async {
+  Future<void> _limits(
+    Transaction tx,
+    _Deadline deadline, {
+    bool claim = false,
+  }) async {
     await session.db.unsafeQuery(
-      "SELECT set_config('statement_timeout', @timeout, true), set_config('lock_timeout', '5s', true)",
+      "SELECT set_config('statement_timeout', @timeout, true), set_config('lock_timeout', '5s', true)"
+      "${claim ? ", set_config('correlia.pin_worker_version', '3', true)" : ''}",
       parameters: QueryParameters.named({
         'timeout': '${deadline.remainingMillis}ms',
       }),
@@ -337,7 +342,7 @@ final class PipelineRepository {
   Future<bool> pinOne() async {
     final deadline = _Deadline(elapsedForTest);
     final pinned = await session.db.transaction((tx) async {
-      await _limits(tx, deadline);
+      await _limits(tx, deadline, claim: true);
       final rows = await session.db.unsafeQuery(
         '''SELECT observed_at,raw_id::text FROM raw_inbox
 WHERE status='pending' AND config_snapshot_id IS NULL ORDER BY observed_at,raw_id
@@ -348,7 +353,7 @@ FOR UPDATE SKIP LOCKED LIMIT 1''',
       if (rows.isEmpty) return false;
       await _limits(tx, deadline);
       final active = await session.db.unsafeQuery(
-        'SELECT "snapshotId" FROM ingest_active_config WHERE singleton=1',
+        'SELECT "snapshotId" FROM ingest_active_config WHERE singleton=1 FOR SHARE',
         transaction: tx,
         timeoutInSeconds: 5,
       );
@@ -379,7 +384,7 @@ WHERE observed_at=@observed AND raw_id=CAST(@id AS uuid)''',
     final deadline = _Deadline(elapsedForTest);
     try {
       final processed = await session.db.transaction((tx) async {
-        await _limits(tx, deadline);
+        await _limits(tx, deadline, claim: true);
         final rows = await session.db.unsafeQuery(
           '''SELECT observed_at,raw_id::text,source_id::text,body,body_sha256,config_snapshot_id
 FROM raw_inbox WHERE status='pending' AND config_snapshot_id IS NOT NULL
@@ -1058,7 +1063,7 @@ VALUES (@observed,CAST(@raw AS uuid),@pin,@code,@path,@now)''',
         (error is DatabaseQueryException && code == null);
     final deadline = _Deadline(elapsedForTest);
     final recorded = await session.db.transaction((tx) async {
-      await _limits(tx, deadline);
+      await _limits(tx, deadline, claim: true);
       final rows = await session.db.unsafeQuery(
         '''SELECT attempt_count FROM raw_inbox WHERE observed_at=@observed
 AND raw_id=CAST(@raw AS uuid) AND status='pending' AND config_snapshot_id=@pin FOR UPDATE''',
