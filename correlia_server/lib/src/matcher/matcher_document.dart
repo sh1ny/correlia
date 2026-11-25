@@ -98,7 +98,11 @@ final class MatcherDocument {
         final (decoded, encoded) = _parseAction(action, actionField, persisted);
         if (decoded case MatcherRoute(:final outputId)) {
           if (!outputs.contains(outputId)) {
-            _bad('$actionField.output_id', 'unknown_output');
+            throw MatcherDocumentError(
+              '$actionField.output_id',
+              'unknown_output',
+              missingOutputId: outputId,
+            );
           }
           routes.add(outputId);
         }
@@ -129,13 +133,16 @@ final class MatcherDocument {
 
 /// A validation error safe to surface without echoing the rule's data.
 final class MatcherDocumentError implements Exception {
-  const MatcherDocumentError(this.field, this.code);
+  const MatcherDocumentError(this.field, this.code, {this.missingOutputId});
 
   /// The fixed field path or numeric rule/action position.
   final String field;
 
   /// The validation failure class.
   final String code;
+
+  /// The validated UUID of the missing route, when applicable.
+  final String? missingOutputId;
 }
 
 final _identifier = RegExp(r'^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$');

@@ -307,6 +307,8 @@ final class PipelineRepository {
     this.log,
     this.icinga2Decoder = decodeIcinga2Request,
     this.regexWorker,
+    this.beforePinCommitForTest,
+    this.fanoutLimitForTest,
   }) : clock = clock ?? DateTime.now,
        _retryCounts = retryCounts ?? {},
        counters = counters ?? PipelineCounters();
@@ -339,6 +341,12 @@ final class PipelineRepository {
 
   /// The shared optional-regex worker, if the caller owns one.
   final MatcherRegexWorker? regexWorker;
+
+  /// Fixture barrier after a pin is written but before its lock is released.
+  final Future<void> Function(Transaction)? beforePinCommitForTest;
+
+  /// Fixture override for exact fanout boundary tests.
+  final int? fanoutLimitForTest;
 
   Future<void> _limits(
     Transaction tx,
@@ -389,6 +397,7 @@ WHERE observed_at=@observed AND raw_id=CAST(@id AS uuid)''',
         transaction: tx,
         timeoutInSeconds: 5,
       );
+      await beforePinCommitForTest?.call(tx);
       deadline.check();
       return true;
     });
@@ -776,7 +785,7 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
             aggregate +=
                 item.payload.length *
                 (1 + (effect.routes ? outputs.length : 0));
-            if (aggregate > _fanoutLimit) {
+            if (aggregate > (fanoutLimitForTest ?? _fanoutLimit)) {
               throw const EventFieldError('alerts', 'batch_bound');
             }
             retained.add(effect);
@@ -789,7 +798,7 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
               matcher,
               regex.newRow(remaining),
               remaining,
-              availableBytes: _fanoutLimit - aggregate,
+              availableBytes: (fanoutLimitForTest ?? _fanoutLimit) - aggregate,
             );
           }
           for (final effect in retained) {

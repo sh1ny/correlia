@@ -16,7 +16,12 @@ part 'source_config.dart';
 /// A sanitized bootstrap rejection without operator-controlled values.
 final class BootstrapError implements Exception {
   /// Creates a rejection with a fixed file kind, field path and code.
-  const BootstrapError(this.fileKind, this.field, this.code);
+  const BootstrapError(
+    this.fileKind,
+    this.field,
+    this.code, {
+    this.missingOutputId,
+  });
 
   /// The input category.
   final String fileKind;
@@ -27,9 +32,13 @@ final class BootstrapError implements Exception {
   /// The allowlisted failure code.
   final String code;
 
+  /// The validated UUID of a missing matcher output.
+  final String? missingOutputId;
+
   @override
   String toString() =>
-      'ingest bootstrap $fileKind ${field.length > 256 ? field.substring(0, 256) : field}: $code';
+      'ingest bootstrap $fileKind ${field.length > 256 ? field.substring(0, 256) : field}: $code'
+      '${missingOutputId == null ? '' : ' ($missingOutputId)'}';
 }
 
 /// A validated output definition pinned in a configuration snapshot.
@@ -412,7 +421,12 @@ final class IngestBootstrap {
     } on BootstrapError {
       rethrow;
     } on MatcherDocumentError catch (error) {
-      _bad('config', error.field, error.code);
+      throw BootstrapError(
+        'config',
+        error.field,
+        error.code,
+        missingOutputId: error.missingOutputId,
+      );
     } catch (_) {
       throw const BootstrapError('config', r'$', 'invalid');
     }

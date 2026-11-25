@@ -115,7 +115,7 @@ void main() {
         );
         final ready = payload.alert(
           startsAt: '2026-11-10T12:00:00Z',
-          labels: {'alertname': 'ready-after-quarantine'},
+          labels: {'alertname': 'ReadyAA'},
         );
         final claimed = Completer<void>();
         final resume = Completer<void>();
@@ -123,6 +123,7 @@ void main() {
           builder.build(),
           clock: () => support.now,
           elapsedForTest: () => Duration.zero,
+          fanoutLimitForTest: (eventRow[0] as Uint8List).length * 3,
           afterClaim: () async {
             claimed.complete();
             await resume.future;

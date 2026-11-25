@@ -107,11 +107,13 @@ void main() {
             runMode: 'test',
           ),
           throwsA(
-            isA<BootstrapError>().having(
-              (error) => error.code,
-              'code',
-              'unknown_output',
-            ),
+            isA<BootstrapError>()
+                .having((error) => error.code, 'code', 'unknown_output')
+                .having(
+                  (error) => error.toString(),
+                  'diagnostic',
+                  contains(_removedOutput),
+                ),
           ),
         );
         expect((await repository.activeSnapshot())?['snapshotId'], active);
@@ -352,36 +354,6 @@ VALUES ('2026-11-10T00:00:00Z', '11111111-1111-4111-8111-111111111111',
           <String, Object?>{'token': secret(1), 'historical-key': secret(2)},
           runMode: 'test',
         );
-        await session.db.unsafeSimpleExecute('''
-INSERT INTO raw_inbox (observed_at, raw_id, source_id, body, body_sha256, content_type)
-VALUES ('2026-11-11T00:00:00Z', '$source', '$source', ''::bytea, 'none', 'application/json')
-''');
-        final worker = PipelineRepository(session);
-        expect(await worker.pinOne(), isTrue);
-        final replacement = _config(first + 1)
-          ..['expected_active_snapshot'] = original.snapshotId
-          ..['sources'] = sources;
-        Future<IngestBootstrap> publish(int byte) => repository.publishConfig(
-          replacement,
-          <String, Object?>{'historical-key': secret(byte)},
-          runMode: 'test',
-        );
-        await expectLater(
-          publish(3),
-          throwsA(
-            isA<BootstrapError>().having(
-              (e) => e.code,
-              'code',
-              'reference_rebound',
-            ),
-          ),
-        );
-        expect(
-          (await repository.activeSnapshot())?['snapshotId'],
-          original.snapshotId,
-        );
-        final replaced = await publish(2);
-        expect(replaced.snapshotId, isNot(original.snapshotId));
         final overCapacity = _config(first + 2)
           ..['sources'] = sources
           ..['outputs'] = [
@@ -406,6 +378,86 @@ VALUES ('2026-11-11T00:00:00Z', '$source', '$source', ''::bytea, 'none', 'applic
             ),
           ),
         );
+        await session.db.unsafeSimpleExecute('''
+INSERT INTO raw_inbox (observed_at, raw_id, source_id, body, body_sha256, content_type)
+VALUES ('2026-11-11T00:00:00Z', '$source', '$source', ''::bytea, 'none', 'application/json')
+''');
+        final pinned = Completer<void>();
+        final releasePin = Completer<void>();
+        final observer = builder.build();
+        final publishing = IngestConfigRepository(
+          builder.build(),
+          secretStore: testSecretStore,
+        );
+        final worker = PipelineRepository(
+          session,
+          elapsedForTest: () => Duration.zero,
+          beforePinCommitForTest: (_) async {
+            pinned.complete();
+            await releasePin.future;
+          },
+        );
+        final pinning = worker.pinOne();
+        try {
+          await pinned.future;
+          await expectLater(
+            observer.db.unsafeSimpleQuery(
+              'SELECT singleton FROM ingest_active_config WHERE singleton=1 FOR UPDATE NOWAIT',
+            ),
+            throwsA(
+              isA<DatabaseQueryException>().having(
+                (e) => e.code,
+                'code',
+                '55P03',
+              ),
+            ),
+          );
+          final racing = expectLater(
+            publishing.publishConfig(
+              overCapacity..['expected_active_snapshot'] = original.snapshotId,
+              <String, Object?>{'new-route-key': secret(4)},
+              runMode: 'test',
+            ),
+            throwsA(
+              isA<BootstrapError>().having(
+                (e) => e.code,
+                'code',
+                'retained_output_bound',
+              ),
+            ),
+          );
+          releasePin.complete();
+          expect(await pinning, isTrue);
+          await racing;
+          overCapacity.remove('expected_active_snapshot');
+        } finally {
+          if (!releasePin.isCompleted) releasePin.complete();
+          await pinning;
+        }
+        final replacement = _config(first + 1)
+          ..['expected_active_snapshot'] = original.snapshotId
+          ..['sources'] = sources;
+        Future<IngestBootstrap> publish(int byte) => repository.publishConfig(
+          replacement,
+          <String, Object?>{'historical-key': secret(byte)},
+          runMode: 'test',
+        );
+        await expectLater(
+          publish(3),
+          throwsA(
+            isA<BootstrapError>().having(
+              (e) => e.code,
+              'code',
+              'reference_rebound',
+            ),
+          ),
+        );
+        expect(
+          (await repository.activeSnapshot())?['snapshotId'],
+          original.snapshotId,
+        );
+        final replaced = await publish(2);
+        expect(replaced.snapshotId, isNot(original.snapshotId));
         await refused();
         await session.db.transaction((tx) async {
           await session.db.unsafeSimpleExecute(
@@ -448,6 +500,68 @@ VALUES (now(), @source::uuid, now(), @source::uuid, 'ready', @output::uuid,
           "SELECT config_snapshot_id FROM raw_inbox WHERE raw_id = '$source'",
         );
         expect(rows.single[0], original.snapshotId);
+
+        await session.db.unsafeSimpleExecute(
+          "UPDATE outbox SET status='delivered'",
+        );
+        final restored = await repository.publishConfig(
+          _config(first + 3)
+            ..['expected_active_snapshot'] = replaced.snapshotId
+            ..['sources'] = sources
+            ..['outputs'] = [
+              {
+                'id': _removedOutput,
+                'kind': 'webhook',
+                'url': 'http://127.0.0.1:8089/events',
+                'signing_key_ref': 'historical-key',
+              },
+            ]
+            ..['matcher'] = _section(
+              actions: const [
+                {'type': 'route', 'output_id': _removedOutput},
+              ],
+            ),
+          const <String, Object?>{},
+          runMode: 'test',
+        );
+        const newRaw = '55555555-5555-4555-8555-555555555555';
+        await session.db.unsafeSimpleExecute('''
+INSERT INTO raw_inbox (observed_at, raw_id, source_id, body, body_sha256, content_type)
+VALUES (now(), '$newRaw', '$source', ''::bytea, 'none', 'application/json')
+''');
+        final locked = Completer<void>();
+        final releasePublication = Completer<void>();
+        final publisher = IngestConfigRepository(
+          builder.build(),
+          secretStore: testSecretStore,
+          beforeInventoryForTest: (_) async {
+            locked.complete();
+            await releasePublication.future;
+          },
+        );
+        final committing = publisher.publishConfig(
+          overCapacity
+            ..['revision'] = first + 4
+            ..['expected_active_snapshot'] = restored.snapshotId,
+          <String, Object?>{'new-route-key': secret(4)},
+          runMode: 'test',
+        );
+        try {
+          await locked.future;
+          final pinAfterPublication = PipelineRepository(observer).pinOne();
+          releasePublication.complete();
+          final active = await committing;
+          expect(await pinAfterPublication, isTrue);
+          expect(
+            (await observer.db.unsafeSimpleQuery(
+              "SELECT config_snapshot_id FROM raw_inbox WHERE raw_id='$newRaw'",
+            )).single[0],
+            active.snapshotId,
+          );
+        } finally {
+          if (!releasePublication.isCompleted) releasePublication.complete();
+          await committing;
+        }
       });
 
       test('RUL-4 pins activation and rollback', () async {

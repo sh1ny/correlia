@@ -33,7 +33,7 @@ The system SHALL parse matcher documents against a typed field catalog and persi
 - **THEN** the persisted document identifies the same language and version; attempts to activate unsupported or missing discriminators leave the active snapshot unchanged
 
 #### Scenario: Reject nonportable regex syntax
-- **WHEN** a matcher or extraction uses backreferences, lookaround, inline flags, engine-specific escapes, a counted repeat greater than 255, or a pattern whose expanded complexity exceeds the shared limit
+- **WHEN** a matcher or extraction uses backreferences, lookaround, inline flags, engine-specific escapes, a counted repeat greater than 255, or a pattern whose expanded PostgreSQL form exceeds the shared limit, including the alternatives and groups added by SQL lowering
 - **THEN** the shared parser rejects the pattern before either engine compiles it or the configuration activates
 
 ### Requirement: Stored and in-memory condition parity
@@ -64,7 +64,7 @@ For `exists`, an empty string SHALL count as present. A missing field or JSON nu
 
 ### Requirement: Atomic matcher publication and restore
 
-The ingest input SHALL accept YAML and JSON with matcher definitions and separate secrets. A new snapshot SHALL require an expected active ID for matcher changes, reject any supplied mismatch, and publish atomically. Rollback SHALL republish current configuration with earlier rules at a higher revision and the expected active ID. Identical restart from that file SHALL accept its original expectation without activating another snapshot. Activation SHALL NOT rewrite pins.
+Ingest SHALL accept matcher rules in JSON or YAML, with separate secrets. A matcher change SHALL require an expected active ID. The publisher SHALL compare that ID under the publication lock and reject any supplied mismatch before atomic activation. Rollback SHALL republish earlier rules in the current configuration at a higher revision. An identical restart SHALL accept the original expectation without publishing again. Activation SHALL NOT rewrite pins.
 
 #### Scenario: RUL-4 workers switch at a version boundary
 - **WHEN** a new snapshot activates while work is pinned to the old one and an operator subsequently republishes the old matcher set at a higher revision
