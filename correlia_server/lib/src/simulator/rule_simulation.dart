@@ -300,9 +300,9 @@ Future<RuleSimulationResult> simulateRules({
         ruleId: rule.id,
         outcome: outcome,
         failureCode: failure,
-        conditions: [
-          if (explanation case final explained?) ..._flatten(explained.trace),
-        ],
+        conditions: _flatten(
+          explanation?.trace ?? rule.condition.unevaluated(),
+        ),
         actions: [
           if (conditionMatched)
             for (final (index, action) in rule.actions.indexed)

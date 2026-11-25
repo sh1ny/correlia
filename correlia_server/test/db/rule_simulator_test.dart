@@ -653,6 +653,12 @@ DELETE FROM correlia_schema_versions WHERE version = 15''',
         expect(none.noRulesActive, isTrue);
         expect(none.snapshotId, isNull);
         expect(none.trace, isEmpty);
+        expect(none.baselineRoutes, isEmpty);
+        expect(none.sourceAbsent, isTrue);
+        expect(
+          none.notes,
+          contains(startsWith("The event's source is not in the active")),
+        );
         expect(none.finalLabels, {
           'alertname': 'Example',
           'severity': 'warning',

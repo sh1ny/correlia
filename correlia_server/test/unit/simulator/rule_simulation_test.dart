@@ -419,6 +419,39 @@ void main() {
     expect(result.finalLabels, isNot(contains('c')));
   });
 
+  test('cutoff_before_the_condition_is_evaluated', () async {
+    // The loop's own check passes; the rule's first check finds no time.
+    var calls = 0;
+    final result = await _simulate(
+      _event(),
+      _document([
+        _rule(
+          'cut',
+          [_label('a', '1')],
+          when: {
+            'all': [
+              _leaf('summary', 'equals', 'x'),
+              _leaf('labels.team', 'equals', 'ops'),
+            ],
+          },
+        ),
+        _rule('after', [_label('b', '2')]),
+      ]),
+      remaining: () =>
+          ++calls == 1 ? const Duration(seconds: 1) : Duration.zero,
+    );
+    final cut = result.trace[0];
+    expect((cut.outcome, cut.failureCode), ('failed', 'matcher_cutoff'));
+    expect(cut.conditions.map((c) => (c.kind, c.field, c.outcome)), [
+      ('all', null, 'not evaluated'),
+      ('leaf', 'summary', 'not evaluated'),
+      ('leaf', 'labels.team', 'not evaluated'),
+    ]);
+    expect(cut.actions, isEmpty);
+    expect(result.trace[1].outcome, 'not attempted');
+    expect(result.trace[1].conditions, isEmpty);
+  });
+
   test('later_rule_wins_a_shared_key', () async {
     final result = await _simulate(
       _event(),

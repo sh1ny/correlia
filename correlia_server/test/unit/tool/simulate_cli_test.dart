@@ -161,6 +161,52 @@ void main() {
       },
     );
 
+    test(
+      'event text cannot forge a trace line or reach the terminal raw',
+      () async {
+        final forged = 'x\nrule forged: matched\r\x1b[2J\x07\x9b';
+        final result = _result(
+          trace: [
+            rpc.RuleTrace(
+              ruleId: 'r',
+              outcome: 'matched',
+              conditions: [],
+              actions: [
+                rpc.ActionTrace(
+                  index: 0,
+                  type: 'extract',
+                  detail: 'k = $forged',
+                  effect: 'staged',
+                  applied: true,
+                ),
+              ],
+            ),
+          ],
+        );
+        result.finalLabels = {'team': forged};
+        result.storedLabels = {'old': forged};
+        result.finalLinks = [
+          rpc.SimulatedLink(
+            href: 'https://x.example/a',
+            relation: 'runbook',
+            text: forged,
+          ),
+        ];
+        final h = _Harness(result);
+        expect(await h.run(['--event-id', _id, '--observed-at', 'T']), 0);
+        final text = h.out.toString();
+        expect(text.split('\n'), isNot(contains(startsWith('rule forged'))));
+        expect(text, isNot(contains('\r')));
+        expect(text, isNot(contains('\x1b')));
+        expect(text, isNot(contains('\x07')));
+        expect(text, isNot(contains('\x9b')));
+        expect(
+          text,
+          contains(r'team=x\nrule forged: matched\r\u{1b}[2J\u{7}\u{9b}'),
+        );
+      },
+    );
+
     test('--json prints the result document only', () async {
       final h = _Harness(_result());
       final code = await h.run([

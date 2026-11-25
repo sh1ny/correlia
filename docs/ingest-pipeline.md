@@ -458,12 +458,13 @@ so a timestamp it rejects comes back as its `invalid_input` error for `observedA
 #### Documented examples
 
 The examples below are run by `test/unit/simulator/rul1_docs_test.dart` (blocks marked `yaml rul1-example`), which
-simulates each documented event against the documented rules and compares the per-rule outcomes and the final
-labels. Each event is an alert with the labels shown. Changing a block without changing the behavior it documents
-fails that test.
+simulates each documented event against the documented rules and compares the per-rule outcomes, in rule order,
+and the final labels. Each event is an alert with the labels shown. Changing a block without changing the behavior
+it documents fails that test.
 
-**Rule priority.** Rules run in order and read the original event. When two rules that match write the same
-label, the later rule wins; a rule that does not match leaves the label alone.
+**Rule priority.** Rules run in order and read the original event: a condition does not see a label that an
+earlier rule wrote. When two rules that match write the same label, the later rule wins; a rule that does not match
+leaves the label alone.
 
 ```yaml rul1-example
 name: priority
@@ -485,11 +486,16 @@ matcher:
       when: {field: labels.team, op: equals, value: network}
       actions:
         - {type: set_label, key: owner, value: network-team}
+    - id: owned-already
+      when: {field: labels.owner, op: exists}
+      actions:
+        - {type: set_label, key: reassigned, value: "true"}
 expect:
   rules:
-    default-owner: matched
-    storage-owner: matched
-    network-owner: not matched
+    - default-owner: matched
+    - storage-owner: matched
+    - network-owner: not matched
+    - owned-already: not matched
   labels: {alertname: DiskFull, team: storage, owner: storage-team}
 ```
 
@@ -511,7 +517,7 @@ matcher:
         - {type: extract, field: labels.instance, pattern: "([a-z]+-[0-9]+)", group: 1, key: node}
 expect:
   rules:
-    tag-and-extract: matched
+    - tag-and-extract: matched
   labels:
     alertname: HighLatency
     instance: "api-12.example.org:9100"
@@ -542,7 +548,7 @@ matcher:
             - {hostname: lab-1.example.org, site: ams2, environment: staging}
 expect:
   rules:
-    site-of-host: matched
+    - site-of-host: matched
   labels:
     alertname: HostDown
     hostname: db-2.example.org

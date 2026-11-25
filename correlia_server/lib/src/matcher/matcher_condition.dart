@@ -107,6 +107,10 @@ sealed class MatcherCondition {
     }
   }
 
+  /// The condition tree with every node [LeafOutcome.notEvaluated], for a
+  /// rule that was attempted but stopped before its condition ran.
+  ConditionTrace unevaluated() => _newTrace();
+
   /// Compiles a predicate over the fixed `event.data` stored projection.
   ({String expression, Map<String, Object?> parameters}) compileSql() {
     final parameters = <String, Object?>{};

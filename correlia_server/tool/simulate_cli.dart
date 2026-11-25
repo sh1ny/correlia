@@ -145,7 +145,12 @@ Future<int> runSimulate(
 }
 
 /// Writes the readable form of a successful [result] to [out].
-void writeTrace(RuleSimulationResult result, StringSink out) {
+///
+/// Labels, link text, action details and other values come from events and
+/// may hold newlines or terminal control characters, so every line is
+/// escaped: a value can neither start a new trace line nor drive the terminal.
+void writeTrace(RuleSimulationResult result, StringSink sink) {
+  final out = _EscapingSink(sink);
   final snapshot = switch ((result.snapshotId, result.snapshotRevision)) {
     (final id?, final revision?) => ' (snapshot $id, revision $revision)',
     (final id?, null) => ' (snapshot $id)',
@@ -227,7 +232,7 @@ void writeTrace(RuleSimulationResult result, StringSink out) {
   }
 }
 
-void _section(StringSink out, String title, List<String> lines) {
+void _section(_EscapingSink out, String title, List<String> lines) {
   if (lines.isEmpty) {
     out.writeln('$title: none');
     return;
@@ -235,5 +240,31 @@ void _section(StringSink out, String title, List<String> lines) {
   out.writeln('$title:');
   for (final line in lines) {
     out.writeln('  $line');
+  }
+}
+
+/// Writes each line with its control characters escaped.
+///
+/// `\n`, `\r` and `\t` keep their usual escapes; every other C0 or C1 control
+/// character and DEL is written as `\u{hex}`. Only [writeln] ends a line.
+final class _EscapingSink {
+  _EscapingSink(this._sink);
+
+  final StringSink _sink;
+
+  void writeln(String line) {
+    final escaped = StringBuffer();
+    for (final rune in line.runes) {
+      escaped.write(switch (rune) {
+        0x0a => r'\n',
+        0x0d => r'\r',
+        0x09 => r'\t',
+        < 0x20 ||
+        0x7f ||
+        (>= 0x80 && < 0xa0) => '\\u{${rune.toRadixString(16)}}',
+        _ => String.fromCharCode(rune),
+      });
+    }
+    _sink.writeln(escaped);
   }
 }

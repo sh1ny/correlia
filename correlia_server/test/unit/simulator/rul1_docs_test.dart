@@ -56,10 +56,13 @@ void main() {
       );
       final expected = example['expect']! as Map<String, Object?>;
       expect(result.error, isNull, reason: '$name');
+      // An ordered list: a reordered trace fails as well as a wrong outcome.
       expect(
-        {for (final rule in result.trace) rule.ruleId: rule.outcome},
+        [
+          for (final rule in result.trace) {rule.ruleId: rule.outcome},
+        ],
         expected['rules'],
-        reason: '$name: rule outcomes',
+        reason: '$name: rule outcomes in order',
       );
       expect(result.finalLabels, expected['labels'], reason: '$name: labels');
     }

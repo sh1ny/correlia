@@ -204,7 +204,7 @@ final class RuleSimulator {
               in (source?['output_ids'] as List<Object?>? ?? const []))
             id! as String,
         ],
-        sourceAbsent: snapshot != null && source == null,
+        sourceAbsent: source == null,
         stored: stored,
       ),
     );

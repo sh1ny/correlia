@@ -101,7 +101,7 @@ Future<void> _asPublisher(
 
 Future<IngestBootstrap> _installPreChange(
   Session session,
-  Map<String, Object?> config,
+  Object? config,
 ) async {
   final parsed = IngestBootstrap.parse(
     config,
@@ -410,17 +410,43 @@ matcher:
   ) async {
     final session = builder.build();
     await initializeIngestSchema(session);
-    final config = _config(1, null, _matcher([_write('legacy')]));
-    final old = await _installPreChange(session, config);
+    final directory = await Directory.systemTemp.createTemp(
+      'correlia-reserved-',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    // One file on disk, unchanged across the upgrade.
+    final file = File('${directory.path}/ingest.yaml');
+    await file.writeAsString('''
+format_version: 2
+revision: 1
+sources: []
+outputs: []
+matcher:
+  language: matcher
+  version: 1
+  rules:
+    - id: example
+      when: {field: summary, op: exists}
+      actions:
+        - {type: set_label, key: $_key, value: legacy}
+''');
+    Future<IngestBootstrap?> start(
+      Future<IngestBootstrap> Function(Object? config) publish,
+    ) => IngestBootstrap.load(
+      {'CORRELIA_INGEST_CONFIG': file.path},
+      runMode: 'test',
+      publish: (config, secrets) => publish(config),
+    );
+    // The previous binary started from the file and stored its snapshot.
+    final old = (await start((config) => _installPreChange(session, config)))!;
     await _rewindToBeforeStep15(session);
     await initializeIngestSchema(session);
-    // The same file again: the identical snapshot stays active, none is added.
-    final restarted = await _publish(
-      session,
-      1,
-      null,
-      _matcher([_write('legacy')]),
-    );
+    // This binary starts from the same file through the startup path.
+    final restarted = (await start(
+      (config) => _repository(
+        session,
+      ).publishConfig(config, const <String, Object?>{}, runMode: 'test'),
+    ))!;
     expect(restarted.snapshotId, old.snapshotId);
     expect(
       (await _repository(session).activeSnapshot())?['snapshotId'],
