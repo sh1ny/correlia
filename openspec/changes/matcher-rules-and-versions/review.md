@@ -1,5 +1,7 @@
 # Review
 
+## Round 6: original design
+
 ## Metadata
 
 - **Round:** 6
@@ -23,11 +25,11 @@ None.
 
 ## Verdict
 
-VERDICT: USER_OVERRIDE
+`VERDICT: USER_OVERRIDE`
 
 ## Required Changes
 
-CHANGES_APPLIED: n/a
+`CHANGES_APPLIED: n/a`
 
 After six consecutive REVISE rounds the owner accepted the design with D12 and the delivery-eligibility clarification: “A: upgrade refuses until old work drains”; “No, go to tasks”. The open findings from round 6 are listed above; the author incorporated both design/spec revisions. They were not re-reviewed, and this override does not authorize apply.
 
@@ -35,3 +37,21 @@ After six consecutive REVISE rounds the owner accepted the design with D12 and t
 
 - **Round 5 first-pin race is addressed for publications under the new protocol.** The active-row lock serializes first pins with publication, and one inventory statement sees either the pending route or its committed intent. The spec covers both race orders and restart after the transition. The blocker above concerns state already admitted under the old protocol. [Lock and inventory design](openspec/changes/matcher-rules-and-versions/design.md#L221) · [Capacity scenario](openspec/changes/matcher-rules-and-versions/specs/matcher-rules/spec.md#L87)
 - **All three round 5 moderate fixes are present.** The shared cutoff covers regex and non-regex work with a controlled-clock scenario. The publication requirement explicitly accepts the original expectation on identical restart. Matcher documents persist `language` and `version` and reject missing or unsupported discriminators. [Cutoff scenario](openspec/changes/matcher-rules-and-versions/specs/matcher-rules/spec.md#L108) · [Publication requirement](openspec/changes/matcher-rules-and-versions/specs/matcher-rules/spec.md#L59) · [Persisted matcher contract](openspec/changes/matcher-rules-and-versions/design.md#L213)
+
+## Round 7: D13 implementation drift
+
+- **Reviewer:** Codex design reviewer (`codex-cli 0.167.0`, model and thinking level unreported)
+- **Scope:** D13 amendment to `design.md`, `specs/matcher-rules/spec.md`, and `tasks.md`. The round-6 override still covers the unchanged design.
+- **Evidence:** Static review of the amendment, planning context and tracked PostgreSQL event storage and text projection SQL. No tests run.
+
+### Findings
+
+No critical or moderate findings.
+
+Suggestion: Exercise an admitted pattern at the complexity limit through both Dart and the PostgreSQL lowering. Use a repeat over an atom whose lowering adds alternatives and grouping. Pair it with a just-over-budget parser rejection. Retain simple `{255}` and `((a{255}){255}){255}|b` cases. The boundary pair distinguishes reaching the limit from exceeding it.
+
+### Verdict
+
+VERDICT: APPROVE
+
+CHANGES_APPLIED: n/a

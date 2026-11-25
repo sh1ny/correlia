@@ -101,6 +101,15 @@ TIER: FULL
 - Important: yes (upgrade availability).
 - Chosen by: user.
 
+### D13: Limit expanded regex complexity during parsing
+
+- Choice: The owner approved a deterministic, conservative parse-time limit on expanded regex complexity. Count the PostgreSQL token lowering, including added alternatives and grouping, and charge counted repetitions for the copies PostgreSQL would expand. Reject over-limit patterns before either evaluator compiles them, including extraction patterns. Retain simple `{255}` repeats and prove the boundary against embedded PostgreSQL.
+- Evidence: In the first parity probe, Dart matched `b` against `((a{255}){255}){255}|b`. PostgreSQL rejected the counted-repeat corpus with SQLSTATE `2201B` (`regular expression is too complex`), even though the pattern meets the byte and per-repeat limits.
+- Rejected: Ask PostgreSQL to validate each pattern at publication, which requires a database round trip and ties acceptance to that server's compiler. A blanket ban on nested counted repeats would also reject small expansions.
+- Reversal cost: medium.
+- Important: yes (which documents the matcher language accepts).
+- Chosen by: user.
+
 ### Decision summary
 
 | # | Decision | Choice | Rejected | Reversal cost | Important | Chosen by |
@@ -118,10 +127,11 @@ TIER: FULL
 | D9 | Fanout capacity | Preserve baseline, skip oversized patch | Fail admissible row | medium | yes | user |
 | D11 | Output capacity | Count pending pins and live intents in existing 64-ID bound | Count live intents only | medium | yes | user |
 | D12 | Legacy upgrade | Refuse cutover before either fence; drain using old workers | Fence before checking capacity | medium | yes | user |
+| D13 | Expanded regex complexity | Shared parse-time bound that includes SQL lowering and preserves simple `{255}` | PostgreSQL compile probes or blanket nesting ban | medium | yes | user |
 
 ## Assumptions
 
-- **A1:** The portable grammar can be projected without semantic divergence for admitted UTF-8 text. Not yet proven; the first implementation group must demonstrate Dart/PostgreSQL parity for admitted constructs, including newline, Unicode and escaped punctuation, before integrating it. Depends on D2.
+- **A1:** The portable grammar within D13's expanded limit can be projected without semantic divergence for admitted UTF-8 text. The original per-repeat limit was insufficient. The first implementation group must still prove the revised boundary and parity for admitted constructs, including newline, Unicode and escaped punctuation, before integrating it. Depends on D2 and D13.
 
 ## Carried constraints
 
@@ -137,6 +147,7 @@ TIER: FULL
 - **C10:** An incompatible worker must not commit work under a matcher-bearing pin. Kind: invariant. Destination: spec: specs/matcher-rules/spec.md → Requirement: Atomic matcher publication and restore.
 - **C11:** Publication includes pending-pin output routes in the existing output capacity invariant and serializes first pin selection with activation. Kind: invariant. Destination: spec: specs/matcher-rules/spec.md → Requirement: Atomic matcher publication and restore.
 - **C12:** Each persisted matcher section names its language and format version. Kind: invariant. Destination: spec: specs/matcher-rules/spec.md → Requirement: Declarative matcher enrichment.
+- **C13:** One parse-time limit counts expanded PostgreSQL regex complexity for both evaluators. Kind: invariant. Destination: spec: specs/matcher-rules/spec.md → Scenario: Reject nonportable regex syntax.
 
 ## Diagrams (FULL)
 
@@ -225,6 +236,7 @@ flowchart LR
 - Add a typed matcher catalog over canonical fields and one stored projection: accept named scalar fields and validated resource/label/annotation keys; bind keys and values rather than inserting text into SQL. A null or missing scalar never matches a leaf other than presence testing; normalize SQL leaf nulls before boolean composition, and `exists` tests presence, not truthiness. Text predicates are case-sensitive. Glob translates only documented glob wildcards; escape SQL metacharacters. SQL filtering sees stored values, not a reconstruction of pre-enrichment data; conformance compares identical projections.
 - Stored payloads are CloudEvent bytes (`correlia_server/schema/0001_ingest.sql:17-27`, `correlia_server/lib/src/pipeline/pipeline.dart:701-725`). PostgreSQL JSONB cannot represent NUL; the subject-only projection mutates it (`correlia_server/schema/0011_event_subject_text.sql:1-18`) and cannot read matcher fields. Project query values into the reversible alphabet without changing stored or delivered event bytes. Reserve three ASCII characters: lead `~`, tails `!` and `^`. Encode the three reserved scalars and U+0000 as four distinct `~` plus two-tail tokens; emit other scalars unchanged. Rewrite the reserved characters and their actual JSON Unicode escapes before the JSONB cast while preserving escaped backslashes; bind the same encoding for keys and literal operands. Lower glob and regex atoms to complete tokens: a one-scalar wildcard matches one token or one unreserved scalar, and a class matches its unreserved members or whole encodings of its reserved members. Group lowered atoms before repetition. A nonempty match cannot start inside a token because no atom matches a naked tail. Restrict CIDR to its validated address alphabet. A1 proves NUL/U+0001/literal-escape and punctuation parity over existing stored rows.
 - Counted quantifiers admit `{n}`, `{n,}`, `{n,m}` with decimal bounds 0–255 and lower ≤ upper. Also allow `?`, `*`, `+`; reject lazy or stacked quantifiers. A1 explicitly covers counted-repeat limits, escaped punctuation, and cross-engine behavior on newline and Unicode.
+- Compute the expanded cost without materializing repeat copies. Use saturating arithmetic that stops at the limit, and include all alternatives and grouping introduced by the PostgreSQL projection. The parser uses the same limit for conditions and extraction. This limit is separate from statement and isolate deadlines.
 - Use existing canonical metadata: tags/owner/team/site/environment map to documented label keys, links to typed links, extraction to a declared label. Preserve original source severity evidence and observation key while changing normalized severity. Deterministic hostname and CIDR lookup uses ordered table entries; malformed addresses cannot throw from SQL. Validate every staged result against canonical bounds before applying it.
 - For every pending pin, include matcher-reachable outputs in historical secret inventory (`correlia_server/lib/src/ingest/config_repository.dart:371-423`). Resolve definitions from that pin and prove that a supplied import used solely by the pending matcher output is checked against its historical commitment before any intent exists.
 - Publication already counts candidate outputs plus live intentions before returning identical input (`correlia_server/lib/src/ingest/config_repository.dart:186-201`). Extend the same check with pending-pin output IDs (both pinned enabled-source routes and matcher-addable routes), reading pending and live intents in one SQL statement after locking the active row exclusively. In `pinOne`, lock the active singleton row `FOR SHARE` before assigning its selected ID and hold the lock through pin commit (`correlia_server/lib/src/pipeline/pipeline.dart:337-369`). If a pin wins, publication's next READ COMMITTED statement must see its pending routes or committed live intents; if publication wins, the next pin reads the new row version. A worker moving pending work to an intent does so atomically, so either side is visible in the inventory. Before the first active row exists pinning returns no work. Matchers add only routes explicitly present in their pinned registry, so converting pending reservations into intents cannot increase this union. Retain the existing limit and activation rejection.

@@ -33,8 +33,8 @@ The system SHALL parse matcher documents against a typed field catalog and persi
 - **THEN** the persisted document identifies the same language and version; attempts to activate unsupported or missing discriminators leave the active snapshot unchanged
 
 #### Scenario: Reject nonportable regex syntax
-- **WHEN** a matcher or extraction uses backreferences, lookaround, inline flags, engine-specific escapes or a counted repeat greater than 255
-- **THEN** validation rejects the pattern before activation
+- **WHEN** a matcher or extraction uses backreferences, lookaround, inline flags, engine-specific escapes, a counted repeat greater than 255, or a pattern whose expanded complexity exceeds the shared limit
+- **THEN** the shared parser rejects the pattern before either engine compiles it or the configuration activates
 
 ### Requirement: Stored and in-memory condition parity
 
