@@ -223,7 +223,9 @@ void writeTrace(RuleSimulationResult result, StringSink sink) {
     final origins = result.storedLabelOrigins ?? const {};
     _section(out, 'stored labels', [
       for (final MapEntry(:key, :value) in labels.entries)
-        '$key=$value (${origins[key] ?? 'unknown origin'})',
+        // A label with no explicit origin came from the source, as in the
+        // simulated labels.
+        '$key=$value (${origins[key] ?? 'source'})',
     ]);
   }
   _section(out, 'stored enrichment errors', [

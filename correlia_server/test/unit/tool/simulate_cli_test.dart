@@ -317,6 +317,18 @@ void main() {
     }
   });
 
+  test('a stored label without an origin shows the source origin', () async {
+    final result = _result()
+      ..storedLabels = {'alertname': 'Example', 'old': 'label'}
+      ..storedLabelOrigins = {'old': 'matcher'};
+    final h = _Harness(result);
+    expect(await h.run(['--event-id', _id, '--observed-at', 'T']), 0);
+    final text = h.out.toString();
+    expect(text, contains('alertname=Example (source)'));
+    expect(text, contains('old=label (matcher)'));
+    expect(text, isNot(contains('unknown origin')));
+  });
+
   test('a rejected event cannot forge a diagnostic line', () async {
     // The field of an unknown-attribute rejection is the submitted name.
     final h = _Harness(

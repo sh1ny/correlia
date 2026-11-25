@@ -164,9 +164,9 @@ CanonicalEvent? selectKeptMember(
       if (_invariant(candidate) == target) candidate,
   ];
   if (matches.isEmpty) return null;
-  final first = jsonEncode(_withoutProcessing(matches.first));
+  final first = _text(_withoutProcessing(matches.first));
   for (final other in matches.skip(1)) {
-    if (jsonEncode(_withoutProcessing(other)) != first) return null;
+    if (_text(_withoutProcessing(other)) != first) return null;
   }
   return matches.first;
 }
@@ -191,8 +191,22 @@ String _invariant(CanonicalEvent event) {
     projection['pipeline']! as Map<String, Object?>,
   )..remove('enrichment_errors');
   projection['pipeline'] = pipeline;
-  return jsonEncode(projection);
+  return _text(projection);
 }
+
+/// [value] as JSON with every map's keys sorted and list order kept.
+///
+/// Map key order carries no meaning in an event: the stored payload and a
+/// re-decoded member can hold the same labels in a different order.
+String _text(Object? value) => jsonEncode(_sorted(value));
+
+Object? _sorted(Object? value) => switch (value) {
+  Map<String, Object?> map => {
+    for (final key in map.keys.toList()..sort()) key: _sorted(map[key]),
+  },
+  List<Object?> list => [for (final item in list) _sorted(item)],
+  _ => value,
+};
 
 Uint8List _bytes(Object? value) => switch (value) {
   Uint8List bytes => bytes,

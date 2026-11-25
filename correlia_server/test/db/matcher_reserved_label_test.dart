@@ -319,6 +319,35 @@ void main() {
     );
   });
 
+  _dbTest('malformed_classify_is_rejected_at_publication', (builder) async {
+    final session = builder.build();
+    await initializeIngestSchema(session);
+    final base = await _publish(session, 1, null, _matcher(_benign));
+    var revision = 2;
+    for (final (action, field) in [
+      ({'type': 'classify'}, 'matcher.rules[0].actions[0].value'),
+      (
+        {'type': 'classify', 'value': 'test', 'key': 'x'},
+        'matcher.rules[0].actions[0]',
+      ),
+      (
+        {'type': 'classify', 'value': 'urgent'},
+        'matcher.rules[0].actions[0].value',
+      ),
+    ]) {
+      await expectLater(
+        _publish(session, revision++, base.snapshotId, _matcher([action])),
+        throwsA(isA<BootstrapError>().having((e) => e.field, 'field', field)),
+        reason: '$action',
+      );
+      expect(
+        (await _repository(session).activeSnapshot())?['snapshotId'],
+        base.snapshotId,
+      );
+    }
+    expect(await _count(session, 'ingest_config_snapshot'), 1);
+  });
+
   _dbTest('a_snapshot_pinned_before_the_change_keeps_running', (builder) async {
     final session = builder.build();
     await initializeIngestSchema(session);

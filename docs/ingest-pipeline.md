@@ -420,8 +420,9 @@ The result carries:
   time budgets across a whole raw row, while a simulation starts fresh budgets, so the result says so in
   `storedBudgetNote`.
 
-A failure is a typed `error` in the result with a `code` and the `field` it concerns; the endpoint throws only for
-the access policy.
+An input or lookup failure is a typed `error` in the result with a `code` and the `field` it concerns. The endpoint
+throws for the access policy, and an infrastructure failure, such as a database timeout, reaches the caller as an
+RPC error.
 
 | Code | Field | Cause |
 |---|---|---|
