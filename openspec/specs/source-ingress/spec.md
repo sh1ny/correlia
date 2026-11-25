@@ -108,7 +108,7 @@ The system SHALL atomically publish immutable source/output snapshots with incre
 
 ### Requirement: Source configuration format
 
-The bootstrap configuration SHALL accept format version 2, where each source declares `kind`, `credentials`, an optional `namespace`, `body_limit_bytes` and `rate_limit`, and the root may declare `namespaces`. Format version 1 SHALL still be accepted and read as one bearer credential from `token_ref`, kind `alertmanager` and the default rate limit. Unknown fields, kinds and modes SHALL fail with a bounded field error.
+The bootstrap configuration SHALL accept format version 2, where each source declares `kind`, `credentials`, an optional `namespace`, `body_limit_bytes` and `rate_limit`, and the root may declare `namespaces` and `mappings`. Format version 1 SHALL still be accepted and read as one bearer credential from `token_ref`, kind `alertmanager` and the default rate limit. Unknown fields, kinds and modes SHALL fail with a bounded field error.
 
 #### Scenario: Version 1 file still starts
 - **GIVEN** an M1 database with a format version 1 configuration active at revision N
@@ -122,8 +122,12 @@ The bootstrap configuration SHALL accept format version 2, where each source dec
 - **THEN** activation fails with a field error naming `sources[i].kind` or the field path, and the prior snapshot stays active
 
 #### Scenario: Supported kinds
-- **WHEN** a version 2 file declares one source of kind `alertmanager` and one of kind `icinga2`
+- **WHEN** a version 2 file declares one source each of kind `alertmanager`, `icinga2` and `generic`
 - **THEN** activation succeeds and each source accepts deliveries only under its own kind's route
+
+#### Scenario: Mappings in a version 1 file
+- **WHEN** a format version 1 file declares a root `mappings` list
+- **THEN** activation fails with a field error naming `mappings`, and the prior snapshot stays active
 
 ### Requirement: Icinga2 source mode
 
@@ -257,13 +261,25 @@ kind's route SHALL be refused.
 - **WHEN** a request is sent to `/hooks/icinga2/<id>/<credential>`
 - **THEN** Correlia answers 401 and no raw row is inserted
 
+#### Scenario: Generic source declares a path token
+- **WHEN** a `generic` source declares `path_token_enabled: true`
+- **THEN** activation fails with a field error naming `sources[i].path_token_enabled`
+
+#### Scenario: Path-token request on the generic route
+- **WHEN** a request is sent to `/hooks/generic/<id>/<credential>`
+- **THEN** Correlia answers 401 and no raw row is inserted
+
 ### Requirement: Identity label exclusion stays Alertmanager-only
 
 `excluded_identity_labels` SHALL be accepted only on `alertmanager` sources, because an Icinga2 fingerprint is
-built from host and service, not labels.
+built from host and service, and a generic fingerprint from its mapping's identity fields, not labels.
 
 #### Scenario: Icinga2 source declares excluded identity labels
 - **WHEN** an `icinga2` source declares `excluded_identity_labels: ["service"]`
+- **THEN** activation fails with a field error naming `sources[i].excluded_identity_labels`, and the prior snapshot stays active
+
+#### Scenario: Generic source declares excluded identity labels
+- **WHEN** a `generic` source declares `excluded_identity_labels: ["host"]`
 - **THEN** activation fails with a field error naming `sources[i].excluded_identity_labels`, and the prior snapshot stays active
 
 ### Requirement: A source's mode never changes
@@ -320,3 +336,71 @@ rows below the cutoff SHALL NOT be requeued.
 #### Scenario: Conflicting live webhook key behind the cutoff
 - **WHEN** a delivery behind the cutoff reuses a still-live explicit key with a different body
 - **THEN** admission returns 409 without changing the reservation or inserting a raw row
+
+### Requirement: Generic sources name one mapping
+
+A `generic` source SHALL declare `mapping`, naming a mapping in the same configuration file. A missing or unknown
+name SHALL fail activation. `mapping` SHALL be refused on every other kind. A generic source SHALL authenticate
+with its bearer or HMAC credentials, with the same rotation overlap as other kinds.
+
+#### Scenario: Generic source with a known mapping
+- **WHEN** a `generic` source declares `mapping: checks`, mapping `checks` exists, and a delivery carries a valid HMAC signature
+- **THEN** activation succeeds and the delivery is admitted as a raw row with no pin; the pin is set at first claim
+
+#### Scenario: Unknown mapping name
+- **WHEN** a `generic` source declares `mapping: missing` and no mapping has that name
+- **THEN** activation fails with a field error naming `sources[i].mapping`, and the prior snapshot stays active
+
+#### Scenario: Mapping on an Alertmanager source
+- **WHEN** an `alertmanager` source declares `mapping: checks`
+- **THEN** activation fails with a field error naming `sources[i].mapping`
+
+#### Scenario: Wrong credential on the generic route
+- **WHEN** a request to `/hooks/generic/<id>` carries a bearer token that is not one of the source's credentials
+- **THEN** Correlia answers 401 and no raw row is inserted
+
+### Requirement: Generic deliveries are admitted before mapping
+
+The generic route SHALL admit a delivery exactly as other webhook kinds do: content type, body limit, rate limit,
+transport deduplication and durable commit before 202. Ingress SHALL NOT parse or map the body; a body that is
+not valid JSON, or that its mapping rejects, SHALL fail its raw row in the pipeline.
+
+#### Scenario: Body the mapping rejects
+- **WHEN** a JSON object that its mapping will reject is posted with a valid credential and content type `application/json`
+- **THEN** Correlia answers 202, the raw row is admitted, and the mapping failure is recorded on that row
+
+#### Scenario: Wrong content type on the generic route
+- **WHEN** a body is posted to the generic route with content type `application/x-www-form-urlencoded`
+- **THEN** Correlia answers 415 and no raw row is inserted
+
+### Requirement: Older publishers cannot publish
+
+This release SHALL raise the configuration publisher version to 2, under the publication lock, so a process of an
+older release cannot publish a new configuration once this release's schema is applied. The gate does not show that
+older processes stopped; operators SHALL upgrade every role before publishing a `generic` source, as the runbook states.
+
+#### Scenario: Current publisher
+- **WHEN** a process of this release publishes a configuration with a `generic` source after every role is upgraded
+- **THEN** activation succeeds
+
+#### Scenario: Older publication in flight during the schema step
+- **WHEN** a publisher-version-1 transaction holds the publication lock and has inserted its snapshot when this release's schema step starts
+- **THEN** the step waits for that transaction to end, and the next publisher-version-1 insert after the step is refused
+
+#### Scenario: Older publisher after the upgrade
+- **WHEN** a process that publishes with publisher version 1 tries to publish a configuration after this release's schema step
+- **THEN** the insert is refused with `outdated configuration publisher` and the prior snapshot stays active
+
+### Requirement: Generic sources drain before removal
+
+The runbook SHALL give one rollback path for a generic source: rotate it to a credential no sender holds, keep it
+enabled until it has no pending rows, then remove it. Removing or disabling it with pending unpinned rows fails
+them with `source_not_configured`. Binary downgrade after this release's schema step SHALL be unsupported.
+
+#### Scenario: Drained source removed
+- **WHEN** a generic source with pending rows is rotated to an unused credential, its rows finish, and a configuration without it activates
+- **THEN** new deliveries answer 401, every earlier row completes, and no row fails with `source_not_configured`
+
+#### Scenario: Source removed before draining
+- **WHEN** a configuration without a generic source activates while that source has pending unpinned rows
+- **THEN** those rows fail with `source_not_configured`, as the runbook warns

@@ -30,7 +30,8 @@ Observation _observation(CanonicalEvent event, Duration skew) {
   String? generator;
   for (final link in event.links) {
     if (link.relation == 'generator') {
-      generator = link.href;
+      // Keep the canonical href unchanged; PostgreSQL text cannot hold NUL.
+      generator = link.href.replaceAll('\u0000', '%00');
       break;
     }
   }

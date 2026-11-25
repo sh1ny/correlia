@@ -1,5 +1,36 @@
 # Alertmanager compatibility captures and end-to-end check
 
+## Thanos Ruler through Alertmanager
+
+Send Ruler alerts to Alertmanager using its v2 API, then configure
+Alertmanager's webhook receiver to send firing and resolved notifications to
+`/hooks/alertmanager/<source-uuid>` using that source's bearer credential.
+Use an `alertmanager` source, not `thanos`: Ruler does not post directly to
+Correlia. Set `--alert.query-url` on Ruler and `--web.external-url` on
+Alertmanager to their valid HTTP(S) URLs so notifications carry usable links.
+See [the capture matrix](../../tool/README.md#thanos-ruler-captures) for the
+four Ruler releases verified through Alertmanager.
+
+For Ruler HA, give each replica a distinct external label, for example
+`--label='replica="a"'` and `--label='replica="b"'`. On both Rulers, add
+`--alert.label-drop=replica` so the label is removed before Alertmanager
+receives the alert. With the other identity labels equal, both replicas then
+produce one Correlia fingerprint. A second option is to keep the label in
+the notification and set `"excluded_identity_labels": ["replica"]` on the
+Correlia source. Without either setting, the two replica values produce two
+fingerprints for the same rule.
+
+For multi-tenant Thanos, configure one Correlia `alertmanager` source per
+tenant with its own credential and distinct namespace. Route each tenant's
+notifications to that source, for example by giving each tenant a separate
+Alertmanager. The default `THANOS-TENANT` header (for example,
+`THANOS-TENANT: team-a`) belongs on Ruler's query requests to Thanos Query or
+on Ruler's remote writes to Thanos Receive when those services use header
+tenancy. Match the header name configured on Query (`--query.tenant-header`)
+or Receive (`--receive.tenant-header`). Do not forward it to select a Correlia
+tenant or namespace: Correlia does not read it, and a header on a delivery
+changes neither identity nor routing.
+
 ## Reproduce the captures
 
 The supported matrix is the latest patch of each minor from 0.16 through 0.35. The change's evidence contains one firing and one resolved notification per minor. They came from `prom/alertmanager:<version>` Docker images on Linux host networking, each on a separate local port, with clustering disabled. A loopback Python receiver recorded the actual webhook. The route groups by `alertname`, waits 1 second, uses a 2-second group interval and sends resolved notifications. `CapTest` was posted to `/api/v2/alerts`, then posted again with an explicit past `endsAt`. JSON keys were sorted and indented, and only `externalURL` was normalized to `http://alertmanager.example:9093`; timestamps remain actual capture times.

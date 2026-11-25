@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:correlia_server/src/ingest/bootstrap.dart';
 import 'package:test/test.dart';
 
+import '../../support/generic_webhook_fixture.dart';
+
 const source = '11111111-1111-4111-8111-111111111111';
 final now = DateTime.utc(2026, 11, 18);
 final material = {
@@ -20,11 +22,13 @@ Map<String, Object?> credential(int i, {String? before, String? after}) => {
 IngestBootstrap parse({
   Map<String, Object?> fields = const {},
   List<String>? namespaces,
+  List<Map<String, Object?>>? mappings,
 }) => IngestBootstrap.parse(
   {
     'format_version': 2,
     'revision': 1,
     'namespaces': ?namespaces,
+    'mappings': ?mappings,
     'sources': [
       {
         'id': source,
@@ -77,6 +81,66 @@ void main() {
   test('unsupported_kind_or_field', () {
     expect(() => parse(fields: {'kind': 'zabbix'}), field('sources[0].kind'));
     expect(() => parse(fields: {'foreign': true}), field('sources[0].foreign'));
+  });
+
+  test('thanos_source_kind', () {
+    expect(
+      () => parse(fields: {'kind': 'thanos'}),
+      field('sources[0].kind'),
+    );
+  });
+
+  test('mappings_in_a_version_1_file', () {
+    expect(
+      () => IngestBootstrap.parse(
+        {
+          'format_version': 1,
+          'revision': 1,
+          'mappings': [checkMapping()],
+          'sources': <Object?>[],
+          'outputs': <Object?>[],
+        },
+        const <String, Object?>{},
+        runMode: 'test',
+      ),
+      field(r'$.mappings'),
+    );
+  });
+
+  test('generic_source_declares_a_path_token', () {
+    expect(
+      () => parse(
+        fields: {
+          'kind': 'generic',
+          'mapping': 'checks',
+          'path_token_enabled': true,
+        },
+        mappings: [checkMapping()],
+      ),
+      field('sources[0].path_token_enabled'),
+    );
+  });
+
+  test('unknown_mapping_name', () {
+    for (final mapping in [null, 'missing']) {
+      expect(
+        () => parse(
+          fields: {'kind': 'generic', 'mapping': ?mapping},
+          mappings: [checkMapping()],
+        ),
+        field('sources[0].mapping'),
+      );
+    }
+  });
+
+  test('mapping_on_an_alertmanager_source', () {
+    expect(
+      () => parse(
+        fields: {'mapping': 'checks'},
+        mappings: [checkMapping()],
+      ),
+      field('sources[0].mapping'),
+    );
   });
 
   test('icinga2_source_declares_a_path_token', () {

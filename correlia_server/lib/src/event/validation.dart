@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../event_generated/correlia/event/v1/event_bounds.dart';
 
 /// A rejected canonical-event boundary input.
@@ -17,6 +19,38 @@ sealed class EventValidationError implements Exception {
 /// A field whose value violates the event contract.
 final class EventFieldError extends EventValidationError {
   const EventFieldError(super.path, super.code);
+}
+
+/// A sender pointer token and whether the decoder traversed an array at it.
+typedef EventPointerSegment = ({String token, bool arrayIndex});
+
+/// A sender-field rejection whose raw pointer is never put in error text.
+final class EventPointerError extends EventValidationError {
+  EventPointerError(Iterable<EventPointerSegment> segments, String code)
+    : segments = List.unmodifiable(segments),
+      super('', code);
+
+  /// The structured sender path; redact it before persisting any part of it.
+  final List<EventPointerSegment> segments;
+}
+
+/// Renders an RFC 6901 path without splitting a token or exceeding 256 bytes.
+String boundedEventPointer(Iterable<EventPointerSegment> segments) {
+  final pointer = StringBuffer();
+  var remaining = 256;
+  for (final segment in segments) {
+    final token = segment.token;
+    if (token.length >= remaining) {
+      return pointer.isEmpty ? '/*' : pointer.toString();
+    }
+    final escaped = token.replaceAll('~', '~0').replaceAll('/', '~1');
+    final size = utf8.encode(escaped).length + 1;
+    if (size > remaining) return pointer.isEmpty ? '/*' : pointer.toString();
+    pointer.write('/');
+    pointer.write(escaped);
+    remaining -= size;
+  }
+  return pointer.toString();
 }
 
 /// Rejects malformed Unicode and strings outside their scalar bounds.

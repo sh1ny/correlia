@@ -35,3 +35,20 @@ and records the image and the result of omitting each required grant.
 Treat these as wire captures, not proof that the Correlia consumer works.
 The separate real-consumer run record is checked by the version matrix
 alongside the captures.
+
+## Thanos Ruler captures
+
+On Linux with Docker, Python 3 and curl, run:
+
+```sh
+mise exec -- tool/alertmanager_capture.sh --thanos /tmp/thanos-capture \
+  v0.39.2 v0.40.1 v0.41.0 v0.42.5
+```
+
+Use an empty output directory. Each release runs two Rulers against one
+Prometheus query endpoint and one Alertmanager, once keeping and once dropping
+the replica label. The receiver keeps the webhook bytes as sent; the manifest
+records sequence numbers, image digests and both Rulers' sent-alert counters.
+The script cleans up its containers and working files. Review the output before
+replacing `correlia_server/test/unit/ingest/fixtures/thanos/`; never hand-edit a
+payload. The tool leaves Docker images in the local cache.

@@ -9,7 +9,8 @@ import 'package:crypto/crypto.dart';
 import 'package:postgres/postgres.dart';
 import 'package:test/test.dart';
 
-import 'package:correlia_server/src/schema/schema_steps.dart';
+import 'package:correlia_server/src/schema/schema_steps.dart'
+    show defaultSchemaLockTimeout;
 
 import '../support/child_server.dart';
 import '../support/shared_cluster.dart';
@@ -160,7 +161,7 @@ final class _Upgrade {
         'DROP TABLE secret_reuse_digest,secret_reuse_backfill,secret_reuse_retired_credential,icinga2_raw_origin',
       );
       await tx.execute(
-        'DELETE FROM correlia_schema_versions WHERE version IN (4,5,6,7,8,9)',
+        'DELETE FROM correlia_schema_versions WHERE version >= 4',
       );
     });
     return connection;
@@ -186,6 +187,8 @@ Future<List<int>> _versions(Connection connection) async => [
   ))
     row[0]! as int,
 ];
+
+const _currentVersions = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
 
 /// How long a lock request of another backend of [observer]'s database waits
 /// before it is no longer waiting: from when it is first seen ungranted in
@@ -253,7 +256,7 @@ void main() {
         await blocker.execute('ROLLBACK');
         final restarted = await upgrade.start();
         await restarted.waitUntilReady();
-        expect(await _versions(connection), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        expect(await _versions(connection), _currentVersions);
       } finally {
         await upgrade.dispose();
       }
@@ -281,7 +284,7 @@ void main() {
         await other.execute('ROLLBACK');
         final restarted = await upgrade.start();
         await restarted.waitUntilReady();
-        expect(await _versions(connection), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        expect(await _versions(connection), _currentVersions);
       } finally {
         await upgrade.dispose();
       }
@@ -335,7 +338,7 @@ void main() {
         final upgraded = await upgrade.start();
         await upgraded.waitUntilReady();
         await upgrade.deliveries(2);
-        expect(await _versions(connection), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        expect(await _versions(connection), _currentVersions);
         final raws = await connection.execute(
           'SELECT status FROM raw_inbox',
         );
@@ -347,6 +350,102 @@ void main() {
       } finally {
         await upgrade.dispose();
       }
+    },
+    timeout: const Timeout(Duration(minutes: 5)),
+  );
+
+  test(
+    'step_11_upgrades_the_existing_subject_index_without_changing_payloads',
+    () async {
+      final upgrade = await _Upgrade.create();
+      addTearDown(upgrade.dispose);
+      final first = await upgrade.start();
+      await first.waitUntilReady();
+      expect(await first.closeStdin(), 0);
+      final connection = await upgrade.connect();
+      final indexOid = (await connection.execute(
+        "SELECT 'events_subject_idx'::regclass::oid::bigint",
+      )).single[0];
+      // Restore the version-10 function in place, leaving its index intact.
+      await connection.runTx((tx) async {
+        await tx.execute('''
+CREATE OR REPLACE FUNCTION correlia_event_subject(value bytea) RETURNS text
+LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE
+RETURN convert_from(value, 'UTF8')::jsonb->>'subject'
+''');
+        await tx.execute(
+          'DELETE FROM correlia_schema_versions WHERE version = 11',
+        );
+      });
+      expect(await _versions(connection), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+
+      final oldSubject = 'a' * 64;
+      final newSubject = 'b' * 64;
+      final oldPayload = jsonEncode({
+        'subject': oldSubject,
+        'data': {'description': r'verbatim \u0000 text'},
+      });
+      final newPayload = jsonEncode({
+        'subject': newSubject,
+        'data': {'description': 'before\u0000after'},
+      });
+      Future<void> insert(String payload) async {
+        await connection.execute(
+          Sql.named('''
+INSERT INTO events
+  (observed_at, event_id, disposition, raw_observed_at, raw_id, source_id,
+   config_snapshot_id, source_time, payload)
+VALUES
+  (CURRENT_TIMESTAMP, gen_random_uuid(), 'ready', CURRENT_TIMESTAMP,
+   gen_random_uuid(), @source::uuid, 'upgrade-fixture', CURRENT_TIMESTAMP,
+   convert_to(@payload::text, 'UTF8'))
+'''),
+          parameters: {'source': _source, 'payload': payload},
+        );
+      }
+
+      await insert(oldPayload);
+      await expectLater(
+        insert(newPayload),
+        throwsA(
+          isA<ServerException>().having((e) => e.code, 'SQLSTATE', '22P05'),
+        ),
+      );
+
+      final restarted = await upgrade.start();
+      await restarted.waitUntilReady();
+      expect(await _versions(connection), _currentVersions);
+      expect(
+        (await connection.execute(
+          "SELECT 'events_subject_idx'::regclass::oid::bigint",
+        )).single[0],
+        indexOid,
+      );
+      await insert(newPayload);
+      await connection.runTx((tx) async {
+        await tx.execute('SET LOCAL enable_seqscan=off');
+        const lookup =
+            "SELECT convert_from(payload, 'UTF8') FROM events "
+            'WHERE correlia_event_subject(payload) = @subject';
+        final plan = await tx.execute(
+          Sql.named('EXPLAIN $lookup'),
+          parameters: {'subject': oldSubject},
+        );
+        expect(
+          plan.map((row) => row[0]).join('\n'),
+          contains('events_subject_idx'),
+        );
+        for (final (subject, payload) in [
+          (oldSubject, oldPayload),
+          (newSubject, newPayload),
+        ]) {
+          final rows = await tx.execute(
+            Sql.named(lookup),
+            parameters: {'subject': subject},
+          );
+          expect(rows.single[0], payload);
+        }
+      });
     },
     timeout: const Timeout(Duration(minutes: 5)),
   );

@@ -14,6 +14,7 @@ import '../unit/ingest/alertmanager_decoder_test.dart' as payload;
 import 'pipeline_test.dart' as pipeline_fixture;
 
 import '../integration/test_tools/serverpod_test_tools.dart';
+import '../support/generic_webhook_fixture.dart';
 import '../support/icinga2_stream_fixture.dart';
 import '../support/ingest_schema.dart';
 import '../support/secret_fixture.dart';
@@ -360,6 +361,45 @@ void main() {
           1,
         );
       });
+      test('generic_source_declares_excluded_identity_labels', () async {
+        final repository = IngestConfigRepository(
+          builder.build(),
+          secretStore: testSecretStore,
+        );
+        final secrets = <String, Object?>{'source-token': token(1)};
+        final first = await repository.publishConfig(
+          kindConfig(1, 'alertmanager'),
+          secrets,
+          runMode: 'test',
+        );
+        await expectLater(
+          repository.publishConfig(
+            {
+              ...kindConfig(2, null),
+              'mappings': [checkMapping()],
+              'sources': [
+                {
+                  ...genericSource(sourceId, 'source-token'),
+                  'excluded_identity_labels': ['host'],
+                },
+              ],
+            },
+            secrets,
+            runMode: 'test',
+          ),
+          throwsA(
+            isA<BootstrapError>().having(
+              (e) => e.field,
+              'field',
+              'sources[0].excluded_identity_labels',
+            ),
+          ),
+        );
+        expect(
+          (await repository.activeSnapshot())!['snapshotId'],
+          first.snapshotId,
+        );
+      }, timeout: const Timeout(Duration(minutes: 5)));
       test('disabled_source_keeps_its_kind', () async {
         final session = builder.build();
         final repository = IngestConfigRepository(

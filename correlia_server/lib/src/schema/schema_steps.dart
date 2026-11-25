@@ -85,12 +85,22 @@ List<SchemaStep> get schemaSteps => [
     9,
     File('schema/0009_icinga2_sync_finalization.sql').readAsStringSync(),
   ),
+  _publisherVersion2,
+  SchemaStep(11, File('schema/0011_event_subject_text.sql').readAsStringSync()),
 ];
 
 /// Installs the publisher-version trigger and backfill boundaries in one
 /// transaction holding the publication lock, acquired after the schema lock.
 SchemaStep get _secretReuseCutover =>
     SchemaStep(5, File('schema/0005_secret_reuse.sql').readAsStringSync());
+
+/// Fences new publication by older binaries under the publication lock.
+///
+/// The gate does not prove that older processes have stopped.
+SchemaStep get _publisherVersion2 => SchemaStep(
+  10,
+  File('schema/0010_publisher_version_2.sql').readAsStringSync(),
+);
 
 /// Applies each missing step under the shared transaction advisory lock.
 ///

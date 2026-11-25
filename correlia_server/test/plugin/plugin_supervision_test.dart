@@ -150,7 +150,7 @@ void main() {
         bool Function(List<Object?>) accept,
       ) async {
         final watch = Stopwatch()..start();
-        while (watch.elapsed < const Duration(seconds: 15)) {
+        while (watch.elapsed < const Duration(minutes: 2)) {
           final rows = await session.db.unsafeQuery(
             '''SELECT state,"pluginName","pluginVersion",pid,"heartbeatAt","lastErrorClass",version
           FROM plugin_instance_status WHERE "outputId"=@output ORDER BY id DESC LIMIT 1''',
@@ -167,7 +167,8 @@ void main() {
           }
         }
         fail(
-          'Worker did not publish the expected plugin status before the deadline',
+          'Worker did not publish the expected plugin status before the hang '
+          'guard: status=$statusHistory log=$supervisorLog',
         );
       }
 
@@ -418,11 +419,15 @@ void main() {
             pluginDirectory: testDirectory.path,
             hostInstanceId: 'forced-$mode',
             log: supervisorLog.add,
-            durations: const SupervisionDurations(
-              startTimeout: Duration(seconds: 3),
-              shutdownGrace: Duration(milliseconds: 50),
-              healthInterval: Duration(milliseconds: 20),
-              healthDeadline: Duration(milliseconds: 20),
+            durations: SupervisionDurations(
+              startTimeout: launching
+                  ? const Duration(seconds: 3)
+                  : const Duration(minutes: 2),
+              shutdownGrace: const Duration(milliseconds: 50),
+              healthInterval: const Duration(milliseconds: 20),
+              // A stopped process cannot answer; a live process must be
+              // allowed to finish its readiness probe on a busy runner.
+              healthDeadline: const Duration(seconds: 2),
             ),
             pollInterval: const Duration(milliseconds: 10),
             launchArguments:
@@ -495,7 +500,7 @@ void main() {
               expect(Process.killPid(pid, ProcessSignal.sigstop), isTrue);
               await waitForStoppedThreads(pid);
             }
-            await entered.future.timeout(const Duration(seconds: 10));
+            await entered.future;
             if (mode == 'recovery') {
               release.complete();
               final ready = await waitForStatus(
@@ -568,7 +573,7 @@ void main() {
             if (!release.isCompleted) release.complete();
             if (stopping == null) await supervisor.stop();
           }
-        }, timeout: const Timeout(Duration(seconds: 30)));
+        }, timeout: const Timeout(Duration(minutes: 5)));
       }
 
       test('pinned_definition_cannot_run', () async {

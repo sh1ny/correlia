@@ -259,6 +259,7 @@ Accepted ADRs only.
 | [0028](../docs/adr/0028-encrypted-secret-store.md) | Encrypted secret records and scheme-tagged commitments under an external key; bounded runtime resolution and historical imports | none |
 | [0029](../docs/adr/0029-source-credentials-and-admission-limits.md) | Source kinds, credential overlap and transactional admission, HMAC input, declared namespaces and per-process rate budgets | none |
 | [0030](../docs/adr/0030-pull-sources-leased-consumers.md) | Leased pull consumers, revision-fenced admission, bounded retained work, silent reconcile and receipt-safe tombstone reclamation | none (extends 0016, 0017, 0024, 0029) |
+| [0031](../docs/adr/0031-generic-webhook-mapping-documents.md) | Versioned generic webhook mappings, pinned snapshots, bootstrap-only authoring and publisher version 2 rollout | none |
 
 ### Superseded ADRs
 

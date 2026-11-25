@@ -16,6 +16,8 @@ import 'package:correlia_client/src/protocol/feed_page.dart' as _ic2oo2k5;
 import 'package:correlia_client/src/protocol/feed_wake_up.dart' as _in8k0z4e;
 import 'package:correlia_client/src/protocol/icinga2_consumer_status.dart'
     as _ipqy5wv2;
+import 'package:correlia_client/src/protocol/mapping_preview_result.dart'
+    as _ioulm4x4;
 import 'package:http/http.dart' as _i85jenna;
 import 'package:serverpod_client/serverpod_client.dart' as _isc;
 import 'protocol.dart' as _il2as5qe;
@@ -80,6 +82,30 @@ class EndpointIcinga2Stream extends _isc.EndpointRef {
   );
 }
 
+/// Read-only preview of an active or draft generic mapping on the local console.
+/// {@category Endpoint}
+class EndpointMappingPreview extends _isc.EndpointRef {
+  EndpointMappingPreview(_isc.EndpointCaller caller) : super(caller);
+
+  @override
+  String get name => 'mappingPreview';
+
+  /// Maps [sample] against the active generic source or the supplied draft.
+  _ida.Future<_ioulm4x4.MappingPreviewResult> preview(
+    String sourceId,
+    String sample, {
+    String? draftMapping,
+  }) => caller.callServerEndpoint<_ioulm4x4.MappingPreviewResult>(
+    'mappingPreview',
+    'preview',
+    {
+      'sourceId': sourceId,
+      'sample': sample,
+      'draftMapping': draftMapping,
+    },
+  );
+}
+
 class Client extends _isc.ServerpodClientShared {
   Client(
     String host, {
@@ -109,16 +135,20 @@ class Client extends _isc.ServerpodClientShared {
        ) {
     alertConsole = EndpointAlertConsole(this);
     icinga2Stream = EndpointIcinga2Stream(this);
+    mappingPreview = EndpointMappingPreview(this);
   }
 
   late final EndpointAlertConsole alertConsole;
 
   late final EndpointIcinga2Stream icinga2Stream;
 
+  late final EndpointMappingPreview mappingPreview;
+
   @override
   Map<String, _isc.EndpointRef> get endpointRefLookup => {
     'alertConsole': alertConsole,
     'icinga2Stream': icinga2Stream,
+    'mappingPreview': mappingPreview,
   };
 
   @override

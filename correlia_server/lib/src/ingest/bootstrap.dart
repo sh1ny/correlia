@@ -4,6 +4,11 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 
+import '../event/canonical_event.dart';
+import '../event/validation.dart';
+import '../event_generated/correlia/event/v1/event_bounds.dart';
+
+part 'generic_mapping.dart';
 part 'source_config.dart';
 
 /// A sanitized bootstrap rejection without operator-controlled values.
@@ -135,6 +140,7 @@ final class IngestBootstrap {
     this.revision,
     List<IngestSource> sources,
     List<IngestOutput> outputs,
+    this.mappings,
     Map<String, Uint8List> secrets,
   ) : sources = List.unmodifiable(sources),
       outputs = List.unmodifiable(outputs),
@@ -144,12 +150,19 @@ final class IngestBootstrap {
   final List<IngestSource> sources;
   final List<IngestOutput> outputs;
 
-  IngestBootstrap._runtime(this.revision, this.sources, this.outputs)
-    : _secrets = const {};
+  /// The validated mappings in snapshot order, keyed by name.
+  final Map<String, GenericMapping> mappings;
+
+  IngestBootstrap._runtime(
+    this.revision,
+    this.sources,
+    this.outputs,
+    this.mappings,
+  ) : _secrets = const {};
 
   /// Returns the validated configuration without its publication material.
   IngestBootstrap withoutImport() =>
-      IngestBootstrap._runtime(revision, sources, outputs);
+      IngestBootstrap._runtime(revision, sources, outputs, mappings);
   final Map<String, Uint8List> _secrets;
 
   /// The loaded reference names; values never enter persisted configuration.
@@ -160,11 +173,15 @@ final class IngestBootstrap {
       _secrets[reference]?.asUnmodifiableView();
 
   /// The canonical public snapshot bytes.
+  ///
+  /// A configuration without mappings retains its pre-mapping bytes and ID.
   String get publicJson => jsonEncode({
     'format_version': 2,
     'revision': revision,
     'sources': sources.map((source) => source.toJson()).toList(),
     'outputs': outputs.map((output) => output.toJson()).toList(),
+    if (mappings.isNotEmpty)
+      'mappings': [for (final mapping in mappings.values) mapping.toJson()],
   });
 
   /// The content address, including revision but never secret bytes.
@@ -219,12 +236,15 @@ final class IngestBootstrap {
         'revision',
         'sources',
         'outputs',
-        if (version == 2) 'namespaces',
+        if (version == 2) ...{'namespaces', 'mappings'},
       }, r'$');
       final revision = _integer(root['revision'], 1, 2147483647, 'revision');
       final namespaces = version == 2
           ? _namespaces(root['namespaces'])
           : const <String>{};
+      final mappings = root.containsKey('mappings')
+          ? _parseMappings(root['mappings'])
+          : const <String, GenericMapping>{};
       final now = (clock ?? DateTime.now)();
 
       final outputs = <IngestOutput>[];
@@ -335,6 +355,7 @@ final class IngestBootstrap {
           field,
           version,
           namespaces,
+          mappings,
           outputIds,
           secrets,
           now,
@@ -344,7 +365,7 @@ final class IngestBootstrap {
       }
       sources.sort((a, b) => a.id.compareTo(b.id));
       outputs.sort((a, b) => a.id.compareTo(b.id));
-      return IngestBootstrap._(revision, sources, outputs, secrets);
+      return IngestBootstrap._(revision, sources, outputs, mappings, secrets);
     } on BootstrapError {
       rethrow;
     } catch (_) {

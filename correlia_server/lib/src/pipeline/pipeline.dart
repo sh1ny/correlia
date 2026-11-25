@@ -13,11 +13,15 @@ import '../event/validation.dart';
 import '../ingest/bootstrap.dart'
     show
         AlertmanagerSourceKind,
+        GenericMapping,
+        GenericPointer,
+        GenericSourceKind,
         Icinga2SourceKind,
         SourceKind,
         SourceMode,
         StreamStateTypePolicy,
         sha256Digest;
+import '../ingest/generic_decoder.dart';
 import '../ingest/icinga2/decoder.dart';
 import '../ingest/icinga2/stream/decoder.dart';
 import '../ingest/source_decoder.dart';
@@ -132,18 +136,25 @@ const _icinga2PathFields = {
   'reported_source_time',
 };
 
-/// Renders a validation path for storage: the documented field names of
-/// [kind]'s payload and of the canonical event stay, any other segment (a
-/// sender-chosen name) becomes `*`, and the result is bounded. Each kind
-/// keeps only its own names, so a name another kind documents is still
-/// redacted when a sender chooses it.
-String safeFailurePath(String path, SourceKind kind) {
+/// Renders a bounded validation path for storage. For generic sender errors,
+/// [senderPath] only keeps array indexes and matching prefixes authored in
+/// the pinned [mapping]. Canonical and legacy paths use a field allow-list.
+String safeFailurePath(
+  String path,
+  SourceKind kind, {
+  GenericMapping? mapping,
+  List<EventPointerSegment>? senderPath,
+}) {
+  if (kind is GenericSourceKind && senderPath != null) {
+    return boundedEventPointer(_safeGenericSegments(senderPath, mapping!));
+  }
   final (fields, indexed) = switch (kind) {
     AlertmanagerSourceKind() => (
       _alertmanagerPathFields,
       RegExp(r'^alerts\[[0-9]{1,4}\]$'),
     ),
     Icinga2SourceKind() => (_icinga2PathFields, null),
+    GenericSourceKind() => (const {'event', 'identity_fields'}, null),
   };
   final safe = path
       .split('.')
@@ -154,6 +165,44 @@ String safeFailurePath(String path, SourceKind kind) {
       )
       .join('.');
   return safe.length > 256 ? safe.substring(0, 256) : safe;
+}
+
+Iterable<EventPointerSegment> _safeGenericSegments(
+  List<EventPointerSegment> path,
+  GenericMapping mapping,
+) sync* {
+  final items = mapping.items?.segments;
+  var inItems = items != null;
+  var alertOffset = 0;
+  final candidates = items == null
+      ? mapping.alertPointers.toList()
+      : <GenericPointer>[];
+  for (var i = 0; i < path.length; i++) {
+    final part = path[i];
+    var authored = false;
+    if (inItems) {
+      if (i < items!.length) {
+        authored = items[i] == part.token;
+        if (!authored) inItems = false;
+      } else {
+        inItems = false;
+        if (part.arrayIndex) {
+          alertOffset = i + 1;
+          candidates.addAll(mapping.alertPointers);
+        }
+      }
+    } else if (candidates.isNotEmpty) {
+      final depth = i - alertOffset;
+      candidates.removeWhere(
+        (p) => p.segments.length <= depth || p.segments[depth] != part.token,
+      );
+      authored = candidates.isNotEmpty;
+    }
+    yield (
+      token: part.arrayIndex || authored ? part.token : '*',
+      arrayIndex: part.arrayIndex,
+    );
+  }
 }
 
 final class _Raw {
@@ -406,7 +455,14 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
           throw StateError('Invalid pinned routing');
         }
         final kind = _kindOf(snapshot, source);
-        final decoder = _decoderFor(kind);
+        final mapping = kind is GenericSourceKind
+            ? GenericMapping.fromSnapshot(snapshot, source['mapping'])
+            : null;
+        if (kind is GenericSourceKind && mapping == null) {
+          await _fail(tx, deadline, raw, 'unsupported_mapping', null);
+          return true;
+        }
+        final decoder = _decoderFor(kind, mapping);
         if (kind == null || decoder == null) {
           await _fail(tx, deadline, raw, 'unsupported_kind', null);
           return true;
@@ -460,7 +516,17 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
             deadline,
             raw,
             error.code,
-            stream ? error.path : safeFailurePath(error.path, kind),
+            stream
+                ? error.path
+                : safeFailurePath(
+                    error.path,
+                    kind,
+                    mapping: mapping,
+                    senderPath: switch (error) {
+                      EventPointerError(:final segments) => segments,
+                      EventFieldError() => null,
+                    },
+                  ),
           );
           return true;
         }
@@ -738,7 +804,11 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
             deadline,
             raw,
             error.code,
-            stream ? error.path : safeFailurePath(error.path, kind),
+            kind is GenericSourceKind
+                ? null
+                : stream
+                ? error.path
+                : safeFailurePath(error.path, kind),
           );
           return true;
         }
@@ -802,6 +872,8 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
               'upstream_omitted': batch.upstreamOmissions,
               'unknown_top_level_fields': batch.unknownTopLevelFields,
               'unknown_top_level_overflow': batch.unknownTopLevelOverflow,
+              if (kind is GenericSourceKind)
+                'unmapped_fields': batch.unmappedFields,
               'committed': committed,
               'unrouted': unrouted,
               'duplicate_observation': duplicates,
@@ -861,14 +933,14 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
     _ => SourceKind.named(source['kind']),
   };
 
-  /// The decoder of [kind], or `null` when there is no kind.
-  KindDecoder? _decoderFor(SourceKind? kind) {
-    return switch (kind) {
-      null => null,
-      AlertmanagerSourceKind() => decodeAlertmanagerRequest,
-      Icinga2SourceKind() => icinga2Decoder,
-    };
-  }
+  /// The decoder for the resolved kind and its pinned mapping, if required.
+  KindDecoder? _decoderFor(SourceKind? kind, GenericMapping? mapping) =>
+      switch (kind) {
+        null => null,
+        GenericSourceKind() => (request) => decodeGeneric(request, mapping!),
+        AlertmanagerSourceKind() => decodeAlertmanagerRequest,
+        Icinga2SourceKind() => icinga2Decoder,
+      };
 
   Future<({DecodedBatch batch, String? syncId})> _decodeStream(
     DecodeRequest request,
