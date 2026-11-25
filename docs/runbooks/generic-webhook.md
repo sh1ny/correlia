@@ -70,11 +70,12 @@ fractional digits for milliseconds. RFC 3339 evidence keeps its original text.
 
 For display fields, choose exactly one of `{ "copy": "/field" }` and
 `{ "constant": "literal text" }`. A copied string is used as text, not JSON
-quoted; copied numbers and booleans use their JSON text (`42`, `true`). Null
-or absent values omit optional fields and fail the required summary. Copied
-text obeys canonical display bounds. Constants that cannot fit the canonical
-field fail activation. A link must be a valid HTTP(S) URL; arbitrary templates
-are not supported.
+quoted; copied numbers and booleans use their JSON text (`42`, `true`).
+Numbers outside the double range keep their exact token (for example,
+`1e309`). Null or absent values omit optional fields and fail the required
+summary. Copied text obeys canonical display bounds. Constants that cannot
+fit the canonical field fail activation. Links must be valid HTTP(S) URLs;
+arbitrary templates are not supported.
 
 A copied summary containing NUL (`U+0000`) fails with `invalid_text` at
 its mapping pointer in preview and delivery. Other copied fields keep
@@ -153,6 +154,10 @@ a segment boundary within 256 bytes. The response retains at most 100
 diagnostics or 64 KiB of diagnostic JSON, whichever fits first, and reports
 the number omitted as `overflow`. Preview paths can include sender field
 names; durable worker failures redact those names.
+
+If the 16 MiB serialized decode budget is reached, preview keeps the
+successful alerts that fit and reports `decode_bound`. Delivery fails the
+whole row instead.
 
 The label `computed with preview metadata` means the preview uses the nil
 raw UUID and the call time for its raw reference, observation and processing

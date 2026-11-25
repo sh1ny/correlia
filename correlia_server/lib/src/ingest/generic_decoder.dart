@@ -14,8 +14,13 @@ const _maxDeliveryAlerts = 1000;
 const _maxPreviewAlerts = 100;
 
 /// Maps a generic webhook delivery, returning no partial batch on failure.
-DecodedBatch decodeGeneric(DecodeRequest request, GenericMapping mapping) =>
-    _GenericDecoder(request, mapping, null).decode();
+DecodedBatch decodeGeneric(DecodeRequest request, GenericMapping mapping) {
+  final decoder = _GenericDecoder(request, mapping, null)..decode();
+  return DecodedBatch(
+    events: decoder.events,
+    unmappedFields: decoder._unmapped,
+  );
+}
 
 /// Maps the same body as delivery decoding, collecting bounded diagnostics.
 GenericPreviewDecode previewGeneric(
@@ -23,14 +28,13 @@ GenericPreviewDecode previewGeneric(
   GenericMapping mapping,
 ) {
   final diagnostics = _PreviewCollector();
-  List<CanonicalEvent> events;
+  final decoder = _GenericDecoder(request, mapping, diagnostics);
   try {
-    events = _GenericDecoder(request, mapping, diagnostics).decode().events;
+    decoder.decode();
   } on EventValidationError catch (error) {
     diagnostics.error(error, null);
-    events = const [];
   }
-  return diagnostics.result(events);
+  return diagnostics.result(decoder.events);
 }
 
 final class _GenericDecoder {
@@ -40,11 +44,12 @@ final class _GenericDecoder {
   final GenericMapping mapping;
   final _PreviewCollector? collector;
   final _path = <EventPointerSegment>[];
+  final events = <CanonicalEvent>[];
   var _unmapped = 0;
   var _eventBytes = 0;
   int? _index;
 
-  DecodedBatch decode() {
+  void decode() {
     Object? body;
     final String text;
     try {
@@ -57,7 +62,6 @@ final class _GenericDecoder {
       throw EventPointerError(const [], error.code);
     }
     body = _JsonLexemes(text).value(body);
-    final alerts = <CanonicalEvent>[];
     final covered = _Coverage.from(mapping.alertPointers);
     final source = SourceContext(
       sourceInstance: request.sourceInstance,
@@ -85,15 +89,14 @@ final class _GenericDecoder {
         _index = index;
         _path.add((token: '$index', arrayIndex: true));
         final event = _alert(alert, covered, source, raw, pipeline);
-        if (event != null) alerts.add(event);
+        if (event != null) events.add(event);
         _path.removeLast();
       }
     } else {
       _index = 0;
       final event = _alert(body, covered, source, raw, pipeline);
-      if (event != null) alerts.add(event);
+      if (event != null) events.add(event);
     }
-    return DecodedBatch(events: alerts, unmappedFields: _unmapped);
   }
 
   CanonicalEvent? _alert(
@@ -246,7 +249,7 @@ final class _GenericDecoder {
         final key = switch (value) {
           String() => value,
           int() => value.toString(),
-          _LargeJsonInteger(:final decimal) => decimal,
+          _ExactJsonNumber(:final text, integer: true) => text,
           null => throw const EventFieldError('', 'required'),
           _ => throw const EventFieldError('', 'invalid_type'),
         };
@@ -327,7 +330,7 @@ final class _GenericDecoder {
 
 String? _text(Object? value) => switch (value) {
   String() => value,
-  _LargeJsonInteger(:final decimal) => decimal,
+  _ExactJsonNumber(:final text) => text,
   num() when value.isFinite => jsonEncode(value),
   bool() => jsonEncode(value),
   null => null,
@@ -426,8 +429,8 @@ final class _Coverage {
   var terminal = false;
 }
 
-// Syntax has already been validated. Check duplicate names and recover exact
-// decimal integers where jsonDecode had to represent them as doubles.
+// Syntax has already been validated. Check duplicate names and recover lexemes
+// for integers decoded as doubles and for numbers that overflow a double.
 final class _JsonLexemes {
   _JsonLexemes(this.text);
   final String text;
@@ -522,15 +525,18 @@ final class _JsonLexemes {
           if (byte == 0x2e || byte == 0x65 || byte == 0x45) integer = false;
           offset++;
         }
-        if (!integer) return decoded;
-        final decimal = text.substring(start, offset);
-        return decimal == '-0' ? 0 : _LargeJsonInteger(decimal);
+        if (decoded is! double || (!integer && decoded.isFinite)) {
+          return decoded;
+        }
+        final lexeme = text.substring(start, offset);
+        return lexeme == '-0' ? 0 : _ExactJsonNumber(lexeme, integer: integer);
     }
   }
 }
 
-final class _LargeJsonInteger {
-  const _LargeJsonInteger(this.decimal);
+final class _ExactJsonNumber {
+  const _ExactJsonNumber(this.text, {required this.integer});
 
-  final String decimal;
+  final String text;
+  final bool integer;
 }

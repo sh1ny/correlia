@@ -191,6 +191,10 @@ Only copied summaries SHALL reject U+0000, using the existing diagnostic path bo
 - **WHEN** a label copies `/env`, which is `null` in one alert and absent in another, and the summary copies the number `42`
 - **THEN** both events omit that label and have the summary `42`
 
+#### Scenario: A copied number exceeds the double range
+- **WHEN** the summary or description pointer selects the JSON number `1e309`
+- **THEN** that field contains `1e309` in preview and delivery, not infinity or a field error
+
 #### Scenario: Null summary
 - **WHEN** the summary pointer selects `null`
 - **THEN** the raw row fails with a field error naming the summary pointer
@@ -259,6 +263,10 @@ overflow count. It writes nothing and gives no row-budget estimate.
 #### Scenario: Preview of a sample with several errors
 - **WHEN** a sample holds one valid alert and two alerts each with a different field error
 - **THEN** the result holds the valid alert's event, both field errors with their pointers, and states that the row would fail
+
+#### Scenario: Preview reaches the serialized decode budget
+- **WHEN** preview builds alerts until their serialized bytes would exceed 16 MiB
+- **THEN** it keeps the successfully decoded prefix, reports the body-level `decode_bound` diagnostic and indicates that the row would fail; delivery commits no events
 
 #### Scenario: Diagnostics over the cap
 - **WHEN** a sample's unmapped keys hold control characters, so 60 diagnostics serialize to more than 64 KiB

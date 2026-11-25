@@ -1,6 +1,8 @@
 import 'dart:convert';
 
 import 'package:correlia_server/event.dart';
+import 'package:correlia_server/src/event/canonical_event.dart'
+    show defaultStructuredEventBytes;
 import 'package:correlia_server/src/ingest/bootstrap.dart';
 import 'package:correlia_server/src/ingest/generic_decoder.dart';
 import 'package:correlia_server/src/ingest/source_decoder.dart';
@@ -138,6 +140,54 @@ void main() {
     );
   });
 
+  test('preview_keeps_the_successful_prefix_at_the_decode_budget', () {
+    final mapping = GenericMapping.parse({
+      ...checkMapping(),
+      'items': '',
+      'labels': {
+        for (var i = 0; i < 128; i++) 'k$i': {'copy': '/copy'},
+      },
+    });
+    final alerts = [
+      for (var i = 0; i < 99; i++)
+        {..._alert('host-$i'), 'summary': 'alert-$i', 'copy': '\u0000' * 249},
+      {'host': false},
+    ];
+    final request = _request(jsonEncode(alerts));
+    final result = previewGeneric(request, mapping);
+    expect(result.events, isNotEmpty);
+    expect(result.events.length, lessThan(99));
+    expect(result.events.map((e) => e.summary), [
+      for (var i = 0; i < result.events.length; i++) 'alert-$i',
+    ]);
+    final bytes = result.events.fold(
+      0,
+      (total, event) => total + defaultStructuredEventBytes(event).length,
+    );
+    expect(bytes, lessThanOrEqualTo(16 * 1024 * 1024));
+    expect(result.rowWouldFail, isTrue);
+    expect(result.diagnostics.single.code, 'decode_bound');
+    expect(result.diagnostics.single.alertIndex, isNull);
+    expect(() => decodeGeneric(request, mapping), _error('decode_bound', []));
+  });
+
+  test('copied_numbers_keep_their_json_spelling_outside_double_range', () {
+    final request = _request(
+      '{"host":"api","time":"$_time","state":"PROBLEM","summary":1e309,'
+      '"other":-2.50E+410}',
+    );
+    final mapping = GenericMapping.parse({
+      ...checkMapping(),
+      'description': {'copy': '/other'},
+    });
+    final event = decodeGeneric(request, mapping).events.single;
+    final preview = previewGeneric(request, mapping).events.single;
+    for (final result in [event, preview]) {
+      expect(result.summary, '1e309');
+      expect(result.description, '-2.50E+410');
+    }
+  });
+
   test('id_6_re_batched_generic_alerts', () {
     final a = _alert('a');
     final b = _alert('b');
@@ -230,7 +280,7 @@ void main() {
       decodeGeneric(request('-0'), mapping).events.single.status,
       EventStatus.firing,
     );
-    for (final token in ['$positive.0', '9223372036854775809e0']) {
+    for (final token in ['$positive.0', '9223372036854775809e0', '1e309']) {
       expect(
         () => decodeGeneric(request(token), mapping),
         _error('invalid_type', ['check', 'status']),

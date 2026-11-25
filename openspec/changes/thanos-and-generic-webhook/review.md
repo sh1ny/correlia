@@ -63,5 +63,10 @@ The owner confirmed keeping the narrow event-subject migration (`a53a6f9`)
 so copied display text remains verbatim in canonical events. The owner
 authorized one additional fix-and-review round, the fifth pre-ship review,
 for the three outstanding P1s: step-11 upgrade assertions, mapped identity
-error pointers, and exact decimal lookup of large JSON integers. No finding
-is waived. Stop for an owner decision if the fifth review finds anything new.
+error pointers, and exact decimal lookup of large JSON integers.
+
+The fifth review of `98552ac1dd` found three new P1s and one P2. Work paused
+before archive or PR creation. The owner approved fixing all four findings
+and waived a sixth local pre-ship review; the GitHub Codex review and CI
+requirements remained in effect. The waiver was for the review round, not
+for any finding.
