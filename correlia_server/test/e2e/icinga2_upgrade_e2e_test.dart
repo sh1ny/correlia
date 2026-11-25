@@ -149,6 +149,9 @@ final class _Upgrade {
       );
       await tx.execute('DROP TABLE matcher_failure');
       await tx.execute(
+        'DROP TABLE matcher_content_digest,matcher_content_digest_fill',
+      );
+      await tx.execute(
         'DROP FUNCTION correlia_retained_output_ids(), correlia_pinned_output_routes()',
       );
       await tx.execute('DROP FUNCTION correlia_matcher_data(bytea)');
@@ -199,7 +202,7 @@ Future<List<int>> _versions(Connection connection) async => [
     row[0]! as int,
 ];
 
-const _currentVersions = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
+const _currentVersions = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
 
 /// How long a lock request of another backend of [observer]'s database waits
 /// before it is no longer waiting: from when it is first seen ungranted in

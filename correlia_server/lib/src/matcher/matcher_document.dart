@@ -19,7 +19,12 @@ final class MatcherRule {
 
 /// The matcher part of an immutable ingest configuration.
 final class MatcherDocument {
-  const MatcherDocument._(this.rules, this.snapshotJson, this.outputIds);
+  const MatcherDocument._(
+    this.rules,
+    this.snapshotJson,
+    this.outputIds, [
+    this.writesReservedKey,
+  ]);
 
   /// A configuration without matcher rules.
   static const empty = MatcherDocument._([], {}, {});
@@ -32,6 +37,16 @@ final class MatcherDocument {
 
   /// All routes that this matcher document can add.
   final Set<String> outputIds;
+
+  /// The field path of the first non-`classify` write to [reservedNoiseKey].
+  ///
+  /// `null` when no `set_label` or `extract` action targets the reserved key.
+  /// Parsing accepts such content, because a restart, a rollback and a pinned
+  /// snapshot may still carry it. A caller that treats the document as new
+  /// content rejects it with [reservedKeyError]; publication does that only
+  /// when no stored snapshot has the same matcher content, and the simulator
+  /// does it for every draft.
+  final String? writesReservedKey;
 
   /// Validates an operator document against [outputs].
   static MatcherDocument parse(Object? input, Set<String> outputs) =>
@@ -51,6 +66,7 @@ final class MatcherDocument {
     if (root['version'] is! int || root['version'] != 1) {
       _bad('matcher.version', 'version');
     }
+    String? reserved;
     var nodes = 0;
     void measure(Object? node, int depth) {
       if (++nodes > 1024 || depth > 16) _bad('matcher', 'shape_bound');
@@ -106,6 +122,10 @@ final class MatcherDocument {
           }
           routes.add(outputId);
         }
+        if (decoded case MatcherLabel(:final key) || MatcherExtract(:final key)
+            when key == reservedNoiseKey) {
+          reserved ??= '$actionField.key';
+        }
         actions.add(decoded);
         encodedActions.add(encoded);
       }
@@ -127,6 +147,7 @@ final class MatcherDocument {
         'rules': List<Map<String, Object?>>.unmodifiable(public),
       }),
       Set.unmodifiable(routes),
+      reserved,
     );
   }
 }
@@ -144,6 +165,39 @@ final class MatcherDocumentError implements Exception {
   /// The validated UUID of the missing route, when applicable.
   final String? missingOutputId;
 }
+
+/// The label key that only the `classify` action may write in new content.
+const reservedNoiseKey = 'correlia.noise_class';
+
+/// The closed vocabulary of the `classify` action.
+enum NoiseClass {
+  /// A liveness signal such as a watchdog alert.
+  heartbeat,
+
+  /// A notice that needs no action.
+  informational,
+
+  /// A synthetic or test event.
+  test,
+
+  /// An object that keeps changing state.
+  flapping,
+
+  /// An event from planned maintenance.
+  maintenance,
+}
+
+/// The failure code of a `classify` value outside [NoiseClass], listing the set.
+final noiseClassCode =
+    'value_not_in:${NoiseClass.values.map((c) => c.name).join(',')}';
+
+/// The failure code of a new write to [reservedNoiseKey] by another action.
+const reservedKeyCode =
+    'reserved_key:correlia.noise_class;use_classify_or_rename_the_label';
+
+/// The error for a non-`classify` write to [reservedNoiseKey] at [field].
+MatcherDocumentError reservedKeyError(String field) =>
+    MatcherDocumentError(field, reservedKeyCode);
 
 final _identifier = RegExp(r'^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$');
 final _labelKey = RegExp(r'^[A-Za-z0-9_][A-Za-z0-9_.:/-]{0,127}$');
@@ -210,6 +264,12 @@ final class MatcherLabel extends MatcherAction {
   const MatcherLabel(this.key, this.value);
   final String key;
   final String value;
+}
+
+/// Sets the reserved noise class hint from the closed vocabulary.
+final class MatcherClassify extends MatcherAction {
+  const MatcherClassify(this.value);
+  final NoiseClass value;
 }
 
 /// Adds one validated output UUID to the allowed source routes.
@@ -302,6 +362,13 @@ final class MatcherLocationEntry {
     case 'set_label':
       _object(input, {'type', 'key', 'value'}, field);
       result = MatcherLabel(labelKey(), text('value', max: 1024));
+    case 'classify':
+      if (!input.containsKey('value')) _bad('$field.value', noiseClassCode);
+      _object(input, {'type', 'value'}, field);
+      final raw = input['value'];
+      final noise = NoiseClass.values.where((c) => c.name == raw).firstOrNull;
+      if (noise == null) _bad('$field.value', noiseClassCode);
+      result = MatcherClassify(noise);
     case 'tag':
       _object(input, {'type', 'key'}, field);
       final key = 'tags.${labelKey()}';

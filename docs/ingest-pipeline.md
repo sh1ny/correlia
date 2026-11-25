@@ -194,7 +194,7 @@ row even though the worker is gone. The query reports `stale` without rewriting 
 
 ## Repair migrations
 
-Serverpod's repair diff sees SQL-owned tables as extraneous and may propose destructive changes. Before applying any generated repair, inspect its entire SQL against the current schema and **remove all operations that drop or alter** `raw_inbox`, `events`, `outbox`, `activity`, `correlia_schema_versions`, their indexes, constraints and time-qualified references. Review related cascades as well. Preserve data and the version table; never force a destructive repair merely to silence drift. Inspect any other unmanaged exceptions individually. If the desired SQL-owned schema itself needs correction, write a new forward schema step, not an edit to an applied step or a generated definition. Review the resulting repair and schema step together on a populated copy before production use.
+Serverpod's repair diff sees SQL-owned tables as extraneous and may propose destructive changes. Before applying any generated repair, inspect its entire SQL against the current schema and **remove all operations that drop or alter** `raw_inbox`, `events`, `outbox`, `activity`, `correlia_schema_versions`, `matcher_content_digest` (primary key `digest`), `matcher_content_digest_fill` (primary key `singleton`), their indexes, constraints and time-qualified references. Review related cascades as well. Preserve data and the version table; never force a destructive repair merely to silence drift. Inspect any other unmanaged exceptions individually. If the desired SQL-owned schema itself needs correction, write a new forward schema step, not an edit to an applied step or a generated definition. Review the resulting repair and schema step together on a populated copy before production use.
 
 ## Identity evidence
 
@@ -338,6 +338,29 @@ Rules read the original event, including when an earlier rule writes the same fi
 appear in retained events and their delivery payloads; live alert state uses the original severity.
 Matcher routes add to the source routes and follow the same delivery eligibility.
 
+A `classify` action sets a noise class hint. It has exactly `type` and `value`, and `value` is one of
+`heartbeat`, `informational`, `test`, `flapping` and `maintenance`:
+
+```yaml
+actions:
+  - {type: classify, value: heartbeat}
+```
+
+It writes the reserved label `correlia.noise_class` with origin `matcher`, follows the same patch,
+ordering and failure rules as the other actions (the later rule wins, and a rule that fails discards
+its hint with the rest of its patch), and leaves the document at language `matcher`, version `1`. A
+hint changes neither the event's `kind`, its identity, alert state nor delivery eligibility. A missing
+`value` or a value outside the set fails activation with a field error at
+`matcher.rules[i].actions[j].value` that lists the allowed values, and the active snapshot is unchanged.
+
+Only `classify` may write `correlia.noise_class` in new matcher content. A `set_label` or `extract`
+action whose `key` is that label fails activation with a field error at `matcher.rules[i].actions[j].key`
+(code `reserved_key:correlia.noise_class;use_classify_or_rename_the_label`); use `classify`, or rename the
+label. Content equal to the matcher of a snapshot that is still stored is not new: an exact restart with
+the same file, and a guarded rollback that republishes earlier matcher content at a higher revision, still
+succeed when that content writes the key with `set_label` or `extract`, and a row pinned to such a snapshot
+still runs it. A label named `kind` is an ordinary label; matcher rules never change an event's `kind`.
+
 If a rule times out, produces invalid metadata, or would exceed the batch fanout limit, Correlia
 discards that rule's whole patch and counts the failure against the pinned snapshot and rule.
 The existing activity feed reports one notice for each failing pair. Its detail includes the current
@@ -351,6 +374,25 @@ Live upgrades and mixed-version operation are not supported. Stop admitting new 
 drain pending inbox work and the outbox on the old release. Then stop all Correlia processes and
 their supervisors before upgrading. Verify all roles start on the new release before resuming
 input or publishing matcher rules. Do not edit pins or discard queued deliveries to drain the outbox.
+
+The release that adds `classify` follows the same offline sequence (ADR 0033):
+
+1. Drain pending inbox work and the outbox on the old release, then stop every process of every role.
+2. Start the new release. Schema step `0015` (`schema/0015_matcher_content_digest.sql`) creates
+   `matcher_content_digest` (primary key `digest`, the SHA-256 of a snapshot's canonical matcher JSON) and
+   `matcher_content_digest_fill` (primary key `singleton`, one completion row).
+3. Right after the schema steps and before it reads the configuration file, the process fills
+   `matcher_content_digest` for every snapshot already stored. It reads snapshots in keyset pages of 100 by
+   table id, in one transaction under the publication advisory lock, and writes the completion row last, so a
+   crash leaves no partial fill and the next start redoes it. A second starter waits on the lock and then finds
+   the completion row. The fill waits at most 60 seconds for the lock; past that the process exits non-zero with
+   `Schema step 15 failed: lock_timeout`, and the next start retries. The fill decodes snapshot text in the
+   server, so a U+0000 escape in a stored plugin configuration cannot block it.
+4. Publication and startup then reject a non-`classify` write to `correlia.noise_class` only in matcher content
+   that no stored snapshot has. Publication runs the fill first if it finds no completion row.
+
+Do not return to the old release after a snapshot that uses `classify` is published: the old binary rejects an
+unknown action when it reads that snapshot.
 
 ## Alertmanager sender setup and admission
 

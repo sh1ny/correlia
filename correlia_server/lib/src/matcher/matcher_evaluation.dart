@@ -36,6 +36,8 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
     switch (action) {
       case MatcherLabel(:final key, :final value):
         labels[key] = value;
+      case MatcherClassify(:final value):
+        labels[reservedNoiseKey] = value.name;
       case MatcherRoute(:final outputId):
         routes.add(outputId);
       case MatcherSeverity(:final values):
