@@ -4,9 +4,9 @@ Event/alert aggregator and correlator: ingest alerts from monitoring systems, no
 into one canonical versioned event, publish them to outputs such as NATS, and correlate them into incidents
 worked in a Flutter web console. Built on Dart, Serverpod and PostgreSQL.
 
-**Status:** M1 rebuild in progress. Canonical events, durable Alertmanager ingestion/processing,
-alert-state/live-console, signed webhook output and the NATS JetStream output are implemented.
-Milestone acceptance remains separate; see `openspec/roadmap.md` and `docs/plan/`.
+**Status:** M1 (Walking skeleton) is complete. M2 (Icinga2, Thanos and the ingest track) is in
+progress, with changes 1–4 merged. See the [roadmap](openspec/roadmap.md) for the remaining changes
+and milestone exit criteria.
 
 For an illustrated walkthrough of the implemented alert lifecycle, open
 [`docs/project-preview.html`](docs/project-preview.html) in a browser (self-contained, offline).
