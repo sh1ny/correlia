@@ -74,6 +74,9 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
   check?.call();
   if (!matched) return null;
   final labels = <String, String>{};
+  // The `extract` action that wrote each label still holding its capture, so
+  // a capture the patch validation rejects is reported against its action.
+  final extracted = <String, int>{};
   final links = <EventLink>[];
   final routes = <String>{};
   EventSeverity? severity;
@@ -82,9 +85,11 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
     switch (action) {
       case MatcherLabel(:final key, :final value):
         labels[key] = value;
+        extracted.remove(key);
         onAction?.call(index, MatcherActionEffect.staged, null);
       case MatcherClassify(:final value):
         labels[reservedNoiseKey] = value.name;
+        extracted.remove(reservedNoiseKey);
         onAction?.call(index, MatcherActionEffect.staged, null);
       case MatcherRoute(:final outputId):
         routes.add(outputId);
@@ -125,7 +130,10 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
           );
           rethrow;
         }
-        if (value != null) labels[key] = value;
+        if (value != null) {
+          labels[key] = value;
+          extracted[key] = index;
+        }
         onAction?.call(
           index,
           value == null
@@ -143,9 +151,13 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
         for (final entry in entries) {
           if (entry.hostname == input ||
               entry.network?.contains(input) == true) {
-            if (entry.site case final site?) labels['site'] = site;
+            if (entry.site case final site?) {
+              labels['site'] = site;
+              extracted.remove('site');
+            }
             if (entry.environment case final environment?) {
               labels['environment'] = environment;
+              extracted.remove('environment');
             }
             found = true;
             break;
@@ -185,7 +197,18 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
   if (severity != null) {
     projection['severity'] = 'EVENT_SEVERITY_${severity.name.toUpperCase()}';
   }
-  final event = CanonicalEvent.fromJson(projection);
+  final CanonicalEvent event;
+  try {
+    event = CanonicalEvent.fromJson(projection);
+  } on EventValidationError catch (error) {
+    final key = error.path.startsWith('labels.')
+        ? error.path.substring('labels.'.length)
+        : null;
+    if (extracted[key] case final index?) {
+      onAction?.call(index, MatcherActionEffect.failed, error.code);
+    }
+    rethrow;
+  }
   check?.call();
   return (event: event, routes: routes);
 }

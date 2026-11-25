@@ -129,15 +129,18 @@ Future<int> runSimulate(
       draftMatcher: draft,
     );
   } on Exception catch (e) {
-    err.writeln('error: the simulate call failed: $e');
+    _EscapingSink(err).writeln('error: the simulate call failed: $e');
     return simulationFailedExit;
   }
   if (results.flag('json')) {
     out.writeln(const JsonEncoder.withIndent('  ').convert(result.toJson()));
   }
   if (result.error case final error?) {
-    err.writeln('error: ${error.code}');
-    if (error.field case final field?) err.writeln('field: $field');
+    // The field can name an attribute of the submitted event, so it is
+    // escaped like the trace.
+    final diagnostics = _EscapingSink(err);
+    diagnostics.writeln('error: ${error.code}');
+    if (error.field case final field?) diagnostics.writeln('field: $field');
     return simulationFailedExit;
   }
   if (!results.flag('json')) writeTrace(result, out);

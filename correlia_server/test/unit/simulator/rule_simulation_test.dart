@@ -492,6 +492,12 @@ void main() {
     expect(broken.failureCode, isNotNull);
     expect(broken.failureCode, isNot('matcher_cutoff'));
     expect(broken.actions.map((a) => a.applied), [false, false]);
+    // The oversized capture is the action that failed, with the rule's code.
+    expect(broken.actions.map((a) => a.effect), [
+      'staged',
+      'failed: ${broken.failureCode}',
+    ]);
+    expect(broken.actions[1].detail, 'long');
     expect(result.trace[1].outcome, 'matched');
     expect(result.finalLabels, containsPair('kept', 'y'));
     expect(result.finalLabels, isNot(contains('staged')));

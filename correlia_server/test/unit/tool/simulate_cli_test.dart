@@ -317,6 +317,26 @@ void main() {
     }
   });
 
+  test('a rejected event cannot forge a diagnostic line', () async {
+    // The field of an unknown-attribute rejection is the submitted name.
+    final h = _Harness(
+      _result(
+        error: rpc.SimulationError(
+          code: 'unknown_attribute',
+          field: 'x\nerror: forged\x1b[2J',
+        ),
+      ),
+    );
+    expect(
+      await h.run(['--event', 'e.json'], files: {'e.json': '{}'}),
+      1,
+    );
+    final text = h.err.toString();
+    expect(text.split('\n'), isNot(contains('error: forged')));
+    expect(text, isNot(contains('\x1b')));
+    expect(text, contains(r'field: x\nerror: forged\u{1b}[2J'));
+  });
+
   test('a thrown call failure exits 1 with the message', () async {
     final err = StringBuffer();
     final code = await runSimulate(
