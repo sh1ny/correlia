@@ -290,9 +290,9 @@ D1 to D6 were query enrichment decisions; they moved with S9 (see "Handed to que
 | S4 | Kind ownership | Decoders own kind | Rules reclassify kind | low | yes | user |
 | S5 | Simulation side effects | None | Rolled-back transaction | low | no | agent |
 | S6 | Out of scope | Console UI, other simulators, query enrichment, kind change | n/a | low | no | agent |
-| S7 | End-to-end demo | Moved to M2 change 7, `enrichment-demo`, with hand-off | Fix here (round 11) | low | yes | user |
+| S7 | End-to-end demo | Last M2 change (9), `enrichment-demo`, with hand-off; tests all of M2 | Fix here (round 11) | low | yes | user |
 | S8 | Where results are observed | Simulator CLI here; console and NATS in the demo change | Console detail panel | low | yes | user |
-| S9 | Query enrichment | Own M2 change (now 8), with hand-off | Round 6 here; override | low | yes | user |
+| S9 | Query enrichment | Own M2 change (now 7), with hand-off | Round 6 here; override | low | yes | user |
 | D7 | Explained evaluation | Shared short-circuit flow, trace only in simulator | Full-visit evaluator | low | no | agent |
 | D8 | Simulator API | Typed Serverpod models | JSON string | medium | yes | user |
 | D9 | Stored event input | ID + observed_at (+ disposition), re-decode raw, member by stored fields | ID + index; ID + scan; strip payload | low | yes | user |
@@ -442,7 +442,7 @@ sequenceDiagram
 
 ## Handed to query-enrichment
 
-The owner moved query enrichment to its own M2 change, `query-enrichment`, now change 8 (S9). Its design starts from these
+The owner moved query enrichment to its own M2 change, `query-enrichment`, now change 7 (S9). Its design starts from these
 decisions, already taken by the owner on 2026-11-25:
 
 - A matcher action `query` (chosen by the owner during this change's planning, before the split, in
@@ -484,8 +484,9 @@ None.
 
 ## Handed to enrichment-demo
 
-After design-review round 10 the owner moved the simulated end-to-end demo to M2 change 7,
-`enrichment-demo` (S7). Rounds 6 to 10 kept finding process-lifecycle edges in it while the simulator
+After design-review round 10 the owner moved the simulated end-to-end demo to its own M2 change,
+`enrichment-demo` (S7), and during apply moved it to the end of M2 (change 9), so that one run tests all
+of M2's functionality, query enrichment and dead letters included. Rounds 6 to 10 kept finding process-lifecycle edges in it while the simulator
 and classification converged. The demo change starts from these decisions, taken by the owner on
 2026-11-25:
 

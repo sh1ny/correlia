@@ -23,7 +23,7 @@ This change advances two M2 exit criteria:
 - **The owner checks enriched events from a day of real traffic (user):** the simulator is how the
   owner checks why an event was or was not enriched. That criterion is judged at the milestone close,
   because only the whole ingest track can be run for a day. Before that, the owner runs the fully
-  simulated end-to-end demo of the next change, `enrichment-demo` (S7). Here the owner can trace any
+  simulated end-to-end demo of the milestone's last change, `enrichment-demo` (S7). Here the owner can trace any
   stored event with the simulator command line (S8).
 
 ## What Changes
@@ -50,10 +50,10 @@ This change advances two M2 exit criteria:
 - **Docs.** `docs/ingest-pipeline.md` gains executable examples for rule priority, labels and topology,
   plus sections on the simulator and classification. The RUL-1 test runs the documented examples.
 - **Simulator command line.** `tool/simulate.dart` prints a trace for a pasted or stored event.
-- **Roadmap.** M2 gains change 7, `enrichment-demo`, and change 8, `query-enrichment`, each with the
+- **Roadmap.** M2 gains change 7, `query-enrichment`, and change 9, `enrichment-demo`, each with the
   decisions already taken and the open review findings handed over (design, "Handed to
   enrichment-demo" and "Handed to query-enrichment"); `dead-letters-backpressure-and-retention`
-  becomes change 9.
+  becomes change 8. The demo comes last so that it tests all of M2.
 
 ## Capabilities
 
@@ -71,7 +71,7 @@ This change advances two M2 exit criteria:
 - `matcher-rules`: the action set gains `classify`, validation covers the reserved label, and condition
   evaluation keeps short-circuiting with an explaining variant.
 - `durable-pipeline`: the decode requirement names the dead-letters change instead of "change 7",
-  since change 7 is now `enrichment-demo`.
+  since change 7 is now `query-enrichment`.
 
 ## Impact
 
@@ -147,13 +147,15 @@ DECISION_MAKING: important
 ### S7: Fully simulated end-to-end demo moves to its own change
 
 - **Choice:** the reusable `mise run demo:enrichment` task the owner asked for (a fully simulated test
-  with expected results) becomes M2 change 7, `enrichment-demo`, right after this change. Its settled
-  decisions and the open findings of review round 10 are in design.md ("Handed to enrichment-demo").
+  with expected results) becomes `enrichment-demo`, the last M2 change (change 9), so that it tests
+  all of M2's functionality, query enrichment and dead letters included. Its settled decisions and the
+  open findings of review round 10 are in design.md ("Handed to enrichment-demo").
 - **Rejected:** fixing round 10's demo findings here and running round 11 (rounds 6 to 10 each found
   new process-lifecycle edges in the demo); a demo without cleanup or parent-death handling.
 - **Reversal cost:** low (planning only).
 - **Important:** yes, it changes the roadmap and what the owner can run after this change.
-- **Chosen by:** user (asked for the demo on 2026-11-25; moved it after review round 10, 2026-11-25)
+- **Chosen by:** user (asked for the demo on 2026-11-25; moved it after review round 10, 2026-11-25;
+  moved it to the end of M2 during apply, 2026-11-25)
 
 ### S8: Where results are observed
 
@@ -168,7 +170,7 @@ DECISION_MAKING: important
 ### S9: Query enrichment moves to its own change
 
 - **Choice:** the Prometheus/Thanos query enricher becomes its own M2 change, `query-enrichment` (now
-  change 8, after `enrichment-demo`). Its settled decisions and the open findings listed in design.md ("Handed to
+  change 7, right after this change). Its settled decisions and the open findings listed in design.md ("Handed to
   query-enrichment") are handed over.
 - **Rejected:** fixing round 5's findings here and running a sixth round (each round found new edges in
   the leased processing path); overriding the review.
