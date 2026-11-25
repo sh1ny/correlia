@@ -106,8 +106,8 @@ simulator, and failures are visible and replayable.
 
 **Features:**
 - **Icinga2:**
-  - webhook (notification command) and Event Streams API consumer (`CheckResult`, `StateChange`,
-    `AcknowledgementSet/Cleared`, `DowntimeStarted/Removed`, `Flapping`);
+  - webhook (notification command) and Event Streams API consumer (`StateChange`,
+    `AcknowledgementSet`, `AcknowledgementCleared`, `DowntimeStarted`, `DowntimeRemoved`, `Flapping`);
   - state sync on startup (pull);
   - soft vs hard state policy per source.
 - **Thanos:** Ruler via the Alertmanager decoder; tenant headers; documented setup.
