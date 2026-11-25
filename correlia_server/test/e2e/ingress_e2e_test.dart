@@ -75,7 +75,10 @@ Future<void> _withServer(
     await child.waitUntilReady();
     connection = await pg.Connection.open(
       pg.Endpoint(
-        host: database.socketPath,
+        host: socketHostFor(
+          database.socketPath,
+          workingDirectory: Directory.current.path,
+        ),
         port: database.port,
         database: database.name,
         username: 'postgres',
