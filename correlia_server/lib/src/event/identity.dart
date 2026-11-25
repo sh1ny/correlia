@@ -150,9 +150,20 @@ Map<String, IdentityComponent> identityComponents(Map<String, String> values) {
       values.length > _identityCount.max!) {
     throw const EventFieldError('identity_fields', 'invalid_count');
   }
-  var total = 0;
-  final encoded = <(String, String, Uint8List)>[];
+  final fields = IdentityFieldsBuilder();
   for (final MapEntry(:key, :value) in values.entries) {
+    fields.add(key, value);
+  }
+  return fields.finish();
+}
+
+/// Validates and budgets original identity values before hashing them.
+final class IdentityFieldsBuilder {
+  var _total = 0;
+  final _encoded = <(String, String, Uint8List)>[];
+
+  /// Validates one pair before retaining its original bytes.
+  void add(String key, String value) {
     validateText(
       key,
       'identity_fields.key',
@@ -171,24 +182,26 @@ Map<String, IdentityComponent> identityComponents(Map<String, String> values) {
       max: _maxOriginalIdentityBytes,
     );
     final bytes = utf8.encode(value);
-    total += utf8.encode(key).length + bytes.length;
-    if (total > _maxOriginalIdentityBytes) {
+    final nextTotal = _total + utf8.encode(key).length + bytes.length;
+    if (nextTotal > _maxOriginalIdentityBytes) {
       throw const EventFieldError('identity_fields', 'too_large');
     }
-    encoded.add((key, value, bytes));
+    _total = nextTotal;
+    _encoded.add((key, value, bytes));
   }
-  final result = <String, IdentityComponent>{};
-  for (final (key, value, bytes) in encoded) {
-    result[key] = bytes.length <= _inlineLength.max!
-        ? IdentityComponent._(value, null)
-        : IdentityComponent._(
-            null,
-            Uint8List.fromList(
-              sha256.convert(bytes).bytes,
-            ).asUnmodifiableView(),
-          );
-  }
-  return Map.unmodifiable(result);
+
+  /// Returns the canonical components for the validated pairs.
+  Map<String, IdentityComponent> finish() => Map.unmodifiable({
+    for (final (key, value, bytes) in _encoded)
+      key: bytes.length <= _inlineLength.max!
+          ? IdentityComponent._(value, null)
+          : IdentityComponent._(
+              null,
+              Uint8List.fromList(
+                sha256.convert(bytes).bytes,
+              ).asUnmodifiableView(),
+            ),
+  });
 }
 
 /// Selects Alertmanager labels after validating all labels and explicit exclusions.

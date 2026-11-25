@@ -15,4 +15,4 @@ export 'src/event/canonical_event.dart'
         EventEnrichmentError,
         normalizeDisplayText;
 export 'src/event/cloud_event.dart' show CloudEvent;
-export 'src/event/identity.dart';
+export 'src/event/identity.dart' hide IdentityFieldsBuilder;

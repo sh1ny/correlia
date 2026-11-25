@@ -56,3 +56,12 @@ findings. All three required changes were applied: retain diagnostic path
 bounds and test the `/*` boundary in both modes; cite the alert-state write
 and PostgreSQL text column; carry the summary-only exception to the durable
 spec and prove NUL is preserved in copied labels and descriptions.
+
+## Pre-ship review cap exception
+
+The owner confirmed keeping the narrow event-subject migration (`a53a6f9`)
+so copied display text remains verbatim in canonical events. The owner
+authorized one additional fix-and-review round, the fifth pre-ship review,
+for the three outstanding P1s: step-11 upgrade assertions, mapped identity
+error pointers, and exact decimal lookup of large JSON integers. No finding
+is waived. Stop for an owner decision if the fifth review finds anything new.

@@ -45,7 +45,7 @@ final class _GenericDecoder {
   int? _index;
 
   DecodedBatch decode() {
-    final Object? body;
+    Object? body;
     final String text;
     try {
       checkBodyDepth(request.bytes);
@@ -56,7 +56,7 @@ final class _GenericDecoder {
     } on EventFieldError catch (error) {
       throw EventPointerError(const [], error.code);
     }
-    _DuplicateScan(text).value();
+    body = _JsonLexemes(text).value(body);
     final alerts = <CanonicalEvent>[];
     final covered = _Coverage.from(mapping.alertPointers);
     final source = SourceContext(
@@ -108,14 +108,23 @@ final class _GenericDecoder {
       return null;
     }
     final firstError = collector?.errorCount;
-    final identity = <String, String>{};
-    for (final MapEntry(:key, :value) in mapping.identity.entries) {
-      final field = _field(alert, value, (value) {
+    final identity = IdentityFieldsBuilder();
+    var identityBudgetExceeded = false;
+    for (final MapEntry(key: name, value: pointer)
+        in mapping.identity.entries) {
+      try {
+        final value = _select(alert, pointer);
         if (value == null) throw const EventFieldError('', 'required');
         if (value is! String) throw const EventFieldError('', 'identity_type');
-        return value;
-      });
-      if (field != null) identity[key] = field;
+        identity.add(name, value);
+      } on EventFieldError catch (error) {
+        if (error.path == 'identity_fields') {
+          if (!identityBudgetExceeded) _fail(error);
+          identityBudgetExceeded = true;
+        } else {
+          _pointerError(alert, pointer, error.code);
+        }
+      }
     }
     final observation = switch (mapping.observationId) {
       final GenericPointer pointer => _field(alert, pointer, (value) {
@@ -180,7 +189,7 @@ final class _GenericDecoder {
         severity: severity!,
         summary: summary!,
         description: description,
-        identityFields: identityComponents(identity),
+        identityFields: identity.finish(),
         observationKey:
             observation ??
             ObservationKey.fallback(
@@ -216,12 +225,16 @@ final class _GenericDecoder {
     try {
       return parse(_select(alert, pointer));
     } on EventFieldError catch (error) {
-      _fail(
-        EventPointerError([..._path, ..._traced(alert, pointer)], error.code),
-      );
+      _pointerError(alert, pointer, error.code);
       return null;
     }
   }
+
+  void _pointerError(
+    Map<String, Object?> alert,
+    GenericPointer pointer,
+    String code,
+  ) => _fail(EventPointerError([..._path, ..._traced(alert, pointer)], code));
 
   T? _state<T extends Enum>(
     Map<String, Object?> alert,
@@ -233,6 +246,7 @@ final class _GenericDecoder {
         final key = switch (value) {
           String() => value,
           int() => value.toString(),
+          _LargeJsonInteger(:final decimal) => decimal,
           null => throw const EventFieldError('', 'required'),
           _ => throw const EventFieldError('', 'invalid_type'),
         };
@@ -313,6 +327,7 @@ final class _GenericDecoder {
 
 String? _text(Object? value) => switch (value) {
   String() => value,
+  _LargeJsonInteger(:final decimal) => decimal,
   num() when value.isFinite => jsonEncode(value),
   bool() => jsonEncode(value),
   null => null,
@@ -411,10 +426,10 @@ final class _Coverage {
   var terminal = false;
 }
 
-// jsonDecode verifies syntax before this lexical pass; all it loses is member
-// multiplicity. A stack keeps object keys and array indexes distinguishable.
-final class _DuplicateScan {
-  _DuplicateScan(this.text);
+// Syntax has already been validated. Check duplicate names and recover exact
+// decimal integers where jsonDecode had to represent them as doubles.
+final class _JsonLexemes {
+  _JsonLexemes(this.text);
   final String text;
   final path = <EventPointerSegment>[];
   var offset = 0;
@@ -442,15 +457,18 @@ final class _DuplicateScan {
     }
   }
 
-  void value() {
+  Object? value(Object? decoded) {
     _space();
     switch (text.codeUnitAt(offset)) {
       case 0x7b:
+        // Before we encounter a duplicate key, the stored value may be
+        // from its later occurrence and have an entirely different shape.
+        final object = decoded is Map<String, Object?> ? decoded : null;
         offset++;
         _space();
         if (text.codeUnitAt(offset) == 0x7d) {
           offset++;
-          return;
+          return object;
         }
         final keys = <String>{};
         while (true) {
@@ -459,36 +477,60 @@ final class _DuplicateScan {
           if (!keys.add(key)) throw EventPointerError(path, 'duplicate_field');
           _space();
           offset++; // Colon.
-          value();
+          final previous = object?[key];
+          final exact = value(previous);
+          if (object != null && !identical(exact, previous)) {
+            object[key] = exact;
+          }
           path.removeLast();
           _space();
-          if (text.codeUnitAt(offset++) == 0x7d) return;
+          if (text.codeUnitAt(offset++) == 0x7d) return object;
           _space();
         }
       case 0x5b:
+        final array = decoded is List<Object?> ? decoded : null;
         offset++;
         _space();
         if (text.codeUnitAt(offset) == 0x5d) {
           offset++;
-          return;
+          return array;
         }
         for (var index = 0; ; index++) {
           path.add((token: '$index', arrayIndex: true));
-          value();
+          if (array != null && index < array.length) {
+            final previous = array[index];
+            final exact = value(previous);
+            if (!identical(exact, previous)) array[index] = exact;
+          } else {
+            value(null);
+          }
           path.removeLast();
           _space();
-          if (text.codeUnitAt(offset++) == 0x5d) return;
+          if (text.codeUnitAt(offset++) == 0x5d) return array;
         }
       case 0x22:
         _string(member: false);
+        return decoded;
       default:
+        final start = offset;
+        var integer = decoded is double;
         while (offset < text.length) {
           final byte = text.codeUnitAt(offset);
           if (byte <= 0x20 || byte == 0x2c || byte == 0x5d || byte == 0x7d) {
-            return;
+            break;
           }
+          if (byte == 0x2e || byte == 0x65 || byte == 0x45) integer = false;
           offset++;
         }
+        if (!integer) return decoded;
+        final decimal = text.substring(start, offset);
+        return decimal == '-0' ? 0 : _LargeJsonInteger(decimal);
     }
   }
+}
+
+final class _LargeJsonInteger {
+  const _LargeJsonInteger(this.decimal);
+
+  final String decimal;
 }

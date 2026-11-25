@@ -86,6 +86,15 @@ void main() {
     expect(preview.events, isEmpty);
     expect(preview.diagnostics.single.path, '/labels/host');
     expect(preview.diagnostics.single.code, 'duplicate_field');
+    for (final duplicate in [
+      '{"labels":{"host":9223372036854775809},"labels":null,${payload.substring(1)}',
+      '{"labels":[0,9223372036854775809],"labels":[1],${payload.substring(1)}',
+    ]) {
+      expect(
+        () => decodeGeneric(_request(duplicate), mapping),
+        _error('duplicate_field', ['labels']),
+      );
+    }
   });
 
   test('three_alerts_in_one_delivery', () {
@@ -165,6 +174,68 @@ void main() {
       ),
       _error('required', ['1', 'changeId']),
     );
+  });
+
+  test(
+    'invalid_identity_value_keeps_pointer_alongside_other_preview_errors',
+    () {
+      final mapping = GenericMapping.parse({
+        ...checkMapping(),
+        'identity': {'host': '/labels/host'},
+      });
+      final request = _request(
+        r'{"labels":{"host":"\ud800"},"time":"2026-11-24T05:20:00Z",'
+        r'"state":"other","summary":"Unavailable"}',
+      );
+      expect(
+        () => decodeGeneric(request, mapping),
+        _error('invalid_unicode', ['labels', 'host']),
+      );
+      final preview = previewGeneric(request, mapping);
+      expect(preview.events, isEmpty);
+      expect(preview.diagnostics.map((d) => (d.path, d.code)), [
+        ('/labels/host', 'invalid_unicode'),
+        ('/state', 'unlisted_value'),
+      ]);
+    },
+  );
+
+  test('value_tables_use_exact_large_decimal_integer_keys', () {
+    const positive = '9223372036854775809';
+    const negative = '-9223372036854775809';
+    final mapping = GenericMapping.parse({
+      ...checkMapping(),
+      'status': {
+        'pointer': '/check/status',
+        'values': {
+          positive: 'resolved',
+          '9223372036854775808': 'info',
+          '-0': 'info',
+          '0': 'firing',
+        },
+      },
+      'severity': {
+        'pointer': '/check/levels/0',
+        'values': {negative: 'warning'},
+      },
+    });
+    DecodeRequest request(String token) => _request(
+      '{"host":"api","time":"$_time","summary":"Unavailable",'
+      '"check":{"status":$token,"levels":[$negative]}}',
+    );
+    final event = decodeGeneric(request(positive), mapping).events.single;
+    expect(event.status, EventStatus.resolved);
+    expect(event.severity, EventSeverity.warning);
+    expect(
+      decodeGeneric(request('-0'), mapping).events.single.status,
+      EventStatus.firing,
+    );
+    for (final token in ['$positive.0', '9223372036854775809e0']) {
+      expect(
+        () => decodeGeneric(request(token), mapping),
+        _error('invalid_type', ['check', 'status']),
+      );
+    }
   });
 
   test('mapped_status_and_severity', () {

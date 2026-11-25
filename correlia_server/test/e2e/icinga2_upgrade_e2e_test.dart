@@ -187,6 +187,10 @@ Future<List<int>> _versions(Connection connection) async => [
     row[0]! as int,
 ];
 
+List<int> get _currentVersions => [
+  for (final step in schemaSteps) step.version,
+];
+
 /// How long a lock request of another backend of [observer]'s database waits
 /// before it is no longer waiting: from when it is first seen ungranted in
 /// `pg_locks` until it is gone.
@@ -253,7 +257,7 @@ void main() {
         await blocker.execute('ROLLBACK');
         final restarted = await upgrade.start();
         await restarted.waitUntilReady();
-        expect(await _versions(connection), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+        expect(await _versions(connection), _currentVersions);
       } finally {
         await upgrade.dispose();
       }
@@ -281,7 +285,7 @@ void main() {
         await other.execute('ROLLBACK');
         final restarted = await upgrade.start();
         await restarted.waitUntilReady();
-        expect(await _versions(connection), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+        expect(await _versions(connection), _currentVersions);
       } finally {
         await upgrade.dispose();
       }
@@ -335,7 +339,7 @@ void main() {
         final upgraded = await upgrade.start();
         await upgraded.waitUntilReady();
         await upgrade.deliveries(2);
-        expect(await _versions(connection), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+        expect(await _versions(connection), _currentVersions);
         final raws = await connection.execute(
           'SELECT status FROM raw_inbox',
         );
