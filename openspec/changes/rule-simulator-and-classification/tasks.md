@@ -38,8 +38,8 @@
 | matcher-rules → Classify action | Rollback to pre-change content that writes the reserved key | `correlia_server/test/db/matcher_reserved_label_test.dart` | `rollback_to_pre_change_content_that_writes_the_reserved_key` | red |
 | matcher-rules → Classify action | Pinned pre-change snapshot keeps running | `correlia_server/test/db/matcher_reserved_label_test.dart` | `pinned_pre_change_snapshot_keeps_running` | red |
 | matcher-rules → Classify action | Malformed classify action | `correlia_server/test/unit/matcher/classify_test.dart` | `malformed_classify_action` | red |
-| matcher-rules → Short-circuit evaluation is preserved | A decisive any skips a slow regex | `correlia_server/test/unit/matcher/explain_test.dart` | `a_decisive_any_skips_a_slow_regex` | red |
-| matcher-rules → Short-circuit evaluation is preserved | A decisive all skips a slow regex | `correlia_server/test/unit/matcher/explain_test.dart` | `a_decisive_all_skips_a_slow_regex` | red |
+| matcher-rules → Short-circuit evaluation is preserved | A decisive any skips a slow regex | `correlia_server/test/unit/matcher/explain_test.dart` | `a_decisive_any_skips_a_slow_regex` | green |
+| matcher-rules → Short-circuit evaluation is preserved | A decisive all skips a slow regex | `correlia_server/test/unit/matcher/explain_test.dart` | `a_decisive_all_skips_a_slow_regex` | green |
 | rule-simulator → Simulate one event against active or draft rules | Simulate a pasted event against the active rules | `correlia_server/test/db/rule_simulator_test.dart` | `simulate_a_pasted_event_against_the_active_rules` | red |
 | rule-simulator → Simulate one event against active or draft rules | Simulate a stored event against a draft | `correlia_server/test/db/rule_simulator_test.dart` | `simulate_a_stored_event_against_a_draft` | red |
 | rule-simulator → Simulate one event against active or draft rules | Future-dated row and its later ready row | `correlia_server/test/db/rule_simulator_test.dart` | `future_dated_row_and_its_later_ready_row` | red |
@@ -59,10 +59,10 @@
 | rule-simulator → Stored event keys and members | Malformed observed_at | `correlia_server/test/unit/simulator/rule_simulation_test.dart` | `malformed_observed_at` | red |
 | rule-simulator → Stored event keys and members | Kept member cannot be identified | `correlia_server/test/db/rule_simulator_test.dart` | `kept_member_cannot_be_identified` | red |
 | rule-simulator → Stored event keys and members | Members differ only in an excluded label | `correlia_server/test/db/rule_simulator_test.dart` | `members_differ_only_in_an_excluded_label` | red |
-| rule-simulator → Explain every rule and condition decision | RUL-2 missing field is visible | `correlia_server/test/unit/matcher/explain_test.dart` | `rul_2_missing_field_is_visible` | red |
-| rule-simulator → Explain every rule and condition decision | Missing field under not | `correlia_server/test/unit/matcher/explain_test.dart` | `missing_field_under_not` | red |
+| rule-simulator → Explain every rule and condition decision | RUL-2 missing field is visible | `correlia_server/test/unit/matcher/explain_test.dart` | `rul_2_missing_field_is_visible` | green |
+| rule-simulator → Explain every rule and condition decision | Missing field under not | `correlia_server/test/unit/matcher/explain_test.dart` | `missing_field_under_not` | green |
 | rule-simulator → Explain every rule and condition decision | Explicit null in a pasted event | `correlia_server/test/unit/simulator/rule_simulation_test.dart` | `explicit_null_in_a_pasted_event` | red |
-| rule-simulator → Explain every rule and condition decision | Short-circuited leaves are not evaluated | `correlia_server/test/unit/matcher/explain_test.dart` | `short_circuited_leaves_are_not_evaluated` | red |
+| rule-simulator → Explain every rule and condition decision | Short-circuited leaves are not evaluated | `correlia_server/test/unit/matcher/explain_test.dart` | `short_circuited_leaves_are_not_evaluated` | green |
 | rule-simulator → Explain every rule and condition decision | Regex leaf times out | `correlia_server/test/unit/simulator/rule_simulation_test.dart` | `regex_leaf_times_out` | red |
 | rule-simulator → Explain every rule and condition decision | Simulation reaches the optional cutoff | `correlia_server/test/unit/simulator/rule_simulation_test.dart` | `simulation_reaches_the_optional_cutoff` | red |
 | rule-simulator → Simulation results match the pipeline | RUL-1 documented examples produce the documented decisions | `correlia_server/test/unit/simulator/rul1_docs_test.dart` | `rul_1_documented_examples_produce_the_documented_decisions` | red |
@@ -115,8 +115,8 @@ Every `db` test names its tier with `testGroupTagsOverride`; fast tests carry no
 
 ## 5. Explaining evaluator (D7)
 
-- [ ] 5.1 Write failing tests in `correlia_server/test/unit/matcher/explain_test.dart` for the short-circuit, missing-field and `not` scenarios, including that a skipped regex child is never called. Verify: they fail because no explaining variant exists.
-- [ ] 5.2 Implement the explaining evaluation in `matcher_condition.dart` with the same short-circuit flow as `_Many`; the pipeline builds no trace. Verify: 5.1 tests pass and flip green; `matcher_pipeline_test.dart` passes unchanged.
+- [x] 5.1 Write failing tests in `correlia_server/test/unit/matcher/explain_test.dart` for the short-circuit, missing-field and `not` scenarios, including that a skipped regex child is never called. Verify: they fail because no explaining variant exists.
+- [x] 5.2 Implement the explaining evaluation in `matcher_condition.dart` with the same short-circuit flow as `_Many`; the pipeline builds no trace. Verify: 5.1 tests pass and flip green; `matcher_pipeline_test.dart` passes unchanged.
 
 ## 6. Rule simulator (D8-D10)
 
