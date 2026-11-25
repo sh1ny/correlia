@@ -40,4 +40,31 @@ void main() {
       worker.close();
     }
   }, timeout: const Timeout(Duration(minutes: 5)));
+
+  test('late reply cannot beat an overdue timer', () async {
+    var elapsed = Duration.zero;
+    var arms = 0;
+    final worker = MatcherRegexWorker(
+      elapsed: () => elapsed,
+      arm: (_, _) {
+        if (++arms == 2) elapsed = const Duration(milliseconds: 20);
+        return () {};
+      },
+    );
+    addTearDown(worker.close);
+    await expectLater(
+      worker.newRow(() => const Duration(minutes: 1)).matches('a', 'a'),
+      throwsA(
+        isA<MatcherRegexUnavailable>().having(
+          (e) => e.code,
+          'code',
+          'regex_timeout',
+        ),
+      ),
+    );
+    expect(
+      await worker.newRow(() => const Duration(minutes: 1)).matches('a', 'a'),
+      isTrue,
+    );
+  });
 }

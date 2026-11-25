@@ -250,59 +250,44 @@ VALUES (@observed, @id::uuid, @disposition, @observed, @id::uuid, @id::uuid,
         }
       });
 
-      test('cancellation is an error', () async {
-        final lockSession = builder.build();
-        final scanSession = builder.build();
-        final observer = builder.build();
-        await initializeIngestSchema(lockSession);
-        final acquired = Completer<void>();
-        final release = Completer<void>();
-        final lock = lockSession.db.transaction((tx) async {
-          await lockSession.db.unsafeSimpleExecute(
-            'LOCK TABLE events IN ACCESS EXCLUSIVE MODE',
-            transaction: tx,
-          );
-          acquired.complete();
-          await release.future;
-        });
-        try {
-          await acquired.future;
-          final filter = StoredMatcherFilter(
-            scanSession,
-            statementTimeout: const Duration(minutes: 3),
-          );
-          final start = DateTime.utc(2026, 11, 10);
-          var settled = false;
-          final outcome = expectLater(
-            filter.scan(
-              MatcherCondition.parse({'field': 'summary', 'op': 'exists'}),
-              start: start,
-              end: start.add(const Duration(hours: 1)),
-            ),
-            throwsA(isA<MatcherFilterCancelled>()),
-          ).whenComplete(() => settled = true);
-          while (!settled) {
-            final cancelled = await observer.db.unsafeQuery('''
-SELECT pg_cancel_backend(pid)
-FROM pg_locks
-WHERE relation = 'events'::regclass AND NOT granted
-  AND mode = 'AccessShareLock' AND database = (
-    SELECT oid FROM pg_database WHERE datname = current_database()
-  )
-''');
-            if (cancelled.isNotEmpty) {
-              expect(cancelled.single[0], isTrue);
-              await outcome;
-              return;
-            }
+      test(
+        'PostgreSQL cancels a scan when its statement budget expires',
+        () async {
+          final lockSession = builder.build();
+          final scanSession = builder.build();
+          await initializeIngestSchema(lockSession);
+          final acquired = Completer<void>();
+          final release = Completer<void>();
+          final lock = lockSession.db.transaction((tx) async {
+            await lockSession.db.unsafeSimpleExecute(
+              'LOCK TABLE events IN ACCESS EXCLUSIVE MODE',
+              transaction: tx,
+            );
+            acquired.complete();
+            await release.future;
+          });
+          try {
+            await acquired.future;
+            final filter = StoredMatcherFilter(
+              scanSession,
+              statementTimeout: const Duration(milliseconds: 100),
+            );
+            final start = DateTime.utc(2026, 11, 10);
+            await expectLater(
+              filter.scan(
+                MatcherCondition.parse({'field': 'summary', 'op': 'exists'}),
+                start: start,
+                end: start.add(const Duration(hours: 1)),
+              ),
+              throwsA(isA<MatcherFilterCancelled>()),
+            );
+          } finally {
+            release.complete();
+            await lock;
           }
-          await outcome;
-          fail('Filter settled before the observer canceled its lock wait');
-        } finally {
-          release.complete();
-          await lock;
-        }
-      }, timeout: const Timeout(Duration(minutes: 5)));
+        },
+        timeout: const Timeout(Duration(minutes: 5)),
+      );
     },
     testGroupTagsOverride: ['db'],
     rollbackDatabase: RollbackDatabase.disabled,

@@ -132,11 +132,17 @@ final class MatcherRegexWorker {
     if (!identical(_request, port)) {
       throw const MatcherRegexUnavailable('regex_worker_exit');
     }
+    final expiresAt = _now() + limit;
     final response = _response = Completer<Object?>();
     final cancel = _arm(limit, () => _reset('regex_timeout'));
     port.send((pattern, input, group));
     try {
-      return await response.future;
+      final value = await response.future;
+      if (_now() >= expiresAt) {
+        _reset('regex_timeout');
+        throw const MatcherRegexUnavailable('regex_timeout');
+      }
+      return value;
     } finally {
       cancel();
     }

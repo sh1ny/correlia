@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:correlia_server/event.dart';
 import 'package:correlia_server/src/ingest/bootstrap.dart';
@@ -614,6 +615,13 @@ VALUES (now(), '$newRaw', '$source', ''::bytea, 'none', 'application/json')
         final current = await repository.activeSnapshot();
         final revision = ((current?['revision'] as int?) ?? 0) + 1;
         final firstMatcher = _section();
+        const source = 'bbbbbbbb-bbbb-4bbb-8bbb-999999999999';
+        final now = DateTime.utc(2026, 11, 1);
+        final worker = PipelineRepository(
+          session,
+          clock: () => now,
+          elapsedForTest: () => Duration.zero,
+        );
         Future<IngestBootstrap> publish(
           int next,
           Object? expectation,
@@ -621,8 +629,23 @@ VALUES (now(), '$newRaw', '$source', ''::bytea, 'none', 'application/json')
         ) => repository.publishConfig(
           _config(next)
             ..['expected_active_snapshot'] = expectation
+            ..['sources'] = [
+              {
+                'id': source,
+                'kind': 'alertmanager',
+                'enabled': true,
+                'output_ids': <String>[],
+                'credentials': [
+                  {'type': 'bearer', 'ref': 'rollback-token'},
+                ],
+              },
+            ]
             ..['matcher'] = rules,
-          const <String, Object?>{},
+          {
+            'rollback-token': base64Url
+                .encode(List<int>.filled(32, 7))
+                .replaceAll('=', ''),
+          },
           runMode: 'test',
         );
         final first = await publish(
@@ -633,14 +656,29 @@ VALUES (now(), '$newRaw', '$source', ''::bytea, 'none', 'application/json')
         Future<String> pin(int number) async {
           final id =
               'bbbbbbbb-bbbb-4bbb-8bbb-${number.toString().padLeft(12, '0')}';
+          final body = utf8.encode(
+            jsonEncode(
+              payload.groupOf([
+                payload.alert(
+                  startsAt: now.toIso8601String(),
+                  labels: {'alertname': 'rollback-$number'},
+                ),
+              ]),
+            ),
+          );
           await session.db.unsafeExecute(
             '''
 INSERT INTO raw_inbox (observed_at, raw_id, source_id, body, body_sha256, content_type)
-VALUES (now(), @id::uuid, @id::uuid, ''::bytea, 'none', 'application/json')
+VALUES (@observed, @id::uuid, '$source', @body, @digest, 'application/json')
 ''',
-            parameters: QueryParameters.named({'id': id}),
+            parameters: QueryParameters.named({
+              'id': id,
+              'observed': now,
+              'body': body,
+              'digest': sha256.convert(body).toString(),
+            }),
           );
-          expect(await PipelineRepository(session).pinOne(), isTrue);
+          expect(await worker.pinOne(), isTrue);
           final rows = await session.db.unsafeQuery(
             'SELECT config_snapshot_id FROM raw_inbox WHERE raw_id=@id::uuid',
             parameters: QueryParameters.named({'id': id}),
@@ -684,6 +722,24 @@ WHERE raw_id::text LIKE 'bbbbbbbb-bbbb-4bbb-8bbb-%' ORDER BY raw_id
           second.snapshotId,
           rollback.snapshotId,
         ]);
+        for (var i = 0; i < 3; i++) {
+          expect(await worker.processOne(), isTrue);
+        }
+        final events = await session.db.unsafeQuery('''
+SELECT config_snapshot_id, payload FROM events WHERE source_id='$source' ORDER BY raw_id
+''');
+        expect(events.map((row) => row[0]), [
+          first.snapshotId,
+          second.snapshotId,
+          rollback.snapshotId,
+        ]);
+        expect(
+          events.map(
+            (row) =>
+                CloudEvent.decode(row[1] as Uint8List).event.labels['team'],
+          ),
+          ['ops', 'platform', 'ops'],
+        );
       });
     },
     rollbackDatabase: RollbackDatabase.disabled,
