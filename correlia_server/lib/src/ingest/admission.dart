@@ -8,7 +8,15 @@ import '../schema/ingest_records.dart';
 import 'bootstrap.dart';
 
 /// The committed result of a delivery admission.
-enum AdmissionOutcome { accepted, duplicate, conflict, unauthorized }
+enum AdmissionOutcome {
+  accepted,
+  duplicate,
+  conflict,
+  unauthorized,
+  inboxPressure,
+  storagePressure,
+  outputPressure,
+}
 
 /// Compares fixed-length credential digests without an early mismatch exit.
 bool constantTimeDigestEquals(String left, String right) {
@@ -26,6 +34,7 @@ final class IngestAdmission {
   const IngestAdmission(
     this.session, {
     this.window = const Duration(minutes: 10),
+    this.afterReservationConflictForTest,
   });
 
   /// The session used for database operations.
@@ -33,6 +42,9 @@ final class IngestAdmission {
 
   /// The non-sliding transport deduplication window.
   final Duration window;
+
+  /// Pauses after an existing transport reservation wins the insert.
+  final Future<void> Function()? afterReservationConflictForTest;
 
   /// Stores a delivery or returns its existing reservation's outcome.
   Future<AdmissionOutcome> admit({
@@ -106,16 +118,22 @@ final class IngestAdmission {
         'expires': observedAt.add(window),
         'raw': rawId,
       });
-      final inserted = await session.db.unsafeQuery(
-        '''INSERT INTO transport_keys
+      final reservation = await tx.createSavepoint();
+      Stopwatch? retryDeadline;
+      bool inserted;
+      while (true) {
+        inserted = (await session.db.unsafeQuery(
+          '''INSERT INTO transport_keys
 ("sourceId", "key", "bodySha256", "firstSeenAt", "expiresAt", "rawObservedAt", "rawId")
 VALUES (CAST(@source AS uuid), @key, @digest, @now, @expires, @now, CAST(@raw AS uuid))
 ON CONFLICT ("sourceId", "key") DO NOTHING RETURNING "key"''',
-        parameters: params,
-        transaction: tx,
-        timeoutInSeconds: 5,
-      );
-      if (inserted.isEmpty) {
+          parameters: params,
+          transaction: tx,
+          timeoutInSeconds: 5,
+        )).isNotEmpty;
+        if (inserted) break;
+        retryDeadline ??= Stopwatch()..start();
+        await afterReservationConflictForTest?.call();
         final existing = await session.db.unsafeQuery(
           '''SELECT "bodySha256", "expiresAt" FROM transport_keys
 WHERE "sourceId"=CAST(@source AS uuid) AND "key"=@key FOR UPDATE''',
@@ -123,12 +141,44 @@ WHERE "sourceId"=CAST(@source AS uuid) AND "key"=@key FOR UPDATE''',
           transaction: tx,
           timeoutInSeconds: 5,
         );
-        final row = existing.single;
-        if ((row[1] as DateTime).isAfter(observedAt)) {
-          return row[0] == digest
-              ? AdmissionOutcome.duplicate
-              : AdmissionOutcome.conflict;
+        if (existing.singleOrNull case final row?) {
+          if ((row[1] as DateTime).isAfter(observedAt)) {
+            return row[0] == digest
+                ? AdmissionOutcome.duplicate
+                : AdmissionOutcome.conflict;
+          }
+          break;
         }
+        // Maintenance may delete the expired winner after the insert lost.
+        if (retryDeadline.elapsed >= const Duration(seconds: 5)) {
+          throw StateError('Transport reservation deadline exceeded');
+        }
+      }
+      final pressure = (await session.db.unsafeQuery(
+        'SELECT correlia_reserve_raw(1)',
+        transaction: tx,
+        timeoutInSeconds: 5,
+      )).single[0];
+      if (pressure != null) {
+        await reservation.rollback();
+        // Keep the refresh outside the rolled-back reservation so other
+        // replicas can reuse the sample even while admission is closed.
+        if (pressure == 'storage') {
+          await session.db.unsafeQuery(
+            'SELECT correlia_disk_pressure()',
+            transaction: tx,
+            timeoutInSeconds: 5,
+          );
+        }
+        return switch (pressure) {
+          'inbox' => AdmissionOutcome.inboxPressure,
+          'storage' => AdmissionOutcome.storagePressure,
+          'output' => AdmissionOutcome.outputPressure,
+          _ => throw StateError('Unknown pressure code'),
+        };
+      }
+      await reservation.release();
+      if (!inserted) {
         await session.db.unsafeExecute(
           '''UPDATE transport_keys SET "bodySha256"=@digest,
 "firstSeenAt"=@now, "expiresAt"=@expires, "rawObservedAt"=@now, "rawId"=CAST(@raw AS uuid)

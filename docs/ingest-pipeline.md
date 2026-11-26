@@ -220,6 +220,40 @@ verifying the UTC range has no overlapping attached child and no rows in the def
 attaching an empty partition for just that range. Never detach the default child or move
 protected rows to make validation pass.
 
+## Shared pressure and queue policy
+
+In a format-version 2 configuration, `pipeline_operations` can override the following limits.
+Omitting the section or explicitly supplying the defaults leaves the canonical snapshot ID
+unchanged. Adjusting a budget does not change an output's definition digest.
+
+| Field | Default |
+|---|---:|
+| `pending_max_rows` | 50,000 |
+| `pending_max_age_seconds` | 30 |
+| `disk_budget_bytes` | Omitted: no disk watermark |
+| `disk_watermark_percent` | 85 |
+| `raw_retention_days` | 30 |
+| `event_retention_days` | 90 |
+| `outbox_retention_days` | 7 |
+| `dead_letter_retention_days` | 14 |
+
+`output_budgets` is an object keyed by UUIDs in the configured output registry. Each entry can
+set `max_rows` (default 500,000), `max_payload_bytes` (default 1 GiB) and `overflow_policy`
+(`discard_new` by default, or `block_ingest`). A blocking output must fit at least 1,000 intents
+and 16 MiB in an empty queue. The latest published policy applies by output ID, including to
+already-pinned work. Retiring an output keeps its last budget while it still has retained work.
+
+A new webhook gets `429` when inbox count or oldest pending age reaches its limit, or `503` at a
+configured disk watermark or blocking output. Both include `Retry-After` in whole seconds.
+Refused requests leave neither a raw row nor a transport reservation. A known exact retry keeps
+its prior acknowledgement, and a changed live idempotency key still returns `409`. Leased pulls
+pause on the same shared limits and retain their batch for retry. Queue limits complement the
+per-process request-rate limiter; they do not replace it.
+
+Disk pressure uses `pg_database_size(current_database())` with a shared one-second sample. It also
+causes `/readyz` to return `503` on `api` and `all`; `/livez` and `/startupz` do not depend on the
+watermark. This is a database budget, not a free-space check for the host or its WAL volume.
+
 ## Repair migrations
 
 Serverpod's repair diff may propose dropping SQL-owned objects it does not recognize. Review the

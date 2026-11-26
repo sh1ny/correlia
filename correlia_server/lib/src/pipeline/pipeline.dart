@@ -362,6 +362,16 @@ final class PipelineRepository {
     deadline.check();
   }
 
+  Future<void> _lockRawPin(Transaction tx, _Deadline deadline, _Raw raw) async {
+    await _limits(tx, deadline);
+    await session.db.unsafeQuery(
+      'SELECT correlia_lock_raw_pin(@pin,@source::uuid)',
+      parameters: QueryParameters.named({'pin': raw.pin, 'source': raw.source}),
+      transaction: tx,
+      timeoutInSeconds: 5,
+    );
+  }
+
   /// Commits one unpinned row's active snapshot before decoding or returning.
   Future<bool> pinOne() async {
     final deadline = _Deadline(elapsedForTest);
@@ -785,6 +795,7 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
                   (fanoutLimitForTest ?? pipelineFanoutLimit) - aggregate,
             );
           }
+          await _lockRawPin(tx, deadline, raw);
           for (final effect in retained) {
             deadline.check();
             final (
@@ -1027,6 +1038,7 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
     String code,
     String? path,
   ) async {
+    await _lockRawPin(tx, deadline, raw);
     await _limits(tx, deadline);
     await session.db.unsafeExecute(
       '''INSERT INTO pipeline_failures
@@ -1039,16 +1051,6 @@ VALUES (@observed,CAST(@raw AS uuid),@pin,@code,@path,@now)''',
         'code': code,
         'path': path,
         'now': clock().toUtc(),
-      }),
-      transaction: tx,
-      timeoutInSeconds: 5,
-    );
-    await _limits(tx, deadline);
-    await session.db.unsafeExecute(
-      "UPDATE raw_inbox SET status='failed',next_attempt_at=NULL WHERE observed_at=@observed AND raw_id=CAST(@raw AS uuid)",
-      parameters: QueryParameters.named({
-        'observed': raw.observed,
-        'raw': raw.id,
       }),
       transaction: tx,
       timeoutInSeconds: 5,
@@ -1072,6 +1074,16 @@ VALUES (@observed,CAST(@raw AS uuid),@pin,@code,@path,@now)''',
     if (failedSync.isNotEmpty) {
       await _finalizeSync(tx, deadline, failedSync.single[0]! as String);
     }
+    await _limits(tx, deadline);
+    await session.db.unsafeExecute(
+      "UPDATE raw_inbox SET status='failed',next_attempt_at=NULL WHERE observed_at=@observed AND raw_id=CAST(@raw AS uuid)",
+      parameters: QueryParameters.named({
+        'observed': raw.observed,
+        'raw': raw.id,
+      }),
+      transaction: tx,
+      timeoutInSeconds: 5,
+    );
     deadline.check();
   }
 

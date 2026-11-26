@@ -11,6 +11,7 @@ import '../event_generated/correlia/event/v1/event_bounds.dart';
 import '../matcher/matcher_document.dart';
 
 part 'generic_mapping.dart';
+part 'pipeline_policy.dart';
 part 'source_config.dart';
 
 /// A sanitized bootstrap rejection without operator-controlled values.
@@ -153,6 +154,7 @@ final class IngestBootstrap {
     List<IngestOutput> outputs,
     this.mappings,
     this.matcher,
+    this.pipelinePolicy,
     this.expectation,
     Map<String, Uint8List> secrets,
   ) : sources = List.unmodifiable(sources),
@@ -169,6 +171,9 @@ final class IngestBootstrap {
   /// Rules persisted with the source and output registry.
   final MatcherDocument matcher;
 
+  /// The versioned policy shared by workers, admission and maintenance.
+  final PipelinePolicy pipelinePolicy;
+
   /// The publication-only expectation, if the operator supplied one.
   final ({String? snapshotId})? expectation;
 
@@ -178,6 +183,7 @@ final class IngestBootstrap {
     this.outputs,
     this.mappings,
     this.matcher,
+    this.pipelinePolicy,
     this.expectation,
   ) : _secrets = const {};
 
@@ -188,6 +194,7 @@ final class IngestBootstrap {
     outputs,
     mappings,
     matcher,
+    pipelinePolicy,
     null,
   );
   final Map<String, Uint8List> _secrets;
@@ -210,6 +217,8 @@ final class IngestBootstrap {
     if (mappings.isNotEmpty)
       'mappings': [for (final mapping in mappings.values) mapping.toJson()],
     if (matcher.rules.isNotEmpty) 'matcher': _canonical(matcher.snapshotJson),
+    if (pipelinePolicy.snapshotJson() case final policy when policy.isNotEmpty)
+      'pipeline_operations': policy,
   });
 
   /// The content address, including revision but never secret bytes.
@@ -269,6 +278,7 @@ final class IngestBootstrap {
           'mappings',
           'matcher',
           'expected_active_snapshot',
+          'pipeline_operations',
         },
       }, r'$');
       final revision = _integer(root['revision'], 1, 2147483647, 'revision');
@@ -401,6 +411,9 @@ final class IngestBootstrap {
       final matcher = root.containsKey('matcher')
           ? MatcherDocument.parse(root['matcher'], outputIds)
           : MatcherDocument.empty;
+      final policy = root.containsKey('pipeline_operations')
+          ? PipelinePolicy._parse(root['pipeline_operations'], outputIds)
+          : PipelinePolicy._defaults;
       final expected = root['expected_active_snapshot'];
       if (expected != null &&
           (expected is! String ||
@@ -413,6 +426,7 @@ final class IngestBootstrap {
         outputs,
         mappings,
         matcher,
+        policy,
         root.containsKey('expected_active_snapshot')
             ? (snapshotId: expected as String?)
             : null,

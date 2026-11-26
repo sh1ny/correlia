@@ -38,3 +38,31 @@ final class CorreliaStartupIndicator extends HealthIndicator<bool> {
               : 'shutdown callback is not registered yet',
         );
 }
+
+/// Checks the shared disk watermark without affecting liveness or startup.
+final class CorreliaStorageIndicator extends HealthIndicator<bool> {
+  /// Uses the same sampled condition as webhook and pull admission.
+  const CorreliaStorageIndicator(this._underPressure);
+
+  final Future<bool> Function() _underPressure;
+
+  @override
+  String get name => 'correlia:storage';
+
+  @override
+  Future<HealthCheckResult> check() async {
+    try {
+      return await _underPressure()
+          ? fail(
+              observedValue: false,
+              output: 'database storage watermark reached',
+            )
+          : pass(observedValue: true);
+    } catch (_) {
+      return fail(
+        observedValue: false,
+        output: 'database storage sample unavailable',
+      );
+    }
+  }
+}

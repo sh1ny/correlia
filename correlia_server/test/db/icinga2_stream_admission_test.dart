@@ -745,7 +745,14 @@ void main() {
           parameters: {'source': icinga2DbSourceId, 'limit': 101},
         );
         final text = plan.map((row) => row[0]).join('\n');
-        expect(text, contains('raw_stream_retained_idx'));
+        final leafIndexes = await db.execute('''
+          SELECT inhrelid::regclass::text FROM pg_inherits
+          WHERE inhparent='raw_stream_retained_idx'::regclass
+        ''');
+        expect(
+          leafIndexes.any((row) => text.contains(row[0]! as String)),
+          isTrue,
+        );
         expect(text, contains('Index Cond'));
       });
     },

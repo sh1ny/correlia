@@ -184,6 +184,9 @@ run in every role unless they are switched off:
     reserved-label check is one primary-key probe (ADR 0034).
   - `pipeline_icinga2_replay_floor`: receipt floor captured from the old admission cutoff at the M2
     cutover; earlier pre-upgrade Icinga2 replay cannot recreate firing state.
+  - `pipeline_queue_policy`, `pipeline_pending`, `pipeline_disk_sample`, `pipeline_output_capacity`,
+    `pipeline_output_commitment` and `pipeline_event_reference`: committed queue policy, pending
+    reservations, sampled storage, output counts and historical references (ADR 0034).
 
   `alerts` is a Serverpod-managed table with a unique tenant/fingerprint index.
 

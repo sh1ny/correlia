@@ -42,6 +42,9 @@ Future<String> publishStreamDb(
         'output_ids': [icinga2DbOutputIds.first],
       },
   ]);
+  // These fixtures prescribe receipt times. Their stream fences and
+  // reconciliation should not depend on the age of a checkout.
+  config['pipeline_operations'] = {'pending_max_age_seconds': 2147483647};
   if (matcher != null) {
     config['matcher'] = matcher;
     config['expected_active_snapshot'] = null;

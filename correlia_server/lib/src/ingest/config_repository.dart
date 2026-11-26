@@ -246,12 +246,13 @@ final class IngestConfigRepository {
           );
         }
         if (active?['snapshotId'] == input.snapshotId) return input;
+        final publicJson = input.publicJson;
         await session.db.unsafeExecute(
           'INSERT INTO ingest_config_snapshot ("snapshotId",revision,"publicJson") VALUES (@id,@revision,@json)',
           parameters: QueryParameters.named({
             'id': input.snapshotId,
             'revision': input.revision,
-            'json': input.publicJson,
+            'json': publicJson,
           }),
           transaction: transaction,
         );
@@ -319,6 +320,12 @@ final class IngestConfigRepository {
             );
           }
         }
+        await session.db.unsafeQuery(
+          'SELECT correlia_publish_queue_policy(@snapshot::jsonb)',
+          parameters: QueryParameters.named({'snapshot': publicJson}),
+          transaction: transaction,
+          timeoutInSeconds: 5,
+        );
         await session.db.unsafeExecute(
           '''INSERT INTO ingest_active_config (singleton,"snapshotId") VALUES (1,@id)
           ON CONFLICT (singleton) DO UPDATE SET "snapshotId"=EXCLUDED."snapshotId"''',
@@ -379,9 +386,10 @@ final class IngestConfigRepository {
   ) async {
     if (imported.isEmpty) return;
     final commitments = await session.db.unsafeQuery(
-      '''SELECT old.reference,old.digest FROM ingest_secret_commitment old
-      WHERE CAST(@refs AS jsonb) ? old.reference
-        AND NOT EXISTS (SELECT 1 FROM secret_record s WHERE s.reference=old.reference)''',
+      '''SELECT old.reference,old.digest
+      FROM jsonb_array_elements_text(CAST(@refs AS jsonb)) r(reference)
+      JOIN ingest_secret_commitment old USING (reference)
+      WHERE NOT EXISTS (SELECT 1 FROM secret_record s WHERE s.reference=old.reference)''',
       parameters: QueryParameters.named({
         'refs': jsonEncode(imported.keys.toList()),
       }),
@@ -423,36 +431,9 @@ final class IngestConfigRepository {
     };
     if (imported.isNotEmpty) {
       final rows = await session.db.unsafeQuery(
-        // Read both sides of the pending-to-outbox transition in one MVCC
-        // snapshot: a processing commit cannot hide a pin between reads.
-        '''WITH pinned_outputs AS (
-          SELECT output
-          FROM correlia_pinned_output_routes() r
-          JOIN ingest_config_snapshot s ON s."snapshotId"=r.snapshot_id
-          CROSS JOIN LATERAL jsonb_array_elements(s."publicJson"::jsonb->'outputs') output
-          WHERE output->>'id'=r.output_id
-          UNION
-          SELECT output
-          FROM outbox o
-          JOIN ingest_config_snapshot s ON s."snapshotId"=o.config_snapshot_id
-          CROSS JOIN LATERAL jsonb_array_elements(s."publicJson"::jsonb->'outputs') output
-          WHERE o.output_kind='plugin' AND o.status IN ('queued','delivering')
-            AND output->>'id'=o.output_id::text
-        )
-        SELECT o.signing_key_ref, o.signing_key_commitment, false
-        FROM outbox o WHERE o.output_kind='webhook' AND o.status IN ('queued','delivering')
-          AND CAST(@refs AS jsonb) ? o.signing_key_ref
-        UNION
-        SELECT output->>'signing_key_ref', output->>'signing_key_commitment', false
-        FROM pinned_outputs
-        WHERE output->>'kind'='webhook'
-          AND CAST(@refs AS jsonb) ? (output->>'signing_key_ref')
-        UNION
-        SELECT entry.value->>'reference', entry.value->>'commitment', true
-        FROM pinned_outputs
-        CROSS JOIN LATERAL jsonb_each(COALESCE(output->'secret_refs','{}'::jsonb)) entry
-        WHERE output->>'kind'='plugin'
-          AND CAST(@refs AS jsonb) ? (entry.value->>'reference')''',
+        '''SELECT c.reference,c.commitment,c.kind='plugin'
+        FROM jsonb_array_elements_text(CAST(@refs AS jsonb)) r(reference)
+        JOIN pipeline_output_commitment c USING (reference)''',
         parameters: QueryParameters.named({
           'refs': jsonEncode(imported.keys.toList()),
         }),
@@ -498,30 +479,63 @@ final class IngestConfigRepository {
   }
 
   /// Requires matching material for live historical deliveries, not terminal rows.
-  Future<void> validateLiveSecrets({Transaction? transaction}) async {
-    final refs = await session.db.unsafeQuery(
-      '''SELECT DISTINCT signing_key_ref,signing_key_commitment
-      FROM outbox WHERE output_kind = 'webhook' AND status IN ('queued','delivering')''',
-      transaction: transaction,
+  Future<void> validateLiveSecrets({Transaction? transaction}) {
+    if (transaction != null)
+      return _validateLiveWebhookCommitments(transaction);
+    return session.db.transaction((tx) async {
+      await session.db.unsafeQuery(
+        'SELECT singleton FROM ingest_active_config WHERE singleton=1 FOR SHARE',
+        transaction: tx,
+        timeoutInSeconds: 5,
+      );
+      await _validateLiveWebhookCommitments(tx);
+    });
+  }
+
+  Future<void> _validateLiveWebhookCommitments(Transaction tx) async {
+    // One cursor snapshot spans the pages even if a pin becomes a live intent
+    // while startup checks an earlier page.
+    const cursor = 'correlia_live_webhook_commitments';
+    const pageSize = 128;
+    await session.db.unsafeSimpleExecute(
+      '''DECLARE $cursor NO SCROLL CURSOR FOR
+      SELECT reference,commitment FROM pipeline_output_commitment
+      WHERE kind='webhook' AND live_count>0 ORDER BY reference,commitment''',
+      transaction: tx,
       timeoutInSeconds: 5,
     );
-    final stored = await _store.readMany(
-      session,
-      {for (final row in refs) row[0]! as String},
-      transaction: transaction,
-    );
-    for (final row in refs) {
-      final reference = row[0]! as String;
-      final bytes = stored[reference];
-      if (bytes == null ||
-          !_store.commitments.verify(reference, row[1]! as String, bytes)) {
-        throw const BootstrapError(
-          'secrets',
-          'value',
-          'historical_key_unavailable',
-        );
+    while (true) {
+      final refs = await session.db.unsafeQuery(
+        'FETCH FORWARD $pageSize FROM $cursor',
+        transaction: tx,
+        timeoutInSeconds: 5,
+      );
+      if (refs.isEmpty) break;
+      final stored = await _store.readMany(
+        session,
+        {for (final row in refs) row[0]! as String},
+        transaction: tx,
+      );
+      for (final row in refs) {
+        final reference = row[0]! as String;
+        final commitment = row[1]! as String;
+        final bytes = stored[reference];
+        if (bytes == null ||
+            !_store.commitments.verify(reference, commitment, bytes)) {
+          throw const BootstrapError(
+            'secrets',
+            'value',
+            'historical_key_unavailable',
+          );
+        }
       }
+      if (refs.length < pageSize) break;
     }
+    await session.db.unsafeSimpleExecute(
+      'CLOSE $cursor',
+      transaction: tx,
+      timeoutInSeconds: 5,
+    );
   }
 
   /// Rejects an unattended configured worker even after its queues have drained.
@@ -530,8 +544,8 @@ final class IngestConfigRepository {
       final rows = await session.db.unsafeQuery(
         '''SELECT
         (SELECT count(*) FROM ingest_active_config) AS active,
-        (SELECT count(*) FROM raw_inbox WHERE status='pending') AS raw,
-        (SELECT count(*) FROM outbox WHERE status IN ('queued','delivering')) AS output''',
+        (SELECT pending_rows FROM pipeline_pending WHERE singleton=1) AS raw,
+        (SELECT coalesce(sum(live_rows),0)::bigint FROM pipeline_output_capacity) AS output''',
         timeoutInSeconds: 5,
       );
       final counts = rows.single.toColumnMap();

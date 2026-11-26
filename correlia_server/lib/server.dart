@@ -49,10 +49,26 @@ Future<void> run(List<String> args) async {
   }
 
   final startup = StartupState();
-  final pod = Serverpod(
+  late final Serverpod pod;
+  pod = Serverpod(
     options.serverpodArgs,
     healthConfig: HealthConfig(
       additionalStartupIndicators: [CorreliaStartupIndicator(startup)],
+      additionalReadinessIndicators: [
+        if (options.role != ProcessRole.worker)
+          CorreliaStorageIndicator(() async {
+            final session = await pod.createSession(enableLogging: false);
+            try {
+              final rows = await session.db.unsafeQuery(
+                'SELECT correlia_disk_pressure()',
+                timeoutInSeconds: 2,
+              );
+              return rows.single[0]! as bool;
+            } finally {
+              await session.close();
+            }
+          }),
+      ],
     ),
   );
 

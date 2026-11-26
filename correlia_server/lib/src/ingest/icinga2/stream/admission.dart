@@ -195,6 +195,7 @@ final class ConsumerAdmission {
           throw ArgumentError('Invalid stream batch shape');
         }
         await afterFence?.call();
+        await tx.execute('SAVEPOINT pipeline_batch_reservation');
         final claimed = await tx.execute(
           pg.Sql.named(
             '''INSERT INTO icinga2_admitted_batch ("sourceId","batchId","admittedAt")
@@ -206,6 +207,28 @@ final class ConsumerAdmission {
         // PostgreSQL waits for an uncommitted unique-key conflict to settle.
         // A rollback lets this insert claim the batch instead.
         if (claimed.isEmpty) return StreamAdmissionResult.committed;
+
+        if (batch.syncId case final syncId?) {
+          final progress = await tx.execute(
+            pg.Sql.named('''SELECT 1 FROM icinga2_sync_progress
+              WHERE sync_id=CAST(@sync AS uuid) AND source_id=CAST(@source AS uuid)
+                AND read_end_at IS NULL FOR UPDATE'''),
+            parameters: {...sourceArg, 'sync': syncId},
+          );
+          if (progress.isEmpty) throw StateError('Icinga2 sync is not reading');
+        }
+        final pressure = (await tx.execute(
+          pg.Sql.named('SELECT correlia_reserve_raw(@count)'),
+          parameters: {'count': batch.rows.length},
+        )).single[0];
+        if (pressure != null) {
+          await tx.execute('ROLLBACK TO SAVEPOINT pipeline_batch_reservation');
+          if (pressure == 'storage') {
+            await tx.execute('SELECT correlia_disk_pressure()');
+          }
+          return StreamAdmissionResult.atCapacity;
+        }
+        await tx.execute('RELEASE SAVEPOINT pipeline_batch_reservation');
 
         await beforeWriteForTest?.call(tx, batch);
         for (final row in batch.rows) {

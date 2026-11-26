@@ -452,6 +452,17 @@ FROM outbox WHERE config_snapshot_id = '${original.snapshotId}'
           ],
         );
         await refused();
+        await expectLater(
+          publish(3),
+          throwsA(
+            isA<BootstrapError>().having(
+              (e) => e.code,
+              'code',
+              'reference_rebound',
+            ),
+          ),
+        );
+        expect((await publish(2)).snapshotId, replaced.snapshotId);
         expect(
           (await repository.publishConfig(
             replacement,
