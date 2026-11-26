@@ -13,11 +13,9 @@
 // ignore_for_file: no_leading_underscores_for_library_prefixes
 import 'package:serverpod/protocol.dart' as _isp;
 import 'package:serverpod/serverpod.dart' as _is;
-import 'action_trace.dart' as _ikn0wxo5;
 import 'alert.dart' as _iqmz6gj4;
 import 'alert_snapshot.dart' as _iz3t21fy;
 import 'alert_view.dart' as _i897ft9c;
-import 'condition_trace.dart' as _i0ehnxud;
 import 'console_access_denied_exception.dart' as _i25sduw2;
 import 'delivery_attempt.dart' as _ihd6gt0n;
 import 'feed_entry.dart' as _iywqxrq6;
@@ -44,19 +42,21 @@ import 'observation_key.dart' as _ii70ink4;
 import 'pipeline_failure.dart' as _ir1rifdz;
 import 'plugin_definition_health.dart' as _iqfe2rop;
 import 'plugin_instance_status.dart' as _i5barlkw;
-import 'rule_simulation_result.dart' as _i2oitrdy;
-import 'rule_trace.dart' as _ingcfw9t;
+import 'queue/queue_failure.dart' as _i1399vez;
+import 'queue/queue_failure_filter.dart' as _i3paal6y;
+import 'queue/queue_failure_kind.dart' as _ijk6hojr;
+import 'queue/queue_failure_page.dart' as _io00fnfh;
+import 'queue/queue_maintenance_status.dart' as _ip4smbu4;
+import 'queue/queue_operator_exception.dart' as _i9vx28ve;
+import 'queue/queue_output_status.dart' as _ie72o327;
+import 'queue/queue_replay_item.dart' as _i738ir7t;
+import 'queue/queue_replay_result.dart' as _ikvpqw3q;
+import 'queue/queue_status.dart' as _iylzdl71;
 import 'secret_record.dart' as _ibz1p89x;
-import 'simulated_label.dart' as _i3ntsck3;
-import 'simulated_link.dart' as _ieclo1rh;
-import 'simulation_error.dart' as _izi5l5xj;
-import 'stored_enrichment_error.dart' as _iy99nx4o;
 import 'transport_key.dart' as _ix76ovok;
-export 'action_trace.dart';
 export 'alert.dart';
 export 'alert_snapshot.dart';
 export 'alert_view.dart';
-export 'condition_trace.dart';
 export 'console_access_denied_exception.dart';
 export 'delivery_attempt.dart';
 export 'feed_entry.dart';
@@ -83,13 +83,17 @@ export 'observation_key.dart';
 export 'pipeline_failure.dart';
 export 'plugin_definition_health.dart';
 export 'plugin_instance_status.dart';
-export 'rule_simulation_result.dart';
-export 'rule_trace.dart';
+export 'queue/queue_failure.dart';
+export 'queue/queue_failure_filter.dart';
+export 'queue/queue_failure_kind.dart';
+export 'queue/queue_failure_page.dart';
+export 'queue/queue_maintenance_status.dart';
+export 'queue/queue_operator_exception.dart';
+export 'queue/queue_output_status.dart';
+export 'queue/queue_replay_item.dart';
+export 'queue/queue_replay_result.dart';
+export 'queue/queue_status.dart';
 export 'secret_record.dart';
-export 'simulated_label.dart';
-export 'simulated_link.dart';
-export 'simulation_error.dart';
-export 'stored_enrichment_error.dart';
 export 'transport_key.dart';
 
 class Protocol extends _is.DatabaseSerializationManager
@@ -105,11 +109,9 @@ class Protocol extends _is.DatabaseSerializationManager
       _is.ProtocolDeserialization.cached(
         this,
         types: const [
-          _is.getType<_ikn0wxo5.ActionTrace>,
           _is.getType<_iqmz6gj4.AlertRow>,
           _is.getType<_iz3t21fy.AlertSnapshot>,
           _is.getType<_i897ft9c.AlertView>,
-          _is.getType<_i0ehnxud.ConditionTrace>,
           _is.getType<_i25sduw2.ConsoleAccessDeniedException>,
           _is.getType<_ihd6gt0n.DeliveryAttempt>,
           _is.getType<_iywqxrq6.FeedEntry>,
@@ -136,19 +138,21 @@ class Protocol extends _is.DatabaseSerializationManager
           _is.getType<_ir1rifdz.PipelineFailure>,
           _is.getType<_iqfe2rop.PluginDefinitionHealth>,
           _is.getType<_i5barlkw.PluginInstanceStatus>,
-          _is.getType<_i2oitrdy.RuleSimulationResult>,
-          _is.getType<_ingcfw9t.RuleTrace>,
+          _is.getType<_i1399vez.QueueFailure>,
+          _is.getType<_i3paal6y.QueueFailureFilter>,
+          _is.getType<_ijk6hojr.QueueFailureKind>,
+          _is.getType<_io00fnfh.QueueFailurePage>,
+          _is.getType<_ip4smbu4.QueueMaintenanceStatus>,
+          _is.getType<_i9vx28ve.QueueOperatorException>,
+          _is.getType<_ie72o327.QueueOutputStatus>,
+          _is.getType<_i738ir7t.QueueReplayItem>,
+          _is.getType<_ikvpqw3q.QueueReplayResult>,
+          _is.getType<_iylzdl71.QueueStatus>,
           _is.getType<_ibz1p89x.SecretRecord>,
-          _is.getType<_i3ntsck3.SimulatedLabel>,
-          _is.getType<_ieclo1rh.SimulatedLink>,
-          _is.getType<_izi5l5xj.SimulationError>,
-          _is.getType<_iy99nx4o.StoredEnrichmentError>,
           _is.getType<_ix76ovok.TransportKey>,
-          _is.getType<_ikn0wxo5.ActionTrace?>,
           _is.getType<_iqmz6gj4.AlertRow?>,
           _is.getType<_iz3t21fy.AlertSnapshot?>,
           _is.getType<_i897ft9c.AlertView?>,
-          _is.getType<_i0ehnxud.ConditionTrace?>,
           _is.getType<_i25sduw2.ConsoleAccessDeniedException?>,
           _is.getType<_ihd6gt0n.DeliveryAttempt?>,
           _is.getType<_iywqxrq6.FeedEntry?>,
@@ -175,36 +179,32 @@ class Protocol extends _is.DatabaseSerializationManager
           _is.getType<_ir1rifdz.PipelineFailure?>,
           _is.getType<_iqfe2rop.PluginDefinitionHealth?>,
           _is.getType<_i5barlkw.PluginInstanceStatus?>,
-          _is.getType<_i2oitrdy.RuleSimulationResult?>,
-          _is.getType<_ingcfw9t.RuleTrace?>,
+          _is.getType<_i1399vez.QueueFailure?>,
+          _is.getType<_i3paal6y.QueueFailureFilter?>,
+          _is.getType<_ijk6hojr.QueueFailureKind?>,
+          _is.getType<_io00fnfh.QueueFailurePage?>,
+          _is.getType<_ip4smbu4.QueueMaintenanceStatus?>,
+          _is.getType<_i9vx28ve.QueueOperatorException?>,
+          _is.getType<_ie72o327.QueueOutputStatus?>,
+          _is.getType<_i738ir7t.QueueReplayItem?>,
+          _is.getType<_ikvpqw3q.QueueReplayResult?>,
+          _is.getType<_iylzdl71.QueueStatus?>,
           _is.getType<_ibz1p89x.SecretRecord?>,
-          _is.getType<_i3ntsck3.SimulatedLabel?>,
-          _is.getType<_ieclo1rh.SimulatedLink?>,
-          _is.getType<_izi5l5xj.SimulationError?>,
-          _is.getType<_iy99nx4o.StoredEnrichmentError?>,
           _is.getType<_ix76ovok.TransportKey?>,
           _is.getType<List<_i897ft9c.AlertView>>,
           _is.getType<List<_iywqxrq6.FeedEntry>>,
           _is.getType<Map<String, int>>,
           _is.getType<List<_i20s3xik.MappingPreviewEvent>>,
           _is.getType<List<_ibaui0zg.MappingPreviewDiagnostic>>,
-          _is.getType<List<_ingcfw9t.RuleTrace>>,
-          _is.getType<List<_i3ntsck3.SimulatedLabel>>,
-          _is.getType<List<_ieclo1rh.SimulatedLink>>,
-          _is.getType<List<String>>,
-          _is.getType<List<_i3ntsck3.SimulatedLabel>?>,
-          _is.getType<List<_iy99nx4o.StoredEnrichmentError>>,
-          _is.getType<List<_iy99nx4o.StoredEnrichmentError>?>,
-          _is.getType<List<_i0ehnxud.ConditionTrace>>,
-          _is.getType<List<_ikn0wxo5.ActionTrace>>,
+          _is.getType<List<_i1399vez.QueueFailure>>,
+          _is.getType<List<_i738ir7t.QueueReplayItem>>,
+          _is.getType<List<_ie72o327.QueueOutputStatus>>,
         ],
         modules: const [_isp.Protocol.new],
         classNames: const [
-          'ActionTrace',
           'AlertRow',
           'AlertSnapshot',
           'AlertView',
-          'ConditionTrace',
           'ConsoleAccessDeniedException',
           'DeliveryAttempt',
           'FeedEntry',
@@ -231,13 +231,17 @@ class Protocol extends _is.DatabaseSerializationManager
           'PipelineFailure',
           'PluginDefinitionHealth',
           'PluginInstanceStatus',
-          'RuleSimulationResult',
-          'RuleTrace',
+          'QueueFailure',
+          'QueueFailureFilter',
+          'QueueFailureKind',
+          'QueueFailurePage',
+          'QueueMaintenanceStatus',
+          'QueueOperatorException',
+          'QueueOutputStatus',
+          'QueueReplayItem',
+          'QueueReplayResult',
+          'QueueStatus',
           'SecretRecord',
-          'SimulatedLabel',
-          'SimulatedLink',
-          'SimulationError',
-          'StoredEnrichmentError',
           'TransportKey',
         ],
       );
@@ -1565,9 +1569,6 @@ class Protocol extends _is.DatabaseSerializationManager
       }
     }
 
-    if (t == _ikn0wxo5.ActionTrace) {
-      return _ikn0wxo5.ActionTrace.fromJson(data) as T;
-    }
     if (t == _iqmz6gj4.AlertRow) {
       return _iqmz6gj4.AlertRow.fromJson(data) as T;
     }
@@ -1576,9 +1577,6 @@ class Protocol extends _is.DatabaseSerializationManager
     }
     if (t == _i897ft9c.AlertView) {
       return _i897ft9c.AlertView.fromJson(data) as T;
-    }
-    if (t == _i0ehnxud.ConditionTrace) {
-      return _i0ehnxud.ConditionTrace.fromJson(data) as T;
     }
     if (t == _i25sduw2.ConsoleAccessDeniedException) {
       return _i25sduw2.ConsoleAccessDeniedException.fromJson(data) as T;
@@ -1658,32 +1656,41 @@ class Protocol extends _is.DatabaseSerializationManager
     if (t == _i5barlkw.PluginInstanceStatus) {
       return _i5barlkw.PluginInstanceStatus.fromJson(data) as T;
     }
-    if (t == _i2oitrdy.RuleSimulationResult) {
-      return _i2oitrdy.RuleSimulationResult.fromJson(data) as T;
+    if (t == _i1399vez.QueueFailure) {
+      return _i1399vez.QueueFailure.fromJson(data) as T;
     }
-    if (t == _ingcfw9t.RuleTrace) {
-      return _ingcfw9t.RuleTrace.fromJson(data) as T;
+    if (t == _i3paal6y.QueueFailureFilter) {
+      return _i3paal6y.QueueFailureFilter.fromJson(data) as T;
+    }
+    if (t == _ijk6hojr.QueueFailureKind) {
+      return _ijk6hojr.QueueFailureKind.fromJson(data) as T;
+    }
+    if (t == _io00fnfh.QueueFailurePage) {
+      return _io00fnfh.QueueFailurePage.fromJson(data) as T;
+    }
+    if (t == _ip4smbu4.QueueMaintenanceStatus) {
+      return _ip4smbu4.QueueMaintenanceStatus.fromJson(data) as T;
+    }
+    if (t == _i9vx28ve.QueueOperatorException) {
+      return _i9vx28ve.QueueOperatorException.fromJson(data) as T;
+    }
+    if (t == _ie72o327.QueueOutputStatus) {
+      return _ie72o327.QueueOutputStatus.fromJson(data) as T;
+    }
+    if (t == _i738ir7t.QueueReplayItem) {
+      return _i738ir7t.QueueReplayItem.fromJson(data) as T;
+    }
+    if (t == _ikvpqw3q.QueueReplayResult) {
+      return _ikvpqw3q.QueueReplayResult.fromJson(data) as T;
+    }
+    if (t == _iylzdl71.QueueStatus) {
+      return _iylzdl71.QueueStatus.fromJson(data) as T;
     }
     if (t == _ibz1p89x.SecretRecord) {
       return _ibz1p89x.SecretRecord.fromJson(data) as T;
     }
-    if (t == _i3ntsck3.SimulatedLabel) {
-      return _i3ntsck3.SimulatedLabel.fromJson(data) as T;
-    }
-    if (t == _ieclo1rh.SimulatedLink) {
-      return _ieclo1rh.SimulatedLink.fromJson(data) as T;
-    }
-    if (t == _izi5l5xj.SimulationError) {
-      return _izi5l5xj.SimulationError.fromJson(data) as T;
-    }
-    if (t == _iy99nx4o.StoredEnrichmentError) {
-      return _iy99nx4o.StoredEnrichmentError.fromJson(data) as T;
-    }
     if (t == _ix76ovok.TransportKey) {
       return _ix76ovok.TransportKey.fromJson(data) as T;
-    }
-    if (t == _is.getType<_ikn0wxo5.ActionTrace?>()) {
-      return (data != null ? _ikn0wxo5.ActionTrace.fromJson(data) : null) as T;
     }
     if (t == _is.getType<_iqmz6gj4.AlertRow?>()) {
       return (data != null ? _iqmz6gj4.AlertRow.fromJson(data) : null) as T;
@@ -1694,10 +1701,6 @@ class Protocol extends _is.DatabaseSerializationManager
     }
     if (t == _is.getType<_i897ft9c.AlertView?>()) {
       return (data != null ? _i897ft9c.AlertView.fromJson(data) : null) as T;
-    }
-    if (t == _is.getType<_i0ehnxud.ConditionTrace?>()) {
-      return (data != null ? _i0ehnxud.ConditionTrace.fromJson(data) : null)
-          as T;
     }
     if (t == _is.getType<_i25sduw2.ConsoleAccessDeniedException?>()) {
       return (data != null
@@ -1834,35 +1837,50 @@ class Protocol extends _is.DatabaseSerializationManager
               : null)
           as T;
     }
-    if (t == _is.getType<_i2oitrdy.RuleSimulationResult?>()) {
+    if (t == _is.getType<_i1399vez.QueueFailure?>()) {
+      return (data != null ? _i1399vez.QueueFailure.fromJson(data) : null) as T;
+    }
+    if (t == _is.getType<_i3paal6y.QueueFailureFilter?>()) {
+      return (data != null ? _i3paal6y.QueueFailureFilter.fromJson(data) : null)
+          as T;
+    }
+    if (t == _is.getType<_ijk6hojr.QueueFailureKind?>()) {
+      return (data != null ? _ijk6hojr.QueueFailureKind.fromJson(data) : null)
+          as T;
+    }
+    if (t == _is.getType<_io00fnfh.QueueFailurePage?>()) {
+      return (data != null ? _io00fnfh.QueueFailurePage.fromJson(data) : null)
+          as T;
+    }
+    if (t == _is.getType<_ip4smbu4.QueueMaintenanceStatus?>()) {
       return (data != null
-              ? _i2oitrdy.RuleSimulationResult.fromJson(data)
+              ? _ip4smbu4.QueueMaintenanceStatus.fromJson(data)
               : null)
           as T;
     }
-    if (t == _is.getType<_ingcfw9t.RuleTrace?>()) {
-      return (data != null ? _ingcfw9t.RuleTrace.fromJson(data) : null) as T;
+    if (t == _is.getType<_i9vx28ve.QueueOperatorException?>()) {
+      return (data != null
+              ? _i9vx28ve.QueueOperatorException.fromJson(data)
+              : null)
+          as T;
+    }
+    if (t == _is.getType<_ie72o327.QueueOutputStatus?>()) {
+      return (data != null ? _ie72o327.QueueOutputStatus.fromJson(data) : null)
+          as T;
+    }
+    if (t == _is.getType<_i738ir7t.QueueReplayItem?>()) {
+      return (data != null ? _i738ir7t.QueueReplayItem.fromJson(data) : null)
+          as T;
+    }
+    if (t == _is.getType<_ikvpqw3q.QueueReplayResult?>()) {
+      return (data != null ? _ikvpqw3q.QueueReplayResult.fromJson(data) : null)
+          as T;
+    }
+    if (t == _is.getType<_iylzdl71.QueueStatus?>()) {
+      return (data != null ? _iylzdl71.QueueStatus.fromJson(data) : null) as T;
     }
     if (t == _is.getType<_ibz1p89x.SecretRecord?>()) {
       return (data != null ? _ibz1p89x.SecretRecord.fromJson(data) : null) as T;
-    }
-    if (t == _is.getType<_i3ntsck3.SimulatedLabel?>()) {
-      return (data != null ? _i3ntsck3.SimulatedLabel.fromJson(data) : null)
-          as T;
-    }
-    if (t == _is.getType<_ieclo1rh.SimulatedLink?>()) {
-      return (data != null ? _ieclo1rh.SimulatedLink.fromJson(data) : null)
-          as T;
-    }
-    if (t == _is.getType<_izi5l5xj.SimulationError?>()) {
-      return (data != null ? _izi5l5xj.SimulationError.fromJson(data) : null)
-          as T;
-    }
-    if (t == _is.getType<_iy99nx4o.StoredEnrichmentError?>()) {
-      return (data != null
-              ? _iy99nx4o.StoredEnrichmentError.fromJson(data)
-              : null)
-          as T;
     }
     if (t == _is.getType<_ix76ovok.TransportKey?>()) {
       return (data != null ? _ix76ovok.TransportKey.fromJson(data) : null) as T;
@@ -1897,58 +1915,21 @@ class Protocol extends _is.DatabaseSerializationManager
               .toList()
           as T;
     }
-    if (t == List<_ingcfw9t.RuleTrace>) {
+    if (t == List<_i1399vez.QueueFailure>) {
       return (data as List)
-              .map((e) => deserialize<_ingcfw9t.RuleTrace>(e))
+              .map((e) => deserialize<_i1399vez.QueueFailure>(e))
               .toList()
           as T;
     }
-    if (t == List<_i3ntsck3.SimulatedLabel>) {
+    if (t == List<_i738ir7t.QueueReplayItem>) {
       return (data as List)
-              .map((e) => deserialize<_i3ntsck3.SimulatedLabel>(e))
+              .map((e) => deserialize<_i738ir7t.QueueReplayItem>(e))
               .toList()
           as T;
     }
-    if (t == List<_ieclo1rh.SimulatedLink>) {
+    if (t == List<_ie72o327.QueueOutputStatus>) {
       return (data as List)
-              .map((e) => deserialize<_ieclo1rh.SimulatedLink>(e))
-              .toList()
-          as T;
-    }
-    if (t == List<String>) {
-      return (data as List).map((e) => deserialize<String>(e)).toList() as T;
-    }
-    if (t == _is.getType<List<_i3ntsck3.SimulatedLabel>?>()) {
-      return (data != null
-              ? (data as List)
-                    .map((e) => deserialize<_i3ntsck3.SimulatedLabel>(e))
-                    .toList()
-              : null)
-          as T;
-    }
-    if (t == List<_iy99nx4o.StoredEnrichmentError>) {
-      return (data as List)
-              .map((e) => deserialize<_iy99nx4o.StoredEnrichmentError>(e))
-              .toList()
-          as T;
-    }
-    if (t == _is.getType<List<_iy99nx4o.StoredEnrichmentError>?>()) {
-      return (data != null
-              ? (data as List)
-                    .map((e) => deserialize<_iy99nx4o.StoredEnrichmentError>(e))
-                    .toList()
-              : null)
-          as T;
-    }
-    if (t == List<_i0ehnxud.ConditionTrace>) {
-      return (data as List)
-              .map((e) => deserialize<_i0ehnxud.ConditionTrace>(e))
-              .toList()
-          as T;
-    }
-    if (t == List<_ikn0wxo5.ActionTrace>) {
-      return (data as List)
-              .map((e) => deserialize<_ikn0wxo5.ActionTrace>(e))
+              .map((e) => deserialize<_ie72o327.QueueOutputStatus>(e))
               .toList()
           as T;
     }
@@ -1967,11 +1948,9 @@ class Protocol extends _is.DatabaseSerializationManager
 
   static String? getClassNameForType(Type type) {
     return switch (type) {
-      _ikn0wxo5.ActionTrace => 'ActionTrace',
       _iqmz6gj4.AlertRow => 'AlertRow',
       _iz3t21fy.AlertSnapshot => 'AlertSnapshot',
       _i897ft9c.AlertView => 'AlertView',
-      _i0ehnxud.ConditionTrace => 'ConditionTrace',
       _i25sduw2.ConsoleAccessDeniedException => 'ConsoleAccessDeniedException',
       _ihd6gt0n.DeliveryAttempt => 'DeliveryAttempt',
       _iywqxrq6.FeedEntry => 'FeedEntry',
@@ -1999,13 +1978,17 @@ class Protocol extends _is.DatabaseSerializationManager
       _ir1rifdz.PipelineFailure => 'PipelineFailure',
       _iqfe2rop.PluginDefinitionHealth => 'PluginDefinitionHealth',
       _i5barlkw.PluginInstanceStatus => 'PluginInstanceStatus',
-      _i2oitrdy.RuleSimulationResult => 'RuleSimulationResult',
-      _ingcfw9t.RuleTrace => 'RuleTrace',
+      _i1399vez.QueueFailure => 'QueueFailure',
+      _i3paal6y.QueueFailureFilter => 'QueueFailureFilter',
+      _ijk6hojr.QueueFailureKind => 'QueueFailureKind',
+      _io00fnfh.QueueFailurePage => 'QueueFailurePage',
+      _ip4smbu4.QueueMaintenanceStatus => 'QueueMaintenanceStatus',
+      _i9vx28ve.QueueOperatorException => 'QueueOperatorException',
+      _ie72o327.QueueOutputStatus => 'QueueOutputStatus',
+      _i738ir7t.QueueReplayItem => 'QueueReplayItem',
+      _ikvpqw3q.QueueReplayResult => 'QueueReplayResult',
+      _iylzdl71.QueueStatus => 'QueueStatus',
       _ibz1p89x.SecretRecord => 'SecretRecord',
-      _i3ntsck3.SimulatedLabel => 'SimulatedLabel',
-      _ieclo1rh.SimulatedLink => 'SimulatedLink',
-      _izi5l5xj.SimulationError => 'SimulationError',
-      _iy99nx4o.StoredEnrichmentError => 'StoredEnrichmentError',
       _ix76ovok.TransportKey => 'TransportKey',
       _ => null,
     };
@@ -2021,16 +2004,12 @@ class Protocol extends _is.DatabaseSerializationManager
     }
 
     switch (data) {
-      case _ikn0wxo5.ActionTrace():
-        return 'ActionTrace';
       case _iqmz6gj4.AlertRow():
         return 'AlertRow';
       case _iz3t21fy.AlertSnapshot():
         return 'AlertSnapshot';
       case _i897ft9c.AlertView():
         return 'AlertView';
-      case _i0ehnxud.ConditionTrace():
-        return 'ConditionTrace';
       case _i25sduw2.ConsoleAccessDeniedException():
         return 'ConsoleAccessDeniedException';
       case _ihd6gt0n.DeliveryAttempt():
@@ -2083,20 +2062,28 @@ class Protocol extends _is.DatabaseSerializationManager
         return 'PluginDefinitionHealth';
       case _i5barlkw.PluginInstanceStatus():
         return 'PluginInstanceStatus';
-      case _i2oitrdy.RuleSimulationResult():
-        return 'RuleSimulationResult';
-      case _ingcfw9t.RuleTrace():
-        return 'RuleTrace';
+      case _i1399vez.QueueFailure():
+        return 'QueueFailure';
+      case _i3paal6y.QueueFailureFilter():
+        return 'QueueFailureFilter';
+      case _ijk6hojr.QueueFailureKind():
+        return 'QueueFailureKind';
+      case _io00fnfh.QueueFailurePage():
+        return 'QueueFailurePage';
+      case _ip4smbu4.QueueMaintenanceStatus():
+        return 'QueueMaintenanceStatus';
+      case _i9vx28ve.QueueOperatorException():
+        return 'QueueOperatorException';
+      case _ie72o327.QueueOutputStatus():
+        return 'QueueOutputStatus';
+      case _i738ir7t.QueueReplayItem():
+        return 'QueueReplayItem';
+      case _ikvpqw3q.QueueReplayResult():
+        return 'QueueReplayResult';
+      case _iylzdl71.QueueStatus():
+        return 'QueueStatus';
       case _ibz1p89x.SecretRecord():
         return 'SecretRecord';
-      case _i3ntsck3.SimulatedLabel():
-        return 'SimulatedLabel';
-      case _ieclo1rh.SimulatedLink():
-        return 'SimulatedLink';
-      case _izi5l5xj.SimulationError():
-        return 'SimulationError';
-      case _iy99nx4o.StoredEnrichmentError():
-        return 'StoredEnrichmentError';
       case _ix76ovok.TransportKey():
         return 'TransportKey';
     }
@@ -2113,9 +2100,6 @@ class Protocol extends _is.DatabaseSerializationManager
     if (dataClassName is! String) {
       return super.deserializeByClassName(data);
     }
-    if (dataClassName == 'ActionTrace') {
-      return deserialize<_ikn0wxo5.ActionTrace>(data['data']);
-    }
     if (dataClassName == 'AlertRow') {
       return deserialize<_iqmz6gj4.AlertRow>(data['data']);
     }
@@ -2124,9 +2108,6 @@ class Protocol extends _is.DatabaseSerializationManager
     }
     if (dataClassName == 'AlertView') {
       return deserialize<_i897ft9c.AlertView>(data['data']);
-    }
-    if (dataClassName == 'ConditionTrace') {
-      return deserialize<_i0ehnxud.ConditionTrace>(data['data']);
     }
     if (dataClassName == 'ConsoleAccessDeniedException') {
       return deserialize<_i25sduw2.ConsoleAccessDeniedException>(data['data']);
@@ -2206,26 +2187,38 @@ class Protocol extends _is.DatabaseSerializationManager
     if (dataClassName == 'PluginInstanceStatus') {
       return deserialize<_i5barlkw.PluginInstanceStatus>(data['data']);
     }
-    if (dataClassName == 'RuleSimulationResult') {
-      return deserialize<_i2oitrdy.RuleSimulationResult>(data['data']);
+    if (dataClassName == 'QueueFailure') {
+      return deserialize<_i1399vez.QueueFailure>(data['data']);
     }
-    if (dataClassName == 'RuleTrace') {
-      return deserialize<_ingcfw9t.RuleTrace>(data['data']);
+    if (dataClassName == 'QueueFailureFilter') {
+      return deserialize<_i3paal6y.QueueFailureFilter>(data['data']);
+    }
+    if (dataClassName == 'QueueFailureKind') {
+      return deserialize<_ijk6hojr.QueueFailureKind>(data['data']);
+    }
+    if (dataClassName == 'QueueFailurePage') {
+      return deserialize<_io00fnfh.QueueFailurePage>(data['data']);
+    }
+    if (dataClassName == 'QueueMaintenanceStatus') {
+      return deserialize<_ip4smbu4.QueueMaintenanceStatus>(data['data']);
+    }
+    if (dataClassName == 'QueueOperatorException') {
+      return deserialize<_i9vx28ve.QueueOperatorException>(data['data']);
+    }
+    if (dataClassName == 'QueueOutputStatus') {
+      return deserialize<_ie72o327.QueueOutputStatus>(data['data']);
+    }
+    if (dataClassName == 'QueueReplayItem') {
+      return deserialize<_i738ir7t.QueueReplayItem>(data['data']);
+    }
+    if (dataClassName == 'QueueReplayResult') {
+      return deserialize<_ikvpqw3q.QueueReplayResult>(data['data']);
+    }
+    if (dataClassName == 'QueueStatus') {
+      return deserialize<_iylzdl71.QueueStatus>(data['data']);
     }
     if (dataClassName == 'SecretRecord') {
       return deserialize<_ibz1p89x.SecretRecord>(data['data']);
-    }
-    if (dataClassName == 'SimulatedLabel') {
-      return deserialize<_i3ntsck3.SimulatedLabel>(data['data']);
-    }
-    if (dataClassName == 'SimulatedLink') {
-      return deserialize<_ieclo1rh.SimulatedLink>(data['data']);
-    }
-    if (dataClassName == 'SimulationError') {
-      return deserialize<_izi5l5xj.SimulationError>(data['data']);
-    }
-    if (dataClassName == 'StoredEnrichmentError') {
-      return deserialize<_iy99nx4o.StoredEnrichmentError>(data['data']);
     }
     if (dataClassName == 'TransportKey') {
       return deserialize<_ix76ovok.TransportKey>(data['data']);

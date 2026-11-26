@@ -174,10 +174,11 @@ void main() {
                     )).single[0],
                   }
                 : {'max_rows': 1};
-            if (byBytes)
+            if (byBytes) {
               await session.db.unsafeExecute(
                 "UPDATE outbox SET status='delivered'",
               );
+            }
             await _publish(
               session,
               2,
@@ -208,11 +209,12 @@ void main() {
             expect(await Future.wait([first, next]), [true, true]);
             expect(await _intents(session), {_first: 1});
             expect((await _usage(session, _first))[2], 1);
-            if (byBytes)
+            if (byBytes) {
               expect(
                 (await _usage(session, _first))[1],
                 budget['max_payload_bytes'],
               );
+            }
           },
         );
       }

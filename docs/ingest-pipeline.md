@@ -1148,19 +1148,54 @@ Future-dated evidence (more than 24 hours ahead) has no observation key, state o
 
 Serialization, deadlock, lock-timeout and connection-unavailable errors retry indefinitely with capped one-to-thirty-second backoff without spending the internal-error budget. Other internal failures consume five attempts, then produce `processing_exhausted`. Scheduling hints are bounded and process-local; database eligibility, raw bytes, pins and the internal-error budget remain durable. A ten-second total transaction deadline and five-second statement/lock bounds limit work.
 
-Inspect failures through restricted SQL, not a public API:
+Use both time and ID when joining raw, event or delivery evidence. Raw bodies and delivery
+payloads are private operational data; do not paste them into diagnostics.
 
-```sql
-SELECT observed_at, raw_id, source_id, status, config_snapshot_id,
-       attempt_count, outcome_json
-FROM raw_inbox
-WHERE status = 'failed';
+### Operator RPC
 
-SELECT "rawObservedAt", "rawId", "configSnapshotId", "errorClass", "fieldPath"
-FROM pipeline_failures;
-```
+The `deadLetter` RPC is off by default. To enable it on an `api` or `all` process, set
+`CORRELIA_DEAD_LETTER_CREDENTIALS_FILE` to an owner-only JSON file (`chmod 600`). The file
+maps one to eight machine IDs to distinct lowercase SHA-256 digests. IDs start with a
+lowercase letter and use at most 64 lowercase letters, digits, underscores or hyphens.
+The file is limited to 4 KiB.
 
-Use both time and id when joining raw/event/output evidence. Raw payloads remain private operational data; never paste them into diagnostics. Accepted bytes are not silently discarded, and no retention/replay scheduler is implemented in this slice. Provision disk headroom until M2 retention/backpressure work.
+Generate 32 random bytes per machine. Store the SHA-256 hex digest of those **bytes**
+in the file, and give the machine the 43-character unpadded base64url encoding of the
+bytes. Send it in `Authorization: Bearer <token>` to the API port over TLS. Do not put
+the token in the URL or RPC arguments. Webhook credentials do not grant this access.
+Replace the file and restart each API replica to rotate credentials. A malformed file
+stops startup.
+
+Use `Client.deadLetter` from `correlia_client` with the machine bearer:
+
+| Method | Inputs and effects |
+|---|---|
+| `list` | Select `raw` or `delivery`. Optionally filter by source/output UUID, error class and inclusive failure-time range. Returns sanitized metadata including the occurrence ID, age and error class. A raw result can include its pinned snapshot and safe field path. |
+| `replay` | Requeue one occurrence of the specified kind. A later failure of the same row has a new occurrence ID. |
+| `replayBatch` | Requeue eligible occurrences in one page of the same filters. Returns queued and refused counts, a reason for each occurrence and a continuation when more matches remain. |
+| `status` | Read pending count, oldest pending age, database pressure, per-output limits and usage, discard counts, overflow episodes and the last maintenance outcome. |
+
+Use a limit from 1 to 100 for `list` and `replayBatch`. Pass the continuation to the same
+method with the same filters. It resumes after the last considered occurrence and keeps
+the first page's upper time bound. Start a new listing to include later failures or revisit
+refused items. No reply includes raw bodies, delivery payloads, destinations or signing
+references. Successful replay records the verified machine ID and queued count in `activity`.
+
+Raw replay needs a free pending slot and an enabled source with the same admission mode.
+It pins the configuration active at replay, retaining the original bytes, receipt, Icinga 2
+origin and generation 0. Queue age alone does not block replay. An unavailable source, full
+inbox or expired failure cannot be requeued. A replay of a reconcile row does not change its
+original sync run. If it finishes without writing an event, the worker records that outcome
+in the ledger before deleting the raw row.
+
+Delivery replay keeps the original payload, event ID, delivery ID, destination, and signing
+commitment. It requires the original webhook signing material and room in the live output
+inventory if it adds a lane. It starts a fresh 20-attempt allowance; attempt numbers keep
+increasing and prior history remains. Replay does not run the pipeline or alter alert state.
+
+Change 9's demo uses this API to find and replay a dead delivery and show pressure clearing.
+The DUR-4 console check stays with M4: the dead-letter view must identify the failed output,
+show its sanitized error class and let an authorized operator replay the exact occurrence.
 
 ## Plugin batch delivery
 
@@ -1178,7 +1213,7 @@ Only 2xx acknowledges. Network errors, total-deadline expiry, 408, 429 and 5xx r
 
 One shared discovery loop serves independent lanes, with at most one in-flight request per retained output id. A failing output cannot hold a database transaction over HTTP or block healthy outputs. Acquiring an intent commits a random claim token, database-clock thirty-second lease and started attempt. Finalization is fenced by that current unexpired token. Death after remote success can therefore produce a byte-identical duplicate after restart; stale completions cannot overwrite a successor.
 
-Expired claims mark their unfinished attempts `interrupted` and retry. Every started attempt spends the twenty-attempt budget, including ambiguous outcomes and process death. Backoff is `min(300 seconds, 2^(attempt-1) seconds)`; exhausted or permanent work becomes terminal `dead` with its payload retained. Delivered/dead rows have no automatic replay in this slice.
+Expired claims mark their unfinished attempts `interrupted` and retry. Every started attempt spends the twenty-attempt budget, including ambiguous outcomes and process death. Backoff is `min(300 seconds, 2^(attempt-1) seconds)` within that allowance. Exhausted or permanent work becomes `dead` with its payload retained; only an explicit operator replay can requeue it.
 
 Inspect delivery state and attempts with restricted SQL:
 

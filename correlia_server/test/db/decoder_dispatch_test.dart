@@ -74,6 +74,7 @@ void main() {
               'format_version': 2,
               'revision': revision,
               'outputs': <Object?>[],
+              'pipeline_operations': {'pending_max_age_seconds': 2147483647},
               'sources': [
                 _source(_alertmanagerId, 'alertmanager', 1),
                 if (icinga2)

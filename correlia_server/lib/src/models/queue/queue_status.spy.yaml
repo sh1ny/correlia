@@ -1,0 +1,14 @@
+class: QueueStatus
+fields:
+  pendingRows: int
+  pendingMaxRows: int
+  oldestPendingAgeSeconds: int?
+  pendingMaxAgeSeconds: int
+  databaseBytes: int?
+  diskBudgetBytes: int?
+  diskWatermarkPercent: int
+  pressure: String?
+  outputs: List<QueueOutputStatus>
+  outputsTruncated: bool
+  partitionDegraded: bool
+  maintenance: QueueMaintenanceStatus?

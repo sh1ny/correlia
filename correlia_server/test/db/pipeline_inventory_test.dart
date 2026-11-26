@@ -30,7 +30,7 @@ Map<String, Object?> _config(int revision, [Map<String, Object?>? policy]) => {
       'signing_key_ref': 'key-v1',
     },
   ],
-  if (policy != null) 'pipeline_operations': policy,
+  'pipeline_operations': ?policy,
 };
 
 Map<String, String> _secrets() => {

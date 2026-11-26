@@ -20,8 +20,16 @@ import 'package:correlia_server/src/generated/icinga2_consumer_status.dart'
     as _i12hxr9i;
 import 'package:correlia_server/src/generated/mapping_preview_result.dart'
     as _i53f9ie1;
-import 'package:correlia_server/src/generated/rule_simulation_result.dart'
-    as _ilwqz2br;
+import 'package:correlia_server/src/generated/queue/queue_failure_filter.dart'
+    as _irxla14l;
+import 'package:correlia_server/src/generated/queue/queue_failure_kind.dart'
+    as _ielmb4fd;
+import 'package:correlia_server/src/generated/queue/queue_failure_page.dart'
+    as _ilv3nbu0;
+import 'package:correlia_server/src/generated/queue/queue_replay_result.dart'
+    as _itu880k2;
+import 'package:correlia_server/src/generated/queue/queue_status.dart'
+    as _i2fnyk4d;
 import 'package:serverpod/serverpod.dart' as _is;
 import 'package:serverpod_test/serverpod_test.dart' as _ist;
 import 'package:correlia_server/src/generated/protocol.dart';
@@ -159,11 +167,11 @@ void withServerpod(
 class TestEndpoints {
   late final _AlertConsoleEndpoint alertConsole;
 
+  late final _DeadLetterEndpoint deadLetter;
+
   late final _Icinga2StreamEndpoint icinga2Stream;
 
   late final _MappingPreviewEndpoint mappingPreview;
-
-  late final _RuleSimulatorEndpoint ruleSimulator;
 }
 
 class _InternalTestEndpoints extends TestEndpoints
@@ -177,15 +185,15 @@ class _InternalTestEndpoints extends TestEndpoints
       endpoints,
       serializationManager,
     );
+    deadLetter = _DeadLetterEndpoint(
+      endpoints,
+      serializationManager,
+    );
     icinga2Stream = _Icinga2StreamEndpoint(
       endpoints,
       serializationManager,
     );
     mappingPreview = _MappingPreviewEndpoint(
-      endpoints,
-      serializationManager,
-    );
-    ruleSimulator = _RuleSimulatorEndpoint(
       endpoints,
       serializationManager,
     );
@@ -300,6 +308,156 @@ class _AlertConsoleEndpoint {
   }
 }
 
+class _DeadLetterEndpoint {
+  _DeadLetterEndpoint(
+    this._endpointDispatch,
+    this._serializationManager,
+  );
+
+  final _is.EndpointDispatch _endpointDispatch;
+
+  final _is.SerializationManager _serializationManager;
+
+  _ida.Future<_ilv3nbu0.QueueFailurePage> list(
+    _ist.TestSessionBuilder sessionBuilder,
+    _irxla14l.QueueFailureFilter filter, {
+    required int limit,
+    String? continuation,
+  }) async {
+    return _ist.callAwaitableFunctionAndHandleExceptions(() async {
+      var _localUniqueSession =
+          (sessionBuilder as _ist.InternalTestSessionBuilder).internalBuild(
+            endpoint: 'deadLetter',
+            method: 'list',
+          );
+      try {
+        var _localCallContext = await _endpointDispatch.getMethodCallContext(
+          createSessionCallback: (_) => _localUniqueSession,
+          endpointPath: 'deadLetter',
+          methodName: 'list',
+          parameters: _ist.testObjectToJson({
+            'filter': filter,
+            'limit': limit,
+            'continuation': continuation,
+          }),
+          serializationManager: _serializationManager,
+        );
+        var _localReturnValue =
+            await (_localCallContext.method.call(
+                  _localUniqueSession,
+                  _localCallContext.arguments,
+                )
+                as _ida.Future<_ilv3nbu0.QueueFailurePage>);
+        return _localReturnValue;
+      } finally {
+        await _localUniqueSession.close();
+      }
+    });
+  }
+
+  _ida.Future<_itu880k2.QueueReplayResult> replay(
+    _ist.TestSessionBuilder sessionBuilder,
+    _ielmb4fd.QueueFailureKind kind,
+    int occurrence,
+  ) async {
+    return _ist.callAwaitableFunctionAndHandleExceptions(() async {
+      var _localUniqueSession =
+          (sessionBuilder as _ist.InternalTestSessionBuilder).internalBuild(
+            endpoint: 'deadLetter',
+            method: 'replay',
+          );
+      try {
+        var _localCallContext = await _endpointDispatch.getMethodCallContext(
+          createSessionCallback: (_) => _localUniqueSession,
+          endpointPath: 'deadLetter',
+          methodName: 'replay',
+          parameters: _ist.testObjectToJson({
+            'kind': kind,
+            'occurrence': occurrence,
+          }),
+          serializationManager: _serializationManager,
+        );
+        var _localReturnValue =
+            await (_localCallContext.method.call(
+                  _localUniqueSession,
+                  _localCallContext.arguments,
+                )
+                as _ida.Future<_itu880k2.QueueReplayResult>);
+        return _localReturnValue;
+      } finally {
+        await _localUniqueSession.close();
+      }
+    });
+  }
+
+  _ida.Future<_itu880k2.QueueReplayResult> replayBatch(
+    _ist.TestSessionBuilder sessionBuilder,
+    _irxla14l.QueueFailureFilter filter, {
+    required int limit,
+    String? continuation,
+  }) async {
+    return _ist.callAwaitableFunctionAndHandleExceptions(() async {
+      var _localUniqueSession =
+          (sessionBuilder as _ist.InternalTestSessionBuilder).internalBuild(
+            endpoint: 'deadLetter',
+            method: 'replayBatch',
+          );
+      try {
+        var _localCallContext = await _endpointDispatch.getMethodCallContext(
+          createSessionCallback: (_) => _localUniqueSession,
+          endpointPath: 'deadLetter',
+          methodName: 'replayBatch',
+          parameters: _ist.testObjectToJson({
+            'filter': filter,
+            'limit': limit,
+            'continuation': continuation,
+          }),
+          serializationManager: _serializationManager,
+        );
+        var _localReturnValue =
+            await (_localCallContext.method.call(
+                  _localUniqueSession,
+                  _localCallContext.arguments,
+                )
+                as _ida.Future<_itu880k2.QueueReplayResult>);
+        return _localReturnValue;
+      } finally {
+        await _localUniqueSession.close();
+      }
+    });
+  }
+
+  _ida.Future<_i2fnyk4d.QueueStatus> status(
+    _ist.TestSessionBuilder sessionBuilder,
+  ) async {
+    return _ist.callAwaitableFunctionAndHandleExceptions(() async {
+      var _localUniqueSession =
+          (sessionBuilder as _ist.InternalTestSessionBuilder).internalBuild(
+            endpoint: 'deadLetter',
+            method: 'status',
+          );
+      try {
+        var _localCallContext = await _endpointDispatch.getMethodCallContext(
+          createSessionCallback: (_) => _localUniqueSession,
+          endpointPath: 'deadLetter',
+          methodName: 'status',
+          parameters: _ist.testObjectToJson({}),
+          serializationManager: _serializationManager,
+        );
+        var _localReturnValue =
+            await (_localCallContext.method.call(
+                  _localUniqueSession,
+                  _localCallContext.arguments,
+                )
+                as _ida.Future<_i2fnyk4d.QueueStatus>);
+        return _localReturnValue;
+      } finally {
+        await _localUniqueSession.close();
+      }
+    });
+  }
+}
+
 class _Icinga2StreamEndpoint {
   _Icinga2StreamEndpoint(
     this._endpointDispatch,
@@ -382,58 +540,6 @@ class _MappingPreviewEndpoint {
                   _localCallContext.arguments,
                 )
                 as _ida.Future<_i53f9ie1.MappingPreviewResult>);
-        return _localReturnValue;
-      } finally {
-        await _localUniqueSession.close();
-      }
-    });
-  }
-}
-
-class _RuleSimulatorEndpoint {
-  _RuleSimulatorEndpoint(
-    this._endpointDispatch,
-    this._serializationManager,
-  );
-
-  final _is.EndpointDispatch _endpointDispatch;
-
-  final _is.SerializationManager _serializationManager;
-
-  _ida.Future<_ilwqz2br.RuleSimulationResult> simulate(
-    _ist.TestSessionBuilder sessionBuilder, {
-    String? eventJson,
-    String? eventId,
-    String? observedAt,
-    String? disposition,
-    String? draftMatcher,
-  }) async {
-    return _ist.callAwaitableFunctionAndHandleExceptions(() async {
-      var _localUniqueSession =
-          (sessionBuilder as _ist.InternalTestSessionBuilder).internalBuild(
-            endpoint: 'ruleSimulator',
-            method: 'simulate',
-          );
-      try {
-        var _localCallContext = await _endpointDispatch.getMethodCallContext(
-          createSessionCallback: (_) => _localUniqueSession,
-          endpointPath: 'ruleSimulator',
-          methodName: 'simulate',
-          parameters: _ist.testObjectToJson({
-            'eventJson': eventJson,
-            'eventId': eventId,
-            'observedAt': observedAt,
-            'disposition': disposition,
-            'draftMatcher': draftMatcher,
-          }),
-          serializationManager: _serializationManager,
-        );
-        var _localReturnValue =
-            await (_localCallContext.method.call(
-                  _localUniqueSession,
-                  _localCallContext.arguments,
-                )
-                as _ida.Future<_ilwqz2br.RuleSimulationResult>);
         return _localReturnValue;
       } finally {
         await _localUniqueSession.close();

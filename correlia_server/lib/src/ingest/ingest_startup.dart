@@ -30,6 +30,9 @@ final class IngestStartup extends Subsystem {
   /// The process-local resolver shared by runtime consumers.
   SecretResolver? resolver;
 
+  /// The encrypted store used inside operator replay transactions.
+  SecretStore? secretStore;
+
   /// The lookup limit shared by ingress and the secret store.
   final lookupGate = SecretLookupGate();
 
@@ -93,6 +96,7 @@ final class IngestStartup extends Subsystem {
         ]);
       }
       bootstrap = input?.withoutImport();
+      secretStore = store;
       ready = true;
     } finally {
       await session.close();
@@ -102,6 +106,7 @@ final class IngestStartup extends Subsystem {
   @override
   Future<void> stop() async {
     ready = false;
+    secretStore = null;
   }
 }
 

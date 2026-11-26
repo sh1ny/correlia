@@ -49,10 +49,10 @@ WHERE o.status IN ('dead', 'delivered');
 
 CREATE TABLE pipeline_icinga2_replay_floor (
   singleton integer PRIMARY KEY CHECK (singleton = 1),
-  receipt_floor timestamptz NOT NULL
+  effective_floor timestamptz NOT NULL
 );
-INSERT INTO pipeline_icinga2_replay_floor (singleton, receipt_floor)
-SELECT singleton, cutoff FROM raw_admission_cutoff;
+INSERT INTO pipeline_icinga2_replay_floor (singleton, effective_floor)
+SELECT singleton, cutoff - interval '7 days' FROM raw_admission_cutoff;
 
 CREATE TABLE raw_inbox (
   LIKE legacy_raw_inbox INCLUDING ALL EXCLUDING INDEXES,
@@ -544,27 +544,33 @@ $$;
 
 -- Hold this lock until the actual INSERT; row triggers account only committed
 -- work. Replay skips age, disk and output pressure but shares the row cap.
-CREATE FUNCTION correlia_reserve_raw(incoming integer, replay boolean DEFAULT false)
+CREATE FUNCTION correlia_queue_pressure(pending bigint,incoming integer)
 RETURNS text LANGUAGE plpgsql AS $$
 DECLARE
-  pending bigint;
   policy pipeline_queue_policy;
 BEGIN
-  SELECT pending_rows INTO pending FROM pipeline_pending WHERE singleton=1 FOR UPDATE;
   SELECT * INTO policy FROM pipeline_queue_policy WHERE singleton=1;
-  IF NOT replay THEN
-    IF correlia_disk_pressure() THEN RETURN 'storage'; END IF;
-    IF EXISTS (SELECT 1 FROM pipeline_output_capacity WHERE overflow_policy='block_ingest' AND (
-        used_rows >= max_rows OR used_bytes >= max_payload_bytes
-        OR demand_rows > max_rows - used_rows OR demand_bytes > max_payload_bytes - used_bytes
-    )) THEN RETURN 'output'; END IF;
-    IF EXISTS (SELECT 1 FROM raw_inbox WHERE status='pending'
-      AND coalesce(queued_at,observed_at) <= statement_timestamp()
-        - make_interval(secs=>policy.pending_max_age_seconds)
-    ) THEN RETURN 'inbox'; END IF;
-  END IF;
+  IF correlia_disk_pressure() THEN RETURN 'storage'; END IF;
+  IF EXISTS (SELECT 1 FROM pipeline_output_capacity WHERE overflow_policy='block_ingest' AND (
+      used_rows >= max_rows OR used_bytes >= max_payload_bytes
+      OR demand_rows > max_rows - used_rows OR demand_bytes > max_payload_bytes - used_bytes
+  )) THEN RETURN 'output'; END IF;
+  IF EXISTS (SELECT 1 FROM raw_inbox WHERE status='pending'
+    AND coalesce(queued_at,observed_at) <= statement_timestamp()
+      - make_interval(secs=>policy.pending_max_age_seconds)
+  ) THEN RETURN 'inbox'; END IF;
   IF pending > policy.pending_max_rows - incoming THEN RETURN 'inbox'; END IF;
   RETURN NULL;
+END;
+$$;
+
+CREATE FUNCTION correlia_reserve_raw(incoming integer) RETURNS text
+LANGUAGE plpgsql AS $$
+DECLARE
+  pending bigint;
+BEGIN
+  SELECT pending_rows INTO pending FROM pipeline_pending WHERE singleton=1 FOR UPDATE;
+  RETURN correlia_queue_pressure(pending,incoming);
 END;
 $$;
 
@@ -634,7 +640,7 @@ CREATE TRIGGER output_capacity_recovered BEFORE UPDATE OF
   EXECUTE FUNCTION correlia_close_satisfied_overflow();
 
 CREATE TABLE pipeline_dead_letter (
-  occurrence_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  occurrence_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   kind text NOT NULL CHECK (kind IN ('raw','delivery')),
   scope_id uuid NOT NULL,
   failed_at timestamptz NOT NULL,
@@ -882,8 +888,8 @@ $$;
 CREATE FUNCTION correlia_expire_dead_letters(p_now timestamptz,p_cutoff timestamptz,p_cap integer)
 RETURNS integer LANGUAGE plpgsql AS $$
 DECLARE
-  occurrences uuid[];
-  locked_occurrences uuid[];
+  occurrences bigint[];
+  locked_occurrences bigint[];
   expired integer := 0;
   deliveries integer;
 BEGIN
@@ -1101,3 +1107,55 @@ BEGIN
   RETURN affected;
 END;
 $$;
+
+-- Lock all lanes and commitment keys before reserving under the inbox count.
+CREATE FUNCTION correlia_lock_replay_pins(p_pin text,p_sources jsonb)
+RETURNS void LANGUAGE plpgsql AS $$
+DECLARE
+  c record;
+BEGIN
+  PERFORM cap.output_id FROM pipeline_output_capacity cap WHERE cap.output_id IN (
+    SELECT r.output_id FROM jsonb_array_elements_text(p_sources) s(id)
+    CROSS JOIN LATERAL correlia_raw_pin_routes(p_pin,s.id::uuid) r
+  ) ORDER BY cap.output_id FOR UPDATE;
+  FOR c IN SELECT DISTINCT r.* FROM jsonb_array_elements_text(p_sources) s(id)
+    CROSS JOIN LATERAL correlia_pin_commitments(p_pin,s.id::uuid) r
+    ORDER BY reference,commitment,kind
+  LOOP
+    INSERT INTO pipeline_output_commitment (reference,commitment,kind)
+    VALUES (c.reference,c.commitment,c.kind)
+    ON CONFLICT (reference,commitment,kind) DO UPDATE
+      SET pinned_count=pipeline_output_commitment.pinned_count;
+  END LOOP;
+END;
+$$;
+
+CREATE FUNCTION correlia_cleanup_replay_pins(p_pin text,p_sources jsonb)
+RETURNS void LANGUAGE sql AS $$
+  DELETE FROM pipeline_output_commitment c USING (
+    SELECT DISTINCT r.* FROM jsonb_array_elements_text(p_sources) s(id)
+    CROSS JOIN LATERAL correlia_pin_commitments(p_pin,s.id::uuid) r
+  ) wanted WHERE (c.reference,c.commitment,c.kind)=(wanted.reference,wanted.commitment,wanted.kind)
+    AND c.pinned_count=0 AND c.live_count=0
+$$;
+
+CREATE FUNCTION correlia_lock_delivery_replay_keys(p_rows jsonb)
+RETURNS void LANGUAGE plpgsql AS $$
+DECLARE
+  c record;
+BEGIN
+  FOR c IN SELECT DISTINCT r.* FROM jsonb_array_elements(p_rows) d
+    CROSS JOIN LATERAL correlia_intent_commitments(d->>'pin',(d->>'output')::uuid,
+      d->>'kind',d->>'reference',d->>'commitment') r
+    ORDER BY reference,commitment,kind
+  LOOP
+    INSERT INTO pipeline_output_commitment (reference,commitment,kind)
+    VALUES (c.reference,c.commitment,c.kind)
+    ON CONFLICT (reference,commitment,kind) DO UPDATE
+      SET live_count=pipeline_output_commitment.live_count;
+  END LOOP;
+END;
+$$;
+
+CREATE INDEX pipeline_reported_output_idx ON pipeline_output_capacity (output_id)
+  WHERE active OR used_rows>0 OR pinned_rows>0 OR overflow_activity_id IS NOT NULL;

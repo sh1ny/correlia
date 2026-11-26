@@ -480,8 +480,9 @@ final class IngestConfigRepository {
 
   /// Requires matching material for live historical deliveries, not terminal rows.
   Future<void> validateLiveSecrets({Transaction? transaction}) {
-    if (transaction != null)
+    if (transaction != null) {
       return _validateLiveWebhookCommitments(transaction);
+    }
     return session.db.transaction((tx) async {
       await session.db.unsafeQuery(
         'SELECT singleton FROM ingest_active_config WHERE singleton=1 FOR SHARE',

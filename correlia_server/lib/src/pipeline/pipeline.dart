@@ -216,6 +216,7 @@ final class _Raw {
     this.bytes,
     this.digest,
     this.pin,
+    this.epoch,
   );
   final DateTime observed;
   final String id;
@@ -223,6 +224,9 @@ final class _Raw {
   final Uint8List bytes;
   final String digest;
   final String pin;
+  final int epoch;
+  bool get replayed => epoch != 0;
+  String get retryKey => '$id:$epoch';
 }
 
 final class _OutputDeferral implements Exception {
@@ -363,6 +367,7 @@ final class PipelineRepository {
     this.icinga2Decoder = decodeIcinga2Request,
     this.regexWorker,
     this.beforePinCommitForTest,
+    this.beforeRecordErrorForTest,
     this.fanoutLimitForTest,
   }) : clock = clock ?? DateTime.now,
        _retryCounts = retryCounts ?? {},
@@ -399,6 +404,9 @@ final class PipelineRepository {
 
   /// Fixture barrier after a pin is written but before its lock is released.
   final Future<void> Function(Transaction)? beforePinCommitForTest;
+
+  /// Fixture barrier after the work rollback and before recording its error.
+  final Future<void> Function()? beforeRecordErrorForTest;
 
   /// Fixture override for exact fanout boundary tests.
   final int? fanoutLimitForTest;
@@ -475,7 +483,7 @@ WHERE observed_at=@observed AND raw_id=CAST(@id AS uuid)''',
       final processed = await session.db.transaction((tx) async {
         await _limits(tx, deadline);
         final rows = await session.db.unsafeQuery(
-          '''SELECT observed_at,raw_id::text,source_id::text,body,body_sha256,config_snapshot_id
+          '''SELECT observed_at,raw_id::text,source_id::text,body,body_sha256,config_snapshot_id,processing_epoch
 FROM raw_inbox WHERE status='pending' AND config_snapshot_id IS NOT NULL
 AND (next_attempt_at IS NULL OR next_attempt_at<=@now)
 ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
@@ -501,6 +509,7 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
           bytes,
           row[4] as String,
           row[5] as String,
+          row[6] as int,
         );
         claimed = raw;
         if (afterClaim case final hook?) await hook();
@@ -562,19 +571,40 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
           );
           batch = decoded.batch;
           syncId = decoded.syncId;
+          int? floorMicros;
+          if (raw.replayed && kind is Icinga2SourceKind) {
+            final floors = await session.db.unsafeQuery(
+              '''
+              SELECT effective_floor FROM pipeline_icinga2_replay_floor
+              WHERE singleton=1 AND isfinite(effective_floor)
+                AND @receipt::timestamptz < effective_floor + interval '7 days'
+              ''',
+              parameters: QueryParameters.named({'receipt': raw.observed}),
+              transaction: tx,
+              timeoutInSeconds: 5,
+            );
+            if (floors.isNotEmpty) {
+              floorMicros =
+                  (floors.single[0]! as DateTime).microsecondsSinceEpoch;
+            }
+          }
           deadline.check();
           for (final event in batch.events) {
             deadline.check();
-            final disposition = classifyEvidence(
-              event.sourceTime!,
-              stream
-                  ? DateTime.fromMicrosecondsSinceEpoch(
-                      event.observedAt.seconds * 1000000 +
-                          event.observedAt.nanos ~/ 1000,
-                      isUtc: true,
-                    )
-                  : raw.observed,
-            );
+            final source = event.sourceTime!;
+            final receipt = stream ? _date(event.observedAt) : raw.observed;
+            var disposition = classifyEvidence(source, receipt);
+            // A legacy batch can span the old fence. Compare each item's
+            // effective time, keeping the normal future quarantine intact.
+            if (floorMicros != null &&
+                disposition == EvidenceDisposition.ready &&
+                (source.seconds * 1000000 + source.nanos ~/ 1000 <
+                        floorMicros ||
+                    receipt.microsecondsSinceEpoch +
+                            stateSkewAllowance.inMicroseconds <
+                        floorMicros)) {
+              disposition = EvidenceDisposition.late;
+            }
             final data = CloudEvent(event: event).toJsonBytes();
             prepared.add(_Prepared(event, disposition, data, prepared.length));
           }
@@ -978,7 +1008,7 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
             transaction: tx,
           );
         }
-        if (syncId != null) {
+        if (syncId != null && !raw.replayed) {
           final counts = {
             'applied': applied,
             'confirmed': confirmed,
@@ -1007,7 +1037,29 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
           );
           if (updated != 1) throw StateError('Missing Icinga sync progress');
           await _finalizeSync(tx, deadline, syncId);
-          if (committed == 0) {
+        }
+        if (reconcile) {
+          if (raw.replayed
+              ? committed + late + quarantines == 0
+              : committed == 0) {
+            if (raw.replayed) {
+              await _limits(tx, deadline);
+              await session.db.unsafeExecute(
+                '''
+                INSERT INTO activity (occurred_at,entity_kind,entity_id,entity_version,
+                  change_kind,actor_kind,cause_raw_id)
+                VALUES (@now,'pipeline_failure',0,@count,'replayed_reconcile_no_event','system',@raw::uuid)
+              ''',
+                parameters: QueryParameters.named({
+                  'now': clock().toUtc(),
+                  'raw': raw.id,
+                  'count':
+                      confirmed + tombstoned + duplicates + stale + diverged,
+                }),
+                transaction: tx,
+                timeoutInSeconds: 5,
+              );
+            }
             await _limits(tx, deadline);
             await session.db.unsafeExecute(
               'DELETE FROM icinga2_raw_origin WHERE raw_id=CAST(@raw AS uuid)',
@@ -1063,7 +1115,7 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
         completedBatch = batch;
         return true;
       });
-      if (claimed != null) _retryCounts.remove(claimed!.id);
+      if (claimed != null) _retryCounts.remove(claimed!.retryKey);
       final batch = completedBatch;
       if (batch != null &&
           (batch.unknownTopLevelFields.isNotEmpty ||
@@ -1083,6 +1135,7 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
       return processed;
     } catch (error) {
       if (claimed == null) rethrow;
+      await beforeRecordErrorForTest?.call();
       await _recordError(claimed!, error);
       return true;
     } finally {
@@ -1125,14 +1178,18 @@ FROM failure''',
           SELECT origin,sync_id FROM icinga2_raw_origin WHERE raw_id=CAST(@raw AS uuid)
         ), failed_sync AS (
           UPDATE icinga2_sync_progress AS p SET rows_failed=rows_failed+1
-          FROM admission a WHERE a.origin='sync' AND p.sync_id=a.sync_id
+          FROM admission a WHERE a.origin='sync' AND p.sync_id=a.sync_id AND NOT @replayed
           RETURNING p.sync_id::text AS sync_id
         ), request_sync AS (
           INSERT INTO icinga2_stream_resync ("sourceId","requestSeq")
           SELECT CAST(@source AS uuid),1 FROM admission WHERE origin='stream'
           ON CONFLICT ("sourceId") DO UPDATE SET "requestSeq"=icinga2_stream_resync."requestSeq"+1
         ) SELECT sync_id FROM failed_sync''',
-      parameters: QueryParameters.named({'raw': raw.id, 'source': raw.source}),
+      parameters: QueryParameters.named({
+        'raw': raw.id,
+        'source': raw.source,
+        'replayed': raw.replayed,
+      }),
       transaction: tx,
     );
     if (failedSync.isNotEmpty) {
@@ -1178,17 +1235,19 @@ FROM failure''',
       await _limits(tx, deadline);
       final rows = await session.db.unsafeQuery(
         '''SELECT attempt_count FROM raw_inbox WHERE observed_at=@observed
-AND raw_id=CAST(@raw AS uuid) AND status='pending' AND config_snapshot_id=@pin FOR UPDATE''',
+AND raw_id=CAST(@raw AS uuid) AND status='pending' AND config_snapshot_id=@pin
+AND processing_epoch=@epoch FOR UPDATE''',
         parameters: QueryParameters.named({
           'observed': raw.observed,
           'raw': raw.id,
           'pin': raw.pin,
+          'epoch': raw.epoch,
         }),
         transaction: tx,
         timeoutInSeconds: 5,
       );
       if (rows.isEmpty) {
-        _retryCounts.remove(raw.id);
+        _retryCounts.remove(raw.retryKey);
         return false;
       }
       final attempts = (rows.single[0] as int) + (transient ? 0 : 1);
@@ -1205,15 +1264,16 @@ AND raw_id=CAST(@raw AS uuid) AND status='pending' AND config_snapshot_id=@pin F
           timeoutInSeconds: 5,
         );
         await _fail(tx, deadline, raw, 'processing_exhausted', null);
-        _retryCounts.remove(raw.id);
+        _retryCounts.remove(raw.retryKey);
       } else {
         // Only scheduling hints live here; the durable next-attempt time and
         // internal-error budget remain authoritative across eviction/restart.
-        if (!_retryCounts.containsKey(raw.id) && _retryCounts.length >= 64) {
+        final key = raw.retryKey;
+        if (!_retryCounts.containsKey(key) && _retryCounts.length >= 64) {
           _retryCounts.remove(_retryCounts.keys.first);
         }
-        final failures = (_retryCounts[raw.id] ?? 0) + 1;
-        _retryCounts[raw.id] = failures;
+        final failures = (_retryCounts[key] ?? 0) + 1;
+        _retryCounts[key] = failures;
         final seconds = (1 << (failures - 1).clamp(0, 5)).clamp(1, 30);
         final delay = retryDelay?.call(failures) ?? Duration(seconds: seconds);
         await _limits(tx, deadline);

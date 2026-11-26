@@ -10,6 +10,7 @@ import '../ingest/ingest_test_gates.dart';
 import '../ingest/ingest_workers.dart';
 import '../ingest/ingress.dart';
 import '../pipeline/maintenance.dart';
+import '../pipeline/operator_runtime.dart';
 import 'process_options.dart';
 import 'role_runtime.dart';
 import 'startup_state.dart';
@@ -43,6 +44,12 @@ List<Subsystem> buildSubsystemRegistry({
       : null;
   return [
     ingest,
+    OperatorRuntime(
+      pod,
+      path: environment['CORRELIA_DEAD_LETTER_CREDENTIALS_FILE'],
+      ready: () => startup.isReady,
+      secretStore: () => ingest.secretStore,
+    ),
     IngressSubsystem(
       pod: pod,
       bootstrap: () => ingest.bootstrap,

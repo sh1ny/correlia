@@ -52,6 +52,9 @@ Future<void> run(List<String> args) async {
   late final Serverpod pod;
   pod = Serverpod(
     options.serverpodArgs,
+    // Machine bearers are checked only by the operator endpoint. They must
+    // never establish a Serverpod user session.
+    authenticationHandler: (_, _) async => null,
     healthConfig: HealthConfig(
       additionalStartupIndicators: [CorreliaStartupIndicator(startup)],
       additionalReadinessIndicators: [

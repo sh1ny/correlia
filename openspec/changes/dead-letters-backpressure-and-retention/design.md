@@ -292,7 +292,7 @@ Build historical-secret evidence from the same pin-to-intent transitions. Pinnin
 
 ### Replay operations
 
-Require one failure kind per filter. The directory stores kind, occurrence, scope ID, error class, failure time and full work key. A raw failure's persistent primary key identifies its occurrence; a new dead intent gets a distinct monotonic occurrence. Add or remove the directory entry in the same transaction as the owning transition. Backfill at cutover. Use indexes for kind alone, kind plus scope, kind plus error, and kind plus both, each ending in failure time and occurrence. Read raw failure details only for selected entries. Sparse filters need no residual scan.
+Require one failure kind per filter. The directory stores kind, occurrence, scope ID, error class, failure time and full work key. Each raw or delivery failure gets a distinct monotonic occurrence. Add or remove the directory entry in the same transaction as the owning transition. Backfill at cutover. Use indexes for kind alone, kind plus scope, kind plus error, and kind plus both, each ending in failure time and occurrence. Keep sanitized raw details with the directory so listing does not touch payload tables. Sparse filters need no residual scan.
 
 Validate the bounded cursor against kind and filter. Continue replay under a fixed upper failure-time bound. Bulk mutation selects a page, locks work rows in composite key order and rechecks occurrence, status and expiry. Apply successful changes in page order. A lock timeout rolls back the batch and does not advance its continuation. Report queued and refused outcomes. Single replay identifies one occurrence, so retry cannot replay a later failure of the same work.
 

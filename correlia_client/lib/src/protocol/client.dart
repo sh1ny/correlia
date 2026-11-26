@@ -18,8 +18,16 @@ import 'package:correlia_client/src/protocol/icinga2_consumer_status.dart'
     as _ipqy5wv2;
 import 'package:correlia_client/src/protocol/mapping_preview_result.dart'
     as _ioulm4x4;
-import 'package:correlia_client/src/protocol/rule_simulation_result.dart'
-    as _icgerf50;
+import 'package:correlia_client/src/protocol/queue/queue_failure_filter.dart'
+    as _ih5r8qrd;
+import 'package:correlia_client/src/protocol/queue/queue_failure_kind.dart'
+    as _if5snqex;
+import 'package:correlia_client/src/protocol/queue/queue_failure_page.dart'
+    as _ilgnlt55;
+import 'package:correlia_client/src/protocol/queue/queue_replay_result.dart'
+    as _i99t5m3a;
+import 'package:correlia_client/src/protocol/queue/queue_status.dart'
+    as _ihsacgcw;
 import 'package:http/http.dart' as _i85jenna;
 import 'package:serverpod_client/serverpod_client.dart' as _isc;
 import 'protocol.dart' as _il2as5qe;
@@ -66,6 +74,66 @@ class EndpointAlertConsole extends _isc.EndpointRef {
       );
 }
 
+/// Dedicated opt-in operator calls, separate from ingest and console access.
+/// {@category Endpoint}
+class EndpointDeadLetter extends _isc.EndpointRef {
+  EndpointDeadLetter(_isc.EndpointCaller caller) : super(caller);
+
+  @override
+  String get name => 'deadLetter';
+
+  /// Lists a bounded page of sanitized active failures.
+  _ida.Future<_ilgnlt55.QueueFailurePage> list(
+    _ih5r8qrd.QueueFailureFilter filter, {
+    required int limit,
+    String? continuation,
+  }) => caller.callServerEndpoint<_ilgnlt55.QueueFailurePage>(
+    'deadLetter',
+    'list',
+    {
+      'filter': filter,
+      'limit': limit,
+      'continuation': continuation,
+    },
+  );
+
+  /// Requeues one exact failure occurrence when still eligible.
+  _ida.Future<_i99t5m3a.QueueReplayResult> replay(
+    _if5snqex.QueueFailureKind kind,
+    int occurrence,
+  ) => caller.callServerEndpoint<_i99t5m3a.QueueReplayResult>(
+    'deadLetter',
+    'replay',
+    {
+      'kind': kind,
+      'occurrence': occurrence,
+    },
+  );
+
+  /// Requeues eligible failures in one filtered and bounded page.
+  _ida.Future<_i99t5m3a.QueueReplayResult> replayBatch(
+    _ih5r8qrd.QueueFailureFilter filter, {
+    required int limit,
+    String? continuation,
+  }) => caller.callServerEndpoint<_i99t5m3a.QueueReplayResult>(
+    'deadLetter',
+    'replayBatch',
+    {
+      'filter': filter,
+      'limit': limit,
+      'continuation': continuation,
+    },
+  );
+
+  /// Reports shared queue pressure and the last committed maintenance outcome.
+  _ida.Future<_ihsacgcw.QueueStatus> status() =>
+      caller.callServerEndpoint<_ihsacgcw.QueueStatus>(
+        'deadLetter',
+        'status',
+        {},
+      );
+}
+
 /// Local operator status for Icinga2 Event Streams.
 /// {@category Endpoint}
 class EndpointIcinga2Stream extends _isc.EndpointRef {
@@ -108,42 +176,6 @@ class EndpointMappingPreview extends _isc.EndpointRef {
   );
 }
 
-/// Read-only simulation of one event against the active or a draft matcher.
-/// {@category Endpoint}
-class EndpointRuleSimulator extends _isc.EndpointRef {
-  EndpointRuleSimulator(_isc.EndpointCaller caller) : super(caller);
-
-  @override
-  String get name => 'ruleSimulator';
-
-  /// Shows every rule and condition decision for one event.
-  ///
-  /// The input is exactly one of [eventJson] (a CloudEvent JSON document) or
-  /// [eventId] with [observedAt] and an optional [disposition] (a stored
-  /// event). [draftMatcher] is an optional matcher section as JSON text; without
-  /// it the active snapshot's rules run. Input and lookup failures are a
-  /// [SimulationError] in the result. The console access policy throws, and an
-  /// infrastructure failure, such as a database timeout, reaches the caller as
-  /// an RPC error.
-  _ida.Future<_icgerf50.RuleSimulationResult> simulate({
-    String? eventJson,
-    String? eventId,
-    String? observedAt,
-    String? disposition,
-    String? draftMatcher,
-  }) => caller.callServerEndpoint<_icgerf50.RuleSimulationResult>(
-    'ruleSimulator',
-    'simulate',
-    {
-      'eventJson': eventJson,
-      'eventId': eventId,
-      'observedAt': observedAt,
-      'disposition': disposition,
-      'draftMatcher': draftMatcher,
-    },
-  );
-}
-
 class Client extends _isc.ServerpodClientShared {
   Client(
     String host, {
@@ -172,25 +204,25 @@ class Client extends _isc.ServerpodClientShared {
          httpClientOverride: httpClientOverride,
        ) {
     alertConsole = EndpointAlertConsole(this);
+    deadLetter = EndpointDeadLetter(this);
     icinga2Stream = EndpointIcinga2Stream(this);
     mappingPreview = EndpointMappingPreview(this);
-    ruleSimulator = EndpointRuleSimulator(this);
   }
 
   late final EndpointAlertConsole alertConsole;
+
+  late final EndpointDeadLetter deadLetter;
 
   late final EndpointIcinga2Stream icinga2Stream;
 
   late final EndpointMappingPreview mappingPreview;
 
-  late final EndpointRuleSimulator ruleSimulator;
-
   @override
   Map<String, _isc.EndpointRef> get endpointRefLookup => {
     'alertConsole': alertConsole,
+    'deadLetter': deadLetter,
     'icinga2Stream': icinga2Stream,
     'mappingPreview': mappingPreview,
-    'ruleSimulator': ruleSimulator,
   };
 
   @override

@@ -79,10 +79,19 @@ void main() {
         final session = builder.build();
         await _predecessor(session);
         await _seed(session);
+        await session.db.unsafeExecute(
+          "UPDATE raw_admission_cutoff SET cutoff='2020-01-08 00:00 UTC' WHERE singleton=1",
+        );
         final before = await _evidence(session);
         await applySchemaSteps(session, schemaSteps);
         expect(await _partitionedParents(session), _parents);
         expect(await _evidence(session), before);
+        expect(
+          (await session.db.unsafeQuery(
+            'SELECT effective_floor FROM pipeline_icinga2_replay_floor',
+          )).single[0],
+          DateTime.utc(2020),
+        );
         final inserted = await session.db.unsafeQuery('''
           INSERT INTO raw_inbox (observed_at,raw_id,source_id,body,body_sha256,content_type)
           VALUES (clock_timestamp(),gen_random_uuid(),gen_random_uuid(),decode('aa','hex'),

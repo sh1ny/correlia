@@ -72,13 +72,17 @@ final class DeliveryClaim {
     this.eventId,
     this.payload,
     this.intent,
-    this.key,
-  );
+    this.key, {
+    required this.retryBase,
+  });
 
   final DateTime createdAt;
   final String deliveryId;
   final String claimId;
   final int attemptNumber;
+
+  /// Attempts through this number belong to prior delivery cycles.
+  final int retryBase;
   final String eventId;
   final Uint8List payload;
   final DeliveryIntent? intent;
@@ -323,7 +327,7 @@ final class OutputRelayRepository {
         if (plugin && (permit == null || !permit.isValid)) return null;
         await _timeout(tx, budget, claim: true);
         final candidates = await session.db.unsafeQuery(
-          '''SELECT created_at,delivery_id::text,event_id::text,target_url,payload,attempt_count
+          '''SELECT created_at,delivery_id::text,event_id::text,target_url,payload,attempt_count,retry_base
           FROM outbox WHERE output_id=CAST(@output AS uuid) AND status='queued'
             AND (next_attempt_at IS NULL OR next_attempt_at<=clock_timestamp())
             AND ((@plugin AND output_kind='plugin' AND definition_digest=@digest)
@@ -425,6 +429,7 @@ final class OutputRelayRepository {
               intent?.payload ?? bytes,
               intent,
               key,
+              retryBase: row[6] as int,
             ),
           );
         }
@@ -462,6 +467,7 @@ final class OutputRelayRepository {
     final values = <Map<String, Object?>>[];
     for (var i = 0; i < outcomes.length; i++) {
       final claim = batch.claims[i];
+      final attemptsThisCycle = claim.attemptNumber - claim.retryBase;
       final (status, attempt, error) = switch (outcomes[i]) {
         DeliveryAcknowledged() => ('delivered', 'acknowledged', null),
         DeliveryPermanent(:final errorClass) => (
@@ -470,7 +476,7 @@ final class OutputRelayRepository {
           errorClass,
         ),
         DeliveryRetryable(:final errorClass) => (
-          claim.attemptNumber >= 20 ? 'dead' : 'queued',
+          attemptsThisCycle >= 20 ? 'dead' : 'queued',
           'retryable',
           errorClass,
         ),
@@ -482,7 +488,7 @@ final class OutputRelayRepository {
         'status': status,
         'outcome': attempt,
         'error': error,
-        'delay': math.min(300, 1 << math.min(19, claim.attemptNumber - 1)),
+        'delay': math.min(300, 1 << math.min(19, attemptsThisCycle - 1)),
       });
     }
     final params = QueryParameters.named({
@@ -526,7 +532,9 @@ final class OutputRelayRepository {
           transaction: tx,
           timeoutInSeconds: 5,
         );
-        if (locked.single[0] != batch.claims.length) throw _RollbackCompletion();
+        if (locked.single[0] != batch.claims.length) {
+          throw _RollbackCompletion();
+        }
         await _timeout(tx, batch.deadline);
         final attempts = await session.db.unsafeExecute(
           '''UPDATE delivery_attempts a SET "finishedAt"=clock_timestamp(),outcome=x.outcome,"errorClass"=x.error
@@ -566,7 +574,7 @@ final class OutputRelayRepository {
   Future<bool> recoverExpired() async {
     return session.db.transaction((tx) async {
       final rows = await session.db.unsafeQuery(
-        '''SELECT created_at,delivery_id::text,claim_id::text,attempt_count FROM outbox
+        '''SELECT created_at,delivery_id::text,claim_id::text,attempt_count,retry_base FROM outbox
         WHERE status='delivering' AND lease_until<=clock_timestamp() ORDER BY lease_until FOR UPDATE SKIP LOCKED LIMIT 1''',
         transaction: tx,
         timeoutInSeconds: 5,
@@ -574,8 +582,9 @@ final class OutputRelayRepository {
       if (rows.isEmpty) return false;
       final row = rows.single;
       final number = row[3] as int;
-      final status = number >= 20 ? 'dead' : 'queued';
-      final delay = math.min(300, 1 << math.min(19, number - 1));
+      final attemptsThisCycle = number - (row[4] as int);
+      final status = attemptsThisCycle >= 20 ? 'dead' : 'queued';
+      final delay = math.min(300, 1 << math.min(19, attemptsThisCycle - 1));
       await session.db.unsafeExecute(
         '''UPDATE delivery_attempts SET "finishedAt"=clock_timestamp(),outcome='interrupted',"errorClass"='interrupted'
         WHERE "outboxCreatedAt"=@created AND "deliveryId"=CAST(@id AS uuid) AND "claimId"=CAST(@claim AS uuid) AND "attemptNumber"=@number AND outcome='started' ''',
