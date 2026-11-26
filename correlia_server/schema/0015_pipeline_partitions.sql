@@ -711,6 +711,11 @@ $$;
 CREATE TRIGGER output_capacity_recovered BEFORE UPDATE OF
   used_rows,used_bytes,max_rows,max_payload_bytes,overflow_policy,demand_rows,demand_bytes ON pipeline_output_capacity
   FOR EACH ROW
+  WHEN ((OLD.used_rows, OLD.used_bytes, OLD.max_rows, OLD.max_payload_bytes,
+         OLD.overflow_policy, OLD.demand_rows, OLD.demand_bytes)
+    IS DISTINCT FROM
+        (NEW.used_rows, NEW.used_bytes, NEW.max_rows, NEW.max_payload_bytes,
+         NEW.overflow_policy, NEW.demand_rows, NEW.demand_bytes))
   EXECUTE FUNCTION correlia_close_satisfied_overflow();
 
 SELECT correlia_publish_queue_policy(s."publicJson"::jsonb)

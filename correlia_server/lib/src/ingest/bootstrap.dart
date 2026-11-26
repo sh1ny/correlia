@@ -673,8 +673,9 @@ Future<Uint8List> readBootstrapFile(
   int? effectiveUid,
 }) async {
   try {
-    if (private)
+    if (private) {
       return _readPrivateBootstrapFile(path, kind, cap, effectiveUid);
+    }
     if (await FileSystemEntity.type(path, followLinks: false) !=
         FileSystemEntityType.file) {
       _bad(kind, r'$', 'regular_file');

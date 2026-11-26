@@ -185,8 +185,9 @@ run in every role unless they are switched off:
   - `pipeline_icinga2_replay_floor`: receipt floor captured from the old admission cutoff at the M2
     cutover; earlier pre-upgrade Icinga2 replay cannot recreate firing state.
   - `pipeline_queue_policy`, `pipeline_pending`, `pipeline_disk_sample`, `pipeline_output_capacity`,
-    `pipeline_output_commitment` and `pipeline_event_reference`: committed queue policy, pending
-    reservations, sampled storage, output counts and historical references (ADR 0034).
+    `pipeline_output_demand`, `pipeline_output_commitment` and `pipeline_event_reference`: committed queue
+    policy, pending reservations, sampled storage, output counts, deferred demand and historical references
+    (ADR 0034).
   - `pipeline_overflow_notice`: durable overflow routing claims and sanitized evidence for
     Correlia-origin canonical alerts. No notice can bypass a destination's queue budget.
   - `pipeline_dead_letter`, `pipeline_retired_delivery`, `pipeline_retention_cursor`,
@@ -196,8 +197,8 @@ run in every role unless they are switched off:
   `alerts` is a Serverpod-managed table with a unique tenant/fingerprint index.
 
   Every migration is forward-only and tested against a populated database. Serverpod repair migrations try
-  to drop tables outside the migration system. Review every repair and remove operations against SQL-owned
-  tables and their indexes/constraints before applying it; see `docs/ingest-pipeline.md`.
+  to drop tables outside the migration system. Before applying a repair, remove operations against all SQL-owned
+  queue objects, including metadata tables, indexes and constraints. See `docs/ingest-pipeline.md`.
 - **Ingest configuration:** operator-owned JSON or YAML bootstrap files publish immutable public snapshots and
   credential rows atomically. Revisions only advance, including deliberate reverts. Credentials and
   signing material resolve from PostgreSQL records encrypted under an external key; the operator

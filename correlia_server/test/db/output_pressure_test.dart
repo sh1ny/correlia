@@ -191,13 +191,14 @@ void main() {
           await session.db.unsafeExecute(
             "UPDATE outbox SET status='delivered'",
           );
+          final budgets = {
+            _first: {'max_payload_bytes': used + 100},
+          };
           await _publish(
             session,
             2,
             outputs: [_first],
-            budgets: {
-              _first: {'max_payload_bytes': used + 100},
-            },
+            budgets: budgets,
           );
           final ops = QueueOperations(session);
           Future<int?> episode() async =>
@@ -205,6 +206,9 @@ void main() {
           await _process(session, ['large-a-${'a' * 500}']);
           final initial = await episode();
           expect(initial, isNotNull);
+          await _publish(session, 3, outputs: [_first], budgets: budgets);
+          await _process(session, ['large-same-budget-${'c' * 500}']);
+          expect(await episode(), initial);
           await _process(session, ['small-again']);
           expect(await _intents(session), {_first: 1});
           await session.db.unsafeExecute(
@@ -215,7 +219,7 @@ void main() {
           final next = await episode();
           expect(next, isNotNull);
           expect(next, isNot(initial));
-          expect(await _usage(session, _first), [0, 0, 2]);
+          expect(await _usage(session, _first), [0, 0, 3]);
         },
       );
 
