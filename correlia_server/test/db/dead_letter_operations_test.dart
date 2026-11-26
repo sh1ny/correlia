@@ -11,6 +11,7 @@ import '../support/icinga2_pipeline.dart' show clearPipelineTables;
 import '../support/postgres_lock_witness.dart' show ContentionGate;
 import '../support/secret_fixture.dart';
 import 'ingest_config_test.dart' as fixture;
+import 'output_relay_test.dart' as delivery;
 
 final _now = DateTime.utc(2026, 11, 25);
 const _other = '11111111-aaaa-4aaa-8aaa-111111111111';
@@ -303,6 +304,76 @@ void main() {
         );
         expect(actor.single[0], 'winner');
       });
+
+      for (final replayFirst in [true, false]) {
+        test(
+          'delivery_replay_and_expiry ${replayFirst ? 'replay wins' : 'expiry wins'}',
+          () async {
+            await delivery.seed(session);
+            await session.db.unsafeExecute("""
+            UPDATE outbox SET status='dead',dead_reason='network',terminal_at='2026-11-24 UTC'
+          """);
+            final filter = QueueFailureFilter(kind: QueueFailureKind.delivery);
+            final occurrence = (await operations.list(
+              filter,
+            )).failures.single.occurrence;
+            final held = Completer<void>();
+            final gate = ContentionGate();
+            Future<void> hold() async {
+              held.complete();
+              await gate.future;
+            }
+
+            final replay = gate.run(
+              () => QueueOperations(
+                builder.build(),
+                secretStore: testSecretStore,
+                clock: () => _now,
+                beforeWorkLockForTest: replayFirst ? null : hold,
+                beforeConfigLockForTest: replayFirst ? hold : null,
+              ).replayOne(QueueFailureKind.delivery, occurrence, 'operator'),
+            );
+            const sweep =
+                "SELECT correlia_maintain('expiry','2027-01-01 UTC',5)";
+            try {
+              await Future.any([
+                held.future,
+                replay.then<void>((_) => fail('Replay did not reach its gate')),
+              ]);
+              expect(
+                (await session.db.unsafeQuery(sweep)).single[0],
+                replayFirst ? 0 : 1,
+              );
+            } finally {
+              await gate.join();
+            }
+            expect(
+              (await replay).items.single.outcome,
+              replayFirst ? 'queued' : 'not_active',
+            );
+            expect((await session.db.unsafeQuery(sweep)).single[0], 0);
+            expect((await operations.list(filter)).failures, isEmpty);
+            final result = (await session.db.unsafeQuery('''
+            SELECT o.status,c.used_rows,c.used_bytes,c.live_rows
+            FROM outbox o JOIN pipeline_output_capacity c USING(output_id)
+          ''')).single.toList();
+            expect(
+              result,
+              replayFirst ? ['queued', 1, 2, 1] : ['discarded', 0, 0, 0],
+            );
+            final ledger = (await session.db.unsafeQuery('''
+            SELECT change_kind,actor_ref,entity_version FROM activity
+            WHERE change_kind IN ('dead_letter_replayed','dead_letter_expired')
+          ''')).single.toList();
+            expect(
+              ledger,
+              replayFirst
+                  ? ['dead_letter_replayed', 'operator', 1]
+                  : ['dead_letter_expired', null, 1],
+            );
+          },
+        );
+      }
 
       for (final replayFirst in [true, false]) {
         test(

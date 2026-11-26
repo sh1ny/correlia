@@ -302,6 +302,33 @@ void main() {
         expect((lane.blocksIngress, lane.usedBytes), (true, budget));
       });
 
+      test(
+        'drained_retired_blocking_lanes_do_not_hide_active_outputs',
+        () async {
+          final retired = [
+            for (var i = 0; i < 64; i++)
+              '00000000-0000-4000-8000-${i.toString().padLeft(12, '0')}',
+          ];
+          await _publish(
+            session,
+            1,
+            outputs: retired,
+            routes: [],
+            budgets: {
+              for (final id in retired) id: {'overflow_policy': 'block_ingest'},
+            },
+          );
+          await _publish(session, 2);
+          final status = await QueueOperations(session).status();
+          expect(status.outputs.map((lane) => lane.outputId), [
+            _first,
+            _second,
+          ]);
+          expect(status.outputsTruncated, isFalse);
+          expect(status.pressure, isNull);
+        },
+      );
+
       test('lower_blocking_cap_opens_an_episode_with_empty_inbox', () async {
         const budget = 16 * 1024 * 1024;
         Future<IngestBootstrap> publish(int revision, int bytes) => _publish(
