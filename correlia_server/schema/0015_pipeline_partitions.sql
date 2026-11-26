@@ -718,6 +718,10 @@ BEGIN
   IF NEW.used_rows<NEW.max_rows AND NEW.used_bytes<NEW.max_payload_bytes
     AND NEW.demand_rows<=NEW.max_rows-NEW.used_rows
     AND NEW.demand_bytes<=NEW.max_payload_bytes-NEW.used_bytes
+    AND (NEW.max_rows-NEW.used_rows > OLD.max_rows-OLD.used_rows
+      OR NEW.max_payload_bytes-NEW.used_bytes > OLD.max_payload_bytes-OLD.used_bytes
+      OR NEW.overflow_policy IS DISTINCT FROM OLD.overflow_policy
+      OR NEW.demand_rows<OLD.demand_rows OR NEW.demand_bytes<OLD.demand_bytes)
   THEN
     -- A satisfied episode cannot block again on stale demand from that episode.
     IF NEW.demand_rows<>0 OR NEW.demand_bytes<>0 THEN

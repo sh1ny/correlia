@@ -13,7 +13,14 @@ final _noticeSource = SourceContext(
 
 /// Routes one durable overflow occurrence without creating sender work.
 final class OverflowNotices {
-  const OverflowNotices(this.session, {this.afterRegistryLockForTest});
+  const OverflowNotices(
+    this.session, {
+    this.beforeRelationLocksForTest,
+    this.afterRegistryLockForTest,
+  });
+
+  /// Lets a contention fixture observe the relation lock wait.
+  final Future<void> Function(Transaction)? beforeRelationLocksForTest;
 
   /// A bounded publication barrier for contention fixtures.
   final Future<void> Function(Transaction)? afterRegistryLockForTest;
@@ -25,18 +32,6 @@ final class OverflowNotices {
       "SET LOCAL statement_timeout='5s'; SET LOCAL lock_timeout='2s'",
       transaction: tx,
     );
-    final registry = await session.db.unsafeQuery(
-      '''SELECT a."snapshotId",s."publicJson" FROM ingest_active_config a
-      JOIN ingest_config_snapshot s USING ("snapshotId")
-      WHERE a.singleton=1 AND EXISTS (
-        SELECT 1 FROM pipeline_overflow_notice WHERE NOT handled)
-      FOR SHARE OF a''',
-      transaction: tx,
-      timeoutInSeconds: 5,
-    );
-    final active = registry.singleOrNull;
-    if (active == null) return false;
-    await afterRegistryLockForTest?.call(tx);
     final pending = (await session.db.unsafeQuery(
       '''SELECT activity_id,output_id::text,occurred_at,evidence
       FROM pipeline_overflow_notice WHERE NOT handled
@@ -45,6 +40,28 @@ final class OverflowNotices {
       timeoutInSeconds: 5,
     )).singleOrNull;
     if (pending == null) return false;
+    if (beforeRelationLocksForTest case final beforeRelationLocks?) {
+      await beforeRelationLocks(tx);
+    }
+    // Replay and finalization can already hold outbox when they need the
+    // registry or capacity. Never wait on partition DDL while holding either.
+    await session.db.unsafeExecute(
+      'LOCK TABLE ONLY events, ONLY outbox IN ROW EXCLUSIVE MODE',
+      transaction: tx,
+      timeoutInSeconds: beforeRelationLocksForTest == null ? 5 : 300,
+    );
+    final registry = await session.db.unsafeQuery(
+      '''SELECT a."snapshotId",s."publicJson" FROM ingest_active_config a
+      JOIN ingest_config_snapshot s USING ("snapshotId")
+      WHERE a.singleton=1 FOR SHARE OF a''',
+      transaction: tx,
+      timeoutInSeconds: 5,
+    );
+    final active = registry.singleOrNull;
+    if (active == null) return false;
+    if (afterRegistryLockForTest case final afterRegistryLock?) {
+      await afterRegistryLock(tx);
+    }
     final activity = pending[0]! as int;
     final overflowing = pending[1]! as String;
     final occurred = (pending[2]! as DateTime).toUtc();
@@ -82,15 +99,6 @@ final class OverflowNotices {
       ),
     );
     final payload = CloudEvent(event: event).toJsonBytes();
-    if (destinations.isNotEmpty) {
-      // Match normal processing and relay finalization before capacity locks.
-      // Queued partition DDL cannot invert the order through an INSERT.
-      await session.db.unsafeExecute(
-        'LOCK TABLE ONLY events, ONLY outbox IN ROW EXCLUSIVE MODE',
-        transaction: tx,
-        timeoutInSeconds: afterRegistryLockForTest == null ? 5 : 300,
-      );
-    }
     final caps = await lockOutputCapacity(
       session,
       tx,

@@ -286,7 +286,7 @@ Before writing intents, stage the bounded routed work in pipeline order. Lock af
 
 Workers claim eligible pinned rows by their next attempt time, or their original receipt if no attempt is scheduled. Receipt and raw ID break ties. A row deferred again moves behind work that was already eligible. A partial index on pinned pending rows supports this order.
 
-Only `block_ingest` records deferred demand. A policy switch or enough free space to satisfy all tracked demands resets the lane's demand and advances its epoch without changing retained usage. Prior demand records cannot block again and are removed or replaced the next time their raw rows run. Under `discard_new`, the first capacity update that puts usage below both caps closes the episode even if an earlier payload was too large for an empty queue.
+Only `block_ingest` records deferred demand. A policy switch or enough free space to satisfy all tracked demands resets the lane's demand and advances its epoch without changing retained usage. Prior demand records cannot block again and are removed or replaced the next time their raw rows run. Under `discard_new`, the first recovery that leaves usage below both caps closes the episode, even if an earlier payload was too large for an empty queue. Enqueuing another fitting intent does not count as recovery.
 
 A publication that lowers a blocking quota to current usage or below opens the overflow episode in that transaction. It needs no pending raw row. Repeating publication while the episode remains open does not enqueue another notice.
 
@@ -344,7 +344,7 @@ Give every maintenance lane one bounded batch per pass. If a committed sweep rec
 
 Record a single episode-opening ledger occurrence before a worker tries to fan out its alert. On a bounded maintenance claim, lock the active publication pointer in shared mode from reading destinations through commit. Publication takes the exclusive lock before checking live output inventory, so a notice cannot add a historical live lane after that check. Construct a canonical CloudEvent with stable Correlia source and observation identity derived from the episode. Reference stored, sanitized ledger evidence. The event and fitting delivery intents commit with the handled marker in one transaction. Consider active output IDs in deterministic order and exclude the overflowing destination. Use the same capacity checks and count successful notice intents, including a notice that uses the last available slot. Suppress new episode creation for notice attempts themselves: a notice at exact saturation can block new ingress without recursively emitting another alert. The ledger covers the no-fit outcome; status does not claim a successful delivery.
 
-Take the event and outbox relation locks before the notice locks capacity. Normal processing already holds events when it reaches delivery; it takes the outbox relation lock before reserving capacity, in the same order as relay finalization. Queued partition DDL cannot invert that order.
+Claim the notice, then take the event and outbox relation locks before locking the registry or capacity. Delivery replay already holds the outbox relation when it requests the registry. Normal processing already holds events when it reaches delivery; it takes the outbox relation lock before reserving capacity, in the same order as relay finalization. Queued partition DDL cannot invert those orders.
 
 ## Mechanism Ledger (FULL)
 

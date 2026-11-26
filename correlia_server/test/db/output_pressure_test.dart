@@ -210,6 +210,7 @@ void main() {
           await _process(session, ['large-same-budget-${'c' * 500}']);
           expect(await episode(), initial);
           await _process(session, ['small-again']);
+          expect(await episode(), initial, reason: 'An insert uses capacity');
           expect(await _intents(session), {_first: 1});
           await session.db.unsafeExecute(
             "UPDATE outbox SET status='delivered' WHERE status='queued'",
@@ -220,6 +221,62 @@ void main() {
           expect(next, isNotNull);
           expect(next, isNot(initial));
           expect(await _usage(session, _first), [0, 0, 3]);
+        },
+      );
+
+      test(
+        'partially_fitting_batches_keep_the_first_overflow_episode',
+        () async {
+          await _publish(session, 1, outputs: [_first]);
+          await _process(session, ['calibrate']);
+          final smallBytes = (await _usage(session, _first))[1]! as int;
+          await session.db.unsafeExecute(
+            "UPDATE outbox SET status='delivered'",
+          );
+          await _publish(
+            session,
+            2,
+            outputs: [_first],
+            budgets: {
+              _first: {'max_payload_bytes': 3 * smallBytes},
+            },
+          );
+          Future<void> sendPair(String suffix) async {
+            await raw.seed(session, [
+              payload.alert(
+                startsAt: '2026-11-10T12:00:00Z',
+                labels: {'alertname': 'fits-$suffix'},
+                annotations: const {},
+              ),
+              payload.alert(
+                startsAt: '2026-11-10T12:00:00Z',
+                labels: {'alertname': 'too-big-$suffix'},
+                annotations: {
+                  for (var n = 0; n < 12; n++) 'detail$n': 'a' * 500,
+                },
+              ),
+            ]);
+            final worker = _worker(session);
+            expect(await worker.pinOne(), isTrue);
+            expect(await worker.processOne(), isTrue);
+          }
+
+          await sendPair('one');
+          expect((await _usage(session, _first))[2], 1);
+          expect(await _intents(session), {_first: 1});
+          final initial = (await QueueOperations(
+            session,
+          ).status()).outputs.single.overflowActivityId;
+          expect(initial, isNotNull);
+          await sendPair('two');
+          expect(await _intents(session), {_first: 2});
+          expect((await _usage(session, _first))[2], 2);
+          expect(
+            (await QueueOperations(
+              session,
+            ).status()).outputs.single.overflowActivityId,
+            initial,
+          );
         },
       );
 
@@ -738,6 +795,13 @@ void main() {
               SELECT 1 FROM pipeline_output_capacity
               WHERE output_id='$_second' FOR UPDATE NOWAIT
             ''', transaction: tx);
+              if (parent == 'outbox') {
+                // Replay already holds outbox when it asks for the registry.
+                await writer.db.unsafeQuery(
+                  'SELECT singleton FROM ingest_active_config FOR UPDATE NOWAIT',
+                  transaction: tx,
+                );
+              }
             }),
           );
           try {
@@ -773,7 +837,7 @@ void main() {
             final routing = waiters.run(
               () => OverflowNotices(
                 router,
-                afterRegistryLockForTest: (tx) async => routerReady.complete(
+                beforeRelationLocksForTest: (tx) async => routerReady.complete(
                   await pooledLockActor(
                     router,
                     tx,
