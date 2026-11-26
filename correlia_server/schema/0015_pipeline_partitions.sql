@@ -622,9 +622,8 @@ $$;
 CREATE FUNCTION correlia_close_satisfied_overflow() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
-  -- Failed discard demand is not an ingress barrier. Preserve it until a
-  -- budget change or capacity release can fit that deficit.
-  IF NEW.overflow_policy<>'block_ingest' AND OLD.overflow_policy='block_ingest' THEN
+  -- A change of policy invalidates the old deficit, but not actual usage.
+  IF NEW.overflow_policy IS DISTINCT FROM OLD.overflow_policy THEN
     NEW.demand_rows := 0;
     NEW.demand_bytes := 0;
   END IF;
@@ -1227,5 +1226,9 @@ BEGIN
 END;
 $$;
 
-CREATE INDEX pipeline_reported_output_idx ON pipeline_output_capacity (output_id)
-  WHERE active OR used_rows>0 OR pinned_rows>0 OR overflow_activity_id IS NOT NULL;
+CREATE INDEX pipeline_reported_output_idx ON pipeline_output_capacity (
+  (overflow_policy='block_ingest' AND (used_rows>=max_rows OR used_bytes>=max_payload_bytes
+    OR demand_rows>max_rows-used_rows OR demand_bytes>max_payload_bytes-used_bytes)) DESC,
+  output_id
+) WHERE active OR used_rows>0 OR pinned_rows>0 OR overflow_activity_id IS NOT NULL
+    OR overflow_policy='block_ingest';

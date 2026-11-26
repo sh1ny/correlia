@@ -17,7 +17,7 @@ import '../integration/test_tools/serverpod_test_tools.dart';
 import '../support/icinga2_pipeline.dart';
 import '../support/icinga2_stream_fixture.dart';
 import '../support/icinga2_stream_pipeline.dart';
-import '../support/postgres_lock_witness.dart' show ContentionGate;
+import '../support/postgres_lock_witness.dart';
 import '../support/secret_fixture.dart';
 import 'ingest_config_test.dart' show sourceId, token;
 
@@ -29,6 +29,8 @@ Future<int> _count(Session session, String table) async =>
         as int;
 
 void main() {
+  final cluster = LockWitnessCluster();
+  tearDownAll(cluster.close);
   withServerpod(
     'shared webhook and pull inbox pressure',
     (builder, _) {
@@ -293,61 +295,141 @@ void main() {
         ]);
       });
 
-      test('sync_admission_orders_progress_before_count', () async {
-        await publish(2, 2);
-        await session.db.unsafeExecute('''
-          INSERT INTO icinga2_sync_progress(sync_id,source_id,phase,started_at)
-          VALUES ('$streamDbSyncId','$icinga2DbSourceId','reading',now())
-        ''');
-        final competing = ConsumerAdmission(
-          connection,
-          beforeWriteForTest: (_, _) async {
-            await expectLater(
-              builder.build().db.unsafeQuery(
-                "SELECT sync_id FROM icinga2_sync_progress WHERE sync_id='$streamDbSyncId' FOR UPDATE NOWAIT",
-              ),
-              throwsA(
-                isA<DatabaseQueryException>().having(
-                  (e) => e.code,
-                  'code',
-                  '55P03',
+      for (final invalid in [false, true]) {
+        test(
+          'sync_admission_orders_progress_before_count ${invalid ? 'failure' : 'success'}',
+          () async {
+            await publish(2, 2);
+            await session.db.unsafeSimpleExecute('''
+            INSERT INTO icinga2_sync_progress(sync_id,source_id,phase,started_at)
+            VALUES ('$streamDbSyncId','$icinga2DbSourceId','reading',now());
+            UPDATE icinga2_stream_lease SET "expiresAt"='infinity';
+          ''');
+            expect(
+              await admit(batch(sync: true, invalid: invalid)),
+              StreamAdmissionResult.committed,
+            );
+            final workerSession = builder.build();
+            final workerAtProgress = Completer<LockActor>();
+            final worker = PipelineRepository(
+              workerSession,
+              clock: () => receipt,
+              elapsedForTest: () => Duration.zero,
+              beforeSyncProgressLockForTest: (tx) async {
+                workerAtProgress.complete(
+                  await pooledLockActor(
+                    workerSession,
+                    tx,
+                    waiter: SqlTimeouts.pipelineWork,
+                  ),
+                );
+              },
+            );
+            expect(await worker.pinOne(), isTrue);
+            final endpoint = await StreamDatabaseEndpoint.resolve(
+              session.serverpod,
+            );
+            final pullConnection = await endpoint.open(
+              queryTimeout: const Duration(minutes: 5),
+            );
+            addTearDown(pullConnection.close);
+            final pullAtProgress = Completer<LockActor>();
+            final competing = ConsumerAdmission(
+              pullConnection,
+              beforeSyncProgressLockForTest: (tx) async {
+                pullAtProgress.complete(
+                  await lockActor(tx, waiter: SqlTimeouts.streamWrite),
+                );
+              },
+            );
+            final witness = await PostgresLockWitness.start(session);
+            addTearDown(witness.close);
+            final held = Completer<LockActor>();
+            final gate = ContentionGate();
+            final blockerSession = builder.build();
+            final holding = gate.run(
+              () => blockerSession.db.transaction((tx) async {
+                final actor = await pooledLockActor(blockerSession, tx);
+                await blockerSession.db.unsafeQuery(
+                  "SELECT 1 FROM icinga2_sync_progress WHERE sync_id='$streamDbSyncId' FOR UPDATE",
+                  transaction: tx,
+                );
+                held.complete(actor);
+                await gate.future;
+              }),
+            );
+
+            Future<void> expectCountUnlocked() async {
+              expect(
+                await session.db.unsafeQuery(
+                  'SELECT pending_rows FROM pipeline_pending WHERE singleton=1 FOR UPDATE NOWAIT',
                 ),
+                hasLength(1),
+              );
+            }
+
+            final holder = await Future.any([
+              held.future,
+              holding.then<LockActor>(
+                (_) => fail('Fixture did not hold sync progress'),
               ),
+            ]);
+            final completing = gate.run(worker.processOne);
+            final completer = await Future.any([
+              workerAtProgress.future,
+              completing.then<LockActor>(
+                (_) => fail('Worker finished without waiting for progress'),
+              ),
+            ]);
+            await witness.blockedBy(
+              completer,
+              holder,
+              completing,
+              statement: 'UPDATE icinga2_sync_progress',
+            );
+            await expectCountUnlocked();
+
+            final admission = gate.run(
+              () => admit(batch(sync: true), repo: competing),
+            );
+            final admitter = await Future.any([
+              pullAtProgress.future,
+              admission.then<LockActor>(
+                (_) => fail('Admission finished without waiting for progress'),
+              ),
+            ]);
+            await witness.blockedBy(
+              admitter,
+              completer,
+              admission,
+              statement: 'FROM icinga2_sync_progress',
+            );
+            await expectCountUnlocked();
+            await gate.join();
+            await holding;
+            expect(await completing, isTrue);
+            expect(await admission, StreamAdmissionResult.committed);
+            final progress = await session.db.unsafeQuery(
+              'SELECT rows_admitted,rows_done,rows_failed FROM icinga2_sync_progress',
+            );
+            expect(progress.single.toList(), [
+              2,
+              invalid ? 0 : 1,
+              invalid ? 1 : 0,
+            ]);
+            expect(
+              (await session.db.unsafeQuery(
+                'SELECT pending_rows FROM pipeline_pending',
+              )).single[0],
+              1,
             );
           },
         );
-        expect(
-          await admit(batch(sync: true), repo: competing),
-          StreamAdmissionResult.committed,
-        );
-        expect(
-          await admit(batch(sync: true, invalid: true), repo: competing),
-          StreamAdmissionResult.committed,
-        );
-        expect(await admit(batch()), StreamAdmissionResult.atCapacity);
-        final worker = PipelineRepository(
-          builder.build(),
-          clock: () => receipt,
-        );
-        for (var i = 0; i < 2; i++) {
-          expect(await worker.pinOne(), isTrue);
-          expect(await worker.processOne(), isTrue);
-        }
-        final progress = await session.db.unsafeQuery(
-          'SELECT rows_admitted,rows_done,rows_failed FROM icinga2_sync_progress',
-        );
-        expect(progress.single.toList(), [2, 1, 1]);
-        expect(
-          await webhook(first, 'after-sync-a', 'body'),
-          AdmissionOutcome.accepted,
-        );
-        expect(
-          await webhook(second, 'after-sync-b', 'body'),
-          AdmissionOutcome.accepted,
-        );
-      });
+      }
     },
     rollbackDatabase: RollbackDatabase.disabled,
+    ephemeralDatabase: false,
+    configOverride: cluster.override,
     testGroupTagsOverride: ['db'],
   );
 }

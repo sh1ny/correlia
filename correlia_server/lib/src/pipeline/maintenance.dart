@@ -232,26 +232,33 @@ final class MaintenanceRepository {
     try {
       await session.db.transaction((tx) async {
         await _limits(tx, ddl: true);
-        await session.db.unsafeQuery(
+        final attached = await session.db.unsafeQuery(
           'SELECT correlia_attach_partition(@parent,@day::date,@attempt)',
           parameters: QueryParameters.named(parameters),
           transaction: tx,
           timeoutInSeconds: 4,
         );
+        if (attached.single[0] == true) {
+          await _outcome(tx, 'prepare_partition', 'ok', 1);
+        }
       });
     } catch (error) {
+      final problem = _problem(error);
       await session.db.transaction((tx) async {
         await _limits(tx, ddl: true);
-        await session.db.unsafeQuery(
+        final recorded = await session.db.unsafeQuery(
           'SELECT correlia_partition_failed(@parent,@day::date,@attempt,@problem,coalesce(@now::timestamptz,clock_timestamp()))',
           parameters: QueryParameters.named({
             ...parameters,
-            'problem': _problem(error),
+            'problem': problem,
             'now': nowForTest,
           }),
           transaction: tx,
           timeoutInSeconds: 4,
         );
+        if (recorded.single[0] == true) {
+          await _outcome(tx, 'prepare_partition', problem, 0);
+        }
       });
     }
   }

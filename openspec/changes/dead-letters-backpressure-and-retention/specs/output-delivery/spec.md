@@ -72,6 +72,10 @@ Each output SHALL have one count and payload-byte budget for queued, delivering 
 - **WHEN** a publication sets a blocking count or byte cap too low for one maximum legal raw row
 - **THEN** publication refuses the setting without changing the active configuration
 
+#### Scenario: Discard-only demand does not block after a policy change
+- **WHEN** an output has free capacity, has discarded work under `discard_new`, and switches to `block_ingest`
+- **THEN** the discarded work cannot block new ingress, and existing usage and discard counts stay unchanged
+
 ### Requirement: Output overflow notice does not recurse
 
 Each overflow episode SHALL raise one durable Correlia alert and attempt to route a sanitized canonical Correlia-origin event to other active outputs that have capacity. This SHALL NOT create sender work, mutate alert state, exceed other output budgets, or raise another overflow alert. The operator RPC and activity ledger SHALL remain authoritative if every destination is unavailable.

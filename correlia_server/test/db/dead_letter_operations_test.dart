@@ -189,7 +189,7 @@ void main() {
         );
       });
 
-      test('replay_and_expiry_lock_one_occurrence', () async {
+      test('concurrent_replays_and_late_replay_cannot_requeue_twice', () async {
         await _seed(session, fixture.sourceId, 1);
         final occurrence = (await operations.list(
           filter(),
@@ -252,6 +252,64 @@ void main() {
         );
         expect(actor.single[0], 'winner');
       });
+
+      for (final replayFirst in [true, false]) {
+        test(
+          'replay_and_expiry_lock_one_occurrence ${replayFirst ? 'replay wins' : 'expiry wins'}',
+          () async {
+            await _seed(session, fixture.sourceId, 1);
+            final occurrence = (await operations.list(
+              filter(),
+            )).failures.single.occurrence;
+            final held = Completer<void>();
+            final gate = ContentionGate();
+            Future<void> hold() async {
+              held.complete();
+              await gate.future;
+            }
+
+            final replay = gate.run(
+              () => QueueOperations(
+                builder.build(),
+                clock: () => _now,
+                beforeWorkLockForTest: replayFirst ? null : hold,
+                beforeConfigLockForTest: replayFirst ? hold : null,
+              ).replayOne(QueueFailureKind.raw, occurrence, 'operator'),
+            );
+            const sweep =
+                "SELECT correlia_maintain('expiry','2027-01-01 UTC',5)";
+            await held.future;
+            expect(
+              (await session.db.unsafeQuery(sweep)).single[0],
+              replayFirst ? 0 : 1,
+            );
+            await gate.join();
+            final result = await replay;
+            expect(
+              result.items.single.outcome,
+              replayFirst ? 'queued' : 'not_active',
+            );
+            expect((await session.db.unsafeQuery(sweep)).single[0], 0);
+            expect(
+              (await session.db.unsafeQuery(
+                'SELECT status FROM raw_inbox',
+              )).single[0],
+              replayFirst ? 'pending' : 'discarded',
+            );
+            expect((await operations.list(filter())).failures, isEmpty);
+            final ledger = await session.db.unsafeQuery('''
+            SELECT change_kind,actor_ref,entity_version FROM activity
+            WHERE change_kind IN ('dead_letter_replayed','dead_letter_expired')
+          ''');
+            expect(
+              ledger.single.toList(),
+              replayFirst
+                  ? ['dead_letter_replayed', 'operator', 1]
+                  : ['dead_letter_expired', null, 1],
+            );
+          },
+        );
+      }
     },
     rollbackDatabase: RollbackDatabase.disabled,
     testGroupTagsOverride: ['db'],

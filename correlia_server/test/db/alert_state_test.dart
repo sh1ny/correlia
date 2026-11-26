@@ -741,6 +741,40 @@ void main() {
         expect(await countRows(s, 'activity'), 1);
       });
 
+      test('late_duplicate_survives_observation_key_disappearing', () async {
+        await freshIcinga2(s);
+        final doc = notice(at(10, 0));
+        await deliverIcinga2(s, doc, at(10, 5));
+        final before = await theAlert(s);
+        await s.db.unsafeSimpleExecute(r'''
+          DELETE FROM outbox;
+          DELETE FROM events;
+          CREATE FUNCTION test_expire_observation() RETURNS trigger LANGUAGE plpgsql AS $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM inserted_keys) THEN
+              DELETE FROM observation_keys;
+            END IF;
+            RETURN NULL;
+          END
+          $$;
+          CREATE TRIGGER test_expire_observation AFTER INSERT ON observation_keys
+            REFERENCING NEW TABLE AS inserted_keys FOR EACH STATEMENT
+            EXECUTE FUNCTION test_expire_observation()
+        ''');
+        addTearDown(
+          () => s.db.unsafeSimpleExecute('''
+          DROP TRIGGER test_expire_observation ON observation_keys;
+          DROP FUNCTION test_expire_observation()
+        '''),
+        );
+        final raw = await deliverIcinga2(s, doc, at(10, 5, 19));
+        expect((await outcomeOf(s, raw))['duplicate_observation'], 1);
+        expect(await theAlert(s), before);
+        expect(await countRows(s, 'observation_keys'), 0);
+        expect(await countRows(s, 'pipeline_failures'), 0);
+        expect(await countRows(s, 'events'), 0);
+      });
+
       test('ord_7c_duplicate_of_a_late_observation', () async {
         await freshIcinga2(s);
         final late = notice(at(10, 10).subtract(const Duration(days: 8)));

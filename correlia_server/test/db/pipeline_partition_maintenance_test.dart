@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:correlia_server/src/pipeline/maintenance.dart';
+import 'package:correlia_server/src/pipeline/queue_operations.dart';
 import 'package:serverpod/serverpod.dart';
 import 'package:test/test.dart';
 
@@ -77,6 +78,11 @@ void main() {
           await initializeIngestSchema(session);
           final now = DateTime.utc(2030, 2, 1);
           expect(await _writeEvent(session, _otherDay), 'events_default');
+          final maintenance = MaintenanceRepository(session);
+          await maintenance.sweep('events');
+          final status = QueueOperations(session);
+          final previous = (await status.status()).maintenance!;
+          expect((previous.lane, previous.outcome), ('events', 'ok'));
           final gate = ContentionGate();
           final entered = Completer<void>();
           final blocker = builder.build();
@@ -93,13 +99,23 @@ void main() {
             }),
           );
           await entered.future;
-          await MaintenanceRepository(session).prepareOne(nowForTest: now);
+          await maintenance.prepareOne(nowForTest: now);
           final failure = (await session.db.unsafeQuery('''
             SELECT parent_name, day::text, problem, retry_at FROM pipeline_partition_retry
             WHERE parent_name='events' AND day='$_futureDay'
           ''')).single;
           expect(failure.take(3), ['events', _futureDay, 'lock_timeout']);
           expect((failure[3]! as DateTime).isAfter(now), isTrue);
+          final failed = await status.status();
+          expect(failed.partitionDegraded, isTrue);
+          expect(
+            (
+              failed.maintenance!.lane,
+              failed.maintenance!.outcome,
+              failed.maintenance!.affected,
+            ),
+            ('prepare_partition', 'lock_timeout', 0),
+          );
           await gate.join();
           await holding;
           expect(await _writeEvent(session, _outside), 'events_default');
@@ -111,6 +127,16 @@ void main() {
           }
           expect(await _writeEvent(session, _futureDay), 'events_20300201');
           expect(await _writeEvent(session, _otherDay), 'events_default');
+          final recovered = await status.status();
+          expect(recovered.partitionDegraded, isFalse);
+          expect(
+            (
+              recovered.maintenance!.lane,
+              recovered.maintenance!.outcome,
+              recovered.maintenance!.affected,
+            ),
+            ('prepare_partition', 'ok', 1),
+          );
           expect(
             (await session.db.unsafeQuery(
               "SELECT count(*) FROM pipeline_partition_retry WHERE day='$_futureDay' AND parent_name='events'",

@@ -9,6 +9,7 @@ import 'package:correlia_server/src/output/overflow_notices.dart';
 import 'package:correlia_server/src/schema/schema_steps.dart';
 import 'package:correlia_server/src/output/output_relay.dart';
 import 'package:correlia_server/src/pipeline/pipeline.dart';
+import 'package:correlia_server/src/pipeline/queue_operations.dart';
 import 'package:serverpod/serverpod.dart';
 import 'package:crypto/crypto.dart';
 import 'package:test/test.dart';
@@ -90,21 +91,23 @@ Future<void> _oldIntents(
   Session session,
   IngestBootstrap snapshot,
   String output,
-  int count,
-) async {
+  int count, {
+  int payloadBytes = 1,
+}) async {
   final parsed = snapshot.outputs.first as WebhookIngestOutput;
   await session.db.unsafeExecute(
     '''
     INSERT INTO outbox(created_at,delivery_id,event_observed_at,event_id,event_disposition,
       output_id,config_snapshot_id,target_url,signing_key_ref,signing_key_commitment,payload)
     SELECT now(),gen_random_uuid(),now(),gen_random_uuid(),'ready',@output::uuid,
-      @snapshot,'https://example.com/events',@reference,@commitment,decode('01','hex')
+      @snapshot,'https://example.com/events',@reference,@commitment,convert_to(repeat('x',@bytes),'UTF8')
     FROM generate_series(1,@count)
   ''',
     parameters: QueryParameters.named({
       'output': output,
       'snapshot': snapshot.snapshotId,
       'reference': parsed.signingKeyRef,
+      'bytes': payloadBytes,
       'commitment': parsed.signingKeyCommitment,
       'count': count,
     }),
@@ -172,6 +175,85 @@ void main() {
           )).single[0],
           1,
         );
+      });
+
+      test('switch_to_blocking_ignores_discard_only_demand', () async {
+        const budget = 16 * 1024 * 1024;
+        final old = await _publish(
+          session,
+          1,
+          routes: [_first],
+          budgets: {
+            _first: {'max_payload_bytes': budget},
+          },
+        );
+        await _oldIntents(session, old, _first, 1, payloadBytes: budget - 1);
+        await _process(session, ['old-policy-discard']);
+        expect(await _usage(session, _first), [1, budget - 1, 1]);
+        final before = (await QueueOperations(session).status()).outputs
+            .singleWhere(
+              (output) => output.outputId == _first,
+            );
+        expect(before.overflowActivityId, isNotNull);
+        await _publish(
+          session,
+          2,
+          routes: [_first],
+          budgets: {
+            _first: {
+              'max_payload_bytes': budget,
+              'max_rows': 1000,
+              'overflow_policy': 'block_ingest',
+            },
+          },
+        );
+        final state = await QueueOperations(session).status();
+        final lane = state.outputs.singleWhere(
+          (output) => output.outputId == _first,
+        );
+        expect(state.pressure, isNull);
+        expect(lane.blocksIngress, isFalse);
+        expect(lane.overflowActivityId, isNull);
+        expect(await _usage(session, _first), [1, budget - 1, 1]);
+      });
+
+      test('status_prioritizes_a_blocked_lane_over_retired_work', () async {
+        const budget = 16 * 1024 * 1024;
+        final snapshot = await _publish(
+          session,
+          1,
+          outputs: [_first],
+          budgets: {
+            _first: {
+              'max_payload_bytes': budget,
+              'max_rows': 1000,
+              'overflow_policy': 'block_ingest',
+            },
+          },
+        );
+        await _oldIntents(session, snapshot, _first, 1, payloadBytes: budget);
+        await session.db.unsafeExecute(
+          '''
+          INSERT INTO outbox(created_at,delivery_id,event_observed_at,event_id,event_disposition,
+            output_id,config_snapshot_id,target_url,signing_key_ref,signing_key_commitment,payload,status)
+          SELECT now(),gen_random_uuid(),now(),gen_random_uuid(),'ready',
+            ('00000000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,
+            @snapshot,'https://example.com/events',signing_key_ref,signing_key_commitment,
+            decode('01','hex'),'dead'
+          FROM outbox CROSS JOIN generate_series(1,64) n WHERE output_id=@id::uuid
+        ''',
+          parameters: QueryParameters.named({
+            'snapshot': snapshot.snapshotId,
+            'id': _first,
+          }),
+        );
+        final state = await QueueOperations(session).status();
+        expect(state.pressure, 'output');
+        expect(state.outputsTruncated, isTrue);
+        final lane = state.outputs.singleWhere(
+          (output) => output.outputId == _first,
+        );
+        expect((lane.blocksIngress, lane.usedBytes), (true, budget));
       });
 
       for (final byBytes in [false, true]) {

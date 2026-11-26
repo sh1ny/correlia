@@ -613,9 +613,10 @@ final class QueueOperations {
       SELECT output_id::text,max_rows,max_payload_bytes,overflow_policy,used_rows,used_bytes,
         discarded_count,overflow_activity_id,
         overflow_policy='block_ingest' AND (used_rows>=max_rows OR used_bytes>=max_payload_bytes
-          OR demand_rows>max_rows-used_rows OR demand_bytes>max_payload_bytes-used_bytes)
+          OR demand_rows>max_rows-used_rows OR demand_bytes>max_payload_bytes-used_bytes) AS blocks
       FROM pipeline_output_capacity WHERE active OR used_rows>0 OR pinned_rows>0 OR overflow_activity_id IS NOT NULL
-      ORDER BY output_id LIMIT 65
+        OR overflow_policy='block_ingest'
+      ORDER BY blocks DESC,output_id LIMIT 65
     ''',
       transaction: tx,
       timeoutInSeconds: 5,

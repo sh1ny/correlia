@@ -368,6 +368,7 @@ final class PipelineRepository {
     this.regexWorker,
     this.beforePinCommitForTest,
     this.beforeRecordErrorForTest,
+    this.beforeSyncProgressLockForTest,
     this.fanoutLimitForTest,
   }) : clock = clock ?? DateTime.now,
        _retryCounts = retryCounts ?? {},
@@ -407,6 +408,9 @@ final class PipelineRepository {
 
   /// Fixture barrier after the work rollback and before recording its error.
   final Future<void> Function()? beforeRecordErrorForTest;
+
+  /// Observes the transaction immediately before updating sync progress.
+  final Future<void> Function(Transaction)? beforeSyncProgressLockForTest;
 
   /// Fixture override for exact fanout boundary tests.
   final int? fanoutLimitForTest;
@@ -715,6 +719,9 @@ ON CONFLICT ("eventId") DO NOTHING RETURNING "eventId"''',
               );
               if (key.isEmpty) {
                 duplicates++;
+                // Late evidence cannot refresh an alert, regardless of the
+                // original key's disposition or whether retention removed it.
+                if (item.disposition != EvidenceDisposition.ready) continue;
                 await _limits(tx, deadline);
                 final original = await session.db.unsafeQuery(
                   'SELECT disposition FROM observation_keys WHERE "eventId"=CAST(@event AS uuid)',
@@ -722,11 +729,7 @@ ON CONFLICT ("eventId") DO NOTHING RETURNING "eventId"''',
                   transaction: tx,
                   timeoutInSeconds: 5,
                 );
-                // A duplicate refreshes the alert only when both it and the
-                // original are ready: a late or future-dated redelivery of a
-                // ready observation says nothing about the object's freshness.
-                if (original.single[0] == 'ready' &&
-                    item.disposition == EvidenceDisposition.ready) {
+                if (original.singleOrNull?[0] == 'ready') {
                   stateInputs.add(
                     StateInput(event, duplicate: true, reconcile: reconcile),
                   );
@@ -1023,6 +1026,7 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
             'diverged': diverged,
           };
           await _limits(tx, deadline);
+          await beforeSyncProgressLockForTest?.call(tx);
           final updated = await session.db.unsafeExecute(
             '''UPDATE icinga2_sync_progress AS p
               SET rows_done=rows_done+1, counts=p.counts || (
@@ -1179,6 +1183,7 @@ FROM failure''',
       timeoutInSeconds: 5,
     );
     await _limits(tx, deadline);
+    await beforeSyncProgressLockForTest?.call(tx);
     final failedSync = await session.db.unsafeQuery(
       '''WITH admission AS MATERIALIZED (
           SELECT origin,sync_id FROM icinga2_raw_origin WHERE raw_id=CAST(@raw AS uuid)

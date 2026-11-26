@@ -117,6 +117,7 @@ final class ConsumerAdmission {
   const ConsumerAdmission(
     this.connection, {
     this.afterFence,
+    this.beforeSyncProgressLockForTest,
     this.beforeCommit,
     this.beforeWriteForTest,
     this.writeErrorForTest,
@@ -129,6 +130,9 @@ final class ConsumerAdmission {
 
   /// A test can hold the real admission transaction just before commit.
   final Future<void> Function(pg.TxSession)? beforeCommit;
+
+  /// Observes the transaction immediately before locking sync progress.
+  final Future<void> Function(pg.TxSession)? beforeSyncProgressLockForTest;
 
   /// Observes or stages the exact raw write transaction in a fixture.
   final Future<void> Function(pg.TxSession, StreamRawBatch)? beforeWriteForTest;
@@ -208,6 +212,7 @@ final class ConsumerAdmission {
         if (claimed.isEmpty) return StreamAdmissionResult.committed;
 
         if (batch.syncId case final syncId?) {
+          await beforeSyncProgressLockForTest?.call(tx);
           final progress = await tx.execute(
             pg.Sql.named('''SELECT 1 FROM icinga2_sync_progress
               WHERE sync_id=CAST(@sync AS uuid) AND source_id=CAST(@source AS uuid)

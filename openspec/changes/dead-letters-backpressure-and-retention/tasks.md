@@ -14,6 +14,7 @@ Test paths are relative to `correlia_server/`. Green rows carry existing behavio
 | dead-letter-operations → Bounded dead-letter listing | Filter remains pageable among unrelated failures | `test/db/dead_letter_operations_test.dart` | `sparse_filter_pages_use_matching_index` | red |
 | dead-letter-operations → Bounded replay selection and audit | Bulk replay by filter | `test/db/dead_letter_operations_test.dart` | `filtered_replay_batches_report_and_audit` | red |
 | dead-letter-operations → Bounded replay selection and audit | Replay races replay or expiry | `test/db/dead_letter_operations_test.dart` | `replay_and_expiry_lock_one_occurrence` | red |
+| dead-letter-operations → Bounded replay selection and audit | Replay races replay or expiry | `test/db/dead_letter_operations_test.dart` | `concurrent_replays_and_late_replay_cannot_requeue_twice` | red |
 | dead-letter-operations → Bounded replay selection and audit | Replay competes for the last pending slot | `test/db/raw_replay_test.dart` | `replay_and_ingress_share_last_slot` | red |
 | dead-letter-operations → Bounded replay selection and audit | Replay uses a concurrently published retention window | `test/db/dead_letter_operations_test.dart` | `publication_shortens_retention_before_replay_locks_policy` | red |
 | dead-letter-operations → Current configuration for pipeline replay | DUR-13 a fixed mapping reaches its backlog | `test/db/raw_replay_test.dart` | `dur_13_mapping_fix_repins_at_replay` | red |
@@ -26,7 +27,9 @@ Test paths are relative to `correlia_server/`. Green rows carry existing behavio
 | dead-letter-operations → Immutable delivery replay | Unavailable key or output lane | `test/db/delivery_replay_test.dart` | `delivery_replay_refuses_missing_key_or_new_lane` | red |
 | dead-letter-operations → Immutable delivery replay | New retry allowance survives completion and recovery | `test/db/delivery_replay_test.dart` | `fresh_attempt_allowance_fences_completion_and_recovery` | red |
 | dead-letter-operations → Protected operational status | Pressure and recovery visible to the demo | `test/e2e/dead_letter_recovery_e2e_test.dart` | `operator_status_tracks_pressure_and_recovery` | red |
+| dead-letter-operations → Protected operational status | Retired lanes cannot hide a blocking output | `test/db/output_pressure_test.dart` | `status_prioritizes_a_blocked_lane_over_retired_work` | red |
 | dead-letter-operations → Protected operational status | Maintenance fails after a previous success | `test/db/pipeline_retention_test.dart` | `failed_batch_reports_no_uncommitted_counts` | red |
+| dead-letter-operations → Protected operational status | Maintenance fails after a previous success | `test/db/pipeline_partition_maintenance_test.dart` | `default_validation_timeout_records_retry_without_blocking_writes` | red |
 | durable-pipeline → Rows decode by their source's kind | Two kinds in one batch | `test/db/decoder_dispatch_test.dart` | `two_kinds_in_one_batch` | green |
 | durable-pipeline → Rows decode by their source's kind | Existing rows after the upgrade | `test/db/decoder_dispatch_test.dart` | `existing_rows_after_the_upgrade` | green |
 | durable-pipeline → Rows decode by their source's kind | Row pinned to a format version 1 snapshot | `test/db/decoder_dispatch_test.dart` | `row_pinned_to_a_format_version_1_snapshot` | green |
@@ -62,7 +65,7 @@ Test paths are relative to `correlia_server/`. Green rows carry existing behavio
 | durable-pipeline → Retention preserves retry and ordering evidence | Replayed pre-upgrade evidence predates reclaimed fences | `test/db/raw_replay_test.dart` | `preupgrade_icinga2_floor_keeps_older_evidence_late` | red |
 | source-ingress → Shared inbox and storage pressure | DUR-9 inbox limits and recovery | `test/e2e/ingress_pressure_e2e_test.dart` | `dur_9_webhook_and_pull_pause_and_recover` | red |
 | source-ingress → Shared inbox and storage pressure | Concurrent admission at the last slot | `test/db/ingress_pressure_test.dart` | `two_apis_and_pull_contend_for_last_slot` | red |
-| source-ingress → Shared inbox and storage pressure | Sync admission contends with sync completion | `test/db/ingress_pressure_test.dart` | `sync_admission_orders_progress_before_count` | red |
+| source-ingress → Shared inbox and storage pressure | Sync admission contends with sync completion | `test/db/ingress_pressure_test.dart` | `sync_admission_orders_progress_before_count success`, `sync_admission_orders_progress_before_count failure` | red |
 | source-ingress → Shared inbox and storage pressure | Database pressure degrades readiness | `test/e2e/ingress_pressure_e2e_test.dart` | `oversize_database_pushes_back_and_degrades_readiness` | red |
 | source-ingress → Shared inbox and storage pressure | Refused work keeps a refreshed disk sample | `test/db/ingress_pressure_test.dart` | `refused_admission_persists_one_disk_measurement` | red |
 | source-ingress → Pressure preserves known transport outcomes | Retry while capacity is exhausted | `test/db/ingress_pressure_test.dart` | `committed_webhook_and_pull_retries_beat_pressure` | red |
@@ -81,6 +84,7 @@ Test paths are relative to `correlia_server/`. Green rows carry existing behavio
 | output-delivery → Per-output storage budget and default policy | Lower limit does not purge existing work | `test/db/output_pressure_test.dart` | `lower_budget_leaves_old_work_intact` | red |
 | output-delivery → Blocking-output policy protects accepted work | DUR-11 blocking policy preserves backlog | `test/db/output_pressure_test.dart` | `dur_11_block_defers_atomic_batch_without_spending_attempts` | red |
 | output-delivery → Blocking-output policy protects accepted work | Blocking budget cannot fit a legal raw row | `test/db/pipeline_inventory_test.dart` | `undersized_blocking_budget_cannot_publish` | red |
+| output-delivery → Blocking-output policy protects accepted work | Discard-only demand does not block after a policy change | `test/db/output_pressure_test.dart` | `switch_to_blocking_ignores_discard_only_demand` | red |
 | output-delivery → Output overflow notice does not recurse | Alert reaches a healthy output | `test/db/output_pressure_test.dart` | `notice_reaches_healthy_output_with_ledger_evidence` | red |
 | output-delivery → Output overflow notice does not recurse | All other outputs are full | `test/db/output_pressure_test.dart` | `full_notice_destinations_do_not_enqueue_or_recurse` | red |
 | output-delivery → Output overflow notice does not recurse | Notice uses a blocking output's last slot | `test/db/output_pressure_test.dart` | `notice_at_exact_cap_blocks_ingress_without_recurse` | red |

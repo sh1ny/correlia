@@ -106,6 +106,10 @@ The operator RPC SHALL report inbox depth and oldest pending age, database press
 - **WHEN** inbox or output pressure arises and later clears
 - **THEN** authenticated reads show the blocking reason, committed limits and usage, and that the condition cleared without a restart
 
+#### Scenario: Retired lanes cannot hide a blocking output
+- **WHEN** historical outputs with retained work would fill the bounded status response
+- **THEN** the bounded status response lists blocking outputs before nonblocking outputs
+
 #### Scenario: Maintenance fails after a previous success
 - **WHEN** a maintenance batch rolls back after an earlier batch committed
 - **THEN** status reports the failure without claiming that the failed batch expired or removed any rows

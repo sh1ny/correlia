@@ -1178,6 +1178,10 @@ Use `Client.deadLetter` from `correlia_client` with the machine bearer:
 | `replayBatch` | Requeue eligible occurrences in one page of the same filters. Returns queued and refused counts, a reason for each occurrence and a continuation when more matches remain. |
 | `status` | Read pending count, oldest pending age, database pressure, per-output limits and usage, discard counts, overflow episodes and the last maintenance outcome. |
 
+Status shows blocking outputs first, up to 64 lanes. `outputsTruncated` indicates that other
+lanes are omitted. A failed partition attachment reports `prepare_partition` with zero
+affected rows and keeps its retry record. A successful attachment reports one affected partition.
+
 Use a limit from 1 to 100 for `list` and `replayBatch`. Pass the continuation to the same
 method with the same filters. It resumes after the last considered occurrence and keeps
 the first page's upper time bound. Start a new listing to include later failures or revisit
