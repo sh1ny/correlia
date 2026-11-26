@@ -1414,6 +1414,82 @@ void main() {
         );
       });
 
+      test('lease_recovery_rotates_past_a_blocked_output', () async {
+        final snapshot = await _publish(session, 1);
+        await _oldIntents(session, snapshot, _first, 1);
+        await _oldIntents(session, snapshot, _second, 1);
+        await session.db.unsafeExecute('''
+          UPDATE outbox SET attempt_count=19 WHERE output_id='$_first'
+        ''');
+        final relay = OutputRelayRepository(
+          session,
+          testSecretResolver(session).resolve,
+        );
+        expect((await relay.claim(_first))!.claims.single.attemptNumber, 20);
+        expect((await relay.claim(_second))!.claims.single.attemptNumber, 1);
+        await session.db.unsafeExecute('''
+          UPDATE outbox SET lease_until=CASE WHEN output_id='$_first'
+            THEN '2026-01-01 00:00 UTC'::timestamptz
+            ELSE '2026-01-02 00:00 UTC'::timestamptz END
+        ''');
+        final locker = builder.build();
+        final locked = Completer<void>();
+        final release = ContentionGate();
+        final holding = release.run(
+          () => locker.db.transaction((tx) async {
+            await locker.db.unsafeQuery('''
+              SELECT 1 FROM pipeline_output_capacity WHERE output_id='$_first'
+              FOR UPDATE
+            ''', transaction: tx);
+            locked.complete();
+            await release.future;
+          }),
+        );
+        Future<bool> recover() => relay.recoverExpired(
+          nowForTest: DateTime.utc(2026, 1, 3),
+          afterLockForTest: (tx) => session.db.unsafeSimpleExecute(
+            "SET LOCAL lock_timeout='50ms'",
+            transaction: tx,
+          ),
+        );
+        Future<List<List<Object?>>> leases() async => [
+          for (final row in await session.db.unsafeQuery('''
+            SELECT status,a.outcome FROM outbox o JOIN delivery_attempts a
+              ON a."deliveryId"=o.delivery_id AND a."attemptNumber"=o.attempt_count
+            ORDER BY o.output_id
+          '''))
+            row.toList(),
+        ];
+        try {
+          await Future.any([
+            locked.future,
+            holding.then<void>((_) => fail('Capacity lock was not held')),
+          ]);
+          await expectLater(
+            recover(),
+            throwsA(
+              isA<DatabaseQueryException>().having(
+                (error) => error.code,
+                'SQLSTATE',
+                '55P03',
+              ),
+            ),
+          );
+          expect(await recover(), isTrue);
+          expect(await leases(), [
+            ['delivering', 'started'],
+            ['queued', 'interrupted'],
+          ]);
+        } finally {
+          await release.join();
+        }
+        expect(await recover(), isTrue);
+        expect(await leases(), [
+          ['dead', 'interrupted'],
+          ['queued', 'interrupted'],
+        ]);
+      });
+
       test('notice_reaches_healthy_output_with_ledger_evidence', () async {
         await _publish(
           session,

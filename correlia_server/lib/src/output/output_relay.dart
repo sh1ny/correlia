@@ -143,6 +143,7 @@ final class OutputRelayRepository {
   /// Observes the exact completion transaction before it locks the intent.
   final Future<void> Function(Transaction)? beforeCompletionLockForTest;
   final Map<String, DateTime> _lastDiagnostic;
+  String? _recoveryAfter;
 
   void _unavailable(String id, String reference) {
     final diagnostic = '$id/$reference';
@@ -581,23 +582,42 @@ final class OutputRelayRepository {
     }
   }
 
+  Future<DatabaseResultRow?> _nextExpired(
+    Transaction tx,
+    DateTime? now,
+    String? after,
+  ) async => (await session.db.unsafeQuery(
+    '''SELECT created_at,delivery_id::text,claim_id::text,attempt_count,retry_base,
+       clock_timestamp(),output_id::text FROM outbox
+       WHERE status='delivering'
+         AND lease_until<=coalesce(@now::timestamptz,statement_timestamp())
+         ${after == null ? '' : 'AND output_id>@after::uuid'}
+       ORDER BY output_id,lease_until,created_at,delivery_id FOR UPDATE SKIP LOCKED LIMIT 1''',
+    parameters: QueryParameters.named({'now': now, 'after': ?after}),
+    transaction: tx,
+    timeoutInSeconds: 5,
+  )).singleOrNull;
+
   /// Recovers one expired started attempt, preserving its consumed budget.
+  ///
+  /// Turns rotate by output ID so one contended lane cannot starve the rest.
   Future<bool> recoverExpired({
     DateTime? nowForTest,
     Future<void> Function(Transaction)? afterLockForTest,
   }) async {
     return session.db.transaction((tx) async {
-      final rows = await session.db.unsafeQuery(
-        '''SELECT created_at,delivery_id::text,claim_id::text,attempt_count,retry_base,clock_timestamp() FROM outbox
-        WHERE status='delivering' AND lease_until<=coalesce(@now::timestamptz,clock_timestamp())
-        ORDER BY lease_until FOR UPDATE SKIP LOCKED LIMIT 1''',
-        parameters: QueryParameters.named({'now': nowForTest}),
-        transaction: tx,
-        timeoutInSeconds: 5,
-      );
-      if (rows.isEmpty) return false;
+      final after = _recoveryAfter;
+      final row =
+          await _nextExpired(tx, nowForTest, after) ??
+          (after == null ? null : await _nextExpired(tx, nowForTest, null));
+      if (row == null) {
+        _recoveryAfter = null;
+        return false;
+      }
+      // Advance before finalization: a lock timeout rolls back DB work, not
+      // this process-local scheduling hint. The expired claim stays durable.
+      _recoveryAfter = row[6]! as String;
       await afterLockForTest?.call(tx);
-      final row = rows.single;
       final number = row[3] as int;
       final attemptsThisCycle = number - (row[4] as int);
       final status = attemptsThisCycle >= 20 ? 'dead' : 'queued';

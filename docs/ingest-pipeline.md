@@ -300,7 +300,8 @@ state, does not generate another notice and carries only a reference and hash of
 ledger evidence, not sender data. The ledger still shows the episode when none of the
 other outputs can take the alert.
 Notice routing and expired-lease recovery each run one transaction at a time. Neither blocks
-delivery discovery. A change to either overflow policy's budget can open an episode even when
+delivery discovery. Lease recovery rotates between outputs, even when one attempt times out
+waiting for a lock. A change to either overflow policy's budget can open an episode even when
 the inbox is empty.
 
 ## Retention and expiry

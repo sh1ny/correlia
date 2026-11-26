@@ -110,6 +110,8 @@ CREATE INDEX raw_stream_retained_idx ON raw_inbox (source_id) WHERE status IN ('
 CREATE INDEX events_subject_idx ON events (correlia_event_subject(payload));
 CREATE INDEX outbox_eligibility_idx ON outbox (status, next_attempt_at, output_id);
 CREATE INDEX outbox_definition_status_idx ON outbox (output_id, definition_digest, status);
+CREATE INDEX outbox_recovery_idx ON outbox (output_id,lease_until,created_at,delivery_id)
+  WHERE status='delivering';
 
 CREATE TABLE pipeline_partition_range (
   parent_name text NOT NULL,
