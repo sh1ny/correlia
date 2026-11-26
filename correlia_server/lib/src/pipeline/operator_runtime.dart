@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:serverpod/serverpod.dart';
@@ -84,6 +85,15 @@ final class OperatorRuntime extends Subsystem {
     _credentials = const {};
   }
 
+  static Uint8List? _decodeBearer(String token) {
+    try {
+      return base64Url.decode('$token=');
+    } on FormatException {
+      // Decoder failures can include the supplied credential.
+      return null;
+    }
+  }
+
   /// Returns the actor from a valid Authorization header, never an RPC field.
   static (String, SecretStore?) authorize(Session session) {
     final runtime = _instances[session.serverpod];
@@ -94,8 +104,8 @@ final class OperatorRuntime extends Subsystem {
         final match = header.length == 50 ? _bearer.firstMatch(header) : null;
         if (match != null && match.end == header.length) {
           final token = match[1]!;
-          final bytes = base64Url.decode('$token=');
-          if (base64Url.encode(bytes) == '$token=') {
+          final bytes = _decodeBearer(token);
+          if (bytes != null && base64Url.encode(bytes) == '$token=') {
             final digest = sha256.convert(bytes).toString();
             String? actor;
             for (final MapEntry(:key, :value) in runtime._credentials.entries) {

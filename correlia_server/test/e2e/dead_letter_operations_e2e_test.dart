@@ -226,9 +226,10 @@ void main() {
           final occurrence = (await pg.execute(
             'SELECT occurrence_id FROM pipeline_dead_letter',
           )).single[0];
+          final malformed = '${operatorToken.substring(0, 42)}B';
           final tokens = role == 'worker' || !enabled
               ? [operatorToken]
-              : [null, outputToken, 'invalid-token'];
+              : [null, outputToken, 'invalid-token', malformed];
           final filter = QueueFailureFilter(
             kind: QueueFailureKind.raw,
           ).toJson();
@@ -259,9 +260,17 @@ void main() {
               expect(result.$2, isNot(contains(outputToken)));
               expect(result.$2, isNot(contains('invalid_json')));
               expect(result.$2, isNot(contains(outputSource)));
-              expect(result.$2, isNot(contains('\"occurrence\"')));
+              expect(result.$2, isNot(contains('"occurrence"')));
+              expect(result.$2, isNot(contains(malformed)));
             }
           }
+          expect(child.output, isNot(contains(malformed)));
+          final logs = (await pg.execute('''
+            SELECT row_to_json(s)::text FROM serverpod_session_log s
+            UNION ALL SELECT row_to_json(l)::text FROM serverpod_log l
+            UNION ALL SELECT row_to_json(q)::text FROM serverpod_query_log q
+          ''')).map((row) => row.single).join('\n');
+          expect(logs, isNot(contains(malformed)));
           expect(
             (await pg.execute('SELECT status FROM raw_inbox')).single[0],
             'failed',
