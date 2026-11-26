@@ -74,6 +74,15 @@ CREATE INDEX events_subject_idx ON events (correlia_event_subject(payload));
 CREATE INDEX outbox_eligibility_idx ON outbox (status, next_attempt_at, output_id);
 CREATE INDEX outbox_definition_status_idx ON outbox (output_id, definition_digest, status);
 
+CREATE TABLE pipeline_partition_range (
+  parent_name text NOT NULL,
+  child_name text PRIMARY KEY,
+  first_day date NOT NULL,
+  end_day date NOT NULL,
+  checked_at timestamptz,
+  UNIQUE (parent_name,end_day)
+);
+
 DO $cutover$
 DECLARE
   parent text;
@@ -93,6 +102,8 @@ BEGIN
     ELSE
       EXECUTE format('ALTER TABLE %I ATTACH PARTITION %I FOR VALUES FROM (MINVALUE) TO (%L)',
         parent, legacy, historical_end);
+      INSERT INTO pipeline_partition_range (parent_name,child_name,first_day,end_day)
+      VALUES (parent,legacy,'-infinity',historical_end);
     END IF;
 
     FOR offset_days IN -1..1 LOOP
@@ -100,6 +111,8 @@ BEGIN
       IF historical_end IS NULL OR day >= historical_end THEN
         EXECUTE format('CREATE TABLE %I PARTITION OF %I FOR VALUES FROM (%L) TO (%L)',
           parent || '_' || to_char(day, 'YYYYMMDD'), parent, day, day + 1);
+        INSERT INTO pipeline_partition_range (parent_name,child_name,first_day,end_day)
+        VALUES (parent,parent || '_' || to_char(day,'YYYYMMDD'),day,day+1);
       END IF;
     END LOOP;
     EXECUTE format('CREATE TABLE %I PARTITION OF %I DEFAULT', parent || '_default', parent);
@@ -619,3 +632,472 @@ CREATE TRIGGER output_capacity_recovered BEFORE UPDATE OF
   used_rows,used_bytes,max_rows,max_payload_bytes,overflow_policy ON pipeline_output_capacity
   FOR EACH ROW WHEN (OLD.overflow_activity_id IS NOT NULL)
   EXECUTE FUNCTION correlia_close_satisfied_overflow();
+
+CREATE TABLE pipeline_dead_letter (
+  occurrence_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  kind text NOT NULL CHECK (kind IN ('raw','delivery')),
+  scope_id uuid NOT NULL,
+  failed_at timestamptz NOT NULL,
+  error_class text NOT NULL,
+  work_at timestamptz NOT NULL,
+  work_id uuid NOT NULL,
+  snapshot_id text,
+  field_path text,
+  UNIQUE (kind,work_at,work_id)
+);
+CREATE INDEX pipeline_dead_letter_time_idx ON pipeline_dead_letter (failed_at,occurrence_id);
+CREATE INDEX pipeline_dead_letter_kind_idx ON pipeline_dead_letter (kind,failed_at,occurrence_id);
+CREATE INDEX pipeline_dead_letter_scope_idx ON pipeline_dead_letter (kind,scope_id,failed_at,occurrence_id);
+CREATE INDEX pipeline_dead_letter_class_idx ON pipeline_dead_letter (kind,error_class,failed_at,occurrence_id);
+CREATE INDEX pipeline_dead_letter_scope_class_idx ON pipeline_dead_letter
+  (kind,scope_id,error_class,failed_at,occurrence_id);
+
+CREATE INDEX pipeline_failure_work_idx ON pipeline_failures ("rawObservedAt","rawId");
+CREATE INDEX raw_terminal_age_idx ON raw_inbox (observed_at,raw_id) WHERE status IN ('done','discarded');
+CREATE INDEX raw_drop_protected_idx ON raw_inbox (observed_at) WHERE status NOT IN ('done','discarded');
+CREATE INDEX outbox_terminal_age_idx ON outbox (terminal_at,created_at,delivery_id)
+  WHERE status IN ('delivered','discarded');
+CREATE INDEX raw_replayable_age_idx ON raw_inbox (observed_at) WHERE status IN ('pending','failed');
+CREATE INDEX events_observation_key_idx ON events (event_id);
+CREATE INDEX transport_expiry_idx ON transport_keys ("expiresAt",id);
+CREATE INDEX observation_expiry_idx ON observation_keys (greatest("sourceTime","firstSeenAt"),id);
+
+INSERT INTO pipeline_dead_letter (kind,scope_id,failed_at,error_class,work_at,work_id,snapshot_id,field_path)
+SELECT 'raw',r.source_id,coalesce(f."createdAt" AT TIME ZONE 'UTC',transaction_timestamp()),
+  coalesce(f."errorClass",'processing_failed'),r.observed_at,r.raw_id,r.config_snapshot_id,f."fieldPath"
+FROM raw_inbox r LEFT JOIN LATERAL (
+  SELECT "createdAt","errorClass","fieldPath" FROM pipeline_failures
+  WHERE ("rawObservedAt","rawId")=(r.observed_at AT TIME ZONE 'UTC',r.raw_id)
+  ORDER BY "createdAt" DESC,id DESC LIMIT 1
+) f ON true WHERE r.status='failed';
+INSERT INTO pipeline_dead_letter (kind,scope_id,failed_at,error_class,work_at,work_id,snapshot_id)
+SELECT 'delivery',output_id,terminal_at,coalesce(dead_reason,'delivery_failed'),
+  created_at,delivery_id,config_snapshot_id FROM outbox WHERE status='dead';
+
+CREATE FUNCTION correlia_record_raw_failure(
+  observed timestamptz, raw_id uuid, source_id uuid, snapshot text, error text, path text, failed timestamptz
+) RETURNS void LANGUAGE sql AS $$
+  INSERT INTO pipeline_dead_letter (kind,scope_id,failed_at,error_class,
+    work_at,work_id,snapshot_id,field_path)
+  VALUES ('raw',source_id,failed,error,observed,raw_id,snapshot,path)
+$$;
+
+-- The relay and direct imports share the same terminal-time and failure fence.
+CREATE FUNCTION correlia_stamp_delivery_terminal() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.status NOT IN ('dead','delivered','discarded') THEN
+    NEW.terminal_at := NULL;
+  ELSIF TG_OP='UPDATE' AND OLD.status IS DISTINCT FROM NEW.status THEN
+    NEW.terminal_at := CASE WHEN NEW.status='discarded' THEN coalesce(OLD.terminal_at,clock_timestamp())
+      ELSE clock_timestamp() END;
+  ELSE
+    NEW.terminal_at := coalesce(NEW.terminal_at,clock_timestamp());
+  END IF;
+  RETURN NEW;
+END;
+$$;
+CREATE TRIGGER outbox_terminal_timestamp BEFORE INSERT OR UPDATE OF status ON outbox
+  FOR EACH ROW EXECUTE FUNCTION correlia_stamp_delivery_terminal();
+
+CREATE FUNCTION correlia_track_dead_delivery() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF TG_OP <> 'INSERT' AND OLD.status='dead' AND (TG_OP='DELETE' OR NEW.status<>'dead') THEN
+    DELETE FROM pipeline_dead_letter WHERE (kind,work_at,work_id)=('delivery',OLD.created_at,OLD.delivery_id);
+  ELSIF TG_OP <> 'DELETE' AND NEW.status='dead' AND (TG_OP='INSERT' OR OLD.status<>'dead') THEN
+    INSERT INTO pipeline_dead_letter (kind,scope_id,failed_at,error_class,work_at,work_id,snapshot_id)
+    VALUES ('delivery',NEW.output_id,NEW.terminal_at,coalesce(NEW.dead_reason,'delivery_failed'),
+      NEW.created_at,NEW.delivery_id,NEW.config_snapshot_id);
+  END IF;
+  RETURN NULL;
+END;
+$$;
+CREATE TRIGGER outbox_dead_directory AFTER INSERT OR UPDATE OF status OR DELETE ON outbox
+  FOR EACH ROW EXECUTE FUNCTION correlia_track_dead_delivery();
+
+CREATE FUNCTION correlia_remove_raw_failure() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  DELETE FROM pipeline_dead_letter WHERE (kind,work_at,work_id)=('raw',OLD.observed_at,OLD.raw_id);
+  DELETE FROM pipeline_failures WHERE ("rawObservedAt","rawId")=(OLD.observed_at AT TIME ZONE 'UTC',OLD.raw_id);
+  RETURN NULL;
+END;
+$$;
+CREATE TRIGGER raw_failure_deleted AFTER DELETE ON raw_inbox
+  FOR EACH ROW WHEN (OLD.status='failed') EXECUTE FUNCTION correlia_remove_raw_failure();
+CREATE TRIGGER raw_failure_resolved AFTER UPDATE OF status ON raw_inbox
+  FOR EACH ROW WHEN (OLD.status='failed' AND NEW.status<>'failed')
+  EXECUTE FUNCTION correlia_remove_raw_failure();
+
+CREATE FUNCTION correlia_reset_dead_directory() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  DELETE FROM pipeline_dead_letter WHERE kind=TG_ARGV[0];
+  RETURN NULL;
+END;
+$$;
+CREATE TRIGGER raw_truncate_dead AFTER TRUNCATE ON raw_inbox
+  FOR EACH STATEMENT EXECUTE FUNCTION correlia_reset_dead_directory('raw');
+CREATE TRIGGER outbox_truncate_dead AFTER TRUNCATE ON outbox
+  FOR EACH STATEMENT EXECUTE FUNCTION correlia_reset_dead_directory('delivery');
+
+CREATE TABLE pipeline_retired_delivery (
+  created_at timestamptz NOT NULL,
+  delivery_id uuid NOT NULL,
+  PRIMARY KEY (created_at,delivery_id)
+);
+CREATE TABLE pipeline_retention_cursor (
+  lane text PRIMARY KEY,
+  last_time timestamptz NOT NULL,
+  last_id uuid NOT NULL,
+  last_disposition text NOT NULL,
+  last_serial bigint NOT NULL DEFAULT 0
+);
+CREATE TABLE pipeline_maintenance_outcome (
+  singleton integer PRIMARY KEY CHECK (singleton=1),
+  lane text NOT NULL,
+  outcome text NOT NULL,
+  finished_at timestamptz NOT NULL,
+  affected integer NOT NULL
+);
+
+CREATE SEQUENCE pipeline_partition_attempt_id;
+CREATE TABLE pipeline_partition_retry (
+  parent_name text NOT NULL,
+  day date NOT NULL,
+  attempt_id bigint NOT NULL,
+  retry_at timestamptz NOT NULL,
+  problem text,
+  PRIMARY KEY (parent_name,day)
+);
+
+CREATE FUNCTION correlia_partition_covered(p_parent text, p_day date)
+RETURNS boolean LANGUAGE sql STABLE AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM pipeline_partition_range r JOIN pg_inherits h
+      ON h.inhrelid=to_regclass(r.child_name) AND h.inhparent=to_regclass(r.parent_name)
+    WHERE r.parent_name=p_parent AND r.first_day<=p_day AND r.end_day>p_day)
+$$;
+
+CREATE FUNCTION correlia_reserve_partition(p_parent text,p_day date,p_now timestamptz)
+RETURNS bigint LANGUAGE plpgsql AS $$
+DECLARE
+  id bigint;
+BEGIN
+  IF p_parent NOT IN ('raw_inbox','events','outbox')
+    OR NOT pg_try_advisory_xact_lock(1129271900) THEN RETURN NULL; END IF;
+  IF correlia_partition_covered(p_parent,p_day) THEN RETURN NULL; END IF;
+  INSERT INTO pipeline_partition_retry (parent_name,day,attempt_id,retry_at)
+  VALUES (p_parent,p_day,nextval('pipeline_partition_attempt_id'),p_now+interval '30 seconds')
+  ON CONFLICT (parent_name,day) DO UPDATE
+  SET attempt_id=excluded.attempt_id,retry_at=excluded.retry_at
+  WHERE pipeline_partition_retry.retry_at<=p_now
+  RETURNING attempt_id INTO id;
+  RETURN id;
+END;
+$$;
+
+CREATE FUNCTION correlia_attach_partition(p_parent text,p_day date,p_attempt bigint)
+RETURNS boolean LANGUAGE plpgsql AS $$
+DECLARE
+  occupied boolean;
+  child text;
+  key text;
+BEGIN
+  IF p_parent NOT IN ('raw_inbox','events','outbox')
+    OR NOT pg_try_advisory_xact_lock(1129271900) THEN RETURN false; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pipeline_partition_retry
+    WHERE (parent_name,day,attempt_id)=(p_parent,p_day,p_attempt)) THEN RETURN false; END IF;
+  IF correlia_partition_covered(p_parent,p_day) THEN
+    DELETE FROM pipeline_partition_retry WHERE (parent_name,day)=(p_parent,p_day);
+    RETURN false;
+  END IF;
+  key := CASE WHEN p_parent='outbox' THEN 'created_at' ELSE 'observed_at' END;
+  EXECUTE format('SELECT EXISTS (SELECT 1 FROM %I WHERE %I >= $1 AND %I < $2)',
+    p_parent || '_default',key,key) INTO occupied
+    USING p_day::timestamp AT TIME ZONE 'UTC',(p_day+1)::timestamp AT TIME ZONE 'UTC';
+  IF occupied THEN
+    UPDATE pipeline_partition_retry SET problem=NULL
+    WHERE (parent_name,day,attempt_id)=(p_parent,p_day,p_attempt);
+    RETURN false;
+  END IF;
+  child := p_parent || '_' || to_char(p_day,'YYYYMMDD');
+  -- PostgreSQL still validates the default range under the bounded DDL lock.
+  EXECUTE format('CREATE TABLE %I PARTITION OF %I FOR VALUES FROM (%L) TO (%L)',
+    child,p_parent,p_day::timestamp AT TIME ZONE 'UTC',(p_day+1)::timestamp AT TIME ZONE 'UTC');
+  INSERT INTO pipeline_partition_range (parent_name,child_name,first_day,end_day)
+  VALUES (p_parent,child,p_day,p_day+1);
+  DELETE FROM pipeline_partition_retry WHERE (parent_name,day)=(p_parent,p_day);
+  RETURN true;
+END;
+$$;
+
+CREATE FUNCTION correlia_partition_failed(
+  p_parent text,p_day date,p_attempt bigint,p_problem text,p_now timestamptz
+) RETURNS boolean LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM pg_advisory_xact_lock(1129271900);
+  IF correlia_partition_covered(p_parent,p_day) THEN RETURN false; END IF;
+  UPDATE pipeline_partition_retry SET problem=p_problem,retry_at=p_now+interval '30 seconds'
+  WHERE (parent_name,day,attempt_id)=(p_parent,p_day,p_attempt);
+  RETURN FOUND;
+END;
+$$;
+
+CREATE FUNCTION correlia_drop_old_partition(p_parent text,p_now timestamptz)
+RETURNS boolean LANGUAGE plpgsql AS $$
+DECLARE
+  part pipeline_partition_range;
+  days integer;
+  blocked boolean;
+BEGIN
+  IF p_parent NOT IN ('raw_inbox','events','outbox')
+    OR NOT pg_try_advisory_xact_lock(1129271900) THEN RETURN false; END IF;
+  SELECT CASE p_parent WHEN 'events' THEN event_retention_days
+    WHEN 'outbox' THEN outbox_retention_days ELSE raw_retention_days END INTO days
+  FROM pipeline_queue_policy WHERE singleton=1;
+  SELECT r.* INTO part FROM pipeline_partition_range r JOIN pg_inherits h
+    ON h.inhrelid=to_regclass(r.child_name) AND h.inhparent=to_regclass(r.parent_name)
+  WHERE r.parent_name=p_parent AND r.end_day::timestamp AT TIME ZONE 'UTC' <= p_now-make_interval(days=>days)
+  ORDER BY r.checked_at NULLS FIRST,r.end_day LIMIT 1;
+  IF NOT FOUND THEN RETURN false; END IF;
+  EXECUTE format('LOCK TABLE ONLY %I, ONLY %I IN ACCESS EXCLUSIVE MODE',p_parent,part.child_name);
+  IF p_parent='events' THEN
+    SELECT EXISTS (SELECT 1 FROM pipeline_event_reference
+      WHERE observed_at>=part.first_day::timestamp AT TIME ZONE 'UTC'
+        AND observed_at<part.end_day::timestamp AT TIME ZONE 'UTC') INTO blocked;
+  ELSIF p_parent='raw_inbox' AND NOT EXISTS (SELECT 1 FROM icinga2_raw_origin) THEN
+    EXECUTE format('SELECT EXISTS (SELECT 1 FROM %I WHERE status NOT IN (''done'',''discarded''))',
+      part.child_name) INTO blocked;
+  ELSE
+    EXECUTE format('SELECT EXISTS (SELECT 1 FROM %I)',part.child_name) INTO blocked;
+  END IF;
+  IF blocked THEN
+    UPDATE pipeline_partition_range SET checked_at=p_now WHERE child_name=part.child_name;
+    RETURN false;
+  END IF;
+  EXECUTE format('DROP TABLE %I',part.child_name);
+  DELETE FROM pipeline_partition_range WHERE child_name=part.child_name;
+  RETURN true;
+END;
+$$;
+
+CREATE FUNCTION correlia_expire_dead_letters(p_now timestamptz,p_cutoff timestamptz,p_cap integer)
+RETURNS integer LANGUAGE plpgsql AS $$
+DECLARE
+  occurrences uuid[];
+  locked_occurrences uuid[];
+  expired integer := 0;
+  deliveries integer;
+BEGIN
+  SELECT array_agg(occurrence_id) INTO occurrences FROM (
+    SELECT occurrence_id FROM pipeline_dead_letter WHERE failed_at<=p_cutoff
+    ORDER BY failed_at,occurrence_id LIMIT p_cap
+  ) page;
+  IF occurrences IS NULL THEN RETURN 0; END IF;
+
+  SELECT array_agg(h.occurrence_id) INTO locked_occurrences FROM (
+    SELECT f.occurrence_id FROM pipeline_dead_letter f JOIN raw_inbox r
+      ON (r.observed_at,r.raw_id)=(f.work_at,f.work_id)
+    WHERE f.occurrence_id=ANY(occurrences) AND f.kind='raw' AND r.status='failed'
+    ORDER BY r.observed_at,r.raw_id FOR UPDATE OF r SKIP LOCKED
+  ) h;
+  -- Re-read the directory after the work lock: the same work key can fail
+  -- again with a different occurrence between selection and acquisition.
+  UPDATE raw_inbox r SET status='discarded',next_attempt_at=NULL FROM pipeline_dead_letter f
+  WHERE f.kind='raw' AND f.occurrence_id=ANY(locked_occurrences)
+    AND (r.observed_at,r.raw_id)=(f.work_at,f.work_id) AND r.status='failed';
+  GET DIAGNOSTICS expired=ROW_COUNT;
+
+  SELECT array_agg(h.occurrence_id) INTO locked_occurrences FROM (
+    SELECT f.occurrence_id FROM pipeline_dead_letter f JOIN outbox o
+      ON (o.created_at,o.delivery_id)=(f.work_at,f.work_id)
+    WHERE f.occurrence_id=ANY(occurrences) AND f.kind='delivery' AND o.status='dead'
+    ORDER BY o.created_at,o.delivery_id FOR UPDATE OF o SKIP LOCKED
+  ) h;
+  WITH held AS MATERIALIZED (
+    SELECT o.created_at,o.delivery_id,o.output_id,o.event_observed_at,o.event_id,o.event_disposition
+    FROM pipeline_dead_letter f JOIN outbox o ON (o.created_at,o.delivery_id)=(f.work_at,f.work_id)
+    WHERE f.occurrence_id=ANY(locked_occurrences) AND f.kind='delivery' AND o.status='dead'
+  ), lanes AS MATERIALIZED (
+    SELECT c.output_id FROM pipeline_output_capacity c
+    WHERE c.output_id IN (SELECT output_id FROM held) ORDER BY c.output_id FOR UPDATE
+  ), refs AS MATERIALIZED (
+    SELECT r.event_id FROM (
+      SELECT DISTINCT event_observed_at,event_id,event_disposition FROM held
+    ) h JOIN pipeline_event_reference r ON
+      (h.event_observed_at,h.event_id,h.event_disposition)=(r.observed_at,r.event_id,r.disposition)
+    WHERE (SELECT count(*) FROM lanes)>0
+    ORDER BY r.observed_at,r.event_id,r.disposition FOR UPDATE OF r
+  )
+  UPDATE outbox o SET status='discarded' FROM held h
+  WHERE (o.created_at,o.delivery_id)=(h.created_at,h.delivery_id) AND (SELECT count(*) FROM refs)>0;
+  GET DIAGNOSTICS deliveries=ROW_COUNT;
+  expired := expired+deliveries;
+  IF expired>0 THEN
+    INSERT INTO activity (occurred_at,entity_kind,entity_id,entity_version,change_kind,actor_kind)
+    VALUES (p_now,'pipeline_queue',0,expired,'dead_letter_expired','system');
+  END IF;
+  RETURN expired;
+END;
+$$;
+
+-- Cursor advancement uses the page, not the deleted subset. Protected
+-- prefixes and locked rows cannot cause an unbounded scan or starve later work.
+CREATE FUNCTION correlia_reclaim_events(p_cutoff timestamptz,p_cap integer)
+RETURNS integer LANGUAGE plpgsql AS $$
+DECLARE
+  cursor_row pipeline_retention_cursor;
+  deleted integer;
+BEGIN
+  SELECT * INTO cursor_row FROM pipeline_retention_cursor WHERE lane='events';
+  WITH page AS MATERIALIZED (
+    SELECT observed_at,event_id,disposition FROM events WHERE observed_at<p_cutoff
+      AND (observed_at,event_id,disposition)>(
+        coalesce(cursor_row.last_time,'-infinity'),
+        coalesce(cursor_row.last_id,'00000000-0000-0000-0000-000000000000'),
+        coalesce(cursor_row.last_disposition,''))
+    ORDER BY observed_at,event_id,disposition LIMIT p_cap
+  ), locked AS MATERIALIZED (
+    SELECT e.observed_at,e.event_id,e.disposition FROM events e JOIN page p
+      USING (observed_at,event_id,disposition)
+    WHERE NOT EXISTS (SELECT 1 FROM pipeline_event_reference r
+      WHERE (r.observed_at,r.event_id,r.disposition)=(e.observed_at,e.event_id,e.disposition))
+    ORDER BY e.observed_at,e.event_id,e.disposition FOR UPDATE OF e SKIP LOCKED
+  ), removed AS (
+    DELETE FROM events e USING locked l
+    WHERE (e.observed_at,e.event_id,e.disposition)=(l.observed_at,l.event_id,l.disposition)
+    RETURNING 1
+  ), advanced AS (
+    INSERT INTO pipeline_retention_cursor VALUES ('events',
+      coalesce((SELECT observed_at FROM page OFFSET p_cap-1 LIMIT 1),'-infinity'),
+      coalesce((SELECT event_id FROM page OFFSET p_cap-1 LIMIT 1),'00000000-0000-0000-0000-000000000000'),
+      coalesce((SELECT disposition FROM page OFFSET p_cap-1 LIMIT 1),''))
+    ON CONFLICT (lane) DO UPDATE SET
+      (last_time,last_id,last_disposition)=(excluded.last_time,excluded.last_id,excluded.last_disposition)
+  )
+  SELECT count(*) INTO deleted FROM removed;
+  RETURN deleted;
+END;
+$$;
+
+CREATE FUNCTION correlia_reclaim_observation_keys(p_now timestamptz,p_cap integer)
+RETURNS integer LANGUAGE plpgsql AS $$
+DECLARE
+  cursor_row pipeline_retention_cursor;
+  horizon timestamptz;
+  removed integer;
+BEGIN
+  PERFORM 1 FROM raw_admission_cutoff WHERE singleton=1 FOR UPDATE;
+  SELECT least(c.cutoff,(SELECT min(observed_at) FROM raw_inbox WHERE status IN ('pending','failed')),p_now)
+    - interval '7 days 5 minutes' INTO horizon FROM raw_admission_cutoff c WHERE singleton=1;
+  SELECT * INTO cursor_row FROM pipeline_retention_cursor WHERE lane='observation';
+  WITH page AS MATERIALIZED (
+    SELECT id,greatest("sourceTime","firstSeenAt") AS seen FROM observation_keys
+    WHERE greatest("sourceTime","firstSeenAt")<horizon AT TIME ZONE 'UTC'
+      AND (greatest("sourceTime","firstSeenAt"),id)>
+          (coalesce(cursor_row.last_time AT TIME ZONE 'UTC','-infinity'),
+           coalesce(cursor_row.last_serial,0))
+    ORDER BY seen,id LIMIT p_cap
+  ), locked AS MATERIALIZED (
+    SELECT k.id FROM observation_keys k JOIN page p USING (id)
+    WHERE NOT EXISTS (SELECT 1 FROM events e WHERE e.event_id=k."eventId")
+    FOR UPDATE OF k SKIP LOCKED
+  ), deleted AS (
+    DELETE FROM observation_keys k USING locked l WHERE k.id=l.id RETURNING 1
+  ), advanced AS (
+    INSERT INTO pipeline_retention_cursor (lane,last_time,last_id,last_disposition,last_serial)
+    VALUES ('observation',
+      coalesce((SELECT seen AT TIME ZONE 'UTC' FROM page OFFSET p_cap-1 LIMIT 1),'-infinity'),
+      '00000000-0000-0000-0000-000000000000','',
+      coalesce((SELECT id FROM page OFFSET p_cap-1 LIMIT 1),0))
+    ON CONFLICT (lane) DO UPDATE SET
+      (last_time,last_serial)=(excluded.last_time,excluded.last_serial)
+  )
+  SELECT count(*) INTO removed FROM deleted;
+  RETURN removed;
+END;
+$$;
+
+CREATE FUNCTION correlia_maintain(p_lane text,p_now timestamptz,p_cap integer DEFAULT 500)
+RETURNS integer LANGUAGE plpgsql AS $$
+DECLARE
+  policy pipeline_queue_policy;
+  affected integer;
+  retired pipeline_retired_delivery;
+BEGIN
+  IF p_cap<1 OR p_cap>500 THEN RAISE EXCEPTION 'invalid maintenance batch cap'; END IF;
+  IF NOT pg_try_advisory_xact_lock(1129271901) THEN RETURN 0; END IF;
+  SELECT * INTO policy FROM pipeline_queue_policy WHERE singleton=1;
+  IF p_lane='expiry' THEN
+    RETURN correlia_expire_dead_letters(p_now,p_now-make_interval(days=>policy.dead_letter_retention_days),p_cap);
+  ELSIF p_lane='raw' THEN
+    WITH page AS MATERIALIZED (
+      SELECT observed_at,raw_id FROM raw_inbox
+      WHERE observed_at<p_now-make_interval(days=>policy.raw_retention_days)
+        AND status IN ('done','discarded')
+      ORDER BY observed_at,raw_id LIMIT p_cap
+    ), held AS MATERIALIZED (
+      SELECT r.observed_at,r.raw_id FROM raw_inbox r JOIN page p USING (observed_at,raw_id)
+      WHERE r.status IN ('done','discarded')
+      ORDER BY r.observed_at,r.raw_id FOR UPDATE OF r SKIP LOCKED
+    ), removed AS (
+      DELETE FROM raw_inbox r USING held h WHERE (r.observed_at,r.raw_id)=(h.observed_at,h.raw_id)
+      RETURNING r.raw_id
+    ), origins AS (
+      DELETE FROM icinga2_raw_origin o USING removed r WHERE o.raw_id=r.raw_id
+    )
+    SELECT count(*) INTO affected FROM removed;
+  ELSIF p_lane='events' THEN
+    RETURN correlia_reclaim_events(p_now-make_interval(days=>policy.event_retention_days),p_cap);
+  ELSIF p_lane='outbox' THEN
+    WITH page AS MATERIALIZED (
+      SELECT created_at,delivery_id FROM outbox
+      WHERE status IN ('delivered','discarded')
+        AND terminal_at<p_now-make_interval(days=>policy.outbox_retention_days)
+      ORDER BY terminal_at,created_at,delivery_id LIMIT p_cap
+    ), held AS MATERIALIZED (
+      SELECT o.created_at,o.delivery_id FROM outbox o JOIN page p USING (created_at,delivery_id)
+      WHERE o.status IN ('delivered','discarded')
+        AND o.terminal_at<p_now-make_interval(days=>policy.outbox_retention_days)
+      ORDER BY o.created_at,o.delivery_id FOR UPDATE OF o SKIP LOCKED
+    ), removed AS (
+      DELETE FROM outbox o USING held h WHERE (o.created_at,o.delivery_id)=(h.created_at,h.delivery_id)
+      RETURNING o.created_at,o.delivery_id
+    ), tracked AS (
+      INSERT INTO pipeline_retired_delivery SELECT * FROM removed RETURNING 1
+    )
+    SELECT count(*) INTO affected FROM tracked;
+  ELSIF p_lane='attempts' THEN
+    SELECT * INTO retired FROM pipeline_retired_delivery ORDER BY created_at,delivery_id LIMIT 1 FOR UPDATE;
+    IF NOT FOUND THEN RETURN 0; END IF;
+    WITH page AS MATERIALIZED (
+      SELECT id FROM delivery_attempts WHERE
+        ("outboxCreatedAt","deliveryId")=(retired.created_at AT TIME ZONE 'UTC',retired.delivery_id)
+      ORDER BY "attemptNumber" LIMIT p_cap
+    )
+    DELETE FROM delivery_attempts a USING page p WHERE a.id=p.id;
+    GET DIAGNOSTICS affected=ROW_COUNT;
+    IF NOT EXISTS (SELECT 1 FROM delivery_attempts WHERE
+       ("outboxCreatedAt","deliveryId")=(retired.created_at AT TIME ZONE 'UTC',retired.delivery_id)) THEN
+      DELETE FROM pipeline_retired_delivery WHERE
+        (created_at,delivery_id)=(retired.created_at,retired.delivery_id);
+    END IF;
+  ELSIF p_lane='transport' THEN
+    WITH page AS MATERIALIZED (
+      SELECT id FROM transport_keys WHERE "expiresAt"<=
+        (SELECT least(cutoff,p_now) AT TIME ZONE 'UTC' FROM raw_admission_cutoff WHERE singleton=1)
+      ORDER BY "expiresAt",id LIMIT p_cap
+    ), held AS MATERIALIZED (
+      SELECT t.id FROM transport_keys t JOIN page p USING (id)
+      WHERE t."expiresAt"<=(SELECT least(cutoff,p_now) AT TIME ZONE 'UTC'
+        FROM raw_admission_cutoff WHERE singleton=1)
+      ORDER BY t.id FOR UPDATE OF t SKIP LOCKED
+    )
+    DELETE FROM transport_keys t USING held h WHERE t.id=h.id;
+    GET DIAGNOSTICS affected=ROW_COUNT;
+  ELSIF p_lane='observation' THEN
+    RETURN correlia_reclaim_observation_keys(p_now,p_cap);
+  ELSE
+    RAISE EXCEPTION 'unknown maintenance lane';
+  END IF;
+  RETURN affected;
+END;
+$$;

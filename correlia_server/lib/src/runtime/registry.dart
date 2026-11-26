@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:serverpod/serverpod.dart';
 
 import '../feed/feed_runtime.dart';
@@ -6,6 +9,7 @@ import '../ingest/ingest_startup.dart';
 import '../ingest/ingest_test_gates.dart';
 import '../ingest/ingest_workers.dart';
 import '../ingest/ingress.dart';
+import '../pipeline/maintenance.dart';
 import 'process_options.dart';
 import 'role_runtime.dart';
 import 'startup_state.dart';
@@ -33,6 +37,10 @@ List<Subsystem> buildSubsystemRegistry({
   );
   FeedRuntime.role = role;
   FeedRuntime.watermark = role == ProcessRole.worker ? null : watermark;
+  final maintenanceGate =
+      runMode == 'test' && const bool.fromEnvironment('correlia.testHooks')
+      ? environment['CORRELIA_TEST_MAINTENANCE_GATE']
+      : null;
   return [
     ingest,
     IngressSubsystem(
@@ -50,6 +58,23 @@ List<Subsystem> buildSubsystemRegistry({
       runMode: runMode,
       gates: IngestTestGates.fromEnvironment(runMode, environment),
       log: log,
+    ),
+    PipelineMaintenance(
+      openSession: () => pod.createSession(enableLogging: false),
+      log: log,
+      beforeCommitForTest: maintenanceGate == null
+          ? null
+          : (lane) async {
+              if (lane != 'expiry') return;
+              log('test maintenance: expiry gate');
+              await awaitIngestTestGate(
+                maintenanceGate,
+                Completer<void>().future,
+              );
+              if (await File(maintenanceGate).readAsString() == 'fail') {
+                throw StateError('maintenance fixture failure');
+              }
+            },
     ),
     watermark,
   ];

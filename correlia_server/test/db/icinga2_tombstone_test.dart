@@ -352,9 +352,14 @@ void main() {
           final plan = await session.db.unsafeQuery('''EXPLAIN
             SELECT 1 FROM events WHERE correlia_event_subject(payload)='${'a' * 64}' LIMIT 1
           ''', transaction: tx);
+          final indexes = await session.db.unsafeQuery('''
+            SELECT inhrelid::regclass::text FROM pg_inherits
+            WHERE inhparent='events_subject_idx'::regclass
+          ''', transaction: tx);
+          final explanation = plan.map((row) => row[0]).join(' ');
           expect(
-            plan.map((row) => row[0]).join(' '),
-            contains('events_subject_idx'),
+            indexes.any((row) => explanation.contains(row[0]! as String)),
+            isTrue,
           );
         });
       });

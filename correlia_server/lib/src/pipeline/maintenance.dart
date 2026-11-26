@@ -1,0 +1,252 @@
+import 'dart:async';
+
+import 'package:serverpod/serverpod.dart';
+
+import '../runtime/process_options.dart';
+import '../runtime/subsystem.dart';
+
+const _lanes = [
+  'expiry',
+  'raw',
+  'events',
+  'outbox',
+  'attempts',
+  'transport',
+  'observation',
+];
+const _parents = ['raw_inbox', 'events', 'outbox'];
+
+/// Bounded retention and partition preparation, owned by worker roles.
+final class PipelineMaintenance extends Subsystem {
+  PipelineMaintenance({
+    required this.openSession,
+    required this.log,
+    this.interval = const Duration(seconds: 2),
+    this.beforeCommitForTest,
+  });
+
+  final Future<Session> Function() openSession;
+  final void Function(String) log;
+  final Duration interval;
+
+  /// Lets a fixture hold or fail a real batch before it commits.
+  final Future<void> Function(String lane)? beforeCommitForTest;
+  final _stopping = Completer<void>();
+  Future<void>? _loop;
+  Timer? _timer;
+  Completer<void>? _wake;
+
+  @override
+  Set<ProcessRole> get roles => const {ProcessRole.worker, ProcessRole.all};
+
+  @override
+  String get name => 'pipeline-maintenance';
+
+  @override
+  Future<void> start() async {
+    final session = await openSession();
+    _loop = _run(session);
+  }
+
+  Future<void> _run(Session session) async {
+    final maintenance = MaintenanceRepository(
+      session,
+      beforeCommitForTest: beforeCommitForTest,
+    );
+    var step = 0;
+    try {
+      while (!_stopping.isCompleted) {
+        try {
+          if (step < _lanes.length) {
+            await maintenance.sweep(_lanes[step]);
+          } else if (step < _lanes.length + _parents.length) {
+            await maintenance.dropOld(_parents[step - _lanes.length]);
+          } else {
+            await maintenance.prepareOne();
+          }
+        } catch (_) {
+          log('pipeline-maintenance: outcome unavailable');
+        }
+        step = (step + 1) % (_lanes.length + _parents.length + 1);
+        if (_stopping.isCompleted) break;
+        final wake = _wake = Completer<void>();
+        _timer = Timer(interval, wake.complete);
+        await wake.future;
+        _wake = null;
+        _timer = null;
+      }
+    } finally {
+      await session.close();
+    }
+  }
+
+  @override
+  Future<void> stop() async {
+    if (!_stopping.isCompleted) _stopping.complete();
+    if (beforeCommitForTest != null) log('test maintenance: stopping');
+    _timer?.cancel();
+    if (_wake case final wake? when !wake.isCompleted) wake.complete();
+    await _loop;
+  }
+}
+
+/// Fences each batch across workers. It reports counts only after a successful
+/// transaction; a failed batch records its fixed failure class after rollback.
+final class MaintenanceRepository {
+  const MaintenanceRepository(this.session, {this.beforeCommitForTest});
+
+  final Session session;
+  final Future<void> Function(String lane)? beforeCommitForTest;
+
+  Future<void> _limits(
+    Transaction tx, {
+    bool ddl = false,
+  }) => session.db.unsafeSimpleExecute(
+    "SET LOCAL lock_timeout='500ms'; SET LOCAL statement_timeout='${ddl ? '1s' : '2s'}'",
+    transaction: tx,
+  );
+
+  Future<void> _outcome(
+    Transaction tx,
+    String lane,
+    String outcome,
+    int count,
+  ) => session.db.unsafeExecute(
+    '''
+        INSERT INTO pipeline_maintenance_outcome VALUES (1,@lane,@outcome,clock_timestamp(),@count)
+        ON CONFLICT (singleton) DO UPDATE SET lane=excluded.lane,outcome=excluded.outcome,
+          finished_at=excluded.finished_at,affected=excluded.affected
+      ''',
+    parameters: QueryParameters.named({
+      'lane': lane,
+      'outcome': outcome,
+      'count': count,
+    }),
+    transaction: tx,
+    timeoutInSeconds: 4,
+  );
+
+  static String _problem(Object error) => switch (error) {
+    DatabaseQueryException(code: '55P03') => 'lock_timeout',
+    DatabaseQueryException(code: '57014') ||
+    TimeoutException() => 'statement_timeout',
+    _ => 'failed',
+  };
+
+  Future<void> _batch(
+    String lane,
+    Future<int> Function(Transaction) execute,
+  ) async {
+    try {
+      await session.db.transaction((tx) async {
+        await _limits(tx);
+        final held = await session.db.unsafeQuery(
+          'SELECT pg_try_advisory_xact_lock(1129271901)',
+          transaction: tx,
+        );
+        if (held.single[0] != true) return;
+        final count = await execute(tx);
+        await beforeCommitForTest?.call(lane);
+        await _outcome(tx, lane, 'ok', count);
+      });
+    } catch (error) {
+      await session.db.transaction((tx) async {
+        await _limits(tx);
+        await _outcome(tx, lane, _problem(error), 0);
+      });
+    }
+  }
+
+  /// Runs one lane on up to 500 candidates.
+  Future<void> sweep(String lane) => _batch(
+    lane,
+    (tx) async =>
+        (await session.db.unsafeQuery(
+              'SELECT correlia_maintain(@lane,clock_timestamp())',
+              parameters: QueryParameters.named({'lane': lane}),
+              transaction: tx,
+              timeoutInSeconds: 4,
+            )).single[0]!
+            as int,
+  );
+
+  /// Drops at most one eligible closed child, after its final safety check.
+  Future<void> dropOld(String parent) => _batch(
+    'drop_partition',
+    (tx) async =>
+        (await session.db.unsafeQuery(
+              'SELECT correlia_drop_old_partition(@parent,clock_timestamp())',
+              parameters: QueryParameters.named({'parent': parent}),
+              transaction: tx,
+              timeoutInSeconds: 4,
+            )).single[0] ==
+            true
+        ? 1
+        : 0,
+  );
+
+  /// Prepares one uncovered future day, or records a retry after DDL rollback.
+  Future<void> prepareOne() async {
+    final next = await session.db.transaction((tx) async {
+      await _limits(tx, ddl: true);
+      await session.db.unsafeExecute(
+        '''
+        DELETE FROM pipeline_partition_retry WHERE (parent_name,day) IN (
+          SELECT parent_name,day FROM pipeline_partition_retry
+          WHERE day < (clock_timestamp() AT TIME ZONE 'UTC')::date
+          ORDER BY day,parent_name LIMIT 16 FOR UPDATE SKIP LOCKED)
+      ''',
+        transaction: tx,
+        timeoutInSeconds: 4,
+      );
+      return (await session.db.unsafeQuery(
+        '''
+        WITH candidates AS MATERIALIZED (
+          SELECT parent,today+lead AS day FROM
+            unnest(ARRAY['raw_inbox','events','outbox']) parent,
+            generate_series(1,7) lead,
+            (SELECT (clock_timestamp() AT TIME ZONE 'UTC')::date AS today) clock
+          WHERE NOT correlia_partition_covered(parent,today+lead)
+          AND NOT EXISTS (SELECT 1 FROM pipeline_partition_retry r
+            WHERE r.parent_name=parent AND r.day=today+lead AND r.retry_at>clock_timestamp())
+          ORDER BY today+lead,parent LIMIT 1
+        )
+        SELECT parent,day::text,correlia_reserve_partition(parent,day,clock_timestamp())
+        FROM candidates
+      ''',
+        transaction: tx,
+        timeoutInSeconds: 4,
+      )).singleOrNull;
+    });
+    if (next == null || next[2] == null) return;
+    final parameters = <String, Object?>{
+      'parent': next[0],
+      'day': next[1],
+      'attempt': next[2],
+    };
+    try {
+      await session.db.transaction((tx) async {
+        await _limits(tx, ddl: true);
+        await session.db.unsafeQuery(
+          'SELECT correlia_attach_partition(@parent,@day::date,@attempt)',
+          parameters: QueryParameters.named(parameters),
+          transaction: tx,
+          timeoutInSeconds: 4,
+        );
+      });
+    } catch (error) {
+      await session.db.transaction((tx) async {
+        await _limits(tx, ddl: true);
+        await session.db.unsafeQuery(
+          'SELECT correlia_partition_failed(@parent,@day::date,@attempt,@problem,clock_timestamp())',
+          parameters: QueryParameters.named({
+            ...parameters,
+            'problem': _problem(error),
+          }),
+          transaction: tx,
+          timeoutInSeconds: 4,
+        );
+      });
+    }
+  }
+}

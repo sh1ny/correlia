@@ -69,7 +69,7 @@ final class TombstoneSweep {
         final candidates = await tx.execute(
           pg.Sql.named('''
           WITH horizon AS (
-            SELECT LEAST(cutoff,(SELECT min(observed_at) FROM raw_inbox WHERE status='pending'))
+            SELECT LEAST(cutoff,(SELECT min(observed_at) FROM raw_inbox WHERE status IN ('pending','failed')))
               - interval '7 days' AS boundary FROM raw_admission_cutoff WHERE singleton=1
           )
           SELECT a.id,a."fenceEffectiveSeconds",a."fenceEffectiveNanos"
@@ -108,7 +108,7 @@ final class TombstoneSweep {
             final removed = await tx.execute(
               pg.Sql.named('''
               WITH horizon AS (
-                SELECT LEAST(cutoff,(SELECT min(observed_at) FROM raw_inbox WHERE status='pending'))
+                SELECT LEAST(cutoff,(SELECT min(observed_at) FROM raw_inbox WHERE status IN ('pending','failed')))
                   - interval '7 days' AS boundary FROM raw_admission_cutoff WHERE singleton=1
               )
               DELETE FROM alerts a USING horizon h

@@ -215,10 +215,16 @@ Wait for startup before restarting writers. If the schema step fails, its table 
 version record roll back together. Clear the blocking transaction or fix the cause and restart the
 new binary. A successful forward cutover can be undone only by restoring the pre-upgrade backup.
 
-With writers stopped, an operator can repair a missing day by taking the maintenance lock,
-verifying the UTC range has no overlapping attached child and no rows in the default child, and
-attaching an empty partition for just that range. Never detach the default child or move
-protected rows to make validation pass.
+A partition validation failure leaves default routing intact. The worker records a bounded retry;
+a delayed error from an earlier attempt cannot overwrite a successful attachment. Preparation
+has no deadline when PostgreSQL must validate a large default child.
+
+For offline repair, stop all writers first. In one transaction use the maintenance advisory
+lock `1129271900` and the `correlia_reserve_partition` and `correlia_attach_partition` SQL
+functions with one parent and one UTC date. The second function checks both the recorded range
+and the default child, and registers the partition in the same transaction as attachment.
+If the reserve call returns `NULL`, check the catalog and respect any active retry deadline.
+Never detach the default child or move protected rows to make validation pass.
 
 ## Shared pressure and queue policy
 
@@ -270,6 +276,23 @@ the other active outputs. Each destination must have room. The notice does not a
 state, does not generate another notice and carries only a reference and hash of its stored
 ledger evidence, not sender data. The ledger still shows the episode when none of the
 other outputs can take the alert.
+
+## Retention and expiry
+
+Worker and all processes expire failures after 14 days by default. Expiry removes the active
+failure and records the number discarded in `activity` in the same transaction. The raw row
+or delivery is then eligible for ordinary retention, not replay. Delivered and discarded
+outputs use the terminal timestamp, not delivery creation time.
+
+The worker reclaims only terminal inbox rows and unprotected events after their age cutoffs.
+Live and dead delivery references keep their event evidence. Deliberately small batches and a
+durable cursor let it pass protected pages without scanning or locking the whole backlog.
+Attempt cleanup follows the exact retired intent key and can span several batches.
+
+Transport keys remain until the retry window and raw admission cutoff have both passed.
+Observation keys and silent Icinga 2 tombstones also respect the oldest pending or failed
+receipt. A maintenance failure rolls back the whole batch; its recorded outcome has no
+discarded or reclaimed count from that batch.
 
 ## Repair migrations
 

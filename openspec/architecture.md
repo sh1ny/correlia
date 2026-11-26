@@ -189,6 +189,9 @@ run in every role unless they are switched off:
     reservations, sampled storage, output counts and historical references (ADR 0034).
   - `pipeline_overflow_notice`: durable overflow routing claims and sanitized evidence for
     Correlia-origin canonical alerts. No notice can bypass a destination's queue budget.
+  - `pipeline_dead_letter`, `pipeline_retired_delivery`, `pipeline_retention_cursor`,
+    `pipeline_maintenance_outcome`, `pipeline_partition_range` and `pipeline_partition_retry`:
+    the active failure directory, bounded reclamation progress and daily partition state.
 
   `alerts` is a Serverpod-managed table with a unique tenant/fingerprint index.
 

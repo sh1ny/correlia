@@ -1099,13 +1099,18 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
   ) async {
     await _lockRawPin(tx, deadline, raw);
     await _limits(tx, deadline);
-    await session.db.unsafeExecute(
-      '''INSERT INTO pipeline_failures
-("rawObservedAt","rawId","configSnapshotId","errorClass","fieldPath","createdAt")
-VALUES (@observed,CAST(@raw AS uuid),@pin,@code,@path,@now)''',
+    await session.db.unsafeQuery(
+      '''WITH failure AS (
+  INSERT INTO pipeline_failures
+    ("rawObservedAt","rawId","configSnapshotId","errorClass","fieldPath","createdAt")
+  VALUES (@observed::timestamptz AT TIME ZONE 'UTC',@raw::uuid,@pin,@code,@path,
+    @now::timestamptz AT TIME ZONE 'UTC') RETURNING id
+) SELECT correlia_record_raw_failure(@observed,@raw::uuid,@source::uuid,@pin,@code,@path,@now)
+FROM failure''',
       parameters: QueryParameters.named({
         'observed': raw.observed,
         'raw': raw.id,
+        'source': raw.source,
         'pin': raw.pin,
         'code': code,
         'path': path,

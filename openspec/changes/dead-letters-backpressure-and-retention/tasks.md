@@ -100,8 +100,8 @@ Test paths are relative to `correlia_server/`. Green rows carry existing behavio
 
 ## 4. Expire and reclaim work without losing replay evidence
 
-- [ ] 4.1 Write failing expiry, retention, default-partition and shutdown tests. Force D13's delayed failure after rollback, safe restart and eventual successful attach with unrelated default rows present. Exercise api, worker and all through the runtime registry. Check that a failing active batch rolls back and records its outcome before session close, with no second claim. Cover candidate bounds and many attempts without elapsed-time assertions.
-- [ ] 4.2 Implement the role-owned maintenance loop, bounded batches, DDL retry fence, discard ledger, dedup key and tombstone protection, and staged attempt cleanup. Run `test/db/pipeline_retention_test.dart`, `test/db/pipeline_partition_maintenance_test.dart`, `test/db/icinga2_tombstone_test.dart` and `test/e2e/pipeline_maintenance_e2e_test.dart`. Record C4, C6, C12 and C17 at their spec destinations. Document status outcomes, protected records and offline daily-partition repair.
+- [x] 4.1 Write failing expiry, retention, default-partition and shutdown tests. Force D13's delayed failure after rollback, safe restart and eventual successful attach with unrelated default rows present. Exercise api, worker and all through the runtime registry. Check that a failing active batch rolls back and records its outcome before session close, with no second claim. Cover candidate bounds and many attempts without elapsed-time assertions.
+- [x] 4.2 Implement the role-owned maintenance loop, bounded batches, DDL retry fence, discard ledger, dedup key and tombstone protection, and staged attempt cleanup. Run `test/db/pipeline_retention_test.dart`, `test/db/pipeline_partition_maintenance_test.dart`, `test/db/icinga2_tombstone_test.dart` and `test/e2e/pipeline_maintenance_e2e_test.dart`. Record C4, C6, C12 and C17 at their spec destinations. Document status outcomes, protected records and offline daily-partition repair.
 
 ## 5. List and replay dead letters through the operator RPC
 
