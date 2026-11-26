@@ -95,6 +95,7 @@ Test paths are relative to `correlia_server/`. Green rows carry existing behavio
 | output-delivery → Output overflow notice does not recurse | Notice uses a blocking output's last slot | `test/db/output_pressure_test.dart` | `notice_at_exact_cap_blocks_ingress_without_recurse` | red |
 | output-delivery → Output overflow notice does not recurse | Notice selection races registry publication | `test/db/output_pressure_test.dart` | `notice_registry_race_keeps_live_lane_limit` | red |
 | output-delivery → Output overflow notice does not recurse | Live lane lookup ignores backlog size | `test/db/pipeline_inventory_test.dart` | `lane_inventory_cost_does_not_follow_queue_depth` | red |
+| output-delivery → Output overflow notice does not recurse | Live lane lookup ignores backlog size | `test/db/pipeline_inventory_test.dart` | `publication_and_replay_preserve_a_lane_across_pin_to_intent` | green |
 | output-delivery → Retention of terminal delivery evidence | Retention reclaims delivered intents and attempts | `test/db/pipeline_retention_test.dart` | `delivered_retention_reclaims_only_matching_attempts` | red |
 | output-delivery → Retention of terminal delivery evidence | Old creation time with recent completion | `test/db/pipeline_retention_test.dart` | `new_terminal_time_overrides_old_creation_age` | red |
 | output-delivery → Retention of terminal delivery evidence | A discarded intent has more attempts than one batch | `test/db/pipeline_retention_test.dart` | `retired_intent_attempts_reclaim_across_batches` | red |

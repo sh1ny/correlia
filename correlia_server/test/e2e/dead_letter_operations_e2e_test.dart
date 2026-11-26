@@ -229,22 +229,18 @@ void main() {
           final tokens = role == 'worker' || !enabled
               ? [operatorToken]
               : [null, outputToken, 'invalid-token'];
+          final filter = QueueFailureFilter(
+            kind: QueueFailureKind.raw,
+          ).toJson();
           for (final token in tokens) {
             for (final (method, arguments) in <(String, Map<String, Object?>)>[
               ('status', const {}),
+              ('list', {'filter': filter, 'limit': 10}),
               (
                 'replay',
                 {'kind': QueueFailureKind.raw.name, 'occurrence': occurrence},
               ),
-              (
-                'replayBatch',
-                {
-                  'filter': QueueFailureFilter(
-                    kind: QueueFailureKind.raw,
-                  ).toJson(),
-                  'limit': 10,
-                },
-              ),
+              ('replayBatch', {'filter': filter, 'limit': 10}),
             ]) {
               final result = await _operatorRequest(
                 child,
@@ -261,6 +257,9 @@ void main() {
               expect(child.output, isNot(contains(operatorToken)));
               expect(child.output, isNot(contains(outputToken)));
               expect(result.$2, isNot(contains(outputToken)));
+              expect(result.$2, isNot(contains('invalid_json')));
+              expect(result.$2, isNot(contains(outputSource)));
+              expect(result.$2, isNot(contains('\"occurrence\"')));
             }
           }
           expect(

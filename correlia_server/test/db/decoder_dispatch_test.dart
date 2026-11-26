@@ -287,10 +287,11 @@ VALUES (@time,CAST(@id AS uuid),CAST(@source AS uuid),@body,@digest,'application
           ),
         );
         await session.db.unsafeExecute(
-          '''INSERT INTO icinga2_raw_origin (raw_id,origin,admission_snapshot_id)
-            VALUES (CAST(@raw AS uuid),'stream',@snapshot)''',
+          '''INSERT INTO icinga2_raw_origin (raw_observed_at,raw_id,origin,admission_snapshot_id)
+            VALUES (@receipt,CAST(@raw AS uuid),'stream',@snapshot)''',
           parameters: QueryParameters.named({
             'raw': raw,
+            'receipt': _now,
             'snapshot': input.snapshotId,
           }),
         );

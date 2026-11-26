@@ -318,12 +318,14 @@ final class ConsumerAdmission {
       ..addByte(125);
     final body = encoded.takeBytes();
     await tx.execute(
-      pg.Sql.named('''WITH admitted AS (
+      pg.Sql.named(
+        '''WITH admitted AS (
           INSERT INTO raw_inbox(observed_at,raw_id,source_id,body,body_sha256,content_type)
           VALUES (@observed,gen_random_uuid(),CAST(@source AS uuid),@body,@digest,'application/json')
-          RETURNING raw_id
-        ) INSERT INTO icinga2_raw_origin(raw_id,origin,sync_id,admission_snapshot_id)
-          SELECT raw_id,@origin,CAST(@sync AS uuid),@snapshot FROM admitted'''),
+          RETURNING observed_at,raw_id
+        ) INSERT INTO icinga2_raw_origin(raw_observed_at,raw_id,origin,sync_id,admission_snapshot_id)
+          SELECT observed_at,raw_id,@origin,CAST(@sync AS uuid),@snapshot FROM admitted''',
+      ),
       parameters: {
         'observed': earliest.toUtc(),
         'source': source,

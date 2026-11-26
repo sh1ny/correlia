@@ -1,12 +1,20 @@
+import 'dart:async';
+
+import 'package:correlia_server/src/generated/protocol.dart';
 import 'package:correlia_server/src/ingest/bootstrap.dart';
 import 'package:correlia_server/src/ingest/config_repository.dart';
+import 'package:correlia_server/src/pipeline/pipeline.dart';
+import 'package:correlia_server/src/pipeline/queue_operations.dart';
 import 'package:serverpod/serverpod.dart';
 import 'package:test/test.dart';
 
 import '../integration/test_tools/serverpod_test_tools.dart';
 import '../support/icinga2_pipeline.dart' show clearPipelineTables;
+import '../support/postgres_lock_witness.dart' show ContentionGate;
 import '../support/secret_fixture.dart';
+import '../unit/ingest/alertmanager_decoder_test.dart' as payload;
 import 'ingest_config_test.dart' show outputId, pluginInput, sourceId, token;
+import 'pipeline_test.dart' as raw;
 
 Map<String, Object?> _config(int revision, [Map<String, Object?>? policy]) => {
   'format_version': 2,
@@ -323,6 +331,111 @@ void main() {
             "UPDATE outbox SET status='dead' WHERE signing_key_ref='historical-lost-key'",
           );
           await repository.validateLiveSecrets();
+        },
+      );
+
+      test(
+        'publication_and_replay_preserve_a_lane_across_pin_to_intent',
+        () async {
+          final original = await repository.publishConfig(
+            _config(1),
+            _secrets(),
+            runMode: 'test',
+          );
+          await raw.seed(session, [
+            payload.alert(startsAt: raw.now.toIso8601String()),
+          ]);
+          final worker = PipelineRepository(
+            session,
+            clock: () => raw.now,
+            elapsedForTest: () => Duration.zero,
+          );
+          expect(await worker.pinOne(), isTrue);
+          const newLane = 'a0000000-0000-4000-8000-000000000999';
+          final registry = [
+            for (var n = 0; n < 63; n++)
+              'a0000000-0000-4000-8000-${n.toString().padLeft(12, '0')}',
+          ];
+          Map<String, Object?> replacement(int revision, List<String> ids) =>
+              _config(revision)
+                ..['sources'] = <Object?>[]
+                ..['outputs'] = [
+                  for (final id in ids)
+                    {
+                      'id': id,
+                      'kind': 'webhook',
+                      'url': 'https://example.com/events',
+                      'signing_key_ref': 'key-v1',
+                    },
+                ];
+          final active = await repository.publishConfig(
+            replacement(2, registry),
+            _secrets(),
+            runMode: 'test',
+          );
+          final pinnedOutput = original.outputs.single as WebhookIngestOutput;
+          await session.db.unsafeExecute(
+            '''
+          INSERT INTO outbox (created_at,delivery_id,event_observed_at,event_id,event_disposition,
+            output_id,config_snapshot_id,target_url,signing_key_ref,signing_key_commitment,payload,status,dead_reason)
+          VALUES (now(),gen_random_uuid(),now(),gen_random_uuid(),'ready','$newLane',@pin,
+            'https://example.com/events','key-v1',@commitment,decode('ff','hex'),'dead','network')
+        ''',
+            parameters: QueryParameters.named({
+              'pin': original.snapshotId,
+              'commitment': pinnedOutput.signingKeyCommitment,
+            }),
+          );
+          final ops = QueueOperations(session, secretStore: testSecretStore);
+          final filter = QueueFailureFilter(kind: QueueFailureKind.delivery);
+          final dead = (await ops.list(filter)).failures.single;
+          Future<void> refusePublication() => expectLater(
+            repository.publishConfig(
+              replacement(3, [...registry, newLane]),
+              _secrets(),
+              runMode: 'test',
+            ),
+            throwsA(_error('retained_output_bound')),
+          );
+          Future<QueueReplayResult> replay(QueueOperations repository) =>
+              repository.replayOne(
+                QueueFailureKind.delivery,
+                dead.occurrence,
+                'operator',
+              );
+          await refusePublication();
+          expect((await replay(ops)).items.single.outcome, 'live_output_bound');
+          final gate = ContentionGate();
+          final workLocked = Completer<void>();
+          final concurrent = QueueOperations(
+            builder.build(),
+            secretStore: testSecretStore,
+            elapsedForTest: () => Duration.zero,
+            beforeConfigLockForTest: () async {
+              workLocked.complete();
+              await gate.future;
+            },
+          );
+          final trying = gate.run(() => replay(concurrent));
+          try {
+            await Future.any([
+              workLocked.future,
+              trying.then<void>((_) => fail('Replay did not lock its intent')),
+            ]);
+            expect(await worker.processOne(), isTrue);
+          } finally {
+            await gate.join();
+          }
+          expect((await trying).items.single.outcome, 'live_output_bound');
+          await refusePublication();
+          expect(
+            (await repository.activeSnapshot())!['snapshotId'],
+            active.snapshotId,
+          );
+          expect(
+            (await ops.list(filter)).failures.single.occurrence,
+            dead.occurrence,
+          );
         },
       );
 

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:correlia_server/src/ingest/config_repository.dart';
 import 'package:correlia_server/src/pipeline/maintenance.dart';
 import 'package:correlia_server/src/pipeline/queue_operations.dart';
 import 'package:serverpod/serverpod.dart';
@@ -8,6 +9,8 @@ import 'package:test/test.dart';
 import '../integration/test_tools/serverpod_test_tools.dart';
 import '../support/ingest_schema.dart';
 import '../support/postgres_lock_witness.dart' show ContentionGate;
+import '../support/secret_fixture.dart';
+import 'ingest_config_test.dart' as config;
 
 const _futureDay = '2030-02-01';
 const _otherDay = '2030-02-02';
@@ -254,9 +257,36 @@ void main() {
           isTrue,
         );
         expect(await _write(session, day), 'raw_inbox_20200401');
+        final snapshot = config.input(1);
+        await IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        ).publish(snapshot);
+        expect(await _write(session, '2020-09-30'), 'raw_inbox_default');
+        await session.db.unsafeExecute('''
+          INSERT INTO icinga2_raw_origin(raw_observed_at,raw_id,origin,admission_snapshot_id)
+          SELECT observed_at,raw_id,'stream',@pin FROM raw_inbox
+          WHERE observed_at IN ('2020-04-01 UTC','2020-09-30 UTC')
+        ''', parameters: QueryParameters.named({'pin': snapshot.snapshotId}));
         await MaintenanceRepository(
           session,
         ).dropOld('raw_inbox', nowForTest: DateTime.utc(2020, 10, 1));
+        expect(
+          (await session.db.unsafeQuery(
+            "SELECT to_regclass('raw_inbox_20200401')::text",
+          )).single[0],
+          'raw_inbox_20200401',
+        );
+        expect(
+          (await session.db.unsafeQuery(
+            "SELECT correlia_maintain('raw','2020-10-01 UTC',5)",
+          )).single[0],
+          1,
+        );
+        expect(await _write(session, day), 'raw_inbox_20200401');
+        await MaintenanceRepository(
+          session,
+        ).dropOld('raw_inbox', nowForTest: DateTime.utc(2020, 10, 1, 0, 1));
         expect(
           (await session.db.unsafeQuery(
             "SELECT to_regclass('raw_inbox_20200401')::text",
@@ -268,6 +298,12 @@ void main() {
             "SELECT to_regclass('raw_inbox_default')::text",
           )).single[0],
           'raw_inbox_default',
+        );
+        expect(
+          (await session.db.unsafeQuery(
+            'SELECT count(*) FROM icinga2_raw_origin',
+          )).single[0],
+          1,
         );
       });
 

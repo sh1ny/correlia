@@ -25,6 +25,15 @@ ALTER TABLE legacy_raw_inbox
   ADD COLUMN processing_epoch bigint NOT NULL DEFAULT 0,
   ADD COLUMN legacy_failure boolean NOT NULL DEFAULT false;
 UPDATE legacy_raw_inbox SET legacy_failure=true WHERE status='failed';
+
+-- Index the receipt on the small provenance table, not the raw body heap.
+-- An unmatched pre-cutover origin does not belong to any partition.
+ALTER TABLE icinga2_raw_origin ADD COLUMN raw_observed_at timestamptz;
+UPDATE icinga2_raw_origin o SET raw_observed_at=r.observed_at
+FROM legacy_raw_inbox r WHERE r.raw_id=o.raw_id;
+ALTER TABLE icinga2_raw_origin ADD CONSTRAINT icinga2_origin_has_receipt
+  CHECK (raw_observed_at IS NOT NULL) NOT VALID;
+CREATE INDEX icinga2_origin_receipt_idx ON icinga2_raw_origin (raw_observed_at);
 ALTER TABLE legacy_events
   ALTER COLUMN raw_observed_at DROP NOT NULL,
   ALTER COLUMN raw_id DROP NOT NULL,
@@ -994,9 +1003,14 @@ BEGIN
     SELECT EXISTS (SELECT 1 FROM pipeline_event_reference
       WHERE observed_at>=part.first_day::timestamp AT TIME ZONE 'UTC'
         AND observed_at<part.end_day::timestamp AT TIME ZONE 'UTC') INTO blocked;
-  ELSIF p_parent='raw_inbox' AND NOT EXISTS (SELECT 1 FROM icinga2_raw_origin) THEN
-    EXECUTE format('SELECT EXISTS (SELECT 1 FROM %I WHERE status NOT IN (''done'',''discarded''))',
-      part.child_name) INTO blocked;
+  ELSIF p_parent='raw_inbox' THEN
+    SELECT EXISTS (SELECT 1 FROM icinga2_raw_origin
+      WHERE raw_observed_at>=part.first_day::timestamp AT TIME ZONE 'UTC'
+        AND raw_observed_at<part.end_day::timestamp AT TIME ZONE 'UTC') INTO blocked;
+    IF NOT blocked THEN
+      EXECUTE format('SELECT EXISTS (SELECT 1 FROM %I WHERE status NOT IN (''done'',''discarded''))',
+        part.child_name) INTO blocked;
+    END IF;
   ELSE
     EXECUTE format('SELECT EXISTS (SELECT 1 FROM %I)',part.child_name) INTO blocked;
   END IF;
@@ -1199,9 +1213,9 @@ BEGIN
       ORDER BY r.observed_at,r.raw_id FOR UPDATE OF r SKIP LOCKED
     ), removed AS (
       DELETE FROM raw_inbox r USING held h WHERE (r.observed_at,r.raw_id)=(h.observed_at,h.raw_id)
-      RETURNING r.raw_id
+      RETURNING r.observed_at,r.raw_id
     ), origins AS (
-      DELETE FROM icinga2_raw_origin o USING removed r WHERE o.raw_id=r.raw_id
+      DELETE FROM icinga2_raw_origin o USING removed r WHERE (o.raw_observed_at,o.raw_id)=(r.observed_at,r.raw_id)
     ), advanced AS (
       INSERT INTO pipeline_retention_cursor (lane,last_time,last_id,last_disposition)
       SELECT p_lane,coalesce(tail.observed_at,'-infinity'),
