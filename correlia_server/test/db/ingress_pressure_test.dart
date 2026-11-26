@@ -187,6 +187,59 @@ void main() {
         );
       });
 
+      test('refused_admission_persists_one_disk_measurement', () async {
+        await publish(2, 4);
+        expect(
+          await webhook(first, 'known', 'original'),
+          AdmissionOutcome.accepted,
+        );
+        final priorBatch = batch();
+        expect(await admit(priorBatch), StreamAdmissionResult.committed);
+        await session.db.unsafeSimpleExecute(r'''
+          UPDATE pipeline_queue_policy SET disk_budget_bytes=1;
+          CREATE SEQUENCE test_sample_writes;
+          CREATE FUNCTION test_count_sample_write() RETURNS trigger LANGUAGE plpgsql AS $$
+          BEGIN
+            PERFORM nextval('test_sample_writes');
+            RETURN NEW;
+          END;
+          $$;
+          CREATE TRIGGER test_count_sample_write BEFORE UPDATE OF database_bytes ON pipeline_disk_sample
+            FOR EACH ROW EXECUTE FUNCTION test_count_sample_write()
+        ''');
+        addTearDown(
+          () => session.db.unsafeSimpleExecute('''
+          DROP TRIGGER test_count_sample_write ON pipeline_disk_sample;
+          DROP FUNCTION test_count_sample_write();
+          DROP SEQUENCE test_sample_writes
+        '''),
+        );
+        Future<void> stale() => session.db.unsafeExecute(
+          "UPDATE pipeline_disk_sample SET sampled_at='-infinity'",
+        );
+        Future<List<Object?>> count() async => (await session.db.unsafeQuery(
+          'SELECT last_value,is_called FROM test_sample_writes',
+        )).single.toList();
+        await stale();
+        expect(
+          await webhook(second, 'known', 'original'),
+          AdmissionOutcome.duplicate,
+        );
+        expect(await admit(priorBatch), StreamAdmissionResult.committed);
+        expect(await count(), [1, false]);
+        expect(
+          await webhook(second, 'new-webhook', 'new'),
+          AdmissionOutcome.storagePressure,
+        );
+        expect(await count(), [1, true]);
+        await stale();
+        expect(await admit(batch()), StreamAdmissionResult.atCapacity);
+        expect(await count(), [2, true]);
+        expect(await _count(session, 'transport_keys'), 1);
+        expect(await _count(session, 'icinga2_admitted_batch'), 1);
+        expect(await _count(session, 'raw_inbox'), 2);
+      });
+
       test('conflicting_live_key_beats_pressure', () async {
         expect(
           await webhook(first, 'one-intent', 'exact'),

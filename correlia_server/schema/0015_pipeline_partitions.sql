@@ -760,7 +760,8 @@ CREATE TABLE pipeline_retention_cursor (
   last_time timestamptz NOT NULL,
   last_id uuid NOT NULL,
   last_disposition text NOT NULL,
-  last_serial bigint NOT NULL DEFAULT 0
+  last_serial bigint NOT NULL DEFAULT 0,
+  last_created_at timestamptz NOT NULL DEFAULT '-infinity'
 );
 CREATE TABLE pipeline_maintenance_outcome (
   singleton integer PRIMARY KEY CHECK (singleton=1),
@@ -903,15 +904,27 @@ $$;
 CREATE FUNCTION correlia_expire_dead_letters(p_now timestamptz,p_cutoff timestamptz,p_cap integer)
 RETURNS integer LANGUAGE plpgsql AS $$
 DECLARE
+  cursor_row pipeline_retention_cursor;
   occurrences bigint[];
   locked_occurrences bigint[];
   expired integer := 0;
   deliveries integer;
 BEGIN
-  SELECT array_agg(occurrence_id) INTO occurrences FROM (
-    SELECT occurrence_id FROM pipeline_dead_letter WHERE failed_at<=p_cutoff
+  SELECT * INTO cursor_row FROM pipeline_retention_cursor WHERE lane='expiry';
+  WITH page AS MATERIALIZED (
+    SELECT failed_at,occurrence_id FROM pipeline_dead_letter WHERE failed_at<=p_cutoff
+      AND (failed_at,occurrence_id)>(
+        coalesce(cursor_row.last_time,'-infinity'),coalesce(cursor_row.last_serial,0))
     ORDER BY failed_at,occurrence_id LIMIT p_cap
-  ) page;
+  ), advanced AS (
+    INSERT INTO pipeline_retention_cursor (lane,last_time,last_id,last_disposition,last_serial)
+    SELECT 'expiry',coalesce(tail.failed_at,'-infinity'),'00000000-0000-0000-0000-000000000000','',
+      coalesce(tail.occurrence_id,0)
+    FROM (VALUES (1)) seed LEFT JOIN (SELECT * FROM page OFFSET p_cap-1) tail ON true
+    ON CONFLICT (lane) DO UPDATE SET
+      (last_time,last_serial)=(excluded.last_time,excluded.last_serial)
+  )
+  SELECT array_agg(occurrence_id) INTO occurrences FROM page;
   IF occurrences IS NULL THEN RETURN 0; END IF;
 
   SELECT array_agg(h.occurrence_id) INTO locked_occurrences FROM (
@@ -1041,13 +1054,21 @@ CREATE FUNCTION correlia_maintain(p_lane text,p_now timestamptz,p_cap integer DE
 RETURNS integer LANGUAGE plpgsql AS $$
 DECLARE
   policy pipeline_queue_policy;
+  cursor_row pipeline_retention_cursor;
   affected integer;
   pruned integer;
   retired pipeline_retired_delivery;
 BEGIN
   IF p_cap<1 OR p_cap>500 THEN RAISE EXCEPTION 'invalid maintenance batch cap'; END IF;
   IF NOT pg_try_advisory_xact_lock(1129271901) THEN RETURN 0; END IF;
-  SELECT * INTO policy FROM pipeline_queue_policy WHERE singleton=1;
+  -- Publication takes this row before output lanes. Don't wait on it
+  -- during maintenance, and keep the chosen policy through commit.
+  IF p_lane IN ('expiry','raw','events','outbox') THEN
+    SELECT * INTO policy FROM pipeline_queue_policy WHERE singleton=1 FOR SHARE NOWAIT;
+  END IF;
+  IF p_lane IN ('raw','outbox','transport') THEN
+    SELECT * INTO cursor_row FROM pipeline_retention_cursor WHERE lane=p_lane;
+  END IF;
   IF p_lane='expiry' THEN
     RETURN correlia_expire_dead_letters(p_now,p_now-make_interval(days=>policy.dead_letter_retention_days),p_cap);
   ELSIF p_lane='raw' THEN
@@ -1055,6 +1076,8 @@ BEGIN
       SELECT observed_at,raw_id FROM raw_inbox
       WHERE observed_at<p_now-make_interval(days=>policy.raw_retention_days)
         AND status IN ('done','discarded')
+        AND (observed_at,raw_id)>(coalesce(cursor_row.last_time,'-infinity'),
+          coalesce(cursor_row.last_id,'00000000-0000-0000-0000-000000000000'))
       ORDER BY observed_at,raw_id LIMIT p_cap
     ), held AS MATERIALIZED (
       SELECT r.observed_at,r.raw_id FROM raw_inbox r JOIN page p USING (observed_at,raw_id)
@@ -1065,15 +1088,24 @@ BEGIN
       RETURNING r.raw_id
     ), origins AS (
       DELETE FROM icinga2_raw_origin o USING removed r WHERE o.raw_id=r.raw_id
+    ), advanced AS (
+      INSERT INTO pipeline_retention_cursor (lane,last_time,last_id,last_disposition)
+      SELECT p_lane,coalesce(tail.observed_at,'-infinity'),
+        coalesce(tail.raw_id,'00000000-0000-0000-0000-000000000000'),''
+      FROM (VALUES (1)) seed LEFT JOIN (SELECT * FROM page OFFSET p_cap-1) tail ON true
+      ON CONFLICT (lane) DO UPDATE SET (last_time,last_id)=(excluded.last_time,excluded.last_id)
     )
     SELECT count(*) INTO affected FROM removed;
   ELSIF p_lane='events' THEN
     RETURN correlia_reclaim_events(p_now-make_interval(days=>policy.event_retention_days),p_cap);
   ELSIF p_lane='outbox' THEN
     WITH page AS MATERIALIZED (
-      SELECT created_at,delivery_id FROM outbox
+      SELECT terminal_at,created_at,delivery_id FROM outbox
       WHERE status IN ('delivered','discarded')
         AND terminal_at<p_now-make_interval(days=>policy.outbox_retention_days)
+        AND (terminal_at,created_at,delivery_id)>(coalesce(cursor_row.last_time,'-infinity'),
+          coalesce(cursor_row.last_created_at,'-infinity'),
+          coalesce(cursor_row.last_id,'00000000-0000-0000-0000-000000000000'))
       ORDER BY terminal_at,created_at,delivery_id LIMIT p_cap
     ), held AS MATERIALIZED (
       SELECT o.created_at,o.delivery_id FROM outbox o JOIN page p USING (created_at,delivery_id)
@@ -1085,6 +1117,13 @@ BEGIN
       RETURNING o.created_at,o.delivery_id
     ), tracked AS (
       INSERT INTO pipeline_retired_delivery SELECT * FROM removed RETURNING 1
+    ), advanced AS (
+      INSERT INTO pipeline_retention_cursor (lane,last_time,last_created_at,last_id,last_disposition)
+      SELECT p_lane,coalesce(tail.terminal_at,'-infinity'),coalesce(tail.created_at,'-infinity'),
+        coalesce(tail.delivery_id,'00000000-0000-0000-0000-000000000000'),''
+      FROM (VALUES (1)) seed LEFT JOIN (SELECT * FROM page OFFSET p_cap-1) tail ON true
+      ON CONFLICT (lane) DO UPDATE SET
+        (last_time,last_created_at,last_id)=(excluded.last_time,excluded.last_created_at,excluded.last_id)
     )
     SELECT count(*) INTO affected FROM tracked;
   ELSIF p_lane='attempts' THEN
@@ -1109,17 +1148,27 @@ BEGIN
     END LOOP;
   ELSIF p_lane='transport' THEN
     WITH page AS MATERIALIZED (
-      SELECT id FROM transport_keys WHERE "expiresAt"<=
+      SELECT "expiresAt",id FROM transport_keys WHERE "expiresAt"<=
         (SELECT least(cutoff,p_now) AT TIME ZONE 'UTC' FROM raw_admission_cutoff WHERE singleton=1)
+        AND ("expiresAt",id)>(coalesce(cursor_row.last_time AT TIME ZONE 'UTC','-infinity'),
+          coalesce(cursor_row.last_serial,0))
       ORDER BY "expiresAt",id LIMIT p_cap
     ), held AS MATERIALIZED (
       SELECT t.id FROM transport_keys t JOIN page p USING (id)
       WHERE t."expiresAt"<=(SELECT least(cutoff,p_now) AT TIME ZONE 'UTC'
         FROM raw_admission_cutoff WHERE singleton=1)
       ORDER BY t.id FOR UPDATE OF t SKIP LOCKED
+    ), removed AS (
+      DELETE FROM transport_keys t USING held h WHERE t.id=h.id RETURNING 1
+    ), advanced AS (
+      INSERT INTO pipeline_retention_cursor (lane,last_time,last_id,last_disposition,last_serial)
+      SELECT p_lane,coalesce(tail."expiresAt" AT TIME ZONE 'UTC','-infinity'),
+        '00000000-0000-0000-0000-000000000000','',coalesce(tail.id,0)
+      FROM (VALUES (1)) seed LEFT JOIN (SELECT * FROM page OFFSET p_cap-1) tail ON true
+      ON CONFLICT (lane) DO UPDATE SET
+        (last_time,last_serial)=(excluded.last_time,excluded.last_serial)
     )
-    DELETE FROM transport_keys t USING held h WHERE t.id=h.id;
-    GET DIAGNOSTICS affected=ROW_COUNT;
+    SELECT count(*) INTO affected FROM removed;
   ELSIF p_lane='observation' THEN
     RETURN correlia_reclaim_observation_keys(p_now,p_cap);
   ELSE

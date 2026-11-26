@@ -118,7 +118,6 @@ final class IngestAdmission {
         'expires': observedAt.add(window),
         'raw': rawId,
       });
-      final reservation = await tx.createSavepoint();
       Stopwatch? retryDeadline;
       bool inserted;
       while (true) {
@@ -160,12 +159,13 @@ WHERE "sourceId"=CAST(@source AS uuid) AND "key"=@key FOR UPDATE''',
         timeoutInSeconds: 5,
       )).single[0];
       if (pressure != null) {
-        await reservation.rollback();
-        // Keep the refresh outside the rolled-back reservation so other
-        // replicas can reuse the sample even while admission is closed.
-        if (pressure == 'storage') {
-          await session.db.unsafeQuery(
-            'SELECT correlia_disk_pressure()',
+        // Only the receipt inserted by this transaction can be removed.
+        // Leave any expired winner and the shared disk sample intact.
+        if (inserted) {
+          await session.db.unsafeExecute(
+            '''DELETE FROM transport_keys
+WHERE "sourceId"=CAST(@source AS uuid) AND "key"=@key''',
+            parameters: QueryParameters.named({'source': sourceId, 'key': key}),
             transaction: tx,
             timeoutInSeconds: 5,
           );
@@ -177,7 +177,6 @@ WHERE "sourceId"=CAST(@source AS uuid) AND "key"=@key FOR UPDATE''',
           _ => throw StateError('Unknown pressure code'),
         };
       }
-      await reservation.release();
       if (!inserted) {
         await session.db.unsafeExecute(
           '''UPDATE transport_keys SET "bodySha256"=@digest,

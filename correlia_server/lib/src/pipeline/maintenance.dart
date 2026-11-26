@@ -185,7 +185,7 @@ final class MaintenanceRepository {
         : 0,
   );
 
-  /// Prepares one uncovered future day, or records a retry after DDL rollback.
+  /// Prepares one uncovered UTC day, or records a retry after DDL rollback.
   Future<void> prepareOne({DateTime? nowForTest}) async {
     final clock = QueryParameters.named({'now': nowForTest});
     final next = await session.db.transaction((tx) async {
@@ -208,7 +208,7 @@ final class MaintenanceRepository {
         ), candidates AS MATERIALIZED (
           SELECT parent,today+lead AS day FROM
             unnest(ARRAY['raw_inbox','events','outbox']) parent
-            CROSS JOIN generate_series(1,7) lead
+            CROSS JOIN generate_series(0,7) lead
             CROSS JOIN (SELECT (at AT TIME ZONE 'UTC')::date AS today FROM instant) clock
             LEFT JOIN pipeline_partition_retry r ON r.parent_name=parent AND r.day=today+lead
           WHERE NOT correlia_partition_covered(parent,today+lead)

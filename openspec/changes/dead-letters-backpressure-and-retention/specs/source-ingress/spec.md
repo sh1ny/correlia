@@ -22,6 +22,10 @@ New webhook and pull writes SHALL honor shared versioned bounds for pending inbo
 - **WHEN** a configured database crosses the disk watermark and later falls below it
 - **THEN** new webhooks receive 503 with `Retry-After` and API readiness reports 503 while pressure holds, liveness stays healthy, and admission and readiness recover after the sampled condition clears
 
+#### Scenario: Refused work keeps a refreshed disk sample
+- **WHEN** new webhook or pull work finds a stale sample and measures a database over its configured watermark
+- **THEN** the new measurement is available to other replicas and the refusal commits neither raw work nor a receipt
+
 ### Requirement: Pressure preserves known transport outcomes
 
 Admission SHALL check a live transport or pull-batch receipt before rejecting new work for shared pressure. Exact committed retries SHALL keep their committed response and SHALL NOT consume capacity. A conflicting live webhook key SHALL return 409. Existing authorization, rate limits and pull fencing still apply.

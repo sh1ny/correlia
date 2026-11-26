@@ -75,7 +75,7 @@ void main() {
         () async {
           final session = builder.build();
           await initializeIngestSchema(session);
-          final now = DateTime.utc(2030, 1, 31);
+          final now = DateTime.utc(2030, 2, 1);
           expect(await _writeEvent(session, _otherDay), 'events_default');
           final gate = ContentionGate();
           final entered = Completer<void>();
@@ -104,7 +104,7 @@ void main() {
           await holding;
           expect(await _writeEvent(session, _outside), 'events_default');
           final restarted = MaintenanceRepository(builder.build());
-          for (var i = 0; i < 21; i++) {
+          for (var i = 0; i < 24; i++) {
             await restarted.prepareOne(
               nowForTest: now.add(const Duration(minutes: 1)),
             );
@@ -120,10 +120,25 @@ void main() {
         },
       );
 
+      test('failed_partition_attempt_retries_after_its_day_begins', () async {
+        final session = builder.build();
+        await initializeIngestSchema(session);
+        const day = '2030-04-05';
+        final now = DateTime.utc(2030, 4, 5);
+        final beforeMidnight = now.subtract(const Duration(minutes: 1));
+        final attempt = (await _reserve(session, day, beforeMidnight))!;
+        expect(await _fail(session, day, attempt, beforeMidnight), isTrue);
+        final repo = MaintenanceRepository(session);
+        for (var i = 0; i < 24; i++) {
+          await repo.prepareOne(nowForTest: now);
+        }
+        expect(await _write(session, day), 'raw_inbox_20300405');
+      });
+
       test('untried_ranges_precede_persistently_eligible_retries', () async {
         final session = builder.build();
         await initializeIngestSchema(session);
-        final now = DateTime.utc(2030, 3, 14);
+        final now = DateTime.utc(2030, 3, 15);
         await session.db.unsafeExecute('''
           INSERT INTO pipeline_partition_retry (parent_name,day,attempt_id,retry_at,problem)
           SELECT parent,'2030-03-15',nextval('pipeline_partition_attempt_id'),'-infinity','lock_timeout'

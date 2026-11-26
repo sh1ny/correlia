@@ -87,6 +87,10 @@ Correlia SHALL partition raw inbox and events by UTC receipt date, and outbox by
 - **WHEN** a future day is empty in populated default but its bounded attachment attempt fails, and another candidate day already contains default rows
 - **THEN** daily preparation reports the failure and records a retry, valid writes still reach default, the occupied day is skipped without moving its rows, and a later successful attempt attaches the empty range without changing accepted work
 
+#### Scenario: Attachment retry crosses midnight
+- **WHEN** preparation fails for an empty UTC day and retries only after that day begins
+- **THEN** the day stays eligible for a bounded attachment while it is still empty
+
 #### Scenario: A delayed attachment failure cannot replace success
 - **WHEN** one worker rolls back a failed attachment and pauses before recording the retry, and another worker attaches the same day before the first resumes
 - **THEN** the day stays covered and the delayed failure adds no degradation, retry or stale last-batch outcome
@@ -115,6 +119,10 @@ Retention SHALL keep pending and processing raw rows, raw rows with active pipel
 - **WHEN** more than one batch of old protected events sorts before an old eligible event
 - **THEN** successive bounded maintenance batches advance past the protected rows and remove the eligible event while every protected event remains
 
+#### Scenario: Locked rows do not stall maintenance
+- **WHEN** row locks protect an entire candidate page during dead-letter expiry or terminal raw, delivery or transport-key cleanup
+- **THEN** the next bounded batch can process later candidates, and a later pass revisits skipped rows
+
 ### Requirement: Atomic dead-letter expiry
 
 A pipeline failure or delivery dead letter SHALL have its own retention window, default 14 days from failure. Expiry SHALL remove the active failure, move the raw row or delivery to `discarded` and record the discarded count in the activity ledger in one transaction. Only then can age-based retention reclaim the discarded row.
@@ -126,6 +134,10 @@ A pipeline failure or delivery dead letter SHALL have its own retention window, 
 #### Scenario: Expiry rollback
 - **WHEN** expiry fails after selecting and updating rows but before committing the ledger entry
 - **THEN** the raw and delivery rows remain failed and dead, their active failures remain intact, and no discard is reported
+
+#### Scenario: Retention policy changes during expiry
+- **WHEN** a publication extends the failure window and races a dead-letter expiry batch
+- **THEN** the batch applies one committed policy through the discard and ledger commit; it cannot discard work under a superseded window
 
 ### Requirement: Retention preserves retry and ordering evidence
 

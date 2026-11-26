@@ -195,7 +195,6 @@ final class ConsumerAdmission {
           throw ArgumentError('Invalid stream batch shape');
         }
         await afterFence?.call();
-        await tx.execute('SAVEPOINT pipeline_batch_reservation');
         final claimed = await tx.execute(
           pg.Sql.named(
             '''INSERT INTO icinga2_admitted_batch ("sourceId","batchId","admittedAt")
@@ -222,13 +221,15 @@ final class ConsumerAdmission {
           parameters: {'count': batch.rows.length},
         )).single[0];
         if (pressure != null) {
-          await tx.execute('ROLLBACK TO SAVEPOINT pipeline_batch_reservation');
-          if (pressure == 'storage') {
-            await tx.execute('SELECT correlia_disk_pressure()');
-          }
+          await tx.execute(
+            pg.Sql.named(
+              '''DELETE FROM icinga2_admitted_batch
+              WHERE "sourceId"=CAST(@source AS uuid) AND "batchId"=CAST(@batch AS uuid)''',
+            ),
+            parameters: batchKey,
+          );
           return StreamAdmissionResult.atCapacity;
         }
-        await tx.execute('RELEASE SAVEPOINT pipeline_batch_reservation');
 
         await beforeWriteForTest?.call(tx, batch);
         for (final row in batch.rows) {

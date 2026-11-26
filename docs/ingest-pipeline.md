@@ -257,7 +257,8 @@ its prior acknowledgement, and a changed live idempotency key still returns `409
 pause on the same shared limits and retain their batch for retry. Queue limits complement the
 per-process request-rate limiter; they do not replace it.
 
-Disk pressure uses `pg_database_size(current_database())` with a shared one-second sample. It also
+Disk pressure uses `pg_database_size(current_database())` with a shared one-second sample.
+A request refused for disk pressure keeps the fresh measurement but no receipt. Disk pressure also
 causes `/readyz` to return `503` on `api` and `all`; `/livez` and `/startupz` do not depend on the
 watermark. This is a database budget, not a free-space check for the host or its WAL volume.
 

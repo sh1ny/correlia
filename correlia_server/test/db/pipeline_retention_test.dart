@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:correlia_server/src/pipeline/maintenance.dart';
 import 'package:correlia_server/src/pipeline/queue_operations.dart';
 import 'package:serverpod/serverpod.dart';
@@ -5,6 +7,7 @@ import 'package:test/test.dart';
 
 import '../integration/test_tools/serverpod_test_tools.dart';
 import '../support/ingest_schema.dart';
+import '../support/postgres_lock_witness.dart' show ContentionGate;
 
 final _now = DateTime.utc(2026, 10, 1);
 const _source = 'e1000000-0000-4000-8000-000000000001';
@@ -18,6 +21,7 @@ Future<int> _maintain(
   String lane, {
   int cap = 3,
   DateTime? now,
+  Transaction? tx,
 }) async =>
     (await session.db.unsafeQuery(
           'SELECT correlia_maintain(@lane,@now,@cap)',
@@ -26,6 +30,7 @@ Future<int> _maintain(
             'now': now ?? _now,
             'cap': cap,
           }),
+          transaction: tx,
         )).single[0]!
         as int;
 
@@ -146,6 +151,142 @@ void main() {
         expect(ledger[0], 2);
         expect(await _maintain(session, 'raw'), 1);
       });
+
+      test('publication_extension_fences_expiry', () async {
+        await _raw(session, 1, 'pending');
+        await _failure(session, 1);
+        await _intent(session, 2, 'dead');
+        final publisher = builder.build();
+        addTearDown(
+          () => session.db.unsafeExecute(
+            'UPDATE pipeline_queue_policy SET dead_letter_retention_days=14',
+          ),
+        );
+        final holding = ContentionGate();
+        final changed = Completer<void>();
+        final publication = holding.run(
+          () => publisher.db.transaction((tx) async {
+            await publisher.db.unsafeExecute(
+              '''SELECT correlia_publish_queue_policy(
+              '{"pipeline_operations":{"dead_letter_retention_days":365},"outputs":[]}'::jsonb)''',
+              transaction: tx,
+            );
+            changed.complete();
+            await holding.future;
+          }),
+        );
+        await changed.future;
+        await expectLater(
+          _maintain(session, 'expiry'),
+          throwsA(
+            isA<DatabaseQueryException>().having(
+              (error) => error.code,
+              'SQLSTATE',
+              '55P03',
+            ),
+          ),
+        );
+        await holding.join();
+        await publication;
+        expect(await _maintain(session, 'expiry'), 0);
+        expect(
+          await _column(
+            session,
+            'SELECT status FROM raw_inbox UNION ALL SELECT status FROM outbox',
+          ),
+          ['failed', 'dead'],
+        );
+        expect(await _count(session, 'pipeline_dead_letter'), 2);
+        expect(await _count(session, 'activity'), 0);
+        await session.db.transaction((tx) async {
+          expect(
+            await _maintain(
+              session,
+              'expiry',
+              now: _now.add(const Duration(days: 365)),
+              tx: tx,
+            ),
+            2,
+          );
+          await expectLater(
+            publisher.db.unsafeQuery(
+              'SELECT 1 FROM pipeline_queue_policy WHERE singleton=1 FOR NO KEY UPDATE NOWAIT',
+            ),
+            throwsA(
+              isA<DatabaseQueryException>().having(
+                (error) => error.code,
+                'SQLSTATE',
+                '55P03',
+              ),
+            ),
+          );
+        });
+      });
+
+      for (final (lane, table, key) in [
+        ('expiry', 'raw_inbox', 'raw_id'),
+        ('raw', 'raw_inbox', 'raw_id'),
+        ('outbox', 'outbox', 'delivery_id'),
+        ('transport', 'transport_keys', 'key'),
+      ]) {
+        test('${lane}_reclamation_skips_locked_page_and_wraps', () async {
+          switch (lane) {
+            case 'expiry':
+              await _raw(session, 1, 'pending');
+              await _failure(session, 1);
+              await _intent(session, 2, 'dead');
+            case 'raw':
+              for (final id in [1, 2]) {
+                await _raw(session, id, 'done');
+              }
+            case 'outbox':
+              for (final id in [1, 2]) {
+                await _intent(session, id, 'delivered');
+              }
+            case 'transport':
+              await session.db.unsafeSimpleExecute('''
+                UPDATE raw_admission_cutoff SET cutoff='2026-09-30 UTC';
+                INSERT INTO transport_keys ("sourceId",key,"bodySha256","firstSeenAt","expiresAt","rawObservedAt","rawId")
+                VALUES ('$_source','first','digest','$_old','2026-09-28','$_old','${_id(1)}'),
+                       ('$_source','second','digest','$_old','2026-09-29','$_old','${_id(2)}')
+              ''');
+          }
+          final oldest = switch (lane) {
+            'outbox' => _id(101),
+            'transport' => 'first',
+            _ => _id(1),
+          };
+          final blocker = builder.build();
+          final holding = ContentionGate();
+          final locked = Completer<void>();
+          final actor = holding.run(
+            () => blocker.db.transaction((tx) async {
+              expect(
+                await blocker.db.unsafeQuery(
+                  'SELECT $key FROM $table WHERE $key::text=@key FOR UPDATE',
+                  transaction: tx,
+                  parameters: QueryParameters.named({'key': oldest}),
+                ),
+                hasLength(1),
+              );
+              locked.complete();
+              await holding.future;
+            }),
+          );
+          await locked.future;
+          expect(await _maintain(session, lane, cap: 1), 0);
+          expect(await _maintain(session, lane, cap: 1), 1);
+          await holding.join();
+          await actor;
+          expect(await _maintain(session, lane, cap: 1), 0);
+          expect(await _maintain(session, lane, cap: 1), 1);
+          if (lane == 'expiry') {
+            expect(await _count(session, 'pipeline_dead_letter'), 0);
+          } else {
+            expect(await _count(session, table), 0);
+          }
+        });
+      }
 
       test('failed_batch_reports_no_uncommitted_counts', () async {
         await _raw(session, 1, 'pending');

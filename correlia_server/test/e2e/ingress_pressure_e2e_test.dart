@@ -5,19 +5,24 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:correlia_server/src/ingest/bootstrap.dart';
 import 'package:correlia_server/src/ingest/icinga2/stream/admission.dart';
-import 'package:correlia_server/src/ingest/icinga2/stream/decoder.dart';
 import 'package:correlia_server/src/ingest/icinga2/stream/lease.dart';
+import 'package:correlia_server/src/ingest/icinga2/stream/read_timing.dart';
+import 'package:correlia_server/src/ingest/icinga2/stream/redaction.dart';
+import 'package:correlia_server/src/ingest/icinga2/stream/stream_reader.dart';
 import 'package:postgres/postgres.dart' show Sql;
 import 'package:serverpod/serverpod.dart' show Uuid;
 import 'package:test/test.dart';
 
 import '../support/child_server.dart';
 import '../support/icinga2_pipeline.dart' show icinga2DbSourceId;
+import '../support/icinga2_stream_decode_fixture.dart' show streamDecodeRequest;
 import '../support/icinga2_stream_fixture.dart';
 import '../support/icinga2_stream_pipeline.dart' show streamDbCheck;
 import '../support/output_process.dart';
 import '../support/shared_cluster.dart';
+import '../support/stream_reader_clock.dart';
 
 const _timeout = Timeout(Duration(minutes: 5));
 
@@ -146,12 +151,17 @@ void main() {
   test('dur_9_webhook_and_pull_pause_and_recover', () async {
     await _withServers((database, directory, start) async {
       final seen = Completer<void>();
+      final resumed = Completer<void>();
       final receiver = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       receiver.listen((request) async {
         await request.drain<void>();
         request.response.statusCode = 204;
         await request.response.close();
-        if (!seen.isCompleted) seen.complete();
+        if (!seen.isCompleted) {
+          seen.complete();
+        } else if (!resumed.isCompleted) {
+          resumed.complete();
+        }
       });
       final db = await outputConnection(database);
       try {
@@ -180,32 +190,87 @@ void main() {
           "UPDATE icinga2_stream_lease SET \"expiresAt\"='infinity'",
         );
         final received = DateTime.now().toUtc();
-        final batch = StreamRawBatch(
-          id: const Uuid().v4(),
+        final pendingRetry = Completer<void>();
+        var admissionStarted = false;
+        final clock = StreamReaderClock()
+          ..onSchedule = (delay) {
+            // The initial flush timer also uses a one-second delay.
+            if (admissionStarted &&
+                delay == const Duration(seconds: 1) &&
+                !pendingRetry.isCompleted) {
+              pendingRetry.complete();
+            }
+          };
+        final attempts = <(String, StreamAdmissionResult)>[];
+        final admission = ConsumerAdmission(db);
+        final reader = StreamReader(
+          request: streamDecodeRequest(''),
+          policy: StreamStateTypePolicy.softAndHard,
+          redactor: PasswordRedactor(utf8.encode('pull-fixture-password')),
           connectionId: const Uuid().v4(),
-          origin: IcingaStreamOrigin.stream,
-          rows: [
-            [
-              StreamAdmissionItem.text(
-                received,
-                jsonEncode(streamDbCheck(received)),
-              ),
-            ],
-          ],
-        );
-        Future<StreamAdmissionResult> admit() => ConsumerAdmission(db).admit(
-          lease: lease,
-          snapshotId: snapshot,
-          batch: batch,
+          receiptClock: () => received,
+          monotonic: () => clock.elapsed,
+          schedule: clock.schedule,
+          onOversize: () async => fail('unexpected oversized stream item'),
+          admit: (batch) async {
+            admissionStarted = true;
+            final result = await admission.admit(
+              lease: lease,
+              snapshotId: snapshot,
+              batch: batch,
+            );
+            attempts.add((batch.id, result));
+            return result;
+          },
         );
         expect((await _post(api, 'accepted-before-outage')).$1, 202);
         final refused = await _post(api, 'absent-during-outage');
         expect(refused.$1, 429);
         expect(int.parse(refused.$2!), greaterThan(0));
-        expect(await admit(), StreamAdmissionResult.atCapacity);
-        await start('worker', cfg);
-        await seen.future;
-        expect(await admit(), StreamAdmissionResult.committed);
+        final wire = jsonEncode(streamDbCheck(received));
+        final read = reader.run(Stream.value(utf8.encode('$wire\n')));
+        try {
+          await Future.any([
+            pendingRetry.future,
+            read.then(
+              (end) =>
+                  fail('Reader finished before waiting for capacity: $end'),
+            ),
+          ]);
+          final batchId = attempts.single.$1;
+          expect(attempts.single.$2, StreamAdmissionResult.atCapacity);
+          expect(
+            (await db.execute(
+              'SELECT count(*) FROM icinga2_admitted_batch',
+            )).single[0],
+            0,
+          );
+          await start('worker', cfg);
+          await seen.future;
+          expect((await _post(api, 'accepted-after-outage')).$1, 202);
+          await resumed.future;
+          clock.advance(const Duration(seconds: 1));
+          expect(await read, StreamReadEnd.eof);
+          expect(attempts, [
+            (batchId, StreamAdmissionResult.atCapacity),
+            (batchId, StreamAdmissionResult.committed),
+          ]);
+          expect(
+            (await db.execute(
+              'SELECT "batchId"::text FROM icinga2_admitted_batch',
+            )).single[0],
+            batchId,
+          );
+          expect(
+            (await db.execute(
+              "SELECT convert_from(body,'UTF8')::jsonb->'items'->0->>'line' FROM raw_inbox WHERE source_id='$icinga2DbSourceId'",
+            )).single[0],
+            wire,
+          );
+        } finally {
+          reader.stop();
+          await read;
+        }
         expect(
           (await db.execute(
             Sql.named('''
@@ -213,7 +278,7 @@ void main() {
         '''),
             parameters: {'id': outputSource},
           )).single[0],
-          1,
+          2,
         );
       } finally {
         await db.close();
