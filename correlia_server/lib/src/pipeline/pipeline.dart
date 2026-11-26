@@ -1039,9 +1039,9 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
           await _finalizeSync(tx, deadline, syncId);
         }
         if (reconcile) {
-          if (raw.replayed
-              ? committed + late + quarantines == 0
-              : committed == 0) {
+          // Reconcile is a stream row. Ineligible items increment counters
+          // without storing an event; only a committed ready event keeps raw.
+          if (committed == 0) {
             if (raw.replayed) {
               await _limits(tx, deadline);
               await session.db.unsafeExecute(
@@ -1054,7 +1054,13 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
                   'now': clock().toUtc(),
                   'raw': raw.id,
                   'count':
-                      confirmed + tombstoned + duplicates + stale + diverged,
+                      confirmed +
+                      tombstoned +
+                      duplicates +
+                      stale +
+                      diverged +
+                      late +
+                      quarantines,
                 }),
                 transaction: tx,
                 timeoutInSeconds: 5,

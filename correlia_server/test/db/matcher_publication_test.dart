@@ -400,6 +400,11 @@ VALUES ('2026-11-01T00:00:00Z', '$source', '$source', @body, @digest, 'applicati
         final replacement = _config(first + 1)
           ..['expected_active_snapshot'] = original.snapshotId
           ..['sources'] = sources;
+        Future<List<Object?>>
+        referenceCounts() async => (await session.db.unsafeQuery(
+          "SELECT pinned_count,live_count FROM pipeline_output_commitment WHERE reference='historical-key'",
+        )).single.toList();
+        expect(await referenceCounts(), [1, 0]);
         Future<IngestBootstrap> publish(int byte) => repository.publishConfig(
           replacement,
           <String, Object?>{'historical-key': secret(byte)},
@@ -451,6 +456,7 @@ FROM outbox WHERE config_snapshot_id = '${original.snapshotId}'
             historicalOutput.signingKeyCommitment,
           ],
         );
+        expect(await referenceCounts(), [0, 1]);
         await refused();
         await expectLater(
           publish(3),

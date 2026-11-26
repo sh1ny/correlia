@@ -265,6 +265,28 @@ void main() {
         );
       });
 
+      test('ineligible_reconcile_replay_audits_without_retaining_raw', () async {
+        final pin = await publishStreamDb(session);
+        final row = await seedStreamDb(session, pin, [
+          streamDbCheck(now.subtract(const Duration(days: 8)), sync: true),
+          streamDbCheck(
+            now.add(const Duration(days: 2)),
+            sync: true,
+            host: 'future',
+          ),
+        ], sync: true);
+        await markFailure(row, pin);
+        expect((await replay((await failure()).occurrence)).queued, 1);
+        expect(await worker().processOne(), isTrue);
+        expect(await countRows(session, 'events'), 0);
+        expect(await countRows(session, 'raw_inbox'), 0);
+        expect(await countRows(session, 'icinga2_raw_origin'), 0);
+        final audit = (await session.db.unsafeQuery(
+          "SELECT cause_raw_id::text FROM activity WHERE change_kind='replayed_reconcile_no_event'",
+        )).single;
+        expect(audit[0], row);
+      });
+
       test('restored_source_replays_with_admission_origin_policy', () async {
         final pin = await publishStreamDb(session, policy: 'hard_only');
         final id = await seedStreamDb(session, pin, [

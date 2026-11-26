@@ -18,6 +18,7 @@ Test paths are relative to `correlia_server/`. Green rows carry existing behavio
 | dead-letter-operations → Bounded replay selection and audit | Replay uses a concurrently published retention window | `test/db/dead_letter_operations_test.dart` | `publication_shortens_retention_before_replay_locks_policy` | red |
 | dead-letter-operations → Current configuration for pipeline replay | DUR-13 a fixed mapping reaches its backlog | `test/db/raw_replay_test.dart` | `dur_13_mapping_fix_repins_at_replay` | red |
 | dead-letter-operations → Current configuration for pipeline replay | Replaying a row from a finished or absent sync run | `test/db/raw_replay_test.dart` | `reconcile_replay_preserves_finished_and_pruned_runs` | red |
+| dead-letter-operations → Current configuration for pipeline replay | Replaying a row from a finished or absent sync run | `test/db/raw_replay_test.dart` | `ineligible_reconcile_replay_audits_without_retaining_raw` | red |
 | dead-letter-operations → Current configuration for pipeline replay | Replay source missing or disabled | `test/db/raw_replay_test.dart` | `missing_and_disabled_sources_keep_failure_occurrence` | red |
 | dead-letter-operations → Current configuration for pipeline replay | Restoring the same source makes the original occurrence replayable | `test/db/raw_replay_test.dart` | `restored_source_replays_with_admission_origin_policy` | red |
 | dead-letter-operations → Current configuration for pipeline replay | Earlier error cannot spend replay allowance | `test/db/raw_replay_test.dart` | `stale_same_pin_error_cannot_cross_replay_epoch` | red |
@@ -44,12 +45,14 @@ Test paths are relative to `correlia_server/`. Green rows carry existing behavio
 | durable-pipeline → Partitioned storage survives offline upgrade | Overflow event lands inside the attached historical range | `test/db/output_pressure_test.dart` | `upgraded_historical_event_child_accepts_and_routes_notice` | red |
 | durable-pipeline → Partitioned storage survives offline upgrade | Partition work interrupted | `test/db/pipeline_partition_upgrade_test.dart` | `partition_cutover_rollback_and_retry` | red |
 | durable-pipeline → Partitioned storage survives offline upgrade | Default validation failure pauses only daily preparation | `test/db/pipeline_partition_maintenance_test.dart` | `default_validation_timeout_records_retry_without_blocking_writes` | red |
+| durable-pipeline → Partitioned storage survives offline upgrade | Default validation failure pauses only daily preparation | `test/db/pipeline_partition_maintenance_test.dart` | `untried_ranges_precede_persistently_eligible_retries` | red |
 | durable-pipeline → Partitioned storage survives offline upgrade | A delayed attachment failure cannot replace success | `test/db/pipeline_partition_maintenance_test.dart` | `late_attach_failure_cannot_replace_success` | red |
 | durable-pipeline → Partitioned storage survives offline upgrade | Worker stops during maintenance | `test/e2e/pipeline_maintenance_e2e_test.dart` | `role_and_shutdown_wait_for_open_maintenance_batch` | red |
 | durable-pipeline → Retention preserves unfinished pipeline work | DUR-10 a long worker outage | `test/db/pipeline_retention_test.dart` | `dur_10_retention_keeps_unfinished_work` | red |
 | durable-pipeline → Retention preserves unfinished pipeline work | Old event with an unfinished delivery | `test/db/pipeline_retention_test.dart` | `unfinished_outbox_keys_protect_old_events` | red |
-| durable-pipeline → Retention preserves unfinished pipeline work | Old fully eligible partition | `test/db/pipeline_retention_test.dart` | `eligible_closed_partition_drops` | red |
-| durable-pipeline → Retention preserves unfinished pipeline work | Reclamation advances past protected pages | `test/db/pipeline_retention_test.dart` | `bounded_page_advances_past_protected_prefix` | red |
+| durable-pipeline → Retention preserves unfinished pipeline work | Old fully eligible partition | `test/db/pipeline_partition_maintenance_test.dart` | `eligible_closed_partition_drops` | red |
+| durable-pipeline → Retention preserves unfinished pipeline work | Old fully eligible partition | `test/db/pipeline_partition_maintenance_test.dart` | `partition_drop_rechecks_policy_after_ddl_lock` | red |
+| durable-pipeline → Retention preserves unfinished pipeline work | Reclamation advances past protected pages | `test/db/pipeline_retention_test.dart` | `reclamation_advances_past_protected_pages` | red |
 | durable-pipeline → Atomic dead-letter expiry | DUR-12 expiration makes old work eligible | `test/db/pipeline_retention_test.dart` | `dur_12_expiry_discards_and_ledgers_atomically` | red |
 | durable-pipeline → Atomic dead-letter expiry | Expiry rollback | `test/db/pipeline_retention_test.dart` | `failed_batch_reports_no_uncommitted_counts` | red |
 | durable-pipeline → Retention preserves retry and ordering evidence | Evidence still needed by old accepted work | `test/db/pipeline_retention_test.dart` | `replayable_work_protects_ordering_evidence` | red |
@@ -66,6 +69,7 @@ Test paths are relative to `correlia_server/`. Green rows carry existing behavio
 | output-delivery → No loss across worker death | Kill -9 during a 1,000-alert burst | `test/e2e/nats_burst_e2e_test.dart` | `Kill -9 during a 1,000-alert burst` | green |
 | output-delivery → No loss across worker death | Worker killed before any delivery | `test/e2e/nats_burst_e2e_test.dart` | `worker_killed_before_any_delivery` | green |
 | output-delivery → Historical secret lookup does not scan delivery payloads | Historical import and startup ignore backlog size | `test/db/pipeline_inventory_test.dart` | `historical_import_and_startup_use_distinct_metadata` | red |
+| output-delivery → Historical secret lookup does not scan delivery payloads | Historical import and startup ignore backlog size | `test/db/matcher_publication_test.dart` | `matcher-only historical secret import` | green |
 | output-delivery → Historical secret lookup does not scan delivery payloads | Missing live signing material cannot be hidden | `test/db/pipeline_inventory_test.dart` | `layered_live_webhook_commitment_remains_visible_at_startup` | red |
 | output-delivery → Per-output storage budget and default policy | DUR-11 discard policy isolates a failing output | `test/db/output_pressure_test.dart` | `dur_11_discard_preserves_other_fanout` | red |
 | output-delivery → Per-output storage budget and default policy | Count or bytes bind across workers | `test/db/output_pressure_test.dart` | `parallel_workers_respect_both_caps` | red |

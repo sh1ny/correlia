@@ -157,6 +157,21 @@ void main() {
           )).single[0],
           'done',
         );
+        await _process(session, ['discard-c', 'discard-d']);
+        expect((await _usage(session, _first))[2], 3);
+        final audit = await session.db.unsafeQuery('''
+          SELECT actor_ref,entity_version FROM activity WHERE change_kind='output_discarded' ORDER BY id
+        ''');
+        expect(audit.map((row) => row.toList()), [
+          [_first, 1],
+          [_first, 2],
+        ]);
+        expect(
+          (await session.db.unsafeQuery(
+            "SELECT count(*) FROM activity WHERE change_kind='output_overflow' AND actor_ref='$_first'",
+          )).single[0],
+          1,
+        );
       });
 
       for (final byBytes in [false, true]) {

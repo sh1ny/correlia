@@ -186,34 +186,39 @@ final class MaintenanceRepository {
   );
 
   /// Prepares one uncovered future day, or records a retry after DDL rollback.
-  Future<void> prepareOne() async {
+  Future<void> prepareOne({DateTime? nowForTest}) async {
+    final clock = QueryParameters.named({'now': nowForTest});
     final next = await session.db.transaction((tx) async {
       await _limits(tx, ddl: true);
       await session.db.unsafeExecute(
         '''
         DELETE FROM pipeline_partition_retry WHERE (parent_name,day) IN (
           SELECT parent_name,day FROM pipeline_partition_retry
-          WHERE day < (clock_timestamp() AT TIME ZONE 'UTC')::date
+          WHERE day < (coalesce(@now::timestamptz,clock_timestamp()) AT TIME ZONE 'UTC')::date
           ORDER BY day,parent_name LIMIT 16 FOR UPDATE SKIP LOCKED)
       ''',
+        parameters: clock,
         transaction: tx,
         timeoutInSeconds: 4,
       );
       return (await session.db.unsafeQuery(
         '''
-        WITH candidates AS MATERIALIZED (
+        WITH instant AS MATERIALIZED (
+          SELECT coalesce(@now::timestamptz,clock_timestamp()) AS at
+        ), candidates AS MATERIALIZED (
           SELECT parent,today+lead AS day FROM
-            unnest(ARRAY['raw_inbox','events','outbox']) parent,
-            generate_series(1,7) lead,
-            (SELECT (clock_timestamp() AT TIME ZONE 'UTC')::date AS today) clock
+            unnest(ARRAY['raw_inbox','events','outbox']) parent
+            CROSS JOIN generate_series(1,7) lead
+            CROSS JOIN (SELECT (at AT TIME ZONE 'UTC')::date AS today FROM instant) clock
+            LEFT JOIN pipeline_partition_retry r ON r.parent_name=parent AND r.day=today+lead
           WHERE NOT correlia_partition_covered(parent,today+lead)
-          AND NOT EXISTS (SELECT 1 FROM pipeline_partition_retry r
-            WHERE r.parent_name=parent AND r.day=today+lead AND r.retry_at>clock_timestamp())
-          ORDER BY today+lead,parent LIMIT 1
+            AND (r.retry_at IS NULL OR r.retry_at<=(SELECT at FROM instant))
+          ORDER BY r.attempt_id NULLS FIRST,today+lead,parent LIMIT 1
         )
-        SELECT parent,day::text,correlia_reserve_partition(parent,day,clock_timestamp())
+        SELECT parent,day::text,correlia_reserve_partition(parent,day,(SELECT at FROM instant))
         FROM candidates
       ''',
+        parameters: clock,
         transaction: tx,
         timeoutInSeconds: 4,
       )).singleOrNull;
@@ -238,10 +243,11 @@ final class MaintenanceRepository {
       await session.db.transaction((tx) async {
         await _limits(tx, ddl: true);
         await session.db.unsafeQuery(
-          'SELECT correlia_partition_failed(@parent,@day::date,@attempt,@problem,clock_timestamp())',
+          'SELECT correlia_partition_failed(@parent,@day::date,@attempt,@problem,coalesce(@now::timestamptz,clock_timestamp()))',
           parameters: QueryParameters.named({
             ...parameters,
             'problem': _problem(error),
+            'now': nowForTest,
           }),
           transaction: tx,
           timeoutInSeconds: 4,

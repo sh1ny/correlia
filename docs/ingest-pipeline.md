@@ -216,8 +216,9 @@ version record roll back together. Clear the blocking transaction or fix the cau
 new binary. A successful forward cutover can be undone only by restoring the pre-upgrade backup.
 
 A partition validation failure leaves default routing intact. The worker records a bounded retry;
-a delayed error from an earlier attempt cannot overwrite a successful attachment. Preparation
-has no deadline when PostgreSQL must validate a large default child.
+a delayed error from an earlier attempt cannot overwrite a successful attachment. The worker
+tries unprepared days with no previous attempt first, then retries the least recently attempted
+range. Preparation has no deadline when PostgreSQL must validate a large default child.
 
 For offline repair, stop all writers first. In one transaction use the maintenance advisory
 lock `1129271900` and the `correlia_reserve_partition` and `correlia_attach_partition` SQL
@@ -265,10 +266,11 @@ CloudEvent. Successful delivery or dead-letter expiry frees that capacity. A bud
 does not purge existing work: the output may remain over budget until enough intents leave.
 
 `discard_new` drops only new intents that do not fit and increments the output's durable
-discard count. Other outputs still receive their intents. `block_ingest` defers an already
-accepted raw row if the full set of its intents for that output cannot fit. The row retains
-its configuration pin and retry allowance. No partial state, event or delivery effects
-commit; the worker tries the row again when it becomes eligible.
+discard count. The same transaction appends one `output_discarded` ledger row per affected
+output with the number discarded from that raw row. Other outputs still receive their
+intents. `block_ingest` defers an accepted raw row if all its intents for that output cannot fit.
+The row keeps its configuration pin and retry allowance. No partial state, event or delivery
+effects commit; the worker tries the row again when it becomes eligible.
 
 An output opens one overflow episode per period of saturation or refusal. The activity
 ledger records the episode before the worker tries to route a sanitized Correlia alert to

@@ -601,16 +601,21 @@ BEGIN
     demand_rows=greatest(demand_rows,p_rows),
     demand_bytes=greatest(demand_bytes,p_bytes)
   WHERE output_id=p_output RETURNING overflow_activity_id INTO episode;
-  IF episode IS NOT NULL THEN RETURN; END IF;
-
-  INSERT INTO activity
-    (occurred_at,entity_kind,entity_id,entity_version,change_kind,actor_kind,actor_ref)
-  VALUES (p_now,'output_queue',0,0,'output_overflow','system',p_output::text)
-  RETURNING id INTO episode;
-  INSERT INTO pipeline_overflow_notice (activity_id,output_id,occurred_at,reason,evidence)
-  VALUES (episode,p_output,p_now,p_reason,
-    jsonb_build_object('activity_id',episode,'output_id',p_output,'reason',p_reason)::text);
-  UPDATE pipeline_output_capacity SET overflow_activity_id=episode WHERE output_id=p_output;
+  IF episode IS NULL THEN
+    INSERT INTO activity
+      (occurred_at,entity_kind,entity_id,entity_version,change_kind,actor_kind,actor_ref)
+    VALUES (p_now,'output_queue',0,0,'output_overflow','system',p_output::text)
+    RETURNING id INTO episode;
+    INSERT INTO pipeline_overflow_notice (activity_id,output_id,occurred_at,reason,evidence)
+    VALUES (episode,p_output,p_now,p_reason,
+      jsonb_build_object('activity_id',episode,'output_id',p_output,'reason',p_reason)::text);
+    UPDATE pipeline_output_capacity SET overflow_activity_id=episode WHERE output_id=p_output;
+  END IF;
+  IF p_discarded>0 THEN
+    INSERT INTO activity
+      (occurred_at,entity_kind,entity_id,entity_version,change_kind,actor_kind,actor_ref)
+    VALUES (p_now,'output_queue',episode,p_discarded,'output_discarded','system',p_output::text);
+  END IF;
 END;
 $$;
 
@@ -866,6 +871,15 @@ BEGIN
   ORDER BY r.checked_at NULLS FIRST,r.end_day LIMIT 1;
   IF NOT FOUND THEN RETURN false; END IF;
   EXECUTE format('LOCK TABLE ONLY %I, ONLY %I IN ACCESS EXCLUSIVE MODE',p_parent,part.child_name);
+  -- Publication may extend the window while DDL is blocked. Share-lock
+  -- the current policy now, without waiting on a publisher holding it.
+  SELECT CASE p_parent WHEN 'events' THEN event_retention_days
+    WHEN 'outbox' THEN outbox_retention_days ELSE raw_retention_days END INTO days
+  FROM pipeline_queue_policy WHERE singleton=1 FOR SHARE NOWAIT;
+  IF part.end_day::timestamp AT TIME ZONE 'UTC' > p_now-make_interval(days=>days)
+    OR NOT EXISTS (SELECT 1 FROM pg_inherits h
+      WHERE h.inhrelid=to_regclass(part.child_name) AND h.inhparent=to_regclass(p_parent))
+  THEN RETURN false; END IF;
   IF p_parent='events' THEN
     SELECT EXISTS (SELECT 1 FROM pipeline_event_reference
       WHERE observed_at>=part.first_day::timestamp AT TIME ZONE 'UTC'

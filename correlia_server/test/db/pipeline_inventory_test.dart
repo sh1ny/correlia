@@ -196,14 +196,62 @@ void main() {
           _secrets(),
           runMode: 'test',
         );
+        await session.db.unsafeSimpleExecute(r'''
+          CREATE TABLE test_publication_reads (id bigserial, payload int, metadata int);
+          CREATE FUNCTION test_capture_publication_reads() RETURNS trigger LANGUAGE plpgsql AS $$
+          BEGIN
+            INSERT INTO test_publication_reads (payload,metadata)
+            SELECT coalesce(sum(seq_tup_read+idx_tup_fetch) FILTER
+              (WHERE relname ~ '^(outbox|raw_inbox)(_|$)'),0)::int,
+              coalesce(sum(seq_tup_read+idx_tup_fetch) FILTER
+              (WHERE relname IN ('pipeline_output_capacity','pipeline_output_commitment')),0)::int
+            FROM pg_stat_xact_user_tables WHERE schemaname=current_schema();
+            RETURN NULL;
+          END;
+          $$;
+          CREATE TRIGGER test_capture_publication_reads AFTER UPDATE ON pipeline_queue_policy
+          FOR EACH STATEMENT EXECUTE FUNCTION test_capture_publication_reads()
+        ''');
+        Future<IngestBootstrap> restoreHistorical(int revision, int key) =>
+            repository.publishConfig(
+              _config(revision)
+                ..['sources'] = <Object?>[]
+                ..['outputs'] = <Object?>[],
+              {'key-v1': token(key)},
+              runMode: 'test',
+            );
+        Future<List<Object?>> publish(int revision) async {
+          await expectLater(
+            restoreHistorical(revision, 3),
+            throwsA(_error('reference_rebound')),
+          );
+          expect((await restoreHistorical(revision, 2)).outputs, isEmpty);
+          return (await session.db.unsafeQuery(
+            'SELECT payload,metadata FROM test_publication_reads ORDER BY id DESC LIMIT 1',
+          )).single.toList();
+        }
+
         Future<(int, int)> read() => _reads(
           session,
           (tx) => repository.validateLiveSecrets(transaction: tx),
         );
         await _outbox(session, snapshot, 10);
         final shallow = await read();
+        final shallowImport = await publish(2);
         await _outbox(session, snapshot, 90);
         final deep = await read();
+        final deepImport = await publish(3);
+        expect(
+          shallowImport[0],
+          0,
+          reason: 'publication must not scan payload rows',
+        );
+        expect(shallowImport[1], greaterThan(0));
+        expect(
+          deepImport,
+          shallowImport,
+          reason: 'historical lookup work follows distinct tuples',
+        );
         expect(shallow.$1, 0, reason: 'startup must not read payload rows');
         expect(
           deep,
