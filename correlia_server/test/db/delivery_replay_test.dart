@@ -85,6 +85,50 @@ void main() {
         );
       });
 
+      test('delivery_replay_expires_at_the_final_key_fence', () async {
+        await fixture.seed(session);
+        await session.db.unsafeExecute(
+          "UPDATE outbox SET status='dead',dead_reason='network'",
+        );
+        final filter = QueueFailureFilter(kind: QueueFailureKind.delivery);
+        final failure = (await operations.list(filter)).failures.single;
+        final expiry = failure.failedAt.add(const Duration(days: 14));
+        var now = expiry.subtract(const Duration(microseconds: 1));
+        final racing = QueueOperations(
+          session,
+          secretStore: testSecretStore,
+          clock: () => now,
+          beforeDeliveryKeysLockForTest: (_) async {
+            now = expiry;
+          },
+        );
+        expect(
+          (await racing.replayOne(
+            QueueFailureKind.delivery,
+            failure.occurrence,
+            'operator',
+          )).items.single.outcome,
+          'expired',
+        );
+        expect(
+          (await session.db.unsafeQuery('SELECT status FROM outbox')).single[0],
+          'dead',
+        );
+        expect(await dead(), failure.occurrence);
+        expect(
+          (await session.db.unsafeQuery('''
+          SELECT count(*) FROM pipeline_output_commitment WHERE reference='key'
+        ''')).single[0],
+          0,
+        );
+        expect(
+          (await session.db.unsafeQuery('''
+          SELECT count(*) FROM activity WHERE change_kind='dead_letter_replayed'
+        ''')).single[0],
+          0,
+        );
+      });
+
       test('fresh_attempt_allowance_fences_completion_and_recovery', () async {
         await fixture.seed(session);
         await session.db.unsafeSimpleExecute('''

@@ -1,15 +1,19 @@
 import 'dart:convert';
 
+import 'package:correlia_server/src/generated/protocol.dart';
 import 'package:correlia_server/src/ingest/admission.dart';
 import 'package:correlia_server/src/ingest/bootstrap.dart';
 import 'package:correlia_server/src/ingest/config_repository.dart';
 import 'package:correlia_server/src/output/output_relay.dart';
 import 'package:correlia_server/src/pipeline/pipeline.dart';
+import 'package:correlia_server/src/pipeline/queue_operations.dart';
 import 'package:correlia_server/src/schema/schema_steps.dart';
 import 'package:serverpod/serverpod.dart';
 import 'package:test/test.dart';
 
 import '../integration/test_tools/serverpod_test_tools.dart';
+import '../support/icinga2_delivery.dart' as icinga;
+import '../support/icinga2_pipeline.dart';
 import '../support/secret_fixture.dart';
 import '../unit/ingest/alertmanager_decoder_test.dart' as payload;
 import 'ingest_config_test.dart' as cfg;
@@ -165,6 +169,10 @@ void main() {
           )).single[0],
           DateTime.utc(2020),
         );
+        final legacyFlags = await session.db.unsafeQuery('''
+          SELECT legacy_failure FROM raw_inbox ORDER BY status
+        ''');
+        expect(legacyFlags.map((row) => row[0]), [false, true, false]);
         final active = cfg.input(2);
         await IngestConfigRepository(
           session,
@@ -233,6 +241,75 @@ void main() {
           [migratedRaw, first.snapshotId, 'ready'],
           [finished.last[0], active.snapshotId, 'ready'],
         ]);
+      });
+    },
+    rollbackDatabase: RollbackDatabase.disabled,
+    testGroupTagsOverride: ['db'],
+  );
+
+  withServerpod(
+    'Icinga2 work pending at cutover',
+    (builder, _) {
+      test('post_cutover_failure_does_not_inherit_the_legacy_floor', () async {
+        final session = builder.build();
+        await _predecessor(session);
+        final observed = DateTime.utc(2026, 11, 10);
+        final document = icinga.delivery(
+          set: {
+            'last_state_change': timeText(observed),
+            'notification_time': timeText(observed),
+          },
+        );
+        final id = await seedIcinga2(session, document, observed);
+        await session.db.unsafeQuery(
+          'UPDATE raw_admission_cutoff SET cutoff=@cutoff',
+          parameters: QueryParameters.named({
+            'cutoff': observed.add(const Duration(days: 8)),
+          }),
+        );
+        await applySchemaSteps(session, schemaSteps);
+        await publishIcinga2Config(session);
+        final now = observed.add(const Duration(days: 9));
+        final broken = PipelineRepository(
+          session,
+          clock: () => now,
+          elapsedForTest: () => Duration.zero,
+          retryDelay: (_) => Duration.zero,
+          afterClaim: () async => throw StateError('fixture'),
+        );
+        expect(await broken.pinOne(), isTrue);
+        for (var i = 0; i < 5; i++) {
+          expect(await broken.processOne(), isTrue);
+        }
+        final operations = QueueOperations(
+          session,
+          clock: () => now,
+          secretStore: testSecretStore,
+        );
+        final failure = (await operations.list(
+          QueueFailureFilter(kind: QueueFailureKind.raw),
+        )).failures.single;
+        expect(failure.workId, id);
+        expect(
+          (await operations.replayOne(
+            QueueFailureKind.raw,
+            failure.occurrence,
+            'operator',
+          )).queued,
+          1,
+        );
+        expect(
+          await PipelineRepository(
+            session,
+            clock: () => now,
+            elapsedForTest: () => Duration.zero,
+          ).processOne(),
+          isTrue,
+        );
+        final outcome = await outcomeOf(session, id);
+        expect(outcome['late'], 0);
+        expect(outcome['committed'], 1);
+        expect(await countRows(session, 'outbox'), 2);
       });
     },
     rollbackDatabase: RollbackDatabase.disabled,

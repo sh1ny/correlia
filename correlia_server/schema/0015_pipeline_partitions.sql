@@ -22,7 +22,9 @@ ALTER INDEX outbox_definition_status_idx RENAME TO legacy_outbox_definition_stat
 
 ALTER TABLE legacy_raw_inbox
   ADD COLUMN queued_at timestamptz,
-  ADD COLUMN processing_epoch bigint NOT NULL DEFAULT 0;
+  ADD COLUMN processing_epoch bigint NOT NULL DEFAULT 0,
+  ADD COLUMN legacy_failure boolean NOT NULL DEFAULT false;
+UPDATE legacy_raw_inbox SET legacy_failure=true WHERE status='failed';
 ALTER TABLE legacy_events
   ALTER COLUMN raw_observed_at DROP NOT NULL,
   ALTER COLUMN raw_id DROP NOT NULL,
@@ -1287,7 +1289,7 @@ RETURNS void LANGUAGE sql AS $$
     AND c.pinned_count=0 AND c.live_count=0
 $$;
 
-CREATE FUNCTION correlia_lock_delivery_replay_keys(p_rows jsonb)
+CREATE FUNCTION correlia_delivery_replay_keys(p_rows jsonb,p_cleanup boolean DEFAULT false)
 RETURNS void LANGUAGE plpgsql AS $$
 DECLARE
   c record;
@@ -1297,10 +1299,16 @@ BEGIN
       d->>'kind',d->>'reference',d->>'commitment') r
     ORDER BY reference,commitment,kind
   LOOP
-    INSERT INTO pipeline_output_commitment (reference,commitment,kind)
-    VALUES (c.reference,c.commitment,c.kind)
-    ON CONFLICT (reference,commitment,kind) DO UPDATE
-      SET live_count=pipeline_output_commitment.live_count;
+    IF p_cleanup THEN
+      DELETE FROM pipeline_output_commitment
+      WHERE (reference,commitment,kind)=(c.reference,c.commitment,c.kind)
+        AND pinned_count=0 AND live_count=0;
+    ELSE
+      INSERT INTO pipeline_output_commitment (reference,commitment,kind)
+      VALUES (c.reference,c.commitment,c.kind)
+      ON CONFLICT (reference,commitment,kind) DO UPDATE
+        SET live_count=pipeline_output_commitment.live_count;
+    END IF;
   END LOOP;
 END;
 $$;

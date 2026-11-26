@@ -78,6 +78,7 @@ final class QueueOperations {
     this.elapsedForTest,
     this.beforeCommitForTest,
     this.beforePendingLockForTest,
+    this.beforeDeliveryKeysLockForTest,
     this.observePageQueryForTest,
   });
 
@@ -99,6 +100,9 @@ final class QueueOperations {
 
   /// Observes the replay transaction immediately before reserving pending rows.
   final Future<void> Function(Transaction)? beforePendingLockForTest;
+
+  /// Observes the delivery replay transaction just before its final key locks.
+  final Future<void> Function(Transaction)? beforeDeliveryKeysLockForTest;
 
   /// Inspects the same bound query and parameters that select a failure page.
   final Future<void> Function(Transaction, String, QueryParameters)?
@@ -441,6 +445,16 @@ final class QueueOperations {
   static Map<String, Object?> _snapshot(DatabaseResultRow active) =>
       jsonDecode(active[1]! as String) as Map<String, Object?>;
 
+  Future<DateTime> _expiryCutoff(_QueueTransaction tx, DateTime now) async =>
+      (await tx.query(
+            '''
+        SELECT @now::timestamptz-make_interval(days=>dead_letter_retention_days)
+        FROM pipeline_queue_policy WHERE singleton=1
+        ''',
+            parameters: QueryParameters.named({'now': now}),
+          )).single[0]!
+          as DateTime;
+
   Future<void> _replayRaw(
     _QueueTransaction tx,
     Map<int, DatabaseResultRow> work,
@@ -459,7 +473,7 @@ final class QueueOperations {
         }
       }
     }
-    final candidates = <DatabaseResultRow>[];
+    final candidates = <(DatabaseResultRow, QueueFailure)>[];
     for (final entry in plan) {
       final row = work[entry.occurrence];
       if (row == null) continue;
@@ -467,14 +481,16 @@ final class QueueOperations {
       if (mode == null || (mode == 'event_streams') != row[5]) {
         outcomes[entry.occurrence] = 'source_unavailable';
       } else {
-        candidates.add(row);
+        candidates.add((row, entry));
       }
     }
     if (candidates.isEmpty) return;
     final pin = active![0]! as String;
     final args = QueryParameters.named({
       'pin': pin,
-      'sources': jsonEncode({for (final r in candidates) r[4]}.toList()),
+      'sources': jsonEncode(
+        {for (final (row, _) in candidates) row[4]}.toList(),
+      ),
     });
     await tx.query(
       'SELECT correlia_lock_replay_pins(@pin,@sources::jsonb)',
@@ -489,10 +505,16 @@ final class QueueOperations {
               beforeQueryForTest: beforePendingLockForTest,
             )).single[0]!
             as int;
-    final enqueuedAt = available > 0 ? await _now(tx) : null;
-    for (final (index, row) in candidates.indexed) {
-      final occurrence = row[0]! as int;
-      if (index >= available) {
+    final enqueuedAt = await _now(tx);
+    final cutoff = await _expiryCutoff(tx, enqueuedAt);
+    var remaining = available;
+    for (final (row, entry) in candidates) {
+      final occurrence = entry.occurrence;
+      if (!entry.failedAt.isAfter(cutoff)) {
+        outcomes[occurrence] = 'expired';
+        continue;
+      }
+      if (remaining == 0) {
         outcomes[occurrence] = 'inbox_capacity';
         continue;
       }
@@ -510,6 +532,7 @@ final class QueueOperations {
         }),
       );
       outcomes[occurrence] = 'queued';
+      remaining--;
     }
     await tx.query(
       'SELECT correlia_cleanup_replay_pins(@pin,@sources::jsonb)',
@@ -586,7 +609,7 @@ final class QueueOperations {
         }
       }
     }
-    final accepted = <DatabaseResultRow>[];
+    final candidates = <(DatabaseResultRow, QueueFailure)>[];
     for (final entry in plan) {
       final row = work[entry.occurrence];
       if (row == null) continue;
@@ -599,23 +622,17 @@ final class QueueOperations {
           continue;
         }
       }
-      final output = row[4]! as String;
-      if (outputs.length >= 64 && !outputs.contains(output)) {
-        outcomes[entry.occurrence] = 'live_output_bound';
-        continue;
-      }
-      outputs.add(output);
-      accepted.add(row);
+      candidates.add((row, entry));
     }
-    if (accepted.isEmpty) return;
+    if (candidates.isEmpty) return;
     // Every replay holds its outbox row and the exclusive registry fence.
     await tx.beforeStatement();
     await lockOutputCapacity(session, tx.tx, {
-      for (final row in accepted) row[4]! as String,
+      for (final (row, _) in candidates) row[4]! as String,
     });
     final commitments = QueryParameters.named({
       'rows': jsonEncode([
-        for (final row in accepted)
+        for (final (row, _) in candidates)
           {
             'output': row[4],
             'kind': row[5],
@@ -626,10 +643,26 @@ final class QueueOperations {
       ]),
     });
     await tx.query(
-      'SELECT correlia_lock_delivery_replay_keys(@rows::jsonb)',
+      'SELECT correlia_delivery_replay_keys(@rows::jsonb)',
       parameters: commitments,
+      beforeQueryForTest: beforeDeliveryKeysLockForTest,
     );
-    for (final row in accepted) {
+    final cutoff = await _expiryCutoff(tx, await _now(tx));
+    var cleanUnusedKeys = false;
+    for (final (row, entry) in candidates) {
+      final occurrence = entry.occurrence;
+      if (!entry.failedAt.isAfter(cutoff)) {
+        outcomes[occurrence] = 'expired';
+        cleanUnusedKeys = true;
+        continue;
+      }
+      final output = row[4]! as String;
+      if (outputs.length >= 64 && !outputs.contains(output)) {
+        outcomes[occurrence] = 'live_output_bound';
+        cleanUnusedKeys = true;
+        continue;
+      }
+      outputs.add(output);
       await tx.execute(
         '''
         UPDATE outbox SET status='queued',claim_id=NULL,lease_until=NULL,next_attempt_at=NULL,
@@ -637,7 +670,13 @@ final class QueueOperations {
       ''',
         parameters: QueryParameters.named({'at': row[1], 'id': row[2]}),
       );
-      outcomes[row[0]! as int] = 'queued';
+      outcomes[occurrence] = 'queued';
+    }
+    if (cleanUnusedKeys) {
+      await tx.query(
+        'SELECT correlia_delivery_replay_keys(@rows::jsonb,true)',
+        parameters: commitments,
+      );
     }
   }
 

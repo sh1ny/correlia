@@ -217,6 +217,7 @@ final class _Raw {
     this.digest,
     this.pin,
     this.epoch,
+    this.legacyFailure,
   );
   final DateTime observed;
   final String id;
@@ -225,6 +226,7 @@ final class _Raw {
   final String digest;
   final String pin;
   final int epoch;
+  final bool legacyFailure;
   bool get replayed => epoch != 0;
   String get retryKey => '$id:$epoch';
 }
@@ -489,7 +491,7 @@ WHERE observed_at=@observed AND raw_id=CAST(@id AS uuid)''',
         await _limits(tx, deadline);
         // A deferral moves behind work that was already eligible.
         final rows = await session.db.unsafeQuery(
-          '''SELECT observed_at,raw_id::text,source_id::text,body,body_sha256,config_snapshot_id,processing_epoch
+          '''SELECT observed_at,raw_id::text,source_id::text,body,body_sha256,config_snapshot_id,processing_epoch,legacy_failure
 FROM raw_inbox WHERE status='pending' AND config_snapshot_id IS NOT NULL
 AND (next_attempt_at IS NULL OR next_attempt_at<=@now)
 ORDER BY coalesce(next_attempt_at,observed_at),observed_at,raw_id
@@ -517,6 +519,7 @@ FOR UPDATE SKIP LOCKED LIMIT 1''',
           row[4] as String,
           row[5] as String,
           row[6] as int,
+          row[7] as bool,
         );
         claimed = raw;
         if (afterClaim case final hook?) await hook();
@@ -579,7 +582,7 @@ FOR UPDATE SKIP LOCKED LIMIT 1''',
           batch = decoded.batch;
           syncId = decoded.syncId;
           int? floorMicros;
-          if (raw.replayed && kind is Icinga2SourceKind) {
+          if (raw.replayed && raw.legacyFailure && kind is Icinga2SourceKind) {
             final floors = await session.db.unsafeQuery(
               '''
               SELECT effective_floor FROM pipeline_icinga2_replay_floor

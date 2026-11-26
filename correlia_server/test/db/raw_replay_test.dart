@@ -62,11 +62,16 @@ void main() {
       )).failures.single;
       Future<QueueReplayResult> replay(int occurrence) =>
           ops.replayOne(QueueFailureKind.raw, occurrence, 'demo');
-      Future<void> markFailure(String id, String pin) async {
+      Future<void> markFailure(
+        String id,
+        String pin, {
+        bool legacy = false,
+      }) async {
         await session.db.unsafeSimpleExecute('''
         SELECT correlia_record_raw_failure(observed_at,raw_id,source_id,'$pin','processing_exhausted',NULL,observed_at)
         FROM raw_inbox WHERE raw_id='$id';
-        UPDATE raw_inbox SET status='failed',config_snapshot_id='$pin',attempt_count=5 WHERE raw_id='$id';
+        UPDATE raw_inbox SET status='failed',config_snapshot_id='$pin',attempt_count=5,legacy_failure=$legacy
+        WHERE raw_id='$id';
       ''');
       }
 
@@ -320,6 +325,78 @@ void main() {
         );
       });
 
+      test(
+        'expiry_after_pending_reservation_does_not_spend_the_slot',
+        () async {
+          final config =
+              await IngestConfigRepository(
+                session,
+                secretStore: testSecretStore,
+              ).publishConfig(
+                cfg.cutoverV2(1)
+                  ..['pipeline_operations'] = {'pending_max_rows': 1},
+                {'source-token': cfg.token(1), 'key-v1': cfg.token(2)},
+                runMode: 'test',
+              );
+          final admission = IngestAdmission(session);
+          for (final key in ['older-failure', 'younger-failure']) {
+            final receipt = DateTime.now().toUtc();
+            expect(
+              await admission.admit(
+                sourceId: cfg.sourceId,
+                kind: 'alertmanager',
+                credential: config.sources.single.credentials.single,
+                pathToken: false,
+                body: Uint8List.fromList(utf8.encode('{')),
+                contentType: 'application/json',
+                observedAt: receipt,
+                idempotencyKey: key,
+              ),
+              AdmissionOutcome.accepted,
+            );
+            now = now.add(const Duration(seconds: 1));
+            expect(await worker().pinOne(), isTrue);
+            expect(await worker().processOne(), isTrue);
+          }
+          final filter = QueueFailureFilter(kind: QueueFailureKind.raw);
+          final original = (await ops.list(filter)).failures;
+          expect(original, hasLength(2));
+          final expiry = original.first.failedAt.add(const Duration(days: 14));
+          now = expiry.subtract(const Duration(microseconds: 1));
+          final atReservation = QueueOperations(
+            session,
+            secretStore: testSecretStore,
+            clock: () => now,
+            beforePendingLockForTest: (_) async {
+              now = expiry;
+            },
+          );
+          final result = await atReservation.replayBatch(filter, 'operator');
+          expect(result.items.map((item) => item.outcome), [
+            'expired',
+            'queued',
+          ]);
+          expect(
+            (await session.db.unsafeQuery('''
+          SELECT raw_id::text,queued_at FROM raw_inbox WHERE status='pending'
+        ''')).single.toList(),
+            [original.last.workId, expiry],
+          );
+          expect(
+            (await session.db.unsafeQuery('''
+          SELECT occurrence_id FROM pipeline_dead_letter
+        ''')).single[0],
+            original.first.occurrence,
+          );
+          expect(
+            (await session.db.unsafeQuery('''
+          SELECT entity_version FROM activity WHERE change_kind='dead_letter_replayed'
+        ''')).single[0],
+            1,
+          );
+        },
+      );
+
       test('reconcile_replay_preserves_finished_and_pruned_runs', () async {
         final pin = await publishStreamDb(session);
         final check = now.subtract(const Duration(minutes: 1));
@@ -454,7 +531,7 @@ void main() {
           ],
           itemReceipt: (index) => now.add(Duration(seconds: 2 * index)),
         );
-        await markFailure(id, pin);
+        await markFailure(id, pin, legacy: true);
         await session.db.unsafeExecute(
           'UPDATE pipeline_icinga2_replay_floor SET effective_floor=@floor',
           parameters: QueryParameters.named({
@@ -494,7 +571,7 @@ void main() {
         expect(await worker().pinOne(), isTrue);
         expect(await worker().processOne(), isTrue);
         final id = await seedIcinga2(session, document, now);
-        await markFailure(id, pin);
+        await markFailure(id, pin, legacy: true);
         await session.db.unsafeExecute(
           'UPDATE pipeline_icinga2_replay_floor SET effective_floor=@floor',
           parameters: QueryParameters.named({
