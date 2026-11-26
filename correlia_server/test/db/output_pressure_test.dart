@@ -644,6 +644,55 @@ void main() {
         },
       );
 
+      test(
+        'deferral_deadline_leaves_the_processing_allowance_intact',
+        () async {
+          final snapshot = await _publish(
+            session,
+            1,
+            budgets: {
+              _first: {'max_rows': 1000, 'overflow_policy': 'block_ingest'},
+            },
+          );
+          await _oldIntents(session, snapshot, _first, 1000);
+          await _send(session, ['defer-after-capacity-check']);
+          var forceExpiry = false;
+          var refusals = 0;
+          var now = raw.now;
+          final worker = PipelineRepository(
+            session,
+            clock: () => now,
+            elapsedForTest: () {
+              if (!forceExpiry) return Duration.zero;
+              forceExpiry = false;
+              return pipelineRowDeadline;
+            },
+            afterOutputRefusalForTest: () {
+              refusals++;
+              forceExpiry = true;
+            },
+          );
+          expect(await worker.pinOne(), isTrue);
+          for (var attempt = 0; attempt < 6; attempt++) {
+            expect(await worker.processOne(), isTrue);
+            final row = (await session.db.unsafeQuery('''
+            SELECT status,attempt_count,next_attempt_at FROM raw_inbox
+          ''')).single;
+            expect(row.toList(), [
+              'pending',
+              0,
+              now.add(const Duration(seconds: 1)),
+            ]);
+            expect(await worker.processOne(), isFalse);
+            now = row[2]! as DateTime;
+          }
+          expect(refusals, 6);
+          expect(await raw.count(session, 'pipeline_failures'), 0);
+          expect(await raw.count(session, 'events'), 0);
+          expect(await _intents(session), {_first: 1000});
+        },
+      );
+
       test('eligible_old_deferrals_cannot_starve_healthy_work', () async {
         final previous = await _publish(
           session,

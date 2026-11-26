@@ -817,7 +817,7 @@ The latest patch of every minor from 0.16 through 0.35 is supported, proven by r
 
 Only version, status and alerts are required at group level. All recognised fields are type-checked. `routeLabels` and `notification_reason` stay raw-only; neither substitutes for alert evidence. The existing `externalURL` link mapping is unchanged.
 
-Unknown **top-level** fields are processed and flagged, not rejected. Unknown **per-alert** fields and wrong types on known fields still fail the complete delivery. Existing failed raw rows are not backfilled; replay is future work.
+Unknown **top-level** fields are processed and flagged, not rejected. Unknown **per-alert** fields and wrong types on known fields still fail the complete delivery. The upgrade does not reprocess failed raw rows automatically. Operators can request replay of eligible failures through the [Operator RPC](#operator-rpc); replay uses the active compatible configuration.
 
 Every successful raw outcome includes `unknown_top_level_fields` and `unknown_top_level_overflow`, even when they are `[]` and `0`. The list contains the first 16 sorted unknown names matching `^[A-Za-z0-9_.-]{1,64}$`; all others, including oversized or control-character names, count toward overflow. Names remain restricted with the raw body; values are not copied into the outcome.
 

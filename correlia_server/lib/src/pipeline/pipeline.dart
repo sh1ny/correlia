@@ -368,6 +368,7 @@ final class PipelineRepository {
     this.afterAlertInsertConflict,
     this.afterKeyReservationForTest,
     this.elapsedForTest,
+    this.afterOutputRefusalForTest,
     Map<String, int>? retryCounts,
     this.retryDelay,
     PipelineCounters? counters,
@@ -397,6 +398,9 @@ final class PipelineRepository {
 
   /// Test transaction elapsed time, independent of the worker receipt clock.
   final Duration Function()? elapsedForTest;
+
+  /// Lets a fixture exhaust the remaining row deadline after a refusal.
+  final void Function()? afterOutputRefusalForTest;
   final Map<String, int> _retryCounts;
   final Duration Function(int)? retryDelay;
   final PipelineCounters counters;
@@ -489,6 +493,7 @@ WHERE observed_at=@observed AND raw_id=CAST(@id AS uuid)''',
   /// Processes one pinned eligible row, or returns false when none is eligible.
   Future<bool> processOne() async {
     _Raw? claimed;
+    var outputDeferred = false;
     DecodedBatch? completedBatch;
     final deadline = _Deadline(elapsedForTest);
     MatcherRegexWorker? ownedRegex;
@@ -963,7 +968,9 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
           // before the sync-progress and pending-count fences.
           if (intents.isEmpty) await _lockRawPin(tx, deadline, raw);
         } on _OutputDeferral catch (error) {
+          outputDeferred = true;
           await savepoint.rollback();
+          afterOutputRefusalForTest?.call();
           await _limits(tx, deadline);
           await session.db.unsafeQuery(
             'SELECT correlia_set_raw_output_demands(@observed,@id::uuid,@demands::jsonb,@now)',
@@ -981,16 +988,7 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
             timeoutInSeconds: 5,
           );
           await _limits(tx, deadline);
-          await session.db.unsafeExecute(
-            'UPDATE raw_inbox SET next_attempt_at=@next WHERE observed_at=@observed AND raw_id=@id::uuid',
-            parameters: QueryParameters.named({
-              'next': clock().toUtc().add(const Duration(seconds: 1)),
-              'observed': raw.observed,
-              'id': raw.id,
-            }),
-            transaction: tx,
-            timeoutInSeconds: 5,
-          );
+          await _scheduleDeferred(tx, raw);
           return true;
         } on EventValidationError catch (error) {
           await savepoint.rollback();
@@ -1148,12 +1146,41 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
       return processed;
     } catch (error) {
       if (claimed == null) rethrow;
+      if (outputDeferred) {
+        // The refusal happened before the bookkeeping failed. Keep it out
+        // of the error budget even if setting demand consumed the deadline.
+        final retryDeadline = _Deadline(elapsedForTest);
+        await session.db.transaction((tx) async {
+          await _limits(tx, retryDeadline);
+          await _scheduleDeferred(tx, claimed!);
+        });
+        return true;
+      }
       await beforeRecordErrorForTest?.call();
       await _recordError(claimed!, error);
       return true;
     } finally {
       ownedRegex?.close();
     }
+  }
+
+  Future<void> _scheduleDeferred(Transaction tx, _Raw raw) async {
+    await session.db.unsafeExecute(
+      '''
+      UPDATE raw_inbox SET next_attempt_at=greatest(next_attempt_at,@next::timestamptz)
+      WHERE observed_at=@observed AND raw_id=@id::uuid AND status='pending'
+        AND config_snapshot_id=@pin AND processing_epoch=@epoch
+      ''',
+      parameters: QueryParameters.named({
+        'next': clock().toUtc().add(const Duration(seconds: 1)),
+        'observed': raw.observed,
+        'id': raw.id,
+        'pin': raw.pin,
+        'epoch': raw.epoch,
+      }),
+      transaction: tx,
+      timeoutInSeconds: 5,
+    );
   }
 
   Future<void> _fail(
