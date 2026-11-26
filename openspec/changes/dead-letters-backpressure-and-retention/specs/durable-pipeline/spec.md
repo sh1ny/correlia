@@ -119,6 +119,18 @@ Retention SHALL keep pending and processing raw rows, raw rows with active pipel
 - **WHEN** a partition ends before the retention cutoff and no protected rows or dependent work remain
 - **THEN** maintenance drops it without rewriting surviving data in other partitions
 
+#### Scenario: A drained outbox partition needs no heap scan
+- **WHEN** bounded cleanup has deleted the last row from a fully eligible outbox partition but its heap still holds dead tuples
+- **THEN** maintenance rechecks the catalog and reads the exact transactional count from a fresh snapshot under the partition locks, and drops the partition without scanning its heap
+
+#### Scenario: Concurrent writes cannot make the drain proof stale
+- **WHEN** an insert into an eligible outbox child races its drop, or an insert or delete rolls back
+- **THEN** any committed row prevents the drop, and rolled-back rows and counts have no effect on the proof
+
+#### Scenario: A busy outbox count does not stall unrelated cleanup
+- **WHEN** a writer holds the count for one output in a child that also stores eligible terminal rows for another output
+- **THEN** the other output can still write and reclaim rows, and maintenance revisits skipped rows after the writer releases the count
+
 #### Scenario: Reclamation advances past protected pages
 - **WHEN** more than one batch of old protected events sorts before an old eligible event
 - **THEN** successive bounded maintenance batches advance past the protected rows and remove the eligible event while every protected event remains

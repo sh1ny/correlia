@@ -57,3 +57,7 @@ The reviewer required D14's scenario in the durable-pipeline delta and evidence 
 Codex approved D15 after requiring a fence for late failure reports. Each batch gets an attempt number before doing work. The status write compares that number with the stored outcome for the same job, so a failure delayed past a newer success cannot reopen the job's failure. Partition retry records keep their own fence.
 
 The review accepted the regression that parks an expiry failure after rollback, commits a newer expiry sweep and releases the old report. The successful outcome stays visible and the failure does not reappear. The maintenance loop test separately checks that an unrelated success does not hide the active failure.
+
+## Round 7: Drained outbox partitions
+
+Codex accepted D16 after requiring a fresh count snapshot after the partition locks, transactional resets for parent and child truncation, and proof that unrelated outputs can write and reclaim rows while one count is busy. The rechecks confirmed the `READ COMMITTED` guard, both reset scopes and their rollback, and the test-map entries for those cases.

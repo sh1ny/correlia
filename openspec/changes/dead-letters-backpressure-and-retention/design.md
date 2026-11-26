@@ -123,6 +123,14 @@ Allocate a PostgreSQL attempt number before each batch. After a rollback, record
 
 Rejected: make `maintenance` prefer an unresolved failure. That hides the actual last completed batch. Reversal cost: medium. Important: yes, the operator RPC contract. Chosen by: user (item 88).
 
+### D16: Prove drained outbox partitions are empty without a heap scan
+
+Seed exact row counts per outbox child and output during offline cutover. Each insert or physical delete changes its count in the same transaction as the row. Delivery status changes do not change the count. The output ID is immutable after insert. Remove zero counts. The key uses the child name, which survives a database restore. Controlled parent truncation clears all counts. A direct child truncation, including on the default child, clears only that child's counts. Both resets run in the same transaction as `TRUNCATE` and roll back with it.
+
+Maintenance prelocks the affected counts with `SKIP LOCKED` before deleting terminal rows. It skips a count already locked by a writer and revisits the corresponding rows on a later pass. A drop requires `READ COMMITTED` and rejects stronger isolation levels. It takes the existing parent and child locks and rechecks the catalog and retention policy. A separate statement then reads the count index with a fresh snapshot. It does not read the child heap.
+
+Rejected: keep the bounded heap scan and rely on vacuum or offline repair to free disk space. The scan can time out on dead tuples even after the last row is gone. Reversal cost: medium. Important: yes, online retention and write concurrency. Chosen by: user (item 88).
+
 ### Decision summary
 
 | # | Decision | Choice | Rejected | Reversal cost | Important | Chosen by |
@@ -145,6 +153,7 @@ Rejected: make `maintenance` prefer an unresolved failure. That hides the actual
 | D13 | Default validation | Bounded attempt, durable retry and documented offline repair | Longer online DDL lock | medium | yes | user |
 | D14 | Offline cutover execution deadline | Partition-only setting, default one hour | Fixed one-hour client deadline | medium | yes | user |
 | D15 | Active maintenance faults | Last batch plus one unresolved failure per job | Show a failure in place of the last batch | medium | yes | user |
+| D16 | Drained outbox partitions | Exact per-child, per-output counts; no heap scan at drop | Bounded scan with vacuum or offline repair | medium | yes | user |
 
 ## Assumptions
 
@@ -255,6 +264,7 @@ flowchart LR
 | Attempt reclamation queue | Maintenance records a deleted terminal intent's full delivery key, then deletes attempts in bounded batches | Until its last attempt is removed | Durable queue resumes after interruption | PostgreSQL delivery key |
 | Raw pending count and output usage | Queue transition accounting in the same transaction as the row changes | While there is current policy or work | Seed once in cutover, derive from authoritative rows for repair only | PostgreSQL counts; payload bytes are `octet_length(payload)` |
 | Active lane and event-reference counts | Raw pin and output transition writers adjust their counts with the corresponding state change | For nonzero references; active policy rows may remain | Seed in cutover; no asynchronous invalidation | PostgreSQL output capacity rows and full event-key counts |
+| Outbox partition counts | Outbox inserts and physical deletes update the count for their child and output | While the pair has any stored row | Seed at cutover; roll back with the row; controlled truncation clears counts for the affected children | PostgreSQL index on child name and output ID |
 | Historical commitment references | Raw pin, relay and replay writers adjust counts with their lane changes | While a pin or live intent refers to the tuple | Seed in cutover; discard zero counts | Indexed PostgreSQL commitment metadata, never secret bytes |
 | Partition preparation retry | Maintenance owns attempt sequence, target UTC day and retry outcome | Until attach or the day is no longer needed | Resume after restart; commit an outcome only for the current attempt | PostgreSQL retry state and catalog |
 | Active dead-letter directory | Raw and output state owners add and consume entries under their corresponding work-row lock | One row per active failure occurrence | Seed in cutover; update with source transition | PostgreSQL indexed metadata and pointers to work keys |
