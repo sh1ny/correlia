@@ -63,6 +63,7 @@ Test paths are relative to `correlia_server/`. Green rows carry existing behavio
 | durable-pipeline → Atomic dead-letter expiry | Expiry rollback | `test/db/pipeline_retention_test.dart` | `failed_batch_reports_no_uncommitted_counts` | red |
 | durable-pipeline → Atomic dead-letter expiry | Retention policy changes during expiry | `test/db/pipeline_retention_test.dart` | `publication_extension_fences_expiry` | red |
 | durable-pipeline → Retention preserves retry and ordering evidence | Evidence still needed by old accepted work | `test/db/pipeline_retention_test.dart` | `replayable_work_protects_ordering_evidence` | red |
+| durable-pipeline → Retention preserves retry and ordering evidence | Evidence still needed by old accepted work | `test/db/icinga2_tombstone_test.dart` | `replayable_failure_keeps_tombstone_until_expiry` | green |
 | durable-pipeline → Retention preserves retry and ordering evidence | Replayed pre-upgrade evidence predates reclaimed fences | `test/db/raw_replay_test.dart` | `preupgrade_icinga2_floor_keeps_older_evidence_late` | red |
 | source-ingress → Shared inbox and storage pressure | DUR-9 inbox limits and recovery | `test/e2e/ingress_pressure_e2e_test.dart` | `dur_9_webhook_and_pull_pause_and_recover` | red |
 | source-ingress → Shared inbox and storage pressure | Concurrent admission at the last slot | `test/db/ingress_pressure_test.dart` | `two_apis_and_pull_contend_for_last_slot` | red |

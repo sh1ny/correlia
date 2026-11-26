@@ -12,15 +12,20 @@ import '../support/child_server.dart';
 import '../support/output_process.dart';
 import '../support/queue_operator.dart';
 
-Future<(int, String)> _status(ChildServer child, {String? token}) async {
+Future<(int, String)> _operatorRequest(
+  ChildServer child, {
+  required String method,
+  String? token,
+  Map<String, Object?> arguments = const {},
+}) async {
   final http = HttpClient();
   try {
     final request = await http.postUrl(
-      Uri.parse('http://127.0.0.1:${child.apiPort}/deadLetter/status'),
+      Uri.parse('http://127.0.0.1:${child.apiPort}/deadLetter/$method'),
     );
     request.headers.contentType = ContentType.json;
     if (token != null) request.headers.set('Authorization', 'Bearer $token');
-    request.write('{}');
+    request.write(jsonEncode(arguments));
     final response = await request.close();
     return (response.statusCode, await response.transform(utf8.decoder).join());
   } finally {
@@ -207,20 +212,75 @@ void main() {
         );
         children.add(child);
         await child.waitForReadyEvent();
-        final tokens = role == 'worker' || !enabled
-            ? [operatorToken]
-            : [null, outputToken, 'invalid-token'];
-        for (final token in tokens) {
-          final result = await _status(child, token: token);
+        final pg = await outputConnection(db);
+        try {
+          if (!enabled) {
+            await pg.execute('''
+              WITH raw AS (
+                INSERT INTO raw_inbox (observed_at,raw_id,source_id,body,body_sha256,content_type,status)
+                VALUES (now(),gen_random_uuid(),'$outputSource',decode('ff','hex'),'digest','application/json','failed')
+                RETURNING observed_at,raw_id,source_id
+              ) SELECT correlia_record_raw_failure(observed_at,raw_id,source_id,NULL,'invalid_json',NULL,now()) FROM raw
+            ''');
+          }
+          final occurrence = (await pg.execute(
+            'SELECT occurrence_id FROM pipeline_dead_letter',
+          )).single[0];
+          final tokens = role == 'worker' || !enabled
+              ? [operatorToken]
+              : [null, outputToken, 'invalid-token'];
+          for (final token in tokens) {
+            for (final (method, arguments) in <(String, Map<String, Object?>)>[
+              ('status', const {}),
+              (
+                'replay',
+                {'kind': QueueFailureKind.raw.name, 'occurrence': occurrence},
+              ),
+              (
+                'replayBatch',
+                {
+                  'filter': QueueFailureFilter(
+                    kind: QueueFailureKind.raw,
+                  ).toJson(),
+                  'limit': 10,
+                },
+              ),
+            ]) {
+              final result = await _operatorRequest(
+                child,
+                method: method,
+                token: token,
+                arguments: arguments,
+              );
+              expect(
+                result.$2,
+                contains('operator_access_denied'),
+                reason: child.output,
+              );
+              expect(result.$2, isNot(contains(operatorToken)));
+              expect(child.output, isNot(contains(operatorToken)));
+              expect(child.output, isNot(contains(outputToken)));
+              expect(result.$2, isNot(contains(outputToken)));
+            }
+          }
           expect(
-            result.$2,
-            contains('operator_access_denied'),
-            reason: child.output,
+            (await pg.execute('SELECT status FROM raw_inbox')).single[0],
+            'failed',
           );
-          expect(result.$2, isNot(contains(operatorToken)));
-          expect(child.output, isNot(contains(operatorToken)));
-          expect(child.output, isNot(contains(outputToken)));
-          expect(result.$2, isNot(contains(outputToken)));
+          expect(
+            (await pg.execute(
+              'SELECT occurrence_id FROM pipeline_dead_letter',
+            )).single[0],
+            occurrence,
+          );
+          expect(
+            (await pg.execute(
+              "SELECT count(*) FROM activity WHERE change_kind='dead_letter_replayed'",
+            )).single[0],
+            0,
+          );
+        } finally {
+          await pg.close();
         }
         expect(await child.closeStdin(), 0);
       }

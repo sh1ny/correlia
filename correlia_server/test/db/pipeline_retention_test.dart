@@ -41,6 +41,25 @@ Future<int> _maintain(
         )).single[0]!
         as int;
 
+Future<void> _prepareOldPartition(Session session, String parent) async {
+  final attempt = (await session.db.unsafeQuery(
+    '''SELECT correlia_reserve_partition(@parent,'2026-01-01'::date,'$_old')''',
+    parameters: QueryParameters.named({'parent': parent}),
+  )).single[0];
+  expect(
+    (await session.db.unsafeQuery(
+      "SELECT correlia_attach_partition(@parent,'2026-01-01'::date,@attempt)",
+      parameters: QueryParameters.named({'parent': parent, 'attempt': attempt}),
+    )).single[0],
+    isTrue,
+  );
+}
+
+Future<Object?> _dropOldPartition(Session session, String parent) async =>
+    (await session.db.unsafeQuery(
+      'SELECT correlia_drop_old_partition(@parent,@now)',
+      parameters: QueryParameters.named({'parent': parent, 'now': _now}),
+    )).single[0];
 Future<void> _raw(Session session, int id, String status) async {
   await session.db.unsafeSimpleExecute('''
     INSERT INTO raw_inbox(observed_at,raw_id,source_id,body,body_sha256,content_type,status)
@@ -106,6 +125,7 @@ void main() {
       });
 
       test('dur_10_retention_keeps_unfinished_work', () async {
+        await _prepareOldPartition(session, 'raw_inbox');
         await _raw(session, 1, 'done');
         final active = config.input(1);
         await IngestConfigRepository(
@@ -141,10 +161,16 @@ void main() {
              config_snapshot_id,'processing_exhausted',NULL,'2026-09-30 UTC')
           FROM failed
         ''')).single[0];
+        expect(await _dropOldPartition(session, 'raw_inbox'), isFalse);
         expect(await _maintain(session, 'raw'), 1);
         expect(await _maintain(session, 'expiry'), 0);
         expect(await worker.processOne(), isTrue);
         expect(await _count(session, 'events'), 1);
+        expect(
+          await _dropOldPartition(session, 'raw_inbox'),
+          isFalse,
+          reason: 'failed work alone protects the child',
+        );
         final ops = QueueOperations(
           session,
           clock: () => _now,
@@ -171,16 +197,19 @@ void main() {
           ['done', 'done'],
         );
         expect((await ops.list(filter)).failures, isEmpty);
+        expect(await _dropOldPartition(session, 'raw_inbox'), isTrue);
       });
 
       test('unfinished_outbox_keys_protect_old_events', () async {
+        await _prepareOldPartition(session, 'events');
         for (var id = 1; id <= 4; id++) {
           await _event(session, id);
         }
         await _intent(session, 1, 'dead');
         await _intent(session, 2, 'delivering', terminal: null);
         await _intent(session, 3, 'delivered');
-        expect(await _maintain(session, 'events', cap: 4), 2);
+        expect(await _dropOldPartition(session, 'events'), isFalse);
+        expect(await _maintain(session, 'events', cap: 5), 2);
         expect(
           await _column(
             session,
@@ -188,6 +217,22 @@ void main() {
           ),
           [_id(1), _id(2)],
         );
+        await session.db.unsafeExecute(
+          "UPDATE outbox SET status='delivered' WHERE status='delivering'",
+        );
+        expect(
+          await _dropOldPartition(session, 'events'),
+          isFalse,
+          reason: 'the dead delivery alone protects the child',
+        );
+        expect(await _maintain(session, 'events', cap: 4), 1);
+        expect(await _column(session, 'SELECT event_id::text FROM events'), [
+          _id(1),
+        ]);
+        await session.db.unsafeExecute(
+          "UPDATE outbox SET status='delivered' WHERE status='dead'",
+        );
+        expect(await _dropOldPartition(session, 'events'), isTrue);
       });
 
       test('dur_12_expiry_discards_and_ledgers_atomically', () async {

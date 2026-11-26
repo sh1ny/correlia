@@ -36,6 +36,7 @@ final class IngestAdmission {
     this.window = const Duration(minutes: 10),
     this.afterReservationConflictForTest,
     this.beforeRawInsertForTest,
+    this.reservationElapsedForTest,
   });
 
   /// The session used for database operations.
@@ -49,6 +50,9 @@ final class IngestAdmission {
 
   /// Observes accepted admission while its pending-count reservation is held.
   final Future<void> Function(Transaction)? beforeRawInsertForTest;
+
+  /// Supplies elapsed reservation time in deterministic database tests.
+  final Duration Function()? reservationElapsedForTest;
 
   /// Stores a delivery or returns its existing reservation's outcome.
   Future<AdmissionOutcome> admit({
@@ -122,9 +126,35 @@ final class IngestAdmission {
         'expires': observedAt.add(window),
         'raw': rawId,
       });
-      Stopwatch? retryDeadline;
+      final stopwatch = reservationElapsedForTest == null
+          ? (Stopwatch()..start())
+          : null;
+      Duration remainingReservationTime() {
+        final elapsed = reservationElapsedForTest?.call() ?? stopwatch!.elapsed;
+        final remaining = const Duration(seconds: 5) - elapsed;
+        if (remaining <= Duration.zero) {
+          throw StateError('Transport reservation deadline exceeded');
+        }
+        return remaining;
+      }
+
+      var narrowedTimeout = false;
+      Future<void> limitReservationWait() async {
+        final left = remainingReservationTime().inMilliseconds.clamp(1, 5000);
+        await session.db.unsafeSimpleExecute(
+          "SET LOCAL statement_timeout='${left}ms'; SET LOCAL lock_timeout='${left}ms'",
+          transaction: tx,
+          timeoutInSeconds: 5,
+        );
+        narrowedTimeout = true;
+        remainingReservationTime();
+      }
+
+      // The transaction already sets a five-second limit for the first insert.
+      // The locked read and every retry share what remains of that allowance.
       bool inserted;
       while (true) {
+        if (narrowedTimeout) await limitReservationWait();
         inserted = (await session.db.unsafeQuery(
           '''INSERT INTO transport_keys
 ("sourceId", "key", "bodySha256", "firstSeenAt", "expiresAt", "rawObservedAt", "rawId")
@@ -134,9 +164,10 @@ ON CONFLICT ("sourceId", "key") DO NOTHING RETURNING "key"''',
           transaction: tx,
           timeoutInSeconds: 5,
         )).isNotEmpty;
+        remainingReservationTime();
         if (inserted) break;
-        retryDeadline ??= Stopwatch()..start();
         await afterReservationConflictForTest?.call();
+        await limitReservationWait();
         final existing = await session.db.unsafeQuery(
           '''SELECT "bodySha256", "expiresAt" FROM transport_keys
 WHERE "sourceId"=CAST(@source AS uuid) AND "key"=@key FOR UPDATE''',
@@ -144,6 +175,7 @@ WHERE "sourceId"=CAST(@source AS uuid) AND "key"=@key FOR UPDATE''',
           transaction: tx,
           timeoutInSeconds: 5,
         );
+        remainingReservationTime();
         if (existing.singleOrNull case final row?) {
           if ((row[1] as DateTime).isAfter(observedAt)) {
             return row[0] == digest
@@ -153,9 +185,13 @@ WHERE "sourceId"=CAST(@source AS uuid) AND "key"=@key FOR UPDATE''',
           break;
         }
         // Maintenance may delete the expired winner after the insert lost.
-        if (retryDeadline.elapsed >= const Duration(seconds: 5)) {
-          throw StateError('Transport reservation deadline exceeded');
-        }
+      }
+      if (narrowedTimeout) {
+        await session.db.unsafeSimpleExecute(
+          "SET LOCAL statement_timeout='5s'; SET LOCAL lock_timeout='5s'",
+          transaction: tx,
+          timeoutInSeconds: 5,
+        );
       }
       final pressure = (await session.db.unsafeQuery(
         'SELECT correlia_reserve_raw(1)',

@@ -358,6 +358,40 @@ void main() {
         ]);
       });
 
+      test('expired_transport_budget_never_accepts_a_retry', () async {
+        expect(
+          await webhook(first, 'reused', 'previous'),
+          AdmissionOutcome.accepted,
+        );
+        await session.db.unsafeExecute("UPDATE raw_inbox SET status='done'");
+        var elapsed = Duration.zero;
+        final racing = IngestAdmission(
+          builder.build(),
+          reservationElapsedForTest: () => elapsed,
+          afterReservationConflictForTest: () async {
+            await session.db.unsafeExecute('DELETE FROM transport_keys');
+            elapsed = const Duration(seconds: 5);
+          },
+        );
+        await expectLater(
+          webhook(racing, 'reused', 'replacement'),
+          throwsA(
+            isA<StateError>().having(
+              (e) => e.message,
+              'message',
+              'Transport reservation deadline exceeded',
+            ),
+          ),
+        );
+        expect(await _count(session, 'transport_keys'), 0);
+        expect(
+          (await session.db.unsafeQuery(
+            "SELECT convert_from(body,'UTF8') FROM raw_inbox",
+          )).single[0],
+          'previous',
+        );
+      });
+
       for (final invalid in [false, true]) {
         test(
           'sync_admission_orders_progress_before_count ${invalid ? 'failure' : 'success'}',

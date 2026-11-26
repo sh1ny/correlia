@@ -131,6 +131,35 @@ void main() {
         expect(await sweep(), 1);
       });
 
+      test('replayable_failure_keeps_tombstone_until_expiry', () async {
+        await mark(1, fence.subtract(const Duration(seconds: 1)));
+        await rawAt(session, fence.add(const Duration(seconds: 1)));
+        await session.db.unsafeExecute(
+          '''UPDATE raw_admission_cutoff SET cutoff=@cutoff''',
+          parameters: QueryParameters.named({'cutoff': boundary}),
+        );
+        await session.db.unsafeQuery('''
+          WITH failed AS (
+            UPDATE raw_inbox SET status='failed' RETURNING observed_at,raw_id,source_id
+          )
+          SELECT correlia_record_raw_failure(observed_at,raw_id,source_id,NULL,'processing_exhausted',NULL,@now)
+          FROM failed
+        ''', parameters: QueryParameters.named({'now': boundary}));
+        expect(await sweep(), 0);
+        expect(await countRows(session, 'alerts'), 1);
+        expect(
+          (await session.db.unsafeQuery(
+            "SELECT correlia_maintain('expiry',@now,10)",
+            parameters: QueryParameters.named({
+              'now': boundary.add(const Duration(days: 15)),
+            }),
+          )).single[0],
+          1,
+        );
+        expect(await sweep(), 1);
+        expect(await countRows(session, 'alerts'), 0);
+      });
+
       Future<String> actualTombstone({bool shared = false}) async {
         final snapshot = await publishStreamDb(session, shared: shared);
         await session.db.unsafeExecute('''INSERT INTO icinga2_sync_progress

@@ -83,6 +83,7 @@ void main() {
           await submit(2, now.add(const Duration(minutes: 9))),
           AdmissionOutcome.conflict,
         );
+        await session.db.unsafeExecute("UPDATE raw_inbox SET status='done'");
         expect(
           await submit(2, now.add(const Duration(minutes: 10))),
           AdmissionOutcome.accepted,
