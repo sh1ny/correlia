@@ -416,6 +416,17 @@ void main() {
     expect(text, isNot(contains('unknown origin')));
   });
 
+  test('a pasted event trace has no stored errors section', () async {
+    final pasted = _result()..storedEnrichmentErrors = null;
+    final h = _Harness(pasted);
+    expect(await h.run(['--event', 'e.json'], files: {'e.json': '{}'}), 0);
+    expect(h.out.toString(), isNot(contains('stored enrichment errors')));
+    // A stored event whose list is empty still says so.
+    final stored = _Harness(_result()..storedEnrichmentErrors = []);
+    expect(await stored.run(['--event-id', _id, '--observed-at', 'T']), 0);
+    expect(stored.out.toString(), contains('stored enrichment errors: none'));
+  });
+
   test('a server that is not an http URL is a usage error', () async {
     for (final server in ['localhost:8080', 'ftp://x.example/', 'http://']) {
       final h = _Harness(_result());

@@ -301,10 +301,12 @@ void writeTrace(RuleSimulationResult result, StringSink sink) {
         '$key=$value (${origins[key] ?? 'source'})',
     ]);
   }
-  _section(out, 'stored enrichment errors', [
-    for (final e in result.storedEnrichmentErrors ?? <StoredEnrichmentError>[])
-      '${e.stage} ${e.code}: ${e.message}',
-  ]);
+  // A pasted event has no stored errors to show, as opposed to none.
+  if (result.storedEnrichmentErrors case final errors?) {
+    _section(out, 'stored enrichment errors', [
+      for (final e in errors) '${e.stage} ${e.code}: ${e.message}',
+    ]);
+  }
   if (result.storedBudgetNote case final note?) {
     out.writeln('stored budget note: $note');
   }

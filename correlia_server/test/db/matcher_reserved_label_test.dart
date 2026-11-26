@@ -28,6 +28,7 @@ Map<String, Object?> _config(
   Object? expected,
   Object? matcher, {
   bool source = false,
+  String? output,
 }) => {
   'format_version': 2,
   'revision': revision,
@@ -38,14 +39,22 @@ Map<String, Object?> _config(
             'id': _source,
             'kind': 'alertmanager',
             'enabled': true,
-            'output_ids': <String>[],
+            'output_ids': [?output],
             'credentials': [
               {'type': 'bearer', 'ref': 'reserved-token'},
             ],
           },
         ]
       : <Object?>[],
-  'outputs': <Object?>[],
+  'outputs': [
+    if (output != null)
+      {
+        'id': output,
+        'kind': 'webhook',
+        'url': 'http://127.0.0.1:9099/events',
+        'signing_key_ref': 'reserved-key',
+      },
+  ],
   'matcher': ?matcher,
 };
 
@@ -76,10 +85,13 @@ const _benign = [
   {'type': 'set_label', 'key': 'team', 'value': 'ops'},
 ];
 
+const _output = '44444444-4444-4444-8444-444444444444';
+
 final _reserved = {
   'reserved-token': base64Url
       .encode(List<int>.filled(32, 7))
       .replaceAll('=', ''),
+  'reserved-key': base64Url.encode(List<int>.filled(32, 9)).replaceAll('=', ''),
 };
 
 /// The matcher JSON a snapshot stores for [section].
@@ -207,8 +219,9 @@ Future<IngestBootstrap> _publish(
   Object? expected,
   Object? matcher, {
   bool source = false,
+  String? output,
 }) => _repository(session).publishConfig(
-  _config(revision, expected, matcher, source: source),
+  _config(revision, expected, matcher, source: source, output: output),
   source ? _reserved : const <String, Object?>{},
   runMode: 'test',
 );
@@ -367,6 +380,7 @@ void main() {
         },
       ),
       source: true,
+      output: _output,
     );
     // The same alert shape twice: one is classified, the other is not.
     await _insertRaw(session, 1, 'Watchdog');
@@ -405,6 +419,25 @@ void main() {
     expect(classified[3], plain[3], reason: 'silent tombstone');
     expect(classified[4], plain[4], reason: 'firing since set');
     expect(classified[2], watchdog.summary);
+    // The hint changes no delivery: both alerts reach the source's output,
+    // and the Watchdog delivery carries the stored event, hint included.
+    final deliveries = {
+      for (final row in await session.db.unsafeQuery(
+        '''SELECT outbox.event_id::text, outbox.output_id::text,
+        outbox.payload = events.payload FROM outbox
+        JOIN events ON events.event_id = outbox.event_id
+          AND events.observed_at = outbox.event_observed_at
+          AND events.disposition = outbox.event_disposition''',
+      ))
+        row[0]! as String: row.sublist(1),
+    };
+    expect(
+      deliveries.keys,
+      unorderedEquals([for (final event in events.values) event.eventId]),
+    );
+    for (final delivery in deliveries.values) {
+      expect(delivery, [_output, true]);
+    }
   });
 
   _dbTest('a_snapshot_pinned_before_the_change_keeps_running', (builder) async {
@@ -547,8 +580,25 @@ matcher:
     builder,
   ) async {
     final session = builder.build();
-    // This release ran once, so the fill already read every snapshot.
+    Future<int> watermark() async =>
+        (await session.db.unsafeQuery(
+              'SELECT filled_through FROM matcher_content_digest_fill',
+            )).single[0]!
+            as int;
+    Future<int> lastSnapshot() async =>
+        (await session.db.unsafeQuery(
+              'SELECT max(id) FROM ingest_config_snapshot',
+            )).single[0]!
+            as int;
+    // This release ran, published once and restarted, so the startup fill
+    // has read that snapshot and the watermark is past zero.
     await initializeIngestSchema(session);
+    await _publish(session, 1, null, _matcher(_benign));
+    await initializeIngestSchema(session);
+    final before = await watermark();
+    expect(before, await lastSnapshot());
+    expect(before, greaterThan(0));
+    expect(await _count(session, 'matcher_content_digest'), 1);
     final directory = await Directory.systemTemp.createTemp(
       'correlia-reserved-',
     );
@@ -556,7 +606,7 @@ matcher:
     final file = File('${directory.path}/ingest.yaml');
     await file.writeAsString('''
 format_version: 2
-revision: 1
+revision: 2
 sources: []
 outputs: []
 matcher:
@@ -577,8 +627,13 @@ matcher:
     );
     // An offline downgrade: the previous binary publishes the file.
     final old = (await start((config) => _installPreChange(session, config)))!;
-    // This release starts again from the same file.
+    expect(await lastSnapshot(), greaterThan(before));
+    // This release starts again. Its schema step fills the suffix before
+    // the configuration file is read: the old binary's content is recorded
+    // and the watermark moves past it.
     await initializeIngestSchema(session);
+    expect(await _count(session, 'matcher_content_digest'), 2);
+    expect(await watermark(), await lastSnapshot());
     final restarted = (await start(
       (config) => _repository(
         session,
