@@ -677,6 +677,77 @@ void main() {
       });
 
       for (final invalid in [false, true]) {
+        test('sync_lock_timeout_keeps_allowance invalid=$invalid', () async {
+          await publish(2, 2);
+          await session.db.unsafeSimpleExecute('''
+            INSERT INTO icinga2_sync_progress(sync_id,source_id,phase,started_at)
+            VALUES ('$streamDbSyncId','$icinga2DbSourceId','reading',now());
+            UPDATE icinga2_stream_lease SET "expiresAt"='infinity';
+          ''');
+          expect(
+            await admit(batch(sync: true, invalid: invalid)),
+            StreamAdmissionResult.committed,
+          );
+          final pinner = PipelineRepository(session, clock: () => receipt);
+          expect(await pinner.pinOne(), isTrue);
+          await session.db.unsafeExecute(
+            'UPDATE raw_inbox SET attempt_count=4',
+          );
+          final blocker = builder.build();
+          final locked = Completer<void>();
+          final gate = ContentionGate();
+          final holding = gate.run(
+            () => blocker.db.transaction((tx) async {
+              await blocker.db.unsafeQuery(
+                "SELECT 1 FROM icinga2_sync_progress WHERE sync_id='$streamDbSyncId' FOR UPDATE",
+                transaction: tx,
+              );
+              locked.complete();
+              await gate.future;
+            }),
+          );
+          try {
+            await Future.any([
+              locked.future,
+              holding.then<void>((_) => fail('Sync progress was not held')),
+            ]);
+            final contender = PipelineRepository(
+              session,
+              clock: () => receipt,
+              elapsedForTest: () => Duration.zero,
+              beforeSyncProgressLockForTest: (tx) =>
+                  session.db.unsafeSimpleExecute(
+                    "SET LOCAL statement_timeout='50ms'; SET LOCAL lock_timeout=0",
+                    transaction: tx,
+                  ),
+            );
+            expect(await contender.processOne(), isTrue);
+            final deferred = (await session.db.unsafeQuery('''
+              SELECT status,attempt_count,next_attempt_at FROM raw_inbox
+            ''')).single;
+            expect(deferred.toList(), [
+              'pending',
+              4,
+              receipt.add(const Duration(seconds: 1)),
+            ]);
+            expect(await _count(session, 'events'), 0);
+            expect(await _count(session, 'pipeline_failures'), 0);
+            await gate.join();
+            await holding;
+            await session.db.unsafeExecute(
+              'UPDATE raw_inbox SET next_attempt_at=NULL',
+            );
+            expect(await pinner.processOne(), isTrue);
+            final result = (await session.db.unsafeQuery('''
+              SELECT rows_admitted,rows_done,rows_failed FROM icinga2_sync_progress
+            ''')).single;
+            expect(result.toList(), [1, invalid ? 0 : 1, invalid ? 1 : 0]);
+            expect(await _count(session, 'pipeline_failures'), invalid ? 1 : 0);
+          } finally {
+            await gate.join();
+          }
+        });
+
         test(
           'sync_admission_orders_progress_before_count ${invalid ? 'failure' : 'success'}',
           () async {
@@ -766,7 +837,7 @@ void main() {
               completer,
               holder,
               completing,
-              statement: 'UPDATE icinga2_sync_progress',
+              statement: 'FROM icinga2_sync_progress',
             );
             await expectCountUnlocked();
 

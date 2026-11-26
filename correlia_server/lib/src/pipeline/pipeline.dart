@@ -518,6 +518,30 @@ final class PipelineRepository {
     }
   }
 
+  Future<void> _lockSyncProgress(
+    Transaction tx,
+    _Deadline deadline, {
+    String? sync,
+    String? raw,
+  }) async {
+    await _limits(tx, deadline);
+    try {
+      if (beforeSyncProgressLockForTest case final beforeProgress?) {
+        await beforeProgress(tx);
+      }
+      await session.db.unsafeQuery(
+        '''SELECT 1 FROM icinga2_sync_progress WHERE sync_id=coalesce(@sync::uuid,
+          (SELECT sync_id FROM icinga2_raw_origin WHERE raw_id=@raw::uuid AND origin='sync'))
+        FOR UPDATE''',
+        parameters: QueryParameters.named({'sync': sync, 'raw': raw}),
+        transaction: tx,
+        timeoutInSeconds: 5,
+      );
+    } catch (error, stack) {
+      _PipelineLockWait.throwFor(error, stack);
+    }
+  }
+
   Future<void> _lockRawPin(Transaction tx, _Deadline deadline, _Raw raw) async {
     await _limits(tx, deadline);
     try {
@@ -1116,8 +1140,8 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
             'clamped': clamped,
             'diverged': diverged,
           };
+          await _lockSyncProgress(tx, deadline, sync: syncId);
           await _limits(tx, deadline);
-          await beforeSyncProgressLockForTest?.call(tx);
           final updated = await session.db.unsafeExecute(
             '''UPDATE icinga2_sync_progress AS p
               SET rows_done=rows_done+1, counts=p.counts || (
@@ -1321,8 +1345,8 @@ FROM failure''',
       transaction: tx,
       timeoutInSeconds: 5,
     );
+    if (!raw.replayed) await _lockSyncProgress(tx, deadline, raw: raw.id);
     await _limits(tx, deadline);
-    await beforeSyncProgressLockForTest?.call(tx);
     final failedSync = await session.db.unsafeQuery(
       '''WITH admission AS MATERIALIZED (
           SELECT origin,sync_id FROM icinga2_raw_origin WHERE raw_id=CAST(@raw AS uuid)
