@@ -52,5 +52,5 @@ A `classify` action SHALL set the reserved label `correlia.noise_class` with ori
 - **THEN** the worker applies that snapshot unchanged, and a simulation of the stored event lists the label among the stored labels, never as a hint from a simulated action
 
 #### Scenario: Source label with the reserved key
-- **WHEN** a source event already carries a `correlia.noise_class` label and no rule classifies it
+- **WHEN** a source event already carries a `correlia.noise_class` label, no rule classifies it, and no matcher action (such as a grandfathered `set_label` or `extract`) overwrites that key
 - **THEN** the label keeps origin `source`, the simulator reports no hint, and identity is unchanged
