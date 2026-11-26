@@ -863,6 +863,36 @@ void main() {
     expect(result.finalSeverity, 'warning');
   });
 
+  test('a_severity_action_names_the_mapping_it_selected', () async {
+    final result = await _simulate(
+      _event(),
+      _document([
+        _rule('first', [
+          {
+            'type': 'map_severity',
+            'values': {'critical': 'info', 'warning': 'critical'},
+          },
+          {
+            'type': 'map_severity',
+            'values': {'info': 'warning', 'warning': 'info'},
+          },
+        ]),
+        _rule('later', [
+          {
+            'type': 'map_severity',
+            'values': {'warning': 'critical'},
+          },
+        ]),
+      ]),
+    );
+    expect(result.trace[0].actions.map((a) => (a.detail, a.effect)), [
+      ('warning -> critical', 'skipped: overwritten later in its rule'),
+      ('warning -> info', 'staged'),
+    ]);
+    expect(result.trace[1].actions.single.detail, 'warning -> critical');
+    expect(result.finalSeverity, 'critical');
+  });
+
   test('only_a_simulated_classify_sets_the_hint', () async {
     final result = await _simulate(
       _event(),

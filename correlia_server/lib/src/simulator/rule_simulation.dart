@@ -339,6 +339,7 @@ Future<RuleSimulationResult> simulateRules({
                 index,
                 action,
                 effects[index],
+                original: event.severity,
                 routePresent: present.contains(index),
                 severityUnchanged: sameSeverity.contains(index),
                 applied:
@@ -416,6 +417,7 @@ ActionTrace _actionTrace(
   int index,
   MatcherAction action,
   (MatcherActionEffect, String?)? effect, {
+  required EventSeverity original,
   required bool routePresent,
   required bool severityUnchanged,
   required bool applied,
@@ -429,10 +431,14 @@ ActionTrace _actionTrace(
     MatcherRoute(:final outputId) => ('route', outputId),
     MatcherSeverity(:final values) => (
       'severity',
-      [
-        for (final entry in values.entries)
-          '${entry.key.name} -> ${entry.value.name}',
-      ].join(', '),
+      switch (effect) {
+        // The mapping that fired, from the event's original severity.
+        (_, final String target) => '${original.name} -> $target',
+        _ => [
+          for (final entry in values.entries)
+            '${entry.key.name} -> ${entry.value.name}',
+        ].join(', '),
+      },
     ),
     MatcherLink(:final link) => ('link', '${link.relation} ${link.href}'),
     MatcherExtract(:final key) => (

@@ -23,8 +23,10 @@ This change advances two M2 exit criteria:
 - **The owner checks enriched events from a day of real traffic (user):** the simulator is how the
   owner checks why an event was or was not enriched. That criterion is judged at the milestone close,
   because only the whole ingest track can be run for a day. Before that, the owner runs the fully
-  simulated end-to-end demo of the milestone's last change, `enrichment-demo` (S7). Here the owner can trace any
-  stored event with the simulator command line (S8).
+  simulated end-to-end demo of the milestone's last change, `enrichment-demo` (S7). Here the owner can trace a
+  stored event with the simulator command line (S8) when its raw row still re-decodes and the stored fields
+  identify the member the pipeline kept; otherwise the simulator returns `raw_unavailable` or
+  `ambiguous_member`.
 
 ## What Changes
 

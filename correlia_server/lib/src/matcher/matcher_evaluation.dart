@@ -123,7 +123,10 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
       case MatcherSeverity(:final values):
         final mapped = values[original.severity];
         severity = mapped ?? severity;
-        if (mapped != null) severityWrites?.add(index);
+        if (mapped != null) {
+          severityWrites?.add(index);
+          reported?[index] = mapped.name;
+        }
         onAction?.call(
           index,
           mapped == null
@@ -218,7 +221,7 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
     // Every mapped severity but the last is overwritten.
     for (final (position, index) in severityWrites!.indexed) {
       if (position < severityWrites.length - 1) {
-        onAction(index, MatcherActionEffect.superseded, null);
+        onAction(index, MatcherActionEffect.superseded, reported![index]);
       }
     }
   }

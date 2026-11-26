@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import '../event/canonical_event.dart';
@@ -375,7 +376,9 @@ final class _Leaf extends MatcherCondition {
     }
     final bool result;
     try {
-      result = await _test(value, regex);
+      // Only a regex leaf waits; the other operators answer synchronously.
+      final test = _test(value, regex);
+      result = test is Future<bool> ? await test : test;
     } on MatcherRegexUnavailable catch (error) {
       if (trace is LeafTrace) {
         trace._outcome = LeafOutcome.failed;
@@ -391,7 +394,7 @@ final class _Leaf extends MatcherCondition {
     return result;
   }
 
-  Future<bool> _test(String value, MatcherRegexTest regex) async {
+  FutureOr<bool> _test(String value, MatcherRegexTest regex) {
     return switch (op) {
       'exists' => true,
       'equals' => value == operand,
