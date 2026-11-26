@@ -272,13 +272,29 @@ Line citations in Context are to `main` before this change (commit `1bfa471`).
   the primary key. The repair guidance in `docs/ingest-pipeline.md` ("Repair migrations") names
   `matcher_content_digest`, `matcher_content_digest_fill` and their primary keys among the tables a
   repair must not drop or alter.
+  **Amendment (pre-ship review round 30, 2026-11-26):** schema step `0017`
+  (`schema/0017_matcher_digest_snapshot_fk.sql`) adds the foreign key
+  `matcher_content_digest_first_snapshot_fk` from `first_snapshot_id` to `ingest_config_snapshot."snapshotId"`.
+  The database then refuses to delete a snapshot while a digest row names it, so a digest never outlives
+  the snapshot behind it and a hand-deleted snapshot's content cannot pass as a restore. The step first
+  deletes digest rows whose snapshot is already gone and, when it deleted any, resets `filled_through` to
+  0, so the next fill records again the content a surviving snapshot still holds. Tests
+  (`matcher_reserved_label_test.dart`): `a_digest_cannot_outlive_the_snapshot_it_names` (the delete fails
+  until the digest row is removed, after which the content is new again) and
+  `upgrade_removes_digests_whose_snapshot_is_gone`. The repair guidance names the constraint: a repair
+  that drops or recreates `ingest_config_snapshot` must keep or recreate it.
 - **Rejected:** accepting such writes and giving `classify` its own label origin, because it adds an
   origin value to `labels_origin`. Rejecting restart and rollback too, because it would break ADR 0032's
-  restart and restore contract (review round 3).
+  restart and restore contract (review round 3). After review round 30: recording every snapshot that
+  holds each content and accepting a restore while one remains, a larger change to the schema, the fill
+  and publication; and documenting a hand deletion as unsupported, which leaves the deleted snapshot's
+  content passing as a restore.
 - **Reversal cost:** low.
 - **Important:** yes (users see the validation).
 - **Chosen by:** user ("reject on new publish"; confirmed as new content only after review round 3,
-  2026-11-25); user (the digest table, after review round 6, 2026-11-25)
+  2026-11-25); user (the digest table, after review round 6, 2026-11-25); user (the foreign key from
+  `first_snapshot_id` to the snapshot, option A of three, after pre-ship review round 30, 2026-11-26,
+  relayed by Ormy)
 
 ### D14: One deterministic retained member per event ID
 
@@ -329,7 +345,7 @@ D1 to D6 were query enrichment decisions; they moved with S9 (see "Handed to que
 | D10 | Simulation engine | `applyMatcherRule`, fresh budgets, whole fanout limit, active-source route baseline, stored values shown | Rolled-back `MatcherBatch` | low | no | agent |
 | D11 | Simulator CLI | `tool/simulate.dart` over the generated client | None until M4 | low | no | agent |
 | D12 | Row decode | Input read + pure decode, with admission metadata | Pin-only decode | low | no | agent |
-| D13 | Reserved key | Reject new content only, digest table; restart, rollback and pins run | Separate origin; reject always | low | yes | user |
+| D13 | Reserved key | Reject new content only, digest table with a foreign key to its snapshot; restart, rollback and pins run | Separate origin; reject always | low | yes | user |
 | D14 | Retained member | Event ID, then input position | Unstable sort + stored position | low | no | agent |
 | D15 | Simulator labels | Typed `{key, value}` entries | Maps; reject `__className__` | low | no | agent |
 
@@ -459,8 +475,8 @@ sequenceDiagram
 ## Release and upgrade
 
 - Upgrade is offline (ADR 0033): stop admission, drain the inbox and outbox on the old release, stop
-  every old process and supervisor, then start the new binary, which applies schema steps `0015` and
-  `0016` and fills `matcher_content_digest` for every snapshot after the `filled_through` watermark
+  every old process and supervisor, then start the new binary, which applies schema steps `0015`,
+  `0016` and `0017` and fills `matcher_content_digest` for every snapshot after the `filled_through` watermark
   (all of them on the first start) before accepting publications. The startup lock wait is capped at
   60 s; the fill's own time grows with the unfilled suffix. A
   previous binary cannot read a snapshot whose matcher uses `classify` (its action dispatch has no

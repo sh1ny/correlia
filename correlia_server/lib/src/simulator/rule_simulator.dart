@@ -122,6 +122,31 @@ final class RuleSimulator {
       'SET TRANSACTION READ ONLY',
       transaction: tx,
     );
+    // The stored event is resolved first: its lookup turns unreadable
+    // pinned settings into `raw_unavailable`, even when the pin is the
+    // active snapshot read below.
+    final CanonicalEvent event;
+    StoredEventInfo? stored;
+    switch (request) {
+      case PastedEventRequest(event: final pasted):
+        event = pasted;
+      case StoredEventRequest():
+        final found = await lookupStoredEvent(session, tx, request);
+        switch (found) {
+          case StoredEventLookupFailure(:final error):
+            return _Failed(error);
+          case FoundStoredEvent(
+            :final member,
+            stored: final storedEvent,
+            :final snapshotId,
+          ):
+            event = member;
+            stored = StoredEventInfo.fromEvent(
+              storedEvent,
+              snapshotId: snapshotId,
+            );
+        }
+    }
     final active = await IngestConfigRepository(
       session,
     ).activeSnapshot(transaction: tx);
@@ -151,28 +176,6 @@ final class RuleSimulator {
       }
     } on MatcherDocumentError catch (error) {
       return _Failed(simulationErrorFromDocument(error));
-    }
-    final CanonicalEvent event;
-    StoredEventInfo? stored;
-    switch (request) {
-      case PastedEventRequest(event: final pasted):
-        event = pasted;
-      case StoredEventRequest():
-        final found = await lookupStoredEvent(session, tx, request);
-        switch (found) {
-          case StoredEventLookupFailure(:final error):
-            return _Failed(error);
-          case FoundStoredEvent(
-            :final member,
-            stored: final storedEvent,
-            :final snapshotId,
-          ):
-            event = member;
-            stored = StoredEventInfo.fromEvent(
-              storedEvent,
-              snapshotId: snapshotId,
-            );
-        }
     }
     final sources =
         (snapshot?['sources'] as List<Object?>? ?? const <Object?>[])

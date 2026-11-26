@@ -203,7 +203,7 @@ Future<List<int>> _versions(Connection connection) async => [
 ];
 
 const _currentVersions = [
-  1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, //
+  1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, //
 ];
 
 /// How long a lock request of another backend of [observer]'s database waits

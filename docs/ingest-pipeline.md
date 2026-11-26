@@ -196,6 +196,8 @@ row even though the worker is gone. The query reports `stale` without rewriting 
 
 Serverpod's repair diff sees SQL-owned tables as extraneous and may propose destructive changes. Before applying any generated repair, inspect its entire SQL against the current schema and **remove all operations that drop or alter** `raw_inbox`, `events`, `outbox`, `activity`, `correlia_schema_versions`, `matcher_content_digest` (primary key `digest`), `matcher_content_digest_fill` (primary key `singleton`), their indexes, constraints and time-qualified references. Review related cascades as well. Preserve data and the version table; never force a destructive repair merely to silence drift. Inspect any other unmanaged exceptions individually. If the desired SQL-owned schema itself needs correction, write a new forward schema step, not an edit to an applied step or a generated definition. Review the resulting repair and schema step together on a populated copy before production use.
 
+`matcher_content_digest` has the foreign key `matcher_content_digest_first_snapshot_fk` from `first_snapshot_id` to `ingest_config_snapshot."snapshotId"`, and `raw_inbox` has one from `admission_snapshot_id`. A repair that drops or recreates `ingest_config_snapshot` must keep both constraints or recreate them, with their data intact. Correlia never deletes a snapshot. To delete one by hand, first delete the `matcher_content_digest` rows that name it and set `filled_through` in `matcher_content_digest_fill` to 0; the next start then records again any content that another snapshot still holds.
+
 ## Identity evidence
 
 Alertmanager's upstream fingerprint is retained in raw input and, when present, the `correlia.io/alertmanager_fingerprint` extension. It is not a label or an identity input. Original selected labels determine identity; see ADR 0024. Source-side setup screenshots have not been collected.
@@ -595,7 +597,10 @@ The release that adds `classify` follows the same offline sequence (ADR 0033):
    `matcher_content_digest` (primary key `digest`, the SHA-256 of a snapshot's canonical matcher JSON) and
    `matcher_content_digest_fill` (primary key `singleton`, one row). Step `0016`
    (`schema/0016_matcher_digest_watermark.sql`) adds `filled_through` to that row: the snapshot table id
-   through which the fill has read.
+   through which the fill has read. Step `0017` (`schema/0017_matcher_digest_snapshot_fk.sql`) adds the
+   foreign key `matcher_content_digest_first_snapshot_fk` from `first_snapshot_id` to the snapshot ID. It
+   first deletes digest rows whose snapshot no longer exists and, if it deleted any, resets `filled_through`
+   to 0, so the fill in the next step records again the content of every surviving snapshot.
 3. Right after the schema steps and before it reads the configuration file, the process fills
    `matcher_content_digest` for every snapshot after `filled_through` (every stored snapshot on the first
    start). It reads snapshots in keyset pages of 100 by table id, in one transaction under the publication

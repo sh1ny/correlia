@@ -142,12 +142,13 @@ Future<IngestBootstrap> _installPreChange(
 }
 
 /// Returns the database to its state after step 14: no digest tables and no
-/// record that step 15 ran. The next `initializeSchema` is then the upgrade.
+/// record that steps 15 to 17 ran. The next `initializeSchema` is then the
+/// upgrade.
 Future<void> _rewindToBeforeStep15(Session session) async {
   await session.db.unsafeSimpleExecute(
     '''DROP TABLE matcher_content_digest;
     DROP TABLE matcher_content_digest_fill;
-    DELETE FROM correlia_schema_versions WHERE version IN (15, 16)''',
+    DELETE FROM correlia_schema_versions WHERE version IN (15, 16, 17)''',
   );
 }
 
@@ -209,6 +210,39 @@ Future<List<Map<String, Object?>>> _insertHistory(
   }
   return sections;
 }
+
+/// Inserts one snapshot of [section] under [id], the way the previous binary
+/// stored it, with no digest.
+Future<void> _insertSnapshot(
+  Session session,
+  String id,
+  int revision,
+  Object? section,
+) => _asPublisher(
+  session,
+  (transaction) => session.db.unsafeExecute(
+    '''INSERT INTO ingest_config_snapshot ("snapshotId",revision,"publicJson")
+    VALUES (@id, @revision, @json)''',
+    parameters: QueryParameters.named({
+      'id': id,
+      'revision': revision,
+      'json': jsonEncode({'matcher': _stored(section)}),
+    }),
+    transaction: transaction,
+  ),
+);
+
+Future<void> _deleteSnapshot(Session session, String id) =>
+    session.db.unsafeExecute(
+      'DELETE FROM ingest_config_snapshot WHERE "snapshotId"=@id',
+      parameters: QueryParameters.named({'id': id}),
+    );
+
+Matcher get _foreignKeyViolation => isA<DatabaseQueryException>().having(
+  (e) => e.code,
+  'code',
+  '23503',
+);
 
 IngestConfigRepository _repository(Session session) =>
     IngestConfigRepository(session, secretStore: testSecretStore);
@@ -868,6 +902,76 @@ matcher:
     expect(event.labelsOrigin, containsPair(_key, 'matcher'));
   });
 
+  _dbTest('a_digest_cannot_outlive_the_snapshot_it_names', (builder) async {
+    final session = builder.build();
+    await initializeIngestSchema(session);
+    final base = await _publish(session, 1, null, _matcher(_benign));
+    final legacy = _matcher([_write('legacy')]);
+    await _insertSnapshot(session, 'legacy-only', 1000001, legacy);
+    await initializeIngestSchema(session);
+    expect(await _count(session, 'matcher_content_digest'), 2);
+    // The database refuses to delete the snapshot while its digest exists.
+    await expectLater(
+      _deleteSnapshot(session, 'legacy-only'),
+      throwsA(_foreignKeyViolation),
+    );
+    // Removing the digest first lets the snapshot go, and its content is new
+    // again: it no longer passes as a restore.
+    await session.db.unsafeSimpleExecute(
+      "DELETE FROM matcher_content_digest WHERE first_snapshot_id='legacy-only'",
+    );
+    await _deleteSnapshot(session, 'legacy-only');
+    await expectLater(
+      _publish(session, 2, base.snapshotId, legacy),
+      throwsA(_reservedKeyError('matcher.rules[0].actions[0].key')),
+    );
+  });
+
+  _dbTest('upgrade_removes_digests_whose_snapshot_is_gone', (builder) async {
+    final session = builder.build();
+    await initializeIngestSchema(session);
+    final base = await _publish(session, 1, null, _matcher(_benign));
+    final kept = _matcher([_write('kept')]);
+    final lost = _matcher([_write('lost')]);
+    // Two snapshots share `kept`; the digest names the first. `lost` has one.
+    await _insertSnapshot(session, 'kept-first', 1000001, kept);
+    await _insertSnapshot(session, 'kept-second', 1000002, kept);
+    await _insertSnapshot(session, 'lost-only', 1000003, lost);
+    await initializeIngestSchema(session);
+    expect(await _count(session, 'matcher_content_digest'), 3);
+    // A database from before step 17, where both snapshots a digest names
+    // were deleted by hand.
+    await session.db.unsafeSimpleExecute('''
+ALTER TABLE matcher_content_digest
+  DROP CONSTRAINT matcher_content_digest_first_snapshot_fk;
+DELETE FROM correlia_schema_versions WHERE version = 17''');
+    await _deleteSnapshot(session, 'kept-first');
+    await _deleteSnapshot(session, 'lost-only');
+    await initializeIngestSchema(session);
+    // Both orphans are gone, and the fill read every snapshot again, so the
+    // content a surviving snapshot holds is recorded under it.
+    final rows = await session.db.unsafeQuery(
+      'SELECT first_snapshot_id FROM matcher_content_digest ORDER BY 1',
+    );
+    expect(
+      [for (final row in rows) row[0]],
+      [
+        base.snapshotId,
+        'kept-second',
+      ]..sort(),
+    );
+    await expectLater(
+      _deleteSnapshot(session, 'kept-second'),
+      throwsA(_foreignKeyViolation),
+    );
+    // Surviving content still restores; content with no snapshot left is new.
+    final restored = await _publish(session, 2, base.snapshotId, kept);
+    await expectLater(
+      _publish(session, 3, restored.snapshotId, lost),
+      throwsA(_reservedKeyError('matcher.rules[0].actions[0].key')),
+    );
+  });
+
   _dbTest('a_long_history_of_distinct_content_keeps_one_probe', (
     builder,
   ) async {
@@ -1024,11 +1128,12 @@ matcher:
     for (final file in [
       'schema/0015_matcher_content_digest.sql',
       'schema/0016_matcher_digest_watermark.sql',
+      'schema/0017_matcher_digest_snapshot_fk.sql',
     ]) {
       await session.db.unsafeSimpleExecute(File(file).readAsStringSync());
     }
     await session.db.unsafeSimpleExecute(
-      'INSERT INTO correlia_schema_versions (version) VALUES (15), (16)',
+      'INSERT INTO correlia_schema_versions (version) VALUES (15), (16), (17)',
     );
     expect(await _count(session, 'matcher_content_digest_fill'), 0);
     final restored = await _publish(session, 2, base.snapshotId, history[249]);

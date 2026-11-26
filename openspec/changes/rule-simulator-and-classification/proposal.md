@@ -87,7 +87,8 @@ This change advances two M2 exit criteria:
   rejected; an exact restart or a rollback to earlier content still works.
 - Database: schema step `0015` adds two SQL-owned tables: `matcher_content_digest`, the digests of
   published matcher content, and `matcher_content_digest_fill`, the fill's one row. Step `0016` adds
-  `filled_through` to that row, the last snapshot table ID the fill read. Publication records each new
+  `filled_through` to that row, the last snapshot table ID the fill read. Step `0017` adds a foreign key
+  from each digest to the snapshot it names, so a digest never outlives that snapshot. Publication records each new
   digest; the first start fills the digests of every stored snapshot, and each later start and publication
   fills those after the watermark, such as a snapshot the previous binary published during an offline
   downgrade. Upgrade is offline (ADR 0033); a previous binary cannot read a snapshot whose matcher uses

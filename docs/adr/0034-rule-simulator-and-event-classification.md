@@ -38,6 +38,8 @@ Schema step `0015` creates two SQL-owned tables outside Serverpod's managed mode
 - `matcher_content_digest(digest bytea PRIMARY KEY, first_snapshot_id text)`: the `sha256Digest` of each published matcher section, the digest the publication guard already computes. Publication inserts it in the snapshot's transaction, so the new-content check is one primary-key probe however long the history grows.
 - `matcher_content_digest_fill`: a one-row table holding `filled_through`, the snapshot table ID through which the fill has read (added by step `0016`).
 
+Step `0017` adds the foreign key `matcher_content_digest_first_snapshot_fk` from `first_snapshot_id` to the snapshot ID, so a snapshot cannot be deleted while a digest row names it, and a digest never outlives its snapshot. It first deletes digests whose snapshot is already gone and then has the next fill read every snapshot again. Rejected: recording every snapshot that holds each content, a larger change for a deletion Correlia never makes; documenting hand deletion as unsupported, which lets a deleted snapshot's content pass as a restore.
+
 On upgrade the new binary fills the digests of existing snapshots in Dart, so PostgreSQL never parses snapshot JSON and a plugin configuration holding U+0000 cannot block it. The fill is one transaction under the publication advisory lock, taken with a 60 s timeout; it reads snapshots in keyset pages of 100 by table ID, inserts with `ON CONFLICT DO NOTHING`, and writes the new watermark last. Later starts and publications read only the snapshots after the watermark, so a snapshot that the previous binary published during an offline downgrade still counts as stored content. Rejected: a one-time completion marker, which never records such a snapshot and then rejects its unchanged file as new content. Startup runs it right after the schema steps and before the configuration file is parsed; a starter that times out exits non-zero with failure class `lock_timeout`. Rejected: scanning every snapshot under the publication lock, which grows with history forever; a `jsonb` index, which can fail on old snapshots holding NUL escapes.
 
 ### One deterministic retained member per event ID
@@ -46,7 +48,7 @@ The pipeline orders prepared events by event ID and then by input position, a st
 
 ## Consequences
 
-Upgrade stays offline (ADR 0033). After a publication that uses `classify`, a previous binary cannot read the active snapshot, so going back to it is not supported. Repairs must not drop or alter `matcher_content_digest` or `matcher_content_digest_fill`.
+Upgrade stays offline (ADR 0033). After a publication that uses `classify`, a previous binary cannot read the active snapshot, so going back to it is not supported. Repairs must not drop or alter `matcher_content_digest` or `matcher_content_digest_fill`, and a repair that recreates `ingest_config_snapshot` must recreate the digest's foreign key.
 
 Rows stored before this change keep whichever member the unstable sort kept; the simulator finds it from stored fields when they tell the members apart. Members that differ only in fields the projection leaves out, such as an identity-excluded label, stay `ambiguous_member` even after this change.
 

@@ -641,6 +641,30 @@ SELECT observed_at,event_id,'future_dated',raw_observed_at,raw_id,source_id,conf
             source['excluded_identity_labels'] = <Object?>[];
           });
         }
+        // The pin is still the active snapshot, and its stored settings no
+        // longer parse.
+        final pin = (await session.db.unsafeQuery(
+          'SELECT config_snapshot_id FROM events',
+        )).single[0]!;
+        final saved = (await session.db.unsafeQuery(
+          'SELECT "publicJson" FROM ingest_config_snapshot '
+          'WHERE "snapshotId"=@pin',
+          parameters: QueryParameters.named({'pin': pin}),
+        )).single[0]!;
+        await session.db.unsafeExecute(
+          'UPDATE ingest_config_snapshot SET "publicJson"=@json '
+          'WHERE "snapshotId"=@pin',
+          parameters: QueryParameters.named({'json': '{not json', 'pin': pin}),
+        );
+        final unreadable = await _simulateStored(session, stored);
+        expect(unreadable.error?.code, 'raw_unavailable');
+        expect(unreadable.error?.field, 'eventId');
+        expect(unreadable.trace, isEmpty);
+        await session.db.unsafeExecute(
+          'UPDATE ingest_config_snapshot SET "publicJson"=@json '
+          'WHERE "snapshotId"=@pin',
+          parameters: QueryParameters.named({'json': saved, 'pin': pin}),
+        );
         // Two enabled entries for the row's source.
         await rewritePin((snapshot, source) {
           (snapshot['sources']! as List<Object?>).add({...source});
@@ -742,7 +766,7 @@ SELECT observed_at,event_id,'future_dated',raw_observed_at,raw_id,source_id,conf
         await session.db.unsafeSimpleExecute(
           '''DROP TABLE matcher_content_digest;
 DROP TABLE matcher_content_digest_fill;
-DELETE FROM correlia_schema_versions WHERE version IN (15, 16)''',
+DELETE FROM correlia_schema_versions WHERE version IN (15, 16, 17)''',
         );
         await initializeIngestSchema(session);
         await _publish(
