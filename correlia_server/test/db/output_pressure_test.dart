@@ -875,6 +875,39 @@ void main() {
         }
       });
 
+      test('pending_phase_deadline_spends_retry_budget', () async {
+        await _publish(session, 1, outputs: [_first]);
+        await _send(session, [
+          'processing-deadline-elapses-before-counter-lock',
+        ]);
+        var expired = false;
+        final worker = PipelineRepository(
+          session,
+          clock: () => raw.now,
+          elapsedForTest: () {
+            if (!expired) return Duration.zero;
+            expired = false;
+            return pipelineRowDeadline;
+          },
+          beforeIntentWriteForTest: (_) async {
+            expired = true;
+          },
+        );
+        expect(await worker.pinOne(), isTrue);
+        await session.db.unsafeExecute('UPDATE raw_inbox SET attempt_count=4');
+        expect(await worker.processOne(), isTrue);
+        final row = (await session.db.unsafeQuery(
+          'SELECT status,attempt_count FROM raw_inbox',
+        )).single;
+        expect(row.toList(), ['failed', 5]);
+        final failure = (await session.db.unsafeQuery(
+          'SELECT error_class FROM pipeline_dead_letter',
+        )).single;
+        expect(failure[0], 'processing_exhausted');
+        expect(await raw.count(session, 'events'), 0);
+        expect(await _intents(session), isEmpty);
+      });
+
       test('output_write_refreshes_remaining_deadline', () async {
         await _publish(session, 1, outputs: [_first]);
         await _send(session, ['bounded-output-insert']);

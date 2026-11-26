@@ -44,16 +44,15 @@ final class OperatorRuntime extends Subsystem {
   Future<void> start() async {
     if (path case final file?) {
       try {
-        final value = jsonDecode(
-          utf8.decode(
-            await readBootstrapFile(
-              file,
-              'operator',
-              cap: 4096,
-              private: true,
-            ),
+        final text = utf8.decode(
+          await readBootstrapFile(
+            file,
+            'operator',
+            cap: 4096,
+            private: true,
           ),
         );
+        final value = jsonDecode(text);
         if (value is! Map<String, Object?> ||
             value.isEmpty ||
             value.length > 8) {
@@ -70,6 +69,16 @@ final class OperatorRuntime extends Subsystem {
             throw const FormatException();
           }
           credentials[key] = value;
+        }
+        // These flat fields cannot contain a colon. Any extra separator in
+        // the original object belongs to a member jsonDecode collapsed.
+        var remaining = credentials.length;
+        for (
+          var colon = text.indexOf(':');
+          colon >= 0;
+          colon = text.indexOf(':', colon + 1)
+        ) {
+          if (--remaining < 0) throw const FormatException();
         }
         _credentials = credentials;
       } catch (_) {

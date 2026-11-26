@@ -376,25 +376,45 @@ void main() {
   test('bad_operator_file_fails_startup_without_echo', () async {
     await withOutputProcess((db, env, _, children) async {
       const canary = 'sensitive-credential-file-value';
-      final file = await File(
-        env['TEST_GATE_PATH']!,
-      ).writeAsString('{"operator":"$canary"}');
-      expect((await Process.run('chmod', ['600', file.path])).exitCode, 0);
-      final child = await ChildServer.startOnSharedCluster(
-        serverDir: Directory.current,
-        database: db,
-        args: ['--mode', 'test', '--apply-migrations', '--process-role', 'api'],
-        environment: {
-          ...env,
-          'CORRELIA_DEAD_LETTER_CREDENTIALS_FILE': file.path,
-        },
-      );
-      children.add(child);
-      final pattern = RegExp('dead-letter operator file invalid');
-      await child.waitForOutput(pattern, timeout: const Duration(seconds: 90));
-      expect(await child.exitCode, isNot(0));
-      expect(child.output, isNot(contains(canary)));
-      expect(child.output, isNot(contains(file.path)));
+      final first = 'a' * 64;
+      final second = 'b' * 64;
+      const escapedId = r'oper\u0061tor';
+      final badFiles = {
+        'invalid digest': '{"operator":"$canary"}',
+        'duplicate ID': '{"operator":"$first","operator":"$second"}',
+        'escaped duplicate ID': '{"operator":"$first","$escapedId":"$second"}',
+      };
+      final file = File(env['TEST_GATE_PATH']!);
+      for (final MapEntry(key: reason, value: content) in badFiles.entries) {
+        await file.writeAsString(content);
+        expect((await Process.run('chmod', ['600', file.path])).exitCode, 0);
+        final child = await ChildServer.startOnSharedCluster(
+          serverDir: Directory.current,
+          database: db,
+          args: [
+            '--mode',
+            'test',
+            '--apply-migrations',
+            '--process-role',
+            'api',
+          ],
+          environment: {
+            ...env,
+            'CORRELIA_DEAD_LETTER_CREDENTIALS_FILE': file.path,
+          },
+        );
+        children.add(child);
+        const invalid = 'dead-letter operator file invalid';
+        await child.waitForOutput(
+          RegExp('$invalid|\\[correlia\\] Ready to serve\$'),
+          timeout: const Duration(seconds: 90),
+        );
+        expect(child.output, contains(invalid), reason: reason);
+        expect(await child.exitCode, isNot(0));
+        for (final sensitive in [canary, first, second, file.path]) {
+          expect(child.output, isNot(contains(sensitive)), reason: reason);
+        }
+      }
     });
   }, timeout: timeout);
 }

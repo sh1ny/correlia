@@ -279,6 +279,10 @@ typedef _Retained = ({
   bool routes,
 });
 
+final class _ProcessingDeadlineExceeded implements Exception {
+  const _ProcessingDeadlineExceeded();
+}
+
 final class _Deadline {
   _Deadline(this._testElapsed)
     : _stopwatch = _testElapsed == null ? (Stopwatch()..start()) : null;
@@ -292,7 +296,7 @@ final class _Deadline {
 
   void check() {
     if (_elapsed >= pipelineRowDeadline) {
-      throw TimeoutException('pipeline transaction deadline');
+      throw const _ProcessingDeadlineExceeded();
     }
   }
 

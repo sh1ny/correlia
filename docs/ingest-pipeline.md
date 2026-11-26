@@ -1190,8 +1190,8 @@ Generate 32 random bytes per machine. Store the SHA-256 hex digest of those **by
 in the file, and give the machine the 43-character unpadded base64url encoding of the
 bytes. Send it in `Authorization: Bearer <token>` to the API port over TLS. Do not put
 the token in the URL or RPC arguments. Webhook credentials do not grant this access.
-Replace the file and restart each API replica to rotate credentials. A malformed file
-stops startup.
+Replace the file and restart each API replica to rotate credentials. A malformed file or a
+repeated machine ID stops startup.
 
 Use `Client.deadLetter` from `correlia_client` with the machine bearer:
 
@@ -1206,7 +1206,7 @@ Status shows blocking outputs first, up to 64 lanes. `outputsTruncated` indicate
 lanes are omitted. A failed partition attachment reports `prepare_partition` with zero
 affected rows and keeps its retry record. A successful attachment reports one affected partition.
 
-Use a limit from 1 to 100 for `list` and `replayBatch`. Pass the continuation to the same
+Supply a limit from 1 to 100 for `list` and `replayBatch`. Pass the continuation to the same
 method with the same filters. It resumes after the last considered occurrence and keeps
 the first page's upper time bound even if the database clock moves back. Start a new listing
 to include later failures or revisit refused items. No reply includes raw bodies, delivery

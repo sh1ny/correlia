@@ -13,7 +13,7 @@ class DeadLetterEndpoint extends Endpoint {
   Future<QueueFailurePage> list(
     Session session,
     QueueFailureFilter filter, {
-    int limit = 50,
+    required int limit,
     String? continuation,
   }) => _authorized(
     session,
@@ -34,7 +34,7 @@ class DeadLetterEndpoint extends Endpoint {
   Future<QueueReplayResult> replayBatch(
     Session session,
     QueueFailureFilter filter, {
-    int limit = 50,
+    required int limit,
     String? continuation,
   }) => _authorized(
     session,
