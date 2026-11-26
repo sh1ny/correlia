@@ -103,8 +103,11 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
   final newKeyWriters = onAction == null ? null : <int>[];
   final linkWriters = onAction == null ? null : <int>[];
   void put(int index, String key, String value) {
-    if (!labels.containsKey(key) && !current.labels.containsKey(key)) {
-      newKeyWriters?.add(index);
+    // The pipeline passes no observer and skips the lookups.
+    if (newKeyWriters != null &&
+        !labels.containsKey(key) &&
+        !current.labels.containsKey(key)) {
+      newKeyWriters.add(index);
     }
     labels[key] = value;
   }

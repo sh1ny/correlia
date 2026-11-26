@@ -657,6 +657,91 @@ matcher:
     expect(event.labelsOrigin, containsPair(_key, 'matcher'));
   });
 
+  _dbTest('an_ordinary_pre_upgrade_snapshot_restarts_and_still_applies', (
+    builder,
+  ) async {
+    final session = builder.build();
+    await initializeIngestSchema(session);
+    final directory = await Directory.systemTemp.createTemp(
+      'correlia-ordinary-',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    final matcher = _matcher(
+      _benign,
+      when: const {
+        'field': 'labels.alertname',
+        'op': 'equals',
+        'value': 'Watchdog',
+      },
+    );
+    (matcher['rules']! as List<Object?>)
+            .cast<Map<String, Object?>>()
+            .single['id'] =
+        'ordinary';
+    // One file, unchanged across the upgrade: JSON is valid YAML.
+    final file = File('${directory.path}/ingest.yaml');
+    await file.writeAsString(
+      jsonEncode(_config(1, null, matcher, source: true)),
+    );
+    // The previous binary stored this snapshot for the file. The ID and JSON
+    // are what revision 1bfa471's IngestBootstrap.parse produced, frozen here
+    // so that today's parser cannot make the test agree with itself. Its
+    // matcher writes no reserved key.
+    const frozenId =
+        '472f3f10b07431260a4ae08a6fa9746fbc13dae85b8a36ef170b19956fdf0357';
+    const frozenJson =
+        '{"format_version":2,"revision":1,"sources":[{"id":"bbbbbbbb-'
+        'bbbb-4bbb-8bbb-777777777777","kind":"alertmanager","namespac'
+        'e":"bbbbbbbb-bbbb-4bbb-8bbb-777777777777","enabled":true,"cr'
+        'edentials":[{"ref":"reserved-token","type":"bearer","digest"'
+        ':"4bb06f8e4e3a7715d201d573d0aa423762e55dabd61a2c02278fa56cc6'
+        'd294e0"}],"path_token_enabled":false,"body_limit_bytes":1048'
+        '576,"rate_limit":{"per_second":20,"burst":40},"excluded_iden'
+        'tity_labels":[],"output_ids":[]}],"outputs":[],"matcher":{"l'
+        'anguage":"matcher","rules":[{"actions":[{"key":"team","type"'
+        ':"set_label","value":"ops"}],"id":"ordinary","when":{"field"'
+        ':"labels.alertname","op":"equals","value":"Watchdog"}}],"ver'
+        'sion":1}}';
+    await _asPublisher(session, (transaction) async {
+      await session.db.unsafeExecute(
+        '''INSERT INTO ingest_config_snapshot ("snapshotId",revision,"publicJson")
+        VALUES (@id,1,@json)''',
+        parameters: QueryParameters.named({'id': frozenId, 'json': frozenJson}),
+        transaction: transaction,
+      );
+      await session.db.unsafeExecute(
+        'INSERT INTO ingest_active_config (singleton,"snapshotId") VALUES (1,@id)',
+        parameters: QueryParameters.named({'id': frozenId}),
+        transaction: transaction,
+      );
+    });
+    await _rewindToBeforeStep15(session);
+    await initializeIngestSchema(session);
+    // This binary starts from the same file and republishes it through the
+    // repository.
+    final restarted = (await IngestBootstrap.load(
+      {'CORRELIA_INGEST_CONFIG': file.path},
+      runMode: 'test',
+      publish: (config, secrets) => _repository(
+        session,
+      ).publishConfig(config, _reserved, runMode: 'test'),
+    ))!;
+    expect(restarted.snapshotId, frozenId);
+    expect(
+      (await _repository(session).activeSnapshot())?['snapshotId'],
+      frozenId,
+    );
+    expect(await _count(session, 'ingest_config_snapshot'), 1);
+    // The stored rule still applies.
+    await _insertRaw(session, 1, 'Watchdog');
+    final worker = _worker(session);
+    expect(await worker.pinOne(), isTrue);
+    expect(await worker.processOne(), isTrue);
+    final event = (await _events(session)).single;
+    expect(event.labels, containsPair('team', 'ops'));
+    expect(event.labelsOrigin, containsPair('team', 'matcher'));
+  });
+
   _dbTest('an_older_binary_publishing_after_the_fill_stores_its_content', (
     builder,
   ) async {

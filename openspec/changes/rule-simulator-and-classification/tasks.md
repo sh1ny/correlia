@@ -32,6 +32,7 @@
 | event-classification → Noise class hints | A snapshot pinned before the change keeps running | `correlia_server/test/db/matcher_reserved_label_test.dart` | `a_snapshot_pinned_before_the_change_keeps_running` | green |
 | event-classification → Noise class hints | Source label with the reserved key | `correlia_server/test/unit/matcher/classify_test.dart` | `source_label_with_the_reserved_key` | green |
 | matcher-rules → Classify action | Existing documents stay valid | `correlia_server/test/unit/matcher/classify_test.dart` | `existing_documents_stay_valid` | green |
+| matcher-rules → Classify action | Existing documents stay valid | `correlia_server/test/db/matcher_reserved_label_test.dart` | `an_ordinary_pre_upgrade_snapshot_restarts_and_still_applies` | green |
 | matcher-rules → Classify action | New actions in one rule | `correlia_server/test/unit/matcher/classify_test.dart` | `new_actions_in_one_rule` | green |
 | matcher-rules → Classify action | A failing action discards the hint | `correlia_server/test/unit/matcher/classify_test.dart` | `a_failing_action_discards_the_hint` | green |
 | matcher-rules → Classify action | Upgrade with a file that writes the reserved key | `correlia_server/test/db/matcher_reserved_label_test.dart` | `upgrade_with_a_file_that_writes_the_reserved_key` | green |
