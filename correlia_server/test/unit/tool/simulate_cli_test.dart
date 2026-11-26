@@ -428,7 +428,15 @@ void main() {
   });
 
   test('a server that is not an http URL is a usage error', () async {
-    for (final server in ['localhost:8080', 'ftp://x.example/', 'http://']) {
+    for (final server in [
+      'localhost:8080',
+      'ftp://x.example/',
+      'http://',
+      // The client appends the endpoint path to the URL as given, so a query
+      // or fragment would swallow it.
+      'http://x.example/?a=1',
+      'http://x.example/#top',
+    ]) {
       final h = _Harness(_result());
       expect(
         await h.run([
@@ -446,6 +454,18 @@ void main() {
       expect(h.err.toString(), contains('--server must be'), reason: server);
     }
     expect(isServerUrl('https://correlia.example:8443/'), isTrue);
+  });
+
+  test('the client gets the server URL in normal form', () {
+    final server = serverOption([
+      '--server',
+      'HTTPS://Correlia.Example:8443',
+      '--event-id',
+      _id,
+    ]);
+    expect(server, 'https://correlia.example:8443');
+    // The generated client asserts on a scheme that is not lowercase.
+    rpc.Client(server).close();
   });
 
   test(

@@ -88,6 +88,7 @@
 | rule-simulator → Simulation has no side effects | Simulation leaves stored state unchanged | `correlia_server/test/db/rule_simulator_rpc_test.dart` | `simulation_leaves_stored_state_unchanged` | green |
 | workspace-tooling → Simulator command line | Trace a stored event | `correlia_server/test/db/simulate_cli_test.dart` | `trace_a_stored_event` | green |
 | workspace-tooling → Simulator command line | Malformed timestamp | `correlia_server/test/unit/tool/simulate_cli_test.dart` | `malformed_timestamp` | green |
+| workspace-tooling → Simulator command line | Malformed timestamp | `correlia_server/test/db/simulate_cli_test.dart` | `malformed_timestamp_against_the_running_endpoint` | green |
 | workspace-tooling → Simulator command line | Simulator error | `correlia_server/test/unit/tool/simulate_cli_test.dart` | `simulator_error` | green |
 
 Every `db` test names its tier with `testGroupTagsOverride`; fast tests carry no tag.

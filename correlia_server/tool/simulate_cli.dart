@@ -48,13 +48,17 @@ ArgParser _parser() => ArgParser()
   ..addFlag('help', abbr: 'h', negatable: false, help: 'Show this usage.');
 
 /// Reads the `--server` option from [args], or the default when [args] do not
-/// parse (the usage error is reported by [runSimulate]).
+/// parse (the usage error is reported by [runSimulate]). A valid URL comes
+/// back in normal form, its scheme and host in lowercase, since the generated
+/// client checks for a lowercase `http://` or `https://` prefix.
 String serverOption(List<String> args) {
+  final String server;
   try {
-    return _parser().parse(args).option('server') ?? defaultServer;
+    server = _parser().parse(args).option('server') ?? defaultServer;
   } on FormatException {
     return defaultServer;
   }
+  return isServerUrl(server) ? Uri.parse(server).toString() : server;
 }
 
 /// The most bytes of a `--event` file the CLI sends: the server's CloudEvent
@@ -85,10 +89,18 @@ String escapeJsonControls(String json) => json.replaceAllMapped(
   (match) => '\\u${match[0]!.codeUnitAt(0).toRadixString(16).padLeft(4, '0')}',
 );
 
-/// Whether [server] is an absolute `http` or `https` URL with a host, the only
-/// form the generated client accepts.
+/// Whether [server] is an absolute `http` or `https` URL with a host and no
+/// query or fragment. The generated client appends the endpoint path to the
+/// URL as given, so a query or fragment would swallow that path.
 bool isServerUrl(String server) => switch (Uri.tryParse(server)) {
-  Uri(scheme: 'http' || 'https', host: final host) when host.isNotEmpty => true,
+  Uri(
+    scheme: 'http' || 'https',
+    host: final host,
+    hasQuery: false,
+    hasFragment: false,
+  )
+      when host.isNotEmpty =>
+    true,
   _ => false,
 };
 
@@ -136,7 +148,9 @@ Future<int> runSimulate(
     return usage('Unexpected argument: ${results.rest.first}');
   }
   if (!isServerUrl(results.option('server') ?? defaultServer)) {
-    return usage('--server must be an http:// or https:// URL.');
+    return usage(
+      '--server must be an http:// or https:// URL with no query or fragment.',
+    );
   }
   final eventFile = results.option('event');
   final eventId = results.option('event-id');

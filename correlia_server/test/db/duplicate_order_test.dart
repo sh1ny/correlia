@@ -123,6 +123,23 @@ void main() {
         expect(outcome, containsPair('duplicate_observation', 0));
         expect(await countRows(session, 'events'), 1);
         expect(await countRows(session, 'outbox'), 1);
+        // The first copy is future-dated against its receipt, so the stored
+        // and delivered event are the second copy, received two hours later.
+        final second = now.add(const Duration(hours: 2)).toUtc();
+        final rows = await queryRows(session, '''
+          SELECT e.observed_at AS key,
+                 convert_from(e.payload,'UTF8')::jsonb->'data'->>'observed_at' AS stored,
+                 o.event_observed_at AS outbox_key,
+                 o.event_id = e.event_id AS same_event,
+                 convert_from(o.payload,'UTF8')::jsonb->'data'->>'observed_at' AS delivered
+          FROM events e JOIN outbox o ON o.event_id = e.event_id
+        ''');
+        final row = rows.single;
+        expect((row['key']! as DateTime).toUtc(), second);
+        expect((row['outbox_key']! as DateTime).toUtc(), second);
+        expect(row['same_event'], isTrue);
+        expect(DateTime.parse(row['stored']! as String), second);
+        expect(row['delivered'], row['stored']);
       });
     },
     rollbackDatabase: RollbackDatabase.disabled,

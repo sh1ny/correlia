@@ -135,6 +135,34 @@ void main() {
         expect(text, contains('stored snapshot:'));
       });
 
+      test('malformed_timestamp_against_the_running_endpoint', () async {
+        // No offset, and a date that does not exist: the running endpoint
+        // rejects both as invalid input, and the CLI prints that error.
+        for (final text in ['2026-11-10T12:00:00', '2026-02-30T12:00:00Z']) {
+          final out = StringBuffer();
+          final err = StringBuffer();
+          final code = await runSimulate(
+            [
+              '--event-id',
+              '11111111-1111-4111-8111-111111111111',
+              '--observed-at',
+              text,
+            ],
+            client.ruleSimulator.simulate,
+            out,
+            err,
+          );
+          expect(code, isNonZero, reason: text);
+          expect(
+            err.toString(),
+            contains('error: invalid_input'),
+            reason: text,
+          );
+          expect(err.toString(), contains('field: observedAt'), reason: text);
+          expect(out.toString(), isEmpty, reason: text);
+        }
+      });
+
       test('the_executable_traces_a_stored_event', () async {
         await support.seed(session, [
           payload.alert(

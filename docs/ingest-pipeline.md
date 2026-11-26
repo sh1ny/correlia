@@ -449,7 +449,8 @@ RPC error.
 #### Command line
 
 `correlia_server/tool/simulate.dart` calls the endpoint through the generated client against a running server
-(`--server <url>`, default `http://localhost:8080/`; the server must run as the local console). Run it from
+(`--server <url>`, default `http://localhost:8080/`; the server must run as the local console). The URL must
+use `http` or `https` and have no query or fragment; anything else is a usage error. Run it from
 `correlia_server`:
 
 ```sh
