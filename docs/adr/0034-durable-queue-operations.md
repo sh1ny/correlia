@@ -11,7 +11,7 @@ Operators need to inspect and recover failed work without reading payloads from 
 
 ### Operator access and replay
 
-Dead-letter listing, replay and pressure status are typed Serverpod RPCs, disabled by default. A dedicated API credential file contains, at most, eight machine IDs and SHA-256 digests of random 256-bit bearer tokens. The verified machine ID is the ledger actor for each successful replay. Rotate credentials by replacing the file and restarting each API replica. RPC results, status, audit entries and errors do not expose payloads, secrets or raw transport diagnostics. The M4 console will reuse the operations; the M2 demo uses the RPCs directly.
+Dead-letter listing, replay and pressure status are typed Serverpod RPCs, disabled by default. A dedicated API credential file contains, at most, eight machine IDs and SHA-256 digests of random 256-bit bearer tokens. The verified machine ID is the ledger actor for each successful replay. Rotate credentials by replacing the file and restarting each API replica. RPC results, status, audit entries and errors do not expose payloads, secrets or raw transport diagnostics. The M2 demo uses the RPCs directly, including the protected status read. The Flutter operator page is deferred to M4 and will reuse these RPCs.
 
 A raw replay takes a pending slot, preserves the original receipt, bytes, Icinga2 origin and canonical generation, and pins the active compatible binding. It does not change the original sync run. The new processing epoch fences a worker's delayed error after replay, even if the pin is unchanged. Refusals leave the original failure unchanged. Queue age alone does not stop recovery.
 

@@ -161,6 +161,97 @@ void main() {
         );
       });
 
+      test('admission_leaves_counter_free_while_ddl_waits_for_worker', () async {
+        await publish(2, 2);
+        expect(
+          await webhook(first, 'first', 'body'),
+          AdmissionOutcome.accepted,
+        );
+        final witness = await PostgresLockWitness.start(session);
+        addTearDown(witness.close);
+        final waiters = ContentionGate();
+        final releaseWorker = ContentionGate();
+        final worker = builder.build();
+        final ddl = builder.build();
+        final admission = builder.build();
+        final workerReady = Completer<LockActor>();
+        final ddlReady = Completer<LockActor>();
+        final admissionReady = Completer<LockActor>();
+        final completing = releaseWorker.run(
+          () => worker.db.transaction((tx) async {
+            final actor = await pooledLockActor(worker, tx);
+            expect(
+              await worker.db.unsafeQuery(
+                "SELECT raw_id FROM raw_inbox WHERE status='pending' FOR UPDATE",
+                transaction: tx,
+              ),
+              hasLength(1),
+            );
+            workerReady.complete(actor);
+            await releaseWorker.future;
+            // Don't rely on the database choosing a deadlock victim. The
+            // worker must still be able to take the counter before completing.
+            await worker.db.unsafeQuery(
+              'SELECT pending_rows FROM pipeline_pending FOR UPDATE NOWAIT',
+              transaction: tx,
+            );
+            await worker.db.unsafeExecute(
+              "UPDATE raw_inbox SET status='done' WHERE status='pending'",
+              transaction: tx,
+            );
+          }),
+        );
+        try {
+          final holder = await Future.any([
+            workerReady.future,
+            completing.then<LockActor>((_) => fail('Worker did not hold raw')),
+          ]);
+          const ddlLock = 'LOCK TABLE ONLY raw_inbox IN ACCESS EXCLUSIVE MODE';
+          final altering = waiters.run(
+            () => ddl.db.transaction((tx) async {
+              ddlReady.complete(
+                await pooledLockActor(ddl, tx, waiter: SqlTimeouts.poolDefault),
+              );
+              await ddl.db.unsafeExecute(ddlLock, transaction: tx);
+            }),
+          );
+          final ahead = await Future.any([
+            ddlReady.future,
+            altering.then<LockActor>((_) => fail('DDL did not wait')),
+          ]);
+          await witness.blockedBy(ahead, holder, altering, statement: ddlLock);
+
+          const reserve = 'SELECT correlia_reserve_raw(1)';
+          final reserving = waiters.run(
+            () => admission.db.transaction((tx) async {
+              admissionReady.complete(
+                await pooledLockActor(
+                  admission,
+                  tx,
+                  waiter: SqlTimeouts.poolDefault,
+                ),
+              );
+              return (await admission.db.unsafeQuery(
+                reserve,
+                transaction: tx,
+              )).single[0];
+            }),
+          );
+          final behind = await Future.any([
+            admissionReady.future,
+            reserving.then<LockActor>((_) => fail('Admission did not wait')),
+          ]);
+          await witness.blockedBy(behind, ahead, reserving, statement: reserve);
+          await releaseWorker.join();
+          await completing;
+          await altering;
+          expect(await reserving, isNull);
+        } finally {
+          await releaseWorker.join();
+          await waiters.join();
+        }
+      });
+
       test('pending_age_is_sampled_after_waiting_for_capacity', () async {
         await publish(2, 3);
         expect(await webhook(first, 'old', 'body'), AdmissionOutcome.accepted);

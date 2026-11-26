@@ -613,6 +613,9 @@ LANGUAGE plpgsql AS $$
 DECLARE
   pending bigint;
 BEGIN
+  -- Terminal transitions hold the raw relation before updating this counter.
+  -- A queued exclusive DDL waiter must not make us invert that order.
+  LOCK TABLE ONLY raw_inbox IN ROW EXCLUSIVE MODE;
   SELECT pending_rows INTO pending FROM pipeline_pending WHERE singleton=1 FOR UPDATE;
   RETURN correlia_queue_pressure(pending,incoming);
 END;
