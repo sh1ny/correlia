@@ -86,23 +86,21 @@ EventKind? _streamKind(
 
 void main() {
   test('alertmanager_protocol_and_generic_kinds', () {
-    final alertmanager = [
-      for (final name in ['v0.35.0-firing.json', 'v0.35.0-resolved.json'])
-        ..._alertmanager('$_alertmanagerRoot/$name'),
-    ];
-    // Thanos Ruler fixtures reach an Alertmanager-protocol source.
-    final thanos = [
-      for (final name in [
-        'v0.42.5-kept-0001.json',
-        'v0.42.5-dropped-0001.json',
-      ])
-        ..._alertmanager('$_thanosRoot/$name'),
-    ];
-    expect(alertmanager, isNotEmpty);
-    expect(thanos, isNotEmpty);
-    for (final event in [...alertmanager, ...thanos, _generic()]) {
-      expect(event.kind, EventKind.alert);
+    // Each fixture holds one alert, and each is emitted as one event. Thanos
+    // Ruler fixtures reach an Alertmanager-protocol source.
+    for (final path in [
+      '$_alertmanagerRoot/v0.35.0-firing.json',
+      '$_alertmanagerRoot/v0.35.0-resolved.json',
+      '$_thanosRoot/v0.42.5-kept-0001.json',
+      '$_thanosRoot/v0.42.5-dropped-0001.json',
+    ]) {
+      expect(
+        [for (final event in _alertmanager(path)) event.kind],
+        [EventKind.alert],
+        reason: path,
+      );
     }
+    expect(_generic().kind, EventKind.alert);
   });
 
   test('icinga2_webhook_kinds', () {

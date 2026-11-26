@@ -218,6 +218,16 @@ void main() {
       },
     );
 
+    test('a literal backslash is told apart from an escaped control', () async {
+      final result = _result();
+      result.finalLabels = _labels({'newline': 'a\nb', 'literal': r'a\nb'});
+      final h = _Harness(result);
+      expect(await h.run(['--event-id', _id, '--observed-at', 'T']), 0);
+      final text = h.out.toString();
+      expect(text, contains(r'newline=a\nb'));
+      expect(text, contains(r'literal=a\\nb'));
+    });
+
     test('--json prints the result document only', () async {
       final h = _Harness(_result());
       final code = await h.run([

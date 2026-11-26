@@ -347,7 +347,9 @@ void _section(_EscapingSink out, String title, List<String> lines) {
 /// Writes each line with its control characters escaped.
 ///
 /// `\n`, `\r` and `\t` keep their usual escapes; every other C0 or C1 control
-/// character and DEL is written as `\u{hex}`. Only [writeln] ends a line.
+/// character and DEL is written as `\u{hex}`. A backslash is written as `\\`,
+/// so a value holding the text `\n` reads apart from one holding a newline.
+/// Only [writeln] ends a line.
 final class _EscapingSink {
   _EscapingSink(this._sink);
 
@@ -357,6 +359,7 @@ final class _EscapingSink {
     final escaped = StringBuffer();
     for (final rune in line.runes) {
       escaped.write(switch (rune) {
+        0x5c => r'\\',
         0x0a => r'\n',
         0x0d => r'\r',
         0x09 => r'\t',

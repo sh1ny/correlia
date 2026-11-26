@@ -471,7 +471,9 @@ severity, routes (added ones marked hypothetical) and notes; for a stored event 
 and snapshot. `--json` prints the result document instead. The `--observed-at` text goes to the simulator as typed,
 so a timestamp it rejects comes back as its `invalid_input` error for `observedAt`. A simulator error prints
 `error: <code>` and `field: <field>` on stderr, plus `output: <id>` when a draft routes to an unknown output, and
-exits 1; a usage error prints the usage and exits 64. `--json` writes DEL and the C1 control characters as
+exits 1; a usage error prints the usage and exits 64. The readable output writes a newline, carriage return and
+tab as `\n`, `\r` and `\t`, every other control character as `\u{hex}`, and a backslash as `\\`, so a value
+holding the text `\n` reads apart from one holding a newline. `--json` writes DEL and the C1 control characters as
 `\u00XX` escapes, so the document decodes to the same values and cannot drive a terminal.
 
 #### Documented examples
