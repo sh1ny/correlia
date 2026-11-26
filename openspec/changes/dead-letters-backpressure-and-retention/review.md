@@ -1,0 +1,47 @@
+# Review
+
+## Metadata
+
+- **Round:** 4, required-change recheck of the FULL design review for `dead-letters-backpressure-and-retention`.
+- **Prior round:** Round 3 returned `REVISE`. Round 4 returned approval with one required change covering delayed partition attachment failures.
+- **Reviewer:** Codex, read-only.
+- **Reviewed:** The previous verdict, the design's State & Ownership and Migration and reclamation sections, and the durable-pipeline scenario for delayed attachment failure. The recheck used document inspection only.
+
+## Prior round reconciliation
+
+| Round 3 finding | Disposition |
+|---|---|
+| Critical 1. An overflow notice can fail to insert into the attached historical event heap. | Resolved. The parent and historical heap enforce the same exclusive-origin constraint. The populated upgrade scenario sends a real notice into the historical range and checks its reference, digest and size against ledger evidence while preserving existing sender keys and bytes. |
+| Moderate 1. Historical secret checks scan the payload backlog under the publication lock. | Resolved in the design. Indexed pinned and live counts are read in one statement for the supplied references, and processing moves references from pin to intent atomically. Worker startup checks distinct live webhook commitments in a consistent view. Plugin secret availability remains a per-definition launch check. |
+| Moderate 2. Bounded attachment can time out on an empty range in a populated default child. | The owner’s chosen policy is preserved. Occupied days are skipped, empty ranges get a bounded attempt, valid writes can still reach default, and cleanup and offline repair remain available. This recheck resolves the remaining outcome-ordering gap. |
+| Suggestion. Restore the source and replay the original occurrence. | Addressed. The scenario restores the same UUID and mode before expiry and replays the original occurrence under the restored snapshot while preserving the admission-time stream or reconcile policy. |
+
+## Findings
+
+### Critical (blocking)
+
+None.
+
+### Moderate
+
+1. **Resolved. A delayed attachment failure cannot overwrite a newer success.** Maintenance reserves a monotonic attempt ID for `(parent, day)` under the DDL lock and rechecks the ID and catalog before running DDL. If worker A rolls back and pauses, worker B can reserve a newer attempt, attach the same day and clear its retry in the attachment transaction. When A resumes, it reacquires the same lock. Its ID is no longer current and the catalog already covers the range. Either check is sufficient to reject the write. Current partition degradation comes only from outstanding, uncovered retries, and A's rejected result is excluded from the last-batch outcome. [State & Ownership](design.md#state--ownership-full) and [Migration and reclamation](design.md#migration-and-reclamation).
+2. **The regression scenario covers that interleaving.** It pauses A after rollback and before retry recording, lets B attach the same day, then resumes A. It checks that the day stays covered and that A adds no degradation, retry or stale last-batch outcome. Carry barriers and injected time into the task map, with elapsed time used only as a hang guard. [Delayed attachment failure scenario](specs/durable-pipeline/spec.md#scenario-a-delayed-attachment-failure-cannot-replace-success).
+
+### Suggestions
+
+- Exercise historical import across the actual pin-to-intent commit. Give the last pending pin a historical reference absent from the candidate configuration, commit its conversion to a live intent at a barrier, and run publication with matching and mismatched imports on both sides of the commit. This catches separate snapshots for the pinned and live lookups. The startup scenario separately checks `historical_key_unavailable` for a live webhook intent.
+- Exercise maintenance through the runtime registry in API, worker and all roles. Start shutdown at a barrier inside a failing batch and verify that rollback and any outcome recording finish before session close, with no second batch claimed.
+
+## Verdict
+
+VERDICT: APPROVE_WITH_CHANGES
+
+## Required Changes
+
+1. Applied and rechecked. The attempt ID and catalog checks fence failure recording after rollback. Successful attachment clears retry state atomically, and rejected failures cannot affect reported status. The scenario covers the required two-worker ordering.
+
+CHANGES_APPLIED: yes
+
+## Rebuttals
+
+- **Accepted by reviewer in round 4.** Supported publication rejects kind or mode changes for an existing source UUID and preserves both fields on removal. A same-UUID stream-to-webhook fixture falls outside the supported contract. Missing, disabled and restored bindings are reachable and covered by replay scenarios.
