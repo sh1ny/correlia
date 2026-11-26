@@ -9,8 +9,7 @@ import 'package:crypto/crypto.dart';
 import 'package:postgres/postgres.dart';
 import 'package:test/test.dart';
 
-import 'package:correlia_server/src/schema/schema_steps.dart'
-    show defaultSchemaLockTimeout;
+import 'package:correlia_server/src/schema/schema_steps.dart' show schemaSteps;
 
 import '../support/child_server.dart';
 import '../support/shared_cluster.dart';
