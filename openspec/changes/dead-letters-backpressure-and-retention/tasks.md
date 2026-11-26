@@ -15,6 +15,7 @@ Test paths are relative to `correlia_server/`. Green rows carry existing behavio
 | dead-letter-operations → Bounded replay selection and audit | Bulk replay by filter | `test/db/dead_letter_operations_test.dart` | `filtered_replay_batches_report_and_audit` | red |
 | dead-letter-operations → Bounded replay selection and audit | Replay races replay or expiry | `test/db/dead_letter_operations_test.dart` | `replay_and_expiry_lock_one_occurrence` | red |
 | dead-letter-operations → Bounded replay selection and audit | Replay competes for the last pending slot | `test/db/raw_replay_test.dart` | `replay_and_ingress_share_last_slot` | red |
+| dead-letter-operations → Bounded replay selection and audit | Replay uses a concurrently published retention window | `test/db/dead_letter_operations_test.dart` | `publication_shortens_retention_before_replay_locks_policy` | red |
 | dead-letter-operations → Current configuration for pipeline replay | DUR-13 a fixed mapping reaches its backlog | `test/db/raw_replay_test.dart` | `dur_13_mapping_fix_repins_at_replay` | red |
 | dead-letter-operations → Current configuration for pipeline replay | Replaying a row from a finished or absent sync run | `test/db/raw_replay_test.dart` | `reconcile_replay_preserves_finished_and_pruned_runs` | red |
 | dead-letter-operations → Current configuration for pipeline replay | Replay source missing or disabled | `test/db/raw_replay_test.dart` | `missing_and_disabled_sources_keep_failure_occurrence` | red |
@@ -80,6 +81,8 @@ Test paths are relative to `correlia_server/`. Green rows carry existing behavio
 | output-delivery → Retention of terminal delivery evidence | Retention reclaims delivered intents and attempts | `test/db/pipeline_retention_test.dart` | `delivered_retention_reclaims_only_matching_attempts` | red |
 | output-delivery → Retention of terminal delivery evidence | Old creation time with recent completion | `test/db/pipeline_retention_test.dart` | `new_terminal_time_overrides_old_creation_age` | red |
 | output-delivery → Retention of terminal delivery evidence | A discarded intent has more attempts than one batch | `test/db/pipeline_retention_test.dart` | `retired_intent_attempts_reclaim_across_batches` | red |
+| output-delivery → Retention of terminal delivery evidence | Discard starts a new retention window after expiry | `test/db/pipeline_retention_test.dart` | `discard_starts_its_own_terminal_retention` | red |
+| output-delivery → Retention of terminal delivery evidence | Retention reclaims delivered intents and attempts | `test/db/pipeline_retention_test.dart` | `retired_attempt_batch_advances_across_delivery_keys` | red |
 
 ## 1. Record the architecture and migrate durable storage
 
@@ -113,7 +116,3 @@ Test paths are relative to `correlia_server/`. Green rows carry existing behavio
 - [x] 6.1 Write and run `test/e2e/dead_letter_recovery_e2e_test.dart` for the combined DUR-4 recovery and status flows. Exercise the normal delivery relay before and after replay, prove identical bytes and IDs, and show pressure clearing via the same authenticated API Change 9 will call.
 - [x] 6.2 Rerun the two mapped existing crash cases in `test/e2e/nats_burst_e2e_test.dart` and run strict OpenSpec validation. Before heavy local verification check the owner gaming guard and record any equivalent checks deferred to CI. Publish the ingest runbook changes and changelog updates from their owning task groups.
 
-## Workflow follow-up
-
-- Rebase before first push. Move this change's schema steps after every `origin/main` version, including Change 6 if it landed, and rerun affected migration cases.
-- Pass pre-ship review, ship and watch the PR. Archive on its branch after checks and review settle. Verify final-head CI and review as required. Do not merge.

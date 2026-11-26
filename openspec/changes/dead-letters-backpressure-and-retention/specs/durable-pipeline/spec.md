@@ -65,7 +65,7 @@ A kind or format with no decoder SHALL fail the row with a bounded error, never 
 
 ### Requirement: Partitioned storage survives offline upgrade
 
-Correlia SHALL partition raw inbox and canonical events by UTC receipt date and outbox by UTC creation date. Fresh installs and offline upgrades SHALL preserve existing sender data and allow valid writes through the default child when daily attachment cannot finish. Upgrade SHALL NOT require draining unfinished or failed work. Only worker and all roles SHALL perform periodic maintenance.
+Correlia SHALL partition raw inbox and events by UTC receipt date, and outbox by UTC creation date. Fresh installs and offline upgrades SHALL preserve sender data and accept valid writes through the default child if daily attachment fails. Repair SHALL preserve accepted work there without moving protected rows to make attachment pass. Upgrade SHALL NOT require draining unfinished or failed work. Only worker and all roles SHALL run periodic maintenance.
 
 #### Scenario: Populated upgrade and fresh installation
 - **WHEN** a database populated at the immediate predecessor of the partition cutover upgrades offline and an empty database starts on the same version

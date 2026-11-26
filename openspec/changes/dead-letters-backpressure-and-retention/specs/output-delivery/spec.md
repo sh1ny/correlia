@@ -98,7 +98,7 @@ Each overflow episode SHALL raise one durable Correlia alert and attempt to rout
 
 ### Requirement: Retention of terminal delivery evidence
 
-Delivered and discarded intents SHALL become age-eligible after their configured terminal retention, default seven days. Live and active dead intents SHALL NOT be reclaimed. Reclamation SHALL remove a retired intent's matching attempt records in bounded batches and keep every attempt for work still retained.
+Delivered and discarded intents SHALL become age-eligible after their configured terminal retention, default seven days from delivery or discard. Live and active dead intents SHALL NOT be reclaimed. Reclamation SHALL remove a retired intent's matching attempt records in bounded batches and keep every attempt for work still retained.
 
 #### Scenario: Retention reclaims delivered intents and attempts
 - **WHEN** an old delivered intent passes its retention cutoff
@@ -107,6 +107,10 @@ Delivered and discarded intents SHALL become age-eligible after their configured
 #### Scenario: Old creation time with recent completion
 - **WHEN** an intent was created before the retention cutoff but just completed, or was still queued, delivering or dead
 - **THEN** its old creation date alone is not sufficient to remove it or its attempt history
+
+#### Scenario: Discard starts a new retention window after expiry
+- **WHEN** an active dead delivery expires and becomes `discarded`
+- **THEN** its terminal retention starts at discard, and the intent and its attempts remain until that window passes
 
 #### Scenario: A discarded intent has more attempts than one batch
 - **WHEN** a repeatedly replayed dead intent expires and its terminal retention passes with more attempt rows than one cleanup batch

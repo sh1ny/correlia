@@ -50,6 +50,10 @@ An authorized caller SHALL replay one named occurrence or one bounded batch by e
 - **WHEN** two requests target the same failed occurrence, or replay and expiry race for it
 - **THEN** at most one request can requeue that occurrence, expiry cannot discard a requeued row, and an occurrence already expired or changed is not replayed or audited as a success
 
+#### Scenario: Replay uses a concurrently published retention window
+- **WHEN** a replay locks a failed row and a publication shortens its retention before replay takes the active configuration lock
+- **THEN** replay checks the new window and leaves the expired occurrence unchanged without auditing it as queued
+
 #### Scenario: Replay competes for the last pending slot
 - **WHEN** a raw replay and a new admission race for the last pending slot
 - **THEN** only one uses the slot, the count stays at the cap, and a replay refused for capacity retains the original failure without recording a successful replay
