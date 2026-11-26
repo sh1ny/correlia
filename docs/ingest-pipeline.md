@@ -407,8 +407,10 @@ and is always new content. Nothing is published, stored or sent.
 
 The result carries:
 
-- `ruleSource` (`active` or `draft`), and for the active rules the snapshot ID and revision. `noRulesActive` is
-  true when there is no active matcher.
+- `ruleSource` (`active` or `draft`), and the active snapshot's ID and revision when a snapshot is active. A draft
+  result carries them too, because that snapshot supplies the sources and outputs the draft runs against.
+  `noRulesActive` is true only for an active-rule simulation with no rules to run: no active matcher, or one with
+  no rules. A draft result always reports `false`, so the flag says nothing about the server's configuration.
 - `trace`: one entry per rule in order, with the outcome (`matched`, `not matched`, `failed` or `not attempted`),
   a `failureCode` for a failed rule, and each condition's field, operator, outcome and any failure code. Each
   action reports its effect: staged, skipped with the reason, failed with its rule's failure code, or not run. A
@@ -445,7 +447,7 @@ RPC error.
 | an event validation code | the event field path | The pasted event fails validation |
 | a matcher validation code | the matcher field path | The draft fails the checks of publication, such as `reserved_key:correlia.noise_class;use_classify_or_rename_the_label` |
 | `event_not_found` | `eventId` | No stored event has that key |
-| `raw_unavailable` | `eventId` | The stored event's raw row is gone or cannot be decoded again, including when its processing snapshot is gone or its decode settings no longer parse or have the wrong shape (such as a source without its namespace) |
+| `raw_unavailable` | `eventId` | The stored event's raw row is gone or cannot be decoded again, including when its processing snapshot is gone or its decode settings no longer parse or have the wrong shape (such as a source without its namespace, or a source enabled twice) |
 | `ambiguous_member` | `eventId` | No member of the decoded raw row matches the stored event, or the raw row holds several differing events with that ID and the stored event does not tell which one was kept |
 
 #### Command line

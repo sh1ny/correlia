@@ -641,6 +641,14 @@ SELECT observed_at,event_id,'future_dated',raw_observed_at,raw_id,source_id,conf
             source['excluded_identity_labels'] = <Object?>[];
           });
         }
+        // Two enabled entries for the row's source.
+        await rewritePin((snapshot, source) {
+          (snapshot['sources']! as List<Object?>).add({...source});
+        });
+        final duplicated = await _simulateStored(session, stored);
+        expect(duplicated.error?.code, 'raw_unavailable');
+        expect(duplicated.error?.field, 'eventId');
+        expect(duplicated.trace, isEmpty);
       });
 
       test('invalid_draft', () async {

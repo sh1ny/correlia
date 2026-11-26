@@ -187,7 +187,8 @@ Future<DecodeInputs> readDecodeInputs(
 }
 
 /// The stored snapshot [pin] or its source settings do not have the shape
-/// this binary reads, such as a source without its `namespace`.
+/// this binary reads, such as a source without its `namespace` or a source
+/// enabled twice.
 final class InvalidStoredSettings implements Exception {
   /// Creates the error for snapshot [pin], with what failed in [detail].
   const InvalidStoredSettings(this.pin, this.detail);
@@ -232,7 +233,13 @@ Future<DecodeInputs> _readDecodeInputs(
       rejection: DecodeRejection.sourceNotConfigured,
     );
   }
-  final source = matches.single;
+  final [source] = switch (matches.toList()) {
+    [_] && final single => single,
+    _ => throw InvalidStoredSettings(
+      pin,
+      'source $sourceId is enabled more than once',
+    ),
+  };
   final kind = switch (snapshot['format_version']) {
     1 => SourceKind.alertmanager,
     _ => SourceKind.named(source['kind']),

@@ -39,7 +39,7 @@
 | matcher-rules → Classify action | Upgrade with a file that writes the reserved key | `correlia_server/test/db/matcher_reserved_label_test.dart` | `upgrade_with_a_file_that_writes_the_reserved_key` | green |
 | matcher-rules → Classify action | Exact restart with a pre-change file that writes the reserved key | `correlia_server/test/db/matcher_reserved_label_test.dart` | `exact_restart_with_a_pre_change_file_that_writes_the_reserved_key` | green |
 | matcher-rules → Classify action | Rollback to pre-change content that writes the reserved key | `correlia_server/test/db/matcher_reserved_label_test.dart` | `rollback_to_pre_change_content_that_writes_the_reserved_key` | green |
-| matcher-rules → Classify action | Pinned pre-change snapshot keeps running | `correlia_server/test/db/matcher_reserved_label_test.dart` | `pinned_pre_change_snapshot_keeps_running` | green |
+| matcher-rules → Classify action | Pinned pre-change snapshot keeps running | `correlia_server/test/db/rule_simulator_test.dart` | `stored_label_is_not_a_hint` | green |
 | matcher-rules → Classify action | Malformed classify action | `correlia_server/test/unit/matcher/classify_test.dart` | `malformed_classify_action` | green |
 | matcher-rules → Short-circuit evaluation is preserved | A decisive any skips a slow regex | `correlia_server/test/unit/matcher/explain_test.dart` | `a_decisive_any_skips_a_slow_regex`, `a_decisive_any_skips_a_slow_regex_in_the_pipeline` | green |
 | matcher-rules → Short-circuit evaluation is preserved | A decisive all skips a slow regex | `correlia_server/test/unit/matcher/explain_test.dart` | `a_decisive_all_skips_a_slow_regex`, `a_decisive_all_skips_a_slow_regex_in_the_pipeline` | green |
