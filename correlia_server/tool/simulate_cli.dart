@@ -74,8 +74,9 @@ Future<int> runSimulate(
 }) async {
   final parser = _parser();
   int usage(String message) {
+    // The message can hold an argument or a file path the caller typed.
+    _EscapingSink(err).writeln(message);
     err
-      ..writeln(message)
       ..writeln('Usage: dart run tool/simulate.dart [options]')
       ..writeln(parser.usage);
     return usageExit;

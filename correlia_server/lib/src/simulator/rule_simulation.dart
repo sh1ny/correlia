@@ -407,7 +407,14 @@ ActionTrace _actionTrace(
         _ => key,
       },
     ),
-    MatcherLocation() => ('location', 'location table lookup'),
+    MatcherLocation() => (
+      'location',
+      switch (effect) {
+        (MatcherActionEffect.staged, final String labels) when labels != '' =>
+          labels,
+        _ => 'location table lookup',
+      },
+    ),
   };
   return ActionTrace(
     index: index,

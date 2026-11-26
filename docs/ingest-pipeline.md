@@ -377,7 +377,7 @@ Icinga 2 webhook table in [Mapping](#mapping) gives the kind for each notificati
 |---|---|---|
 | Alertmanager | each alert, firing or resolved | `alert` |
 | Generic webhook | each mapped alert | `alert` |
-| Icinga 2 Event Streams | `StateChange`, HARD or `soft_and_hard`, any state | `alert` |
+| Icinga 2 Event Streams | `StateChange`, HARD or `soft_and_hard`, any state; SOFT recovery under `hard_only` | `alert` |
 | Icinga 2 Event Streams | `StateChange`, SOFT non-OK under `hard_only` | no event; a lag observation only |
 | Icinga 2 Event Streams | `AcknowledgementSet`, `AcknowledgementCleared` | `ack` |
 | Icinga 2 Event Streams | `DowntimeStarted`, `DowntimeRemoved` | `downtime` |

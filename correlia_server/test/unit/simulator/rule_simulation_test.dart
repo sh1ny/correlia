@@ -455,6 +455,28 @@ void main() {
     expect(result.trace[1].conditions, isEmpty);
   });
 
+  test('location_traces_name_the_labels_they_staged', () async {
+    Map<String, Object?> location(String site) => {
+      'type': 'location',
+      'field': 'labels.alertname',
+      'entries': [
+        {'hostname': 'Watchdog', 'site': site, 'environment': 'production'},
+      ],
+    };
+    final result = await _simulate(
+      _event(),
+      _document([
+        _rule('first', [location('fra1')]),
+        _rule('second', [location('ams2')]),
+      ]),
+    );
+    expect(result.trace.map((t) => t.actions.single.detail), [
+      'site=fra1, environment=production',
+      'site=ams2, environment=production',
+    ]);
+    expect(result.finalLabels, containsPair('site', 'ams2'));
+  });
+
   test('later_rule_wins_a_shared_key', () async {
     final result = await _simulate(
       _event(),

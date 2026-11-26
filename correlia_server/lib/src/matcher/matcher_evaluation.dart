@@ -33,7 +33,9 @@ enum MatcherActionEffect {
   failed,
 }
 
-/// Receives each action's position, its effect and a captured value, if any.
+/// Receives each action's position, its effect and a value, if any: the
+/// captured text of an `extract`, the staged labels of a `location` lookup or
+/// the failure code of a failed action.
 typedef MatcherActionObserver =
     void Function(int index, MatcherActionEffect effect, String? value);
 
@@ -148,25 +150,29 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
           continue;
         }
         var found = false;
+        final written = <String>[];
         for (final entry in entries) {
           if (entry.hostname == input ||
               entry.network?.contains(input) == true) {
             if (entry.site case final site?) {
               labels['site'] = site;
               extracted.remove('site');
+              written.add('site=$site');
             }
             if (entry.environment case final environment?) {
               labels['environment'] = environment;
               extracted.remove('environment');
+              written.add('environment=$environment');
             }
             found = true;
             break;
           }
         }
+        // The observed value names the labels the entry staged.
         onAction?.call(
           index,
           found ? MatcherActionEffect.staged : MatcherActionEffect.noEntry,
-          null,
+          found ? written.join(', ') : null,
         );
     }
     check?.call();

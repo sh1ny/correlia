@@ -16,8 +16,10 @@ class RuleSimulatorEndpoint extends Endpoint {
   /// The input is exactly one of [eventJson] (a CloudEvent JSON document) or
   /// [eventId] with [observedAt] and an optional [disposition] (a stored
   /// event). [draftMatcher] is an optional matcher section as JSON text; without
-  /// it the active snapshot's rules run. Failures are a [SimulationError] in the
-  /// result; only the console access policy throws.
+  /// it the active snapshot's rules run. Input and lookup failures are a
+  /// [SimulationError] in the result. The console access policy throws, and an
+  /// infrastructure failure, such as a database timeout, reaches the caller as
+  /// an RPC error.
   Future<RuleSimulationResult> simulate(
     Session session, {
     String? eventJson,
