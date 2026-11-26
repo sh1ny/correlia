@@ -17,17 +17,20 @@ abstract class SimulationError
   SimulationError._({
     required this.code,
     this.field,
+    this.missingOutputId,
   });
 
   factory SimulationError({
     required String code,
     String? field,
+    String? missingOutputId,
   }) = _SimulationErrorImpl;
 
   factory SimulationError.fromJson(Map<String, dynamic> jsonSerialization) {
     return SimulationError(
       code: jsonSerialization['code'] as String,
       field: jsonSerialization['field'] as String?,
+      missingOutputId: jsonSerialization['missingOutputId'] as String?,
     );
   }
 
@@ -35,12 +38,17 @@ abstract class SimulationError
 
   String? field;
 
+  /// The output ID a `route` action names that is not an active output, for
+  /// an unknown-output draft error; publication reports the same ID.
+  String? missingOutputId;
+
   /// Returns a shallow copy of this [SimulationError]
   /// with some or all fields replaced by the given arguments.
   @_is.useResult
   SimulationError copyWith({
     String? code,
     String? field,
+    String? missingOutputId,
   });
   @override
   Map<String, dynamic> toJson() {
@@ -48,6 +56,7 @@ abstract class SimulationError
       '__className__': 'SimulationError',
       'code': code,
       if (field != null) 'field': field,
+      if (missingOutputId != null) 'missingOutputId': missingOutputId,
     };
   }
 
@@ -57,6 +66,7 @@ abstract class SimulationError
       '__className__': 'SimulationError',
       'code': code,
       if (field != null) 'field': field,
+      if (missingOutputId != null) 'missingOutputId': missingOutputId,
     };
   }
 
@@ -72,9 +82,11 @@ class _SimulationErrorImpl extends SimulationError {
   _SimulationErrorImpl({
     required String code,
     String? field,
+    String? missingOutputId,
   }) : super._(
          code: code,
          field: field,
+         missingOutputId: missingOutputId,
        );
 
   /// Returns a shallow copy of this [SimulationError]
@@ -84,10 +96,14 @@ class _SimulationErrorImpl extends SimulationError {
   SimulationError copyWith({
     String? code,
     Object? field = _Undefined,
+    Object? missingOutputId = _Undefined,
   }) {
     return SimulationError(
       code: code ?? this.code,
       field: field is String? ? field : this.field,
+      missingOutputId: missingOutputId is String?
+          ? missingOutputId
+          : this.missingOutputId,
     );
   }
 }

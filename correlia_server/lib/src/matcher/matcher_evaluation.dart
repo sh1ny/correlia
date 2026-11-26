@@ -93,6 +93,9 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
   final lastWriter = onAction == null ? null : <String, int>{};
   final severityWrites = onAction == null ? null : <int>[];
   final reported = onAction == null ? null : <int, String?>{};
+  // Each label a `location` action staged, as its key and `key=value` text,
+  // so a partly overwritten lookup can mark the labels that did not survive.
+  final staged = onAction == null ? null : <int, List<(String, String)>>{};
   void recordWrite(int index, List<String> keys, [String? value]) {
     wrote?[index] = keys;
     for (final key in keys) {
@@ -179,35 +182,34 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
           continue;
         }
         var found = false;
-        final written = onAction == null ? null : <String>[];
-        final keys = onAction == null ? null : <String>[];
+        final written = onAction == null ? null : <(String, String)>[];
         for (final entry in entries) {
           if (entry.hostname == input ||
               entry.network?.contains(input) == true) {
             if (entry.site case final site?) {
               labels['site'] = site;
               extracted?.remove('site');
-              written?.add('site=$site');
-              keys?.add('site');
+              written?.add(('site', 'site=$site'));
             }
             if (entry.environment case final environment?) {
               labels['environment'] = environment;
               extracted?.remove('environment');
-              written?.add('environment=$environment');
-              keys?.add('environment');
+              written?.add(('environment', 'environment=$environment'));
             }
             found = true;
             break;
           }
         }
-        if (found && keys != null) {
-          recordWrite(index, keys, written?.join(', '));
+        final text = written?.map((label) => label.$2).join(', ');
+        if (found && written != null) {
+          recordWrite(index, [for (final (key, _) in written) key], text);
+          staged?[index] = written;
         }
         // The observed value names the labels the entry staged.
         onAction?.call(
           index,
           found ? MatcherActionEffect.staged : MatcherActionEffect.noEntry,
-          found ? written?.join(', ') : null,
+          found ? text : null,
         );
     }
     check?.call();
@@ -216,6 +218,20 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
     for (final MapEntry(key: index, value: keys) in wrote!.entries) {
       if (keys.every((key) => lastWriter![key] != index)) {
         onAction(index, MatcherActionEffect.superseded, reported![index]);
+      } else if (staged![index] case final labels?
+          when keys.any((key) => lastWriter![key] != index)) {
+        // A lookup some of whose labels survive stays staged; its value
+        // marks the labels a later action of the rule overwrote.
+        onAction(
+          index,
+          MatcherActionEffect.staged,
+          [
+            for (final (key, text) in labels)
+              lastWriter![key] == index
+                  ? text
+                  : '$text (overwritten later in its rule)',
+          ].join(', '),
+        );
       }
     }
     // Every mapped severity but the last is overwritten.

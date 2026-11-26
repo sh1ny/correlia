@@ -233,6 +233,25 @@ void main() {
       expect(decoded['finalLabels'], {'team': 'ops'});
     });
 
+    test('--json escapes DEL and C1 controls', () async {
+      const value = 'a\u007fb\u009b2Jc\u0085d';
+      final result = _result()..finalLabels = {'team': value};
+      final h = _Harness(result);
+      final code = await h.run([
+        '--event-id',
+        _id,
+        '--observed-at',
+        'T',
+        '--json',
+      ]);
+      expect(code, 0);
+      final text = h.out.toString();
+      expect(text.runes.where((r) => r >= 0x7f && r <= 0x9f), isEmpty);
+      expect(text, contains(r'\u009b'));
+      final decoded = jsonDecode(text) as Map<String, Object?>;
+      expect(decoded['finalLabels'], {'team': value});
+    });
+
     test('a pasted event file and a draft file are passed as read', () async {
       final h = _Harness(_result());
       final code = await h.run(
@@ -363,6 +382,26 @@ void main() {
       }
       expect(h.out.toString(), isEmpty);
     }
+  });
+
+  test('an unknown output error names the output', () async {
+    const output = '44444444-4444-4444-8444-444444444444';
+    final h = _Harness(
+      _result(
+        error: rpc.SimulationError(
+          code: 'unknown_output',
+          field: 'matcher.rules[0].actions[0].output_id',
+          missingOutputId: output,
+        ),
+      ),
+    );
+    expect(await h.run(['--event-id', _id, '--observed-at', 'T']), 1);
+    expect(
+      h.err.toString(),
+      'error: unknown_output\n'
+      'field: matcher.rules[0].actions[0].output_id\n'
+      'output: $output\n',
+    );
   });
 
   test('a stored label without an origin shows the source origin', () async {

@@ -142,8 +142,9 @@ enum LeafOutcome {
   /// The operator accepted the value.
   matched('matched'),
 
-  /// The field was present and the operator rejected it.
-  valueDiffers('no match: value differs'),
+  /// The field was present and the operator rejected it. A trace names the
+  /// operator after this label, as in `no match: value fails not_equals`.
+  valueFails('no match: value fails'),
 
   /// The field was absent from the event.
   fieldMissing('no match: field missing'),
@@ -218,7 +219,7 @@ final class LeafTrace extends ConditionTrace {
   @override
   bool? get result => switch (_outcome) {
     LeafOutcome.matched => true,
-    LeafOutcome.valueDiffers || LeafOutcome.fieldMissing => false,
+    LeafOutcome.valueFails || LeafOutcome.fieldMissing => false,
     LeafOutcome.failed || LeafOutcome.notEvaluated => null,
   };
 }
@@ -389,7 +390,7 @@ final class _Leaf extends MatcherCondition {
     _finish(
       trace,
       result,
-      result ? LeafOutcome.matched : LeafOutcome.valueDiffers,
+      result ? LeafOutcome.matched : LeafOutcome.valueFails,
     );
     return result;
   }

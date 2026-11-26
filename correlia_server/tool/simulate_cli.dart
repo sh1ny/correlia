@@ -75,6 +75,16 @@ List<int> _readBounded(String path, int maxBytes) {
   }
 }
 
+/// Escapes DEL and the C1 controls in the JSON text [json] as `\u00XX`.
+///
+/// JSON allows them raw, but a terminal acts on them. Outside strings JSON
+/// holds only ASCII, so every such character is inside a string, where the
+/// escape decodes to the same value.
+String escapeJsonControls(String json) => json.replaceAllMapped(
+  RegExp(r'[\x7F-\x9F]'),
+  (match) => '\\u${match[0]!.codeUnitAt(0).toRadixString(16).padLeft(4, '0')}',
+);
+
 /// Whether [server] is an absolute `http` or `https` URL with a host, the only
 /// form the generated client accepts.
 bool isServerUrl(String server) => switch (Uri.tryParse(server)) {
@@ -189,7 +199,11 @@ Future<int> runSimulate(
     return simulationFailedExit;
   }
   if (results.flag('json')) {
-    out.writeln(const JsonEncoder.withIndent('  ').convert(result.toJson()));
+    out.writeln(
+      escapeJsonControls(
+        const JsonEncoder.withIndent('  ').convert(result.toJson()),
+      ),
+    );
   }
   if (result.error case final error?) {
     // The field can name an attribute of the submitted event, so it is
@@ -197,6 +211,9 @@ Future<int> runSimulate(
     final diagnostics = _EscapingSink(err);
     diagnostics.writeln('error: ${error.code}');
     if (error.field case final field?) diagnostics.writeln('field: $field');
+    if (error.missingOutputId case final output?) {
+      diagnostics.writeln('output: $output');
+    }
     return simulationFailedExit;
   }
   if (!results.flag('json')) writeTrace(result, out);

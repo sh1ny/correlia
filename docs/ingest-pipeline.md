@@ -415,7 +415,8 @@ The result carries:
   `route` to an output that the baseline or an earlier route already has is `skipped: route already present`.
   A write that a later action of the same rule overwrites (a label key, or a second matching `map_severity`) is
   `skipped: overwritten later in its rule`; a `location` action counts as overwritten only when every label it
-  staged is. A write in a later rule is a separate patch, so both rules' writes are applied. A `map_severity`
+  staged is. When only some are, the action stays staged and its detail marks each overwritten label, as in
+  `site=eu1 (overwritten later in its rule), environment=prod`. A write in a later rule is a separate patch, so both rules' writes are applied. A `map_severity`
   whose target equals the event's current severity is `skipped: severity already <value>`.
 - The final labels, label origins, links, severity and `eventKind`, plus `noiseClassHint` when a rule classified
   the event.
@@ -461,7 +462,9 @@ field, operator, outcome and reason), each action's effect, and the final kind, 
 severity, routes (added ones marked hypothetical) and notes; for a stored event it adds the stored labels, errors
 and snapshot. `--json` prints the result document instead. The `--observed-at` text goes to the simulator as typed,
 so a timestamp it rejects comes back as its `invalid_input` error for `observedAt`. A simulator error prints
-`error: <code>` and `field: <field>` on stderr and exits 1; a usage error prints the usage and exits 64.
+`error: <code>` and `field: <field>` on stderr, plus `output: <id>` when a draft routes to an unknown output, and
+exits 1; a usage error prints the usage and exits 64. `--json` writes DEL and the C1 control characters as
+`\u00XX` escapes, so the document decodes to the same values and cannot drive a terminal.
 
 #### Documented examples
 

@@ -152,7 +152,11 @@ SimulationInputCheck _pasted(String eventJson) {
 
 /// The error for a draft matcher section that publication would refuse.
 SimulationError simulationErrorFromDocument(MatcherDocumentError error) =>
-    SimulationError(code: error.code, field: error.field);
+    SimulationError(
+      code: error.code,
+      field: error.field,
+      missingOutputId: error.missingOutputId,
+    );
 
 /// Refuses a parsed draft that writes the reserved noise key without `classify`.
 ///

@@ -310,6 +310,26 @@ void main() {
     expect(result.finalLabels['team'], 'b');
   });
 
+  test('a_false_leaf_names_the_operator_it_fails', () async {
+    final event = _event();
+    final summary = event.summary;
+    final result = await _simulate(
+      event,
+      _document([
+        _rule('not-equal', [
+          _label('a', '1'),
+        ], when: _leaf('summary', 'not_equals', summary)),
+        _rule('equal', [
+          _label('b', '2'),
+        ], when: _leaf('summary', 'equals', '$summary!')),
+      ]),
+    );
+    expect(result.trace.map((r) => r.conditions.single.outcome), [
+      'no match: value fails not_equals',
+      'no match: value fails equals',
+    ]);
+  });
+
   test('a_not_attempted_rule_has_no_entries', () async {
     final result = await _simulate(
       _event(),
@@ -475,6 +495,32 @@ void main() {
       'site=ams2, environment=production',
     ]);
     expect(result.finalLabels, containsPair('site', 'ams2'));
+  });
+
+  test('a_partly_overwritten_location_marks_the_overwritten_label', () async {
+    final result = await _simulate(
+      _event(),
+      _document([
+        _rule('partly', [
+          {
+            'type': 'location',
+            'field': 'labels.alertname',
+            'entries': [
+              {'hostname': 'Watchdog', 'site': 'eu1', 'environment': 'prod'},
+            ],
+          },
+          _label('site', 'eu2'),
+        ]),
+      ]),
+    );
+    final location = result.trace.single.actions.first;
+    expect(
+      location.detail,
+      'site=eu1 (overwritten later in its rule), environment=prod',
+    );
+    expect((location.effect, location.applied), ('staged', true));
+    expect(result.finalLabels, containsPair('site', 'eu2'));
+    expect(result.finalLabels, containsPair('environment', 'prod'));
   });
 
   test('later_rule_wins_a_shared_key', () async {

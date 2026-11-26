@@ -502,7 +502,10 @@ List<wire.ConditionTrace> _flatten(ConditionTrace root) {
             kind: node.kind.name,
             field: field,
             op: operator,
-            outcome: outcome.label,
+            outcome: switch (outcome) {
+              LeafOutcome.valueFails => '${outcome.label} $operator',
+              _ => outcome.label,
+            },
             failureCode: node.failureCode,
           ),
         );

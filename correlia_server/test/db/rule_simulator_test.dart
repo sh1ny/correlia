@@ -588,7 +588,7 @@ SELECT observed_at,event_id,'future_dated',raw_observed_at,raw_id,source_id,conf
           try {
             MatcherDocument.parse(value, {_outA, _outB});
           } on MatcherDocumentError catch (error) {
-            expected = (error.code, error.field);
+            expected = (error.code, error.field, error.missingOutputId);
           }
           expect(expected, isNotNull, reason: key);
           final result = await RuleSimulator().simulate(
@@ -597,13 +597,23 @@ SELECT observed_at,event_id,'future_dated',raw_observed_at,raw_id,source_id,conf
             draftMatcher: jsonEncode(value),
           );
           expect(
-            (result.error?.code, result.error?.field),
+            (
+              result.error?.code,
+              result.error?.field,
+              result.error?.missingOutputId,
+            ),
             expected,
             reason: key,
           );
           expect(result.trace, isEmpty, reason: key);
           expect(result.ruleSource, 'draft', reason: key);
         }
+        final unknown = await RuleSimulator().simulate(
+          session,
+          eventJson: _pasted(),
+          draftMatcher: jsonEncode(drafts['unknown output']),
+        );
+        expect(unknown.error?.missingOutputId, _outUnknown);
         final reserved = await RuleSimulator().simulate(
           session,
           eventJson: _pasted(),
