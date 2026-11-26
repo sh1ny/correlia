@@ -69,6 +69,8 @@ CREATE TABLE outbox (
 
 CREATE INDEX raw_inbox_eligibility_idx ON raw_inbox (status, next_attempt_at);
 CREATE INDEX raw_pending_receipt_idx ON raw_inbox (observed_at) WHERE status = 'pending';
+CREATE INDEX raw_pending_schedule_idx ON raw_inbox (coalesce(next_attempt_at,observed_at),observed_at,raw_id)
+  WHERE status = 'pending' AND config_snapshot_id IS NOT NULL;
 CREATE INDEX raw_stream_retained_idx ON raw_inbox (source_id) WHERE status IN ('pending', 'failed');
 CREATE INDEX events_subject_idx ON events (correlia_event_subject(payload));
 CREATE INDEX outbox_eligibility_idx ON outbox (status, next_attempt_at, output_id);

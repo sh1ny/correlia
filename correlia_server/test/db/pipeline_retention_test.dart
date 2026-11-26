@@ -1,6 +1,9 @@
 import 'dart:async';
 
+import 'package:correlia_server/src/generated/protocol.dart';
+import 'package:correlia_server/src/ingest/config_repository.dart';
 import 'package:correlia_server/src/pipeline/maintenance.dart';
+import 'package:correlia_server/src/pipeline/pipeline.dart';
 import 'package:correlia_server/src/pipeline/queue_operations.dart';
 import 'package:serverpod/serverpod.dart';
 import 'package:test/test.dart';
@@ -8,6 +11,10 @@ import 'package:test/test.dart';
 import '../integration/test_tools/serverpod_test_tools.dart';
 import '../support/ingest_schema.dart';
 import '../support/postgres_lock_witness.dart' show ContentionGate;
+import '../support/secret_fixture.dart';
+import '../unit/ingest/alertmanager_decoder_test.dart' as payload;
+import 'ingest_config_test.dart' as config;
+import 'pipeline_test.dart' as fixture;
 
 final _now = DateTime.utc(2026, 10, 1);
 const _source = 'e1000000-0000-4000-8000-000000000001';
@@ -100,18 +107,70 @@ void main() {
 
       test('dur_10_retention_keeps_unfinished_work', () async {
         await _raw(session, 1, 'done');
-        await _raw(session, 2, 'pending');
-        await _raw(session, 3, 'pending');
-        await _failure(session, 3, seen: '2026-09-30');
+        final active = config.input(1);
+        await IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        ).publish(active);
+        final received = DateTime.utc(2026, 1, 1);
+        for (final name in [
+          'pending-through-outage',
+          'failed-before-recovery',
+        ]) {
+          await fixture.seed(session, [
+            payload.alert(
+              startsAt: received.toIso8601String(),
+              labels: {'alertname': name},
+            ),
+          ], observed: received);
+        }
+        final worker = PipelineRepository(
+          session,
+          clock: () => _now,
+          elapsedForTest: () => Duration.zero,
+        );
+        expect(await worker.pinOne(), isTrue);
+        expect(await worker.pinOne(), isTrue);
+        final failed = (await session.db.unsafeQuery('''
+          WITH candidate AS (SELECT raw_id FROM raw_inbox WHERE status='pending' ORDER BY raw_id LIMIT 1),
+          failed AS (
+            UPDATE raw_inbox SET status='failed' WHERE raw_id=(SELECT raw_id FROM candidate)
+            RETURNING observed_at,raw_id,source_id,config_snapshot_id
+          )
+          SELECT raw_id::text,correlia_record_raw_failure(observed_at,raw_id,source_id,
+             config_snapshot_id,'processing_exhausted',NULL,'2026-09-30 UTC')
+          FROM failed
+        ''')).single[0];
         expect(await _maintain(session, 'raw'), 1);
+        expect(await _maintain(session, 'expiry'), 0);
+        expect(await worker.processOne(), isTrue);
+        expect(await _count(session, 'events'), 1);
+        final ops = QueueOperations(
+          session,
+          clock: () => _now,
+          secretStore: testSecretStore,
+        );
+        final filter = QueueFailureFilter(kind: QueueFailureKind.raw);
+        final failure = (await ops.list(filter)).failures.single;
+        expect(failure.workId, failed);
+        expect(
+          (await ops.replayOne(
+            QueueFailureKind.raw,
+            failure.occurrence,
+            'operator',
+          )).queued,
+          1,
+        );
+        expect(await worker.processOne(), isTrue);
+        expect(await _count(session, 'events'), 2);
         expect(
           await _column(
             session,
             'SELECT status FROM raw_inbox ORDER BY raw_id',
           ),
-          ['pending', 'failed'],
+          ['done', 'done'],
         );
-        expect(await _count(session, 'pipeline_failures'), 1);
+        expect((await ops.list(filter)).failures, isEmpty);
       });
 
       test('unfinished_outbox_keys_protect_old_events', () async {

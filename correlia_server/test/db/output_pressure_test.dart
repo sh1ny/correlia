@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:correlia_server/src/event/cloud_event.dart';
@@ -8,6 +9,7 @@ import 'package:correlia_server/src/ingest/config_repository.dart';
 import 'package:correlia_server/src/output/overflow_notices.dart';
 import 'package:correlia_server/src/schema/schema_steps.dart';
 import 'package:correlia_server/src/output/output_relay.dart';
+import 'package:correlia_server/src/output/webhook_output.dart';
 import 'package:correlia_server/src/pipeline/pipeline.dart';
 import 'package:correlia_server/src/pipeline/queue_operations.dart';
 import 'package:serverpod/serverpod.dart';
@@ -32,6 +34,7 @@ Future<IngestBootstrap> _publish(
   List<String> outputs = const [_first, _second],
   List<String>? routes,
   Map<String, Object?> budgets = const {},
+  Map<String, String> urls = const {},
 }) =>
     IngestConfigRepository(session, secretStore: testSecretStore).publishConfig(
       {
@@ -52,7 +55,7 @@ Future<IngestBootstrap> _publish(
             {
               'id': id,
               'kind': 'webhook',
-              'url': 'https://example.com/events',
+              'url': urls[id] ?? 'https://example.com/events',
               'signing_key_ref': 'key-v1',
             },
         ],
@@ -465,6 +468,53 @@ void main() {
         },
       );
 
+      test('eligible_old_deferrals_cannot_starve_healthy_work', () async {
+        final previous = await _publish(
+          session,
+          1,
+          routes: [_first],
+          budgets: {
+            _first: {'max_rows': 1000, 'overflow_policy': 'block_ingest'},
+          },
+        );
+        await _oldIntents(session, previous, _first, 1000);
+        Future<void> seed(String name, DateTime at) => raw.seed(session, [
+          payload.alert(
+            startsAt: at.toIso8601String(),
+            labels: {'alertname': name},
+          ),
+        ], observed: at);
+        var now = raw.now;
+        final worker = PipelineRepository(
+          session,
+          clock: () => now,
+          elapsedForTest: () => Duration.zero,
+        );
+        await seed('deferred-first', now);
+        await seed('deferred-second', now.add(const Duration(milliseconds: 1)));
+        expect(await worker.pinOne(), isTrue);
+        expect(await worker.pinOne(), isTrue);
+        await _publish(
+          session,
+          2,
+          routes: [_second],
+          budgets: {
+            _first: {'max_rows': 1000, 'overflow_policy': 'block_ingest'},
+          },
+        );
+        await seed('healthy', now.add(const Duration(milliseconds: 2)));
+        expect(await worker.pinOne(), isTrue);
+        for (var claim = 0; claim < 3; claim++) {
+          now = now.add(const Duration(seconds: 2));
+          expect(await worker.processOne(), isTrue);
+        }
+        expect(await _intents(session), {_first: 1000, _second: 1});
+        final deferred = await session.db.unsafeQuery('''
+          SELECT attempt_count FROM raw_inbox WHERE status='pending' AND next_attempt_at IS NOT NULL
+        ''');
+        expect(deferred.map((row) => row[0]), [0, 0]);
+      });
+
       Future<int> notices() async =>
           (await session.db.unsafeQuery(
                 "SELECT count(*) FROM activity WHERE change_kind='output_overflow'",
@@ -751,11 +801,36 @@ void main() {
           gen_random_uuid(),'${config.sourceId}','prior-pin','2026-11-10 23:00 UTC',
           convert_to('{"subject":"historical-fixture","data":{}}','UTF8'))
       ''');
+          const legacy = '''
+            SELECT raw_observed_at,raw_id::text,payload FROM events WHERE config_snapshot_id='prior-pin'
+          ''';
+          final senderBefore = (await session.db.unsafeQuery(
+            legacy,
+          )).single.toList();
+          final receiver = await HttpServer.bind(
+            InternetAddress.loopbackIPv4,
+            0,
+          );
+          addTearDown(() => receiver.close(force: true));
+          final received = Completer<(Uint8List, String?)>();
+          receiver.listen((request) async {
+            final bytes = await request.fold(
+              BytesBuilder(copy: false),
+              (value, chunk) => value..add(chunk),
+            );
+            received.complete((
+              bytes.takeBytes(),
+              request.headers.value('idempotency-key'),
+            ));
+            request.response.statusCode = 204;
+            await request.response.close();
+          });
           await applySchemaSteps(session, schemaSteps);
           await _publish(
             session,
             1,
             routes: [_first],
+            urls: {_second: 'http://127.0.0.1:${receiver.port}/events'},
             budgets: {
               _first: {'max_rows': 1},
             },
@@ -775,6 +850,26 @@ void main() {
           expect(envelope.raw.sha256, sha256.convert(evidence).toString());
           expect(envelope.raw.size, evidence.length);
           expect(await _intents(session), {_first: 1, _second: 1});
+          final relay = OutputRelayRepository(
+            session,
+            testSecretResolver(session).resolve,
+          );
+          final claim = (await relay.claim(_second))!.claims.single;
+          final transport = WebhookOutput(
+            runMode: 'test',
+            deadline: const Duration(minutes: 2),
+          );
+          addTearDown(transport.close);
+          final outcome = await transport.send(claim.intent!, claim.key!);
+          expect(outcome, isA<DeliveryAcknowledged>());
+          expect(await relay.complete(claim, outcome), isTrue);
+          final (body, key) = await received.future;
+          expect(body, result[5]);
+          expect(key, envelope.eventId);
+          expect(
+            (await session.db.unsafeQuery(legacy)).single.toList(),
+            senderBefore,
+          );
         },
       );
     },

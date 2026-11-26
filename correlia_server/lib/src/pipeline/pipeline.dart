@@ -486,11 +486,13 @@ WHERE observed_at=@observed AND raw_id=CAST(@id AS uuid)''',
     try {
       final processed = await session.db.transaction((tx) async {
         await _limits(tx, deadline);
+        // A deferral moves behind work that was already eligible.
         final rows = await session.db.unsafeQuery(
           '''SELECT observed_at,raw_id::text,source_id::text,body,body_sha256,config_snapshot_id,processing_epoch
 FROM raw_inbox WHERE status='pending' AND config_snapshot_id IS NOT NULL
 AND (next_attempt_at IS NULL OR next_attempt_at<=@now)
-ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
+ORDER BY coalesce(next_attempt_at,observed_at),observed_at,raw_id
+FOR UPDATE SKIP LOCKED LIMIT 1''',
           parameters: QueryParameters.named({'now': clock().toUtc()}),
           transaction: tx,
           timeoutInSeconds: 5,
