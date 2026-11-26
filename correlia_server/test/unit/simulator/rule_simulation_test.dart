@@ -685,6 +685,52 @@ void main() {
     ]);
   });
 
+  test('the_sole_write_past_the_size_limit_is_the_failed_action', () async {
+    final data = eventFixture()['data']! as Map<String, Object?>;
+    data.remove('labels_origin');
+    // [length] characters of padding, in annotation values first and then in
+    // label values, 1024 to a value.
+    CanonicalEvent? accepted(int length) {
+      final chunks = [
+        for (var i = 0; i < length; i += 1024)
+          'x' * (length - i < 1024 ? length - i : 1024),
+      ];
+      data['annotations'] = {
+        for (final (i, chunk) in chunks.take(128).indexed) 'padding$i': chunk,
+      };
+      data['labels'] = {
+        'alertname': 'Watchdog',
+        for (final (i, chunk) in chunks.skip(128).indexed) 'padding$i': chunk,
+      };
+      try {
+        return CanonicalEvent.fromJson(data);
+      } on EventValidationError {
+        return null;
+      }
+    }
+
+    // The most padding the event accepts, so the added label takes the event
+    // over its size limit.
+    var (low, high) = (0, (128 + 126) * 1024);
+    while (low < high) {
+      final middle = (low + high + 1) ~/ 2;
+      (low, high) = accepted(middle) == null
+          ? (low, middle - 1)
+          : (middle, high);
+    }
+    final event = accepted(low)!;
+    expect(event.labels.length, lessThan(128));
+    final result = await _simulate(
+      event,
+      _document([
+        _rule('large', [_label('over', 'x' * 64)]),
+      ]),
+    );
+    final rule = result.trace.single;
+    expect((rule.outcome, rule.failureCode), ('failed', 'event_too_large'));
+    expect(rule.actions.map((a) => a.effect), ['failed: event_too_large']);
+  });
+
   test('failed_extraction_is_reported_as_failed', () async {
     final result = await _simulate(
       _event(),

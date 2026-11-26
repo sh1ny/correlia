@@ -304,20 +304,24 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
         ? error.path.substring('labels.'.length)
         : null;
     // A count over a limit is the action whose label or link went past it.
-    final failed = switch (error.path) {
-      'labels' => switch (newKeys?.elementAtOrNull(
-        CanonicalEventBounds.CanonicalEventLabelsLength.max! -
-            current.labels.length,
-      )) {
-        final key? => lastWriter?[key],
-        null => null,
-      },
-      'links' => linkWriters?.elementAtOrNull(
-        CanonicalEventBounds.CanonicalEventLinksLength.max! -
-            current.links.length,
-      ),
-      _ => extracted?[key],
-    };
+    // Any other rejection with no single field to blame, such as the event's
+    // size, is the failure of the one action the patch holds, if only one.
+    final failed =
+        switch (error.path) {
+          'labels' => switch (newKeys?.elementAtOrNull(
+            CanonicalEventBounds.CanonicalEventLabelsLength.max! -
+                current.labels.length,
+          )) {
+            final key? => lastWriter?[key],
+            null => null,
+          },
+          'links' => linkWriters?.elementAtOrNull(
+            CanonicalEventBounds.CanonicalEventLinksLength.max! -
+                current.links.length,
+          ),
+          _ => extracted?[key],
+        } ??
+        _soleWriter(lastWriter, linkWriters, severityWrites);
     if (failed != null) {
       onAction?.call(failed, MatcherActionEffect.failed, error.code);
     }
@@ -325,6 +329,25 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
   }
   check?.call();
   return (event: event, routes: routes);
+}
+
+/// The one action whose writes the rejected patch holds, or null when the
+/// patch holds the writes of several actions or the trace is off.
+///
+/// A patch rejected as a whole, such as for its size, is that action's
+/// failure when no other action contributed to it.
+int? _soleWriter(
+  Map<String, int>? lastWriter,
+  List<int>? linkWriters,
+  List<int>? severityWrites,
+) {
+  if (lastWriter == null) return null;
+  final writers = {
+    ...lastWriter.values,
+    ...?linkWriters,
+    ?severityWrites?.lastOrNull,
+  };
+  return writers.length == 1 ? writers.single : null;
 }
 
 /// The routes in [patch] that no earlier source, baseline or rule supplied.

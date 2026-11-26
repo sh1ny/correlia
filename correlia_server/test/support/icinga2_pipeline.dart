@@ -39,6 +39,7 @@ Future<void> clearPipelineTables(Session session) async {
     '''TRUNCATE activity,alerts,pipeline_failures,observation_keys,outbox,
         events,raw_inbox,transport_keys,ingest_active_config,
         ingest_source_credential,ingest_source,ingest_config_snapshot,
+        matcher_content_digest,matcher_content_digest_fill,
         ingest_secret_commitment,secret_record,icinga2_sync_progress,icinga2_raw_origin CASCADE;
         UPDATE raw_admission_cutoff SET cutoff='-infinity', cursor_seconds=0, cursor_nanos=0, cursor_id=0''',
   );
