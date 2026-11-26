@@ -281,8 +281,8 @@ other outputs can take the alert.
 
 Worker and all processes expire failures after 14 days by default. Expiry removes the active
 failure and records the number discarded in `activity` in the same transaction. The raw row
-or delivery is then eligible for ordinary retention, not replay. Delivered and discarded
-outputs use the terminal timestamp, not delivery creation time.
+or delivery is then eligible for ordinary retention, not replay. An output's retention window
+starts when it is delivered or discarded, not when it was created or moved to `dead`.
 
 The worker reclaims only terminal inbox rows and unprotected events after their age cutoffs.
 Live and dead delivery references keep their event evidence. Deliberately small batches and a

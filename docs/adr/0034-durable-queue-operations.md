@@ -23,6 +23,9 @@ The versioned configuration stores nondefault queue policy. Omitted and explicit
 
 An output counts queued, delivering and dead rows plus their exact payload bytes. Default limits are 500,000 intents and 1 GiB per output. A full `discard_new` output drops new intents only; a full `block_ingest` output defers the accepted raw transaction without partial effects or spending its error budget. A configured blocking output must admit a maximum raw row into an empty queue. Limits never increase merely to fit a notice.
 
+Changing a budget does not change the plugin definition digest. A retired output keeps its last
+budget while retained work or a pending configuration pin still needs that output.
+
 The first refusal or saturation in an episode produces durable ledger evidence. Route one sanitized Correlia-origin event to other active outputs that have room. A notice does not enter ingest, change alert state, bypass limits or recursively open a new episode. The ledger and status RPC show the episode even when no other output can accept a notice.
 
 Maintain live and pinned counts by output ID and by distinct nonsecret historical commitment. Check publication imports and startup from that metadata, never by scanning payload queues. Missing live webhook signing material still fails startup; missing plugin material remains a per-definition launch failure. Keep event reference counts by full event identity. Failure pages and maintenance select bounded candidates through indexed metadata.

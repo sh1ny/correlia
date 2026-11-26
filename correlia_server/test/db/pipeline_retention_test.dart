@@ -1,3 +1,5 @@
+import 'package:correlia_server/src/pipeline/maintenance.dart';
+import 'package:correlia_server/src/pipeline/queue_operations.dart';
 import 'package:serverpod/serverpod.dart';
 import 'package:test/test.dart';
 
@@ -11,12 +13,17 @@ const _old = '2026-01-01 UTC';
 
 String _id(int n) => 'e0000000-0000-4000-8000-${n.toString().padLeft(12, '0')}';
 
-Future<int> _maintain(Session session, String lane, {int cap = 3}) async =>
+Future<int> _maintain(
+  Session session,
+  String lane, {
+  int cap = 3,
+  DateTime? now,
+}) async =>
     (await session.db.unsafeQuery(
           'SELECT correlia_maintain(@lane,@now,@cap)',
           parameters: QueryParameters.named({
             'lane': lane,
-            'now': _now,
+            'now': now ?? _now,
             'cap': cap,
           }),
         )).single[0]!
@@ -143,26 +150,38 @@ void main() {
       test('failed_batch_reports_no_uncommitted_counts', () async {
         await _raw(session, 1, 'pending');
         await _failure(session, 1);
-        await _intent(session, 2, 'dead');
-        await expectLater(
-          session.db.transaction((tx) async {
-            await session.db.unsafeQuery(
-              "SELECT correlia_maintain('expiry','2026-10-01',3)",
-              transaction: tx,
-            );
-            await session.db.unsafeQuery('SELECT 1/0', transaction: tx);
-          }),
-          throwsA(isA<DatabaseQueryException>()),
+        final ops = QueueOperations(session);
+        await MaintenanceRepository(session).sweep('expiry');
+        final committed = (await ops.status()).maintenance!;
+        expect(
+          (committed.lane, committed.outcome, committed.affected),
+          ('expiry', 'ok', 1),
+        );
+
+        await _raw(session, 2, 'pending');
+        await _failure(session, 2);
+        await _intent(session, 3, 'dead');
+        await MaintenanceRepository(
+          session,
+          beforeCommitForTest: (_) async {
+            throw StateError('rollback fixture');
+          },
+        ).sweep('expiry');
+        final rolledBack = (await ops.status()).maintenance!;
+        expect(
+          (rolledBack.lane, rolledBack.outcome, rolledBack.affected),
+          ('expiry', 'failed', 0),
         );
         expect(
           await _column(
             session,
-            'SELECT status FROM raw_inbox UNION ALL SELECT status FROM outbox',
+            'SELECT status FROM raw_inbox ORDER BY raw_id',
           ),
-          ['failed', 'dead'],
+          ['discarded', 'failed'],
         );
+        expect(await _column(session, 'SELECT status FROM outbox'), ['dead']);
         expect(await _count(session, 'pipeline_dead_letter'), 2);
-        expect(await _count(session, 'activity'), 0);
+        expect(await _count(session, 'activity'), 1);
       });
 
       test('reclamation_advances_past_protected_pages', () async {
@@ -198,6 +217,52 @@ void main() {
         await _intent(session, 1, 'delivered', terminal: '2026-09-30 UTC');
         expect(await _maintain(session, 'outbox'), 0);
         expect(await _count(session, 'outbox'), 1);
+      });
+
+      test('discard_starts_its_own_terminal_retention', () async {
+        await _intent(session, 1, 'dead');
+        await session.db.unsafeSimpleExecute('''
+          INSERT INTO delivery_attempts ("outboxCreatedAt","deliveryId","attemptNumber","claimId","startedAt",outcome)
+          SELECT created_at,delivery_id,1,gen_random_uuid(),created_at,'permanent' FROM outbox
+        ''');
+        expect(await _maintain(session, 'expiry'), 1);
+        expect(
+          await _maintain(
+            session,
+            'outbox',
+            now: _now.add(const Duration(days: 6)),
+          ),
+          0,
+        );
+        expect(await _maintain(session, 'attempts'), 0);
+        expect(await _count(session, 'delivery_attempts'), 1);
+        expect(
+          await _maintain(
+            session,
+            'outbox',
+            now: _now.add(const Duration(days: 8)),
+          ),
+          1,
+        );
+        expect(await _maintain(session, 'attempts'), 1);
+      });
+
+      test('retired_attempt_batch_advances_across_delivery_keys', () async {
+        for (final id in [1, 2, 3]) {
+          await _intent(session, id, 'delivered');
+        }
+        await session.db.unsafeSimpleExecute('''
+          INSERT INTO delivery_attempts ("outboxCreatedAt","deliveryId","attemptNumber","claimId","startedAt",outcome)
+          SELECT created_at,delivery_id,n,gen_random_uuid(),created_at,'retryable'
+          FROM outbox CROSS JOIN generate_series(1,4) n
+          WHERE delivery_id='${_id(103)}' OR (delivery_id='${_id(102)}' AND n=1)
+        ''');
+        expect(await _maintain(session, 'outbox'), 3);
+        expect(await _maintain(session, 'attempts'), 3);
+        expect(await _count(session, 'pipeline_retired_delivery'), 1);
+        expect(await _count(session, 'delivery_attempts'), 2);
+        expect(await _maintain(session, 'attempts'), 2);
+        expect(await _count(session, 'pipeline_retired_delivery'), 0);
       });
 
       test('retired_intent_attempts_reclaim_across_batches', () async {

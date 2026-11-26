@@ -694,8 +694,9 @@ BEGIN
   IF NEW.status NOT IN ('dead','delivered','discarded') THEN
     NEW.terminal_at := NULL;
   ELSIF TG_OP='UPDATE' AND OLD.status IS DISTINCT FROM NEW.status THEN
-    NEW.terminal_at := CASE WHEN NEW.status='discarded' THEN coalesce(OLD.terminal_at,clock_timestamp())
-      ELSE clock_timestamp() END;
+    IF NEW.terminal_at IS NULL OR NEW.terminal_at IS NOT DISTINCT FROM OLD.terminal_at THEN
+      NEW.terminal_at := clock_timestamp();
+    END IF;
   ELSE
     NEW.terminal_at := coalesce(NEW.terminal_at,clock_timestamp());
   END IF;
@@ -933,7 +934,7 @@ BEGIN
     WHERE (SELECT count(*) FROM lanes)>0
     ORDER BY r.observed_at,r.event_id,r.disposition FOR UPDATE OF r
   )
-  UPDATE outbox o SET status='discarded' FROM held h
+  UPDATE outbox o SET status='discarded',terminal_at=p_now FROM held h
   WHERE (o.created_at,o.delivery_id)=(h.created_at,h.delivery_id) AND (SELECT count(*) FROM refs)>0;
   GET DIAGNOSTICS deliveries=ROW_COUNT;
   expired := expired+deliveries;
@@ -1027,6 +1028,7 @@ RETURNS integer LANGUAGE plpgsql AS $$
 DECLARE
   policy pipeline_queue_policy;
   affected integer;
+  pruned integer;
   retired pipeline_retired_delivery;
 BEGIN
   IF p_cap<1 OR p_cap>500 THEN RAISE EXCEPTION 'invalid maintenance batch cap'; END IF;
@@ -1072,20 +1074,25 @@ BEGIN
     )
     SELECT count(*) INTO affected FROM tracked;
   ELSIF p_lane='attempts' THEN
-    SELECT * INTO retired FROM pipeline_retired_delivery ORDER BY created_at,delivery_id LIMIT 1 FOR UPDATE;
-    IF NOT FOUND THEN RETURN 0; END IF;
-    WITH page AS MATERIALIZED (
-      SELECT id FROM delivery_attempts WHERE
-        ("outboxCreatedAt","deliveryId")=(retired.created_at AT TIME ZONE 'UTC',retired.delivery_id)
-      ORDER BY "attemptNumber" LIMIT p_cap
-    )
-    DELETE FROM delivery_attempts a USING page p WHERE a.id=p.id;
-    GET DIAGNOSTICS affected=ROW_COUNT;
-    IF NOT EXISTS (SELECT 1 FROM delivery_attempts WHERE
-       ("outboxCreatedAt","deliveryId")=(retired.created_at AT TIME ZONE 'UTC',retired.delivery_id)) THEN
-      DELETE FROM pipeline_retired_delivery WHERE
-        (created_at,delivery_id)=(retired.created_at,retired.delivery_id);
-    END IF;
+    affected := 0;
+    FOR retired IN SELECT * FROM pipeline_retired_delivery
+      ORDER BY created_at,delivery_id LIMIT p_cap FOR UPDATE
+    LOOP
+      WITH page AS MATERIALIZED (
+        SELECT id FROM delivery_attempts WHERE
+          ("outboxCreatedAt","deliveryId")=(retired.created_at AT TIME ZONE 'UTC',retired.delivery_id)
+        ORDER BY "attemptNumber" LIMIT p_cap-affected
+      )
+      DELETE FROM delivery_attempts a USING page p WHERE a.id=p.id;
+      GET DIAGNOSTICS pruned=ROW_COUNT;
+      affected := affected+pruned;
+      IF NOT EXISTS (SELECT 1 FROM delivery_attempts WHERE
+          ("outboxCreatedAt","deliveryId")=(retired.created_at AT TIME ZONE 'UTC',retired.delivery_id)) THEN
+        DELETE FROM pipeline_retired_delivery WHERE
+          (created_at,delivery_id)=(retired.created_at,retired.delivery_id);
+      END IF;
+      EXIT WHEN affected=p_cap;
+    END LOOP;
   ELSIF p_lane='transport' THEN
     WITH page AS MATERIALIZED (
       SELECT id FROM transport_keys WHERE "expiresAt"<=

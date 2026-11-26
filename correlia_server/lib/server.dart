@@ -97,6 +97,11 @@ Future<void> run(List<String> args) async {
     port: ServerpodAdapter(
       pod,
       schemaLockTimeout: switches.schemaLockTimeout ?? defaultSchemaLockTimeout,
+      observeSchemaLockTimeoutForTest: switches.schemaLockTimeout == null
+          ? null
+          : (step, timeout) => log(
+              'Schema transaction $step PostgreSQL lock_timeout=$timeout',
+            ),
     ),
     startup: startup,
     log: log,

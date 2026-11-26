@@ -153,6 +153,42 @@ void main() {
         ]);
       });
 
+      test('publication_shortens_retention_before_replay_locks_policy', () async {
+        await _seed(session, fixture.sourceId, 1);
+        final before = (await operations.list(filter())).failures.single;
+        final replay = QueueOperations(
+          session,
+          clock: () => _now,
+          beforeConfigLockForTest: () async {
+            await IngestConfigRepository(
+              builder.build(),
+              secretStore: testSecretStore,
+            ).publishConfig(
+              fixture.cutoverV2(2)
+                ..['pipeline_operations'] = {'dead_letter_retention_days': 1},
+              const <String, Object?>{},
+              runMode: 'test',
+            );
+          },
+        );
+        final result = await replay.replayOne(
+          QueueFailureKind.raw,
+          before.occurrence,
+          'demo',
+        );
+        expect(result.items.single.outcome, 'expired');
+        expect(
+          (await operations.list(filter())).failures.single.occurrence,
+          before.occurrence,
+        );
+        expect(
+          (await session.db.unsafeQuery(
+            "SELECT count(*) FROM activity WHERE change_kind='dead_letter_replayed'",
+          )).single[0],
+          0,
+        );
+      });
+
       test('replay_and_expiry_lock_one_occurrence', () async {
         await _seed(session, fixture.sourceId, 1);
         final occurrence = (await operations.list(

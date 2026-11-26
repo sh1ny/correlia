@@ -64,10 +64,21 @@ Future<void> _setLockTimeout(
   Session session,
   Transaction transaction,
   Duration lockTimeout,
-) => session.db.unsafeSimpleExecute(
-  "SET LOCAL lock_timeout = '${lockTimeout.inMilliseconds}ms'",
-  transaction: transaction,
-);
+  int step,
+  void Function(int, String)? observe,
+) async {
+  await session.db.unsafeSimpleExecute(
+    "SET LOCAL lock_timeout = '${lockTimeout.inMilliseconds}ms'",
+    transaction: transaction,
+  );
+  if (observe != null) {
+    final rows = await session.db.unsafeQuery(
+      "SELECT current_setting('lock_timeout')",
+      transaction: transaction,
+    );
+    observe(step, rows.single[0]! as String);
+  }
+}
 
 /// The ordered schema scripts shipped with the server package.
 List<SchemaStep> get schemaSteps => [
@@ -103,7 +114,10 @@ List<SchemaStep> get schemaSteps => [
     17,
     File('schema/0017_matcher_digest_snapshot_fk.sql').readAsStringSync(),
   ),
-  SchemaStep(15, File('schema/0015_pipeline_partitions.sql').readAsStringSync()),
+  SchemaStep(
+    15,
+    File('schema/0015_pipeline_partitions.sql').readAsStringSync(),
+  ),
 ];
 
 /// Installs the publisher-version trigger and backfill boundaries in one
@@ -131,11 +145,18 @@ Future<void> applySchemaSteps(
   List<SchemaStep> steps, {
   Duration lockTimeout = defaultSchemaLockTimeout,
   Future<void> Function(Transaction, SchemaStep)? beforeStepForTest,
+  void Function(int, String)? observeLockTimeoutForTest,
   int? stepTimeoutInSecondsForTest,
 }) async {
   try {
     await session.db.transaction((transaction) async {
-      await _setLockTimeout(session, transaction, lockTimeout);
+      await _setLockTimeout(
+        session,
+        transaction,
+        lockTimeout,
+        0,
+        observeLockTimeoutForTest,
+      );
       await session.db.unsafeQuery(
         'SELECT pg_advisory_xact_lock(1129271885)',
         transaction: transaction,
@@ -156,7 +177,13 @@ Future<void> applySchemaSteps(
     previous = step.version;
     try {
       await session.db.transaction((transaction) async {
-        await _setLockTimeout(session, transaction, lockTimeout);
+        await _setLockTimeout(
+          session,
+          transaction,
+          lockTimeout,
+          step.version,
+          observeLockTimeoutForTest,
+        );
         await session.db.unsafeQuery(
           'SELECT pg_advisory_xact_lock(1129271885)',
           transaction: transaction,
@@ -207,6 +234,7 @@ Future<void> initializeSchema(
   void Function(int rows)? onFillPageForTest,
   Future<void> Function(int inserted)? afterFillInsertForTest,
   Future<void> Function()? beforeFillCompletionForTest,
+  void Function(int, String)? observeLockTimeoutForTest,
   Future<void> Function(Transaction, bool)? beforeBackfillWriteForTest,
   int? backfillWriteTimeoutInSecondsForTest,
 }) async {
@@ -216,7 +244,12 @@ Future<void> initializeSchema(
   } catch (_) {
     throw const SchemaStepException(1);
   }
-  await applySchemaSteps(session, steps, lockTimeout: lockTimeout);
+  await applySchemaSteps(
+    session,
+    steps,
+    lockTimeout: lockTimeout,
+    observeLockTimeoutForTest: observeLockTimeoutForTest,
+  );
   await backfillSecretReuse(
     session,
     beforeWriteForTest: beforeBackfillWriteForTest,

@@ -24,6 +24,7 @@ final class QueueOperations {
     this.secretStore,
     this.clock,
     this.beforeWorkLockForTest,
+    this.beforeConfigLockForTest,
   });
 
   final Session session;
@@ -32,6 +33,9 @@ final class QueueOperations {
 
   /// Test barrier after page selection, before work locks.
   final Future<void> Function()? beforeWorkLockForTest;
+
+  /// Test barrier after work locks, before the active policy lock.
+  final Future<void> Function()? beforeConfigLockForTest;
 
   Future<DateTime> _now(Transaction tx) async =>
       clock?.call().toUtc() ??
@@ -276,7 +280,17 @@ final class QueueOperations {
         transaction: tx,
         timeoutInSeconds: 5,
       );
+      DatabaseResultRow? lockedSnapshot;
       if (locked.isNotEmpty) {
+        await beforeConfigLockForTest?.call();
+        lockedSnapshot = (await session.db.unsafeQuery(
+          '''
+          SELECT "snapshotId" FROM ingest_active_config WHERE singleton=1
+          FOR ${raw ? 'SHARE' : 'UPDATE'}
+        ''',
+          transaction: tx,
+          timeoutInSeconds: 5,
+        )).singleOrNull;
         // Once locked, check the occurrence again in a fresh snapshot. A raw
         // row or intent may have completed a replay/failure cycle since selection.
         final lockedIds = jsonEncode([for (final row in locked) row[0]]);
@@ -311,14 +325,6 @@ final class QueueOperations {
         }
       }
       if (ready.isNotEmpty) {
-        final lockedSnapshot = (await session.db.unsafeQuery(
-          '''
-          SELECT "snapshotId" FROM ingest_active_config WHERE singleton=1
-          FOR ${raw ? 'SHARE' : 'UPDATE'}
-        ''',
-          transaction: tx,
-          timeoutInSeconds: 5,
-        )).singleOrNull;
         final active = lockedSnapshot == null
             ? null
             : (await session.db.unsafeQuery(

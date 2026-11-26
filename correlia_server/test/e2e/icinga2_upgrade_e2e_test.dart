@@ -190,6 +190,12 @@ Future<void> _expectLockTimeout(ChildServer child, int step) async {
   expect(code, isNot(0), reason: child.output);
   expect(
     child.output,
+    contains(
+      'Schema transaction $step PostgreSQL lock_timeout=${_shortLockTimeoutMs}ms',
+    ),
+  );
+  expect(
+    child.output,
     contains('Schema step $step failed: lock_timeout'),
   );
 }
