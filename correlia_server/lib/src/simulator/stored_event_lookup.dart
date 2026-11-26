@@ -152,6 +152,9 @@ WHERE observed_at=@observed AND raw_id=CAST(@raw AS uuid)''',
     );
   } on EventValidationError {
     return _failure(simulationRawUnavailable, 'eventId');
+  } on InvalidStoredSettings {
+    // The row's admission snapshot is not JSON.
+    return _failure(simulationRawUnavailable, 'eventId');
   }
   final member = selectKeptMember(
     [

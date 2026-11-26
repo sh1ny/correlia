@@ -414,7 +414,10 @@ SELECT observed_at,event_id,'future_dated',raw_observed_at,raw_id,source_id,conf
           parameters: QueryParameters.named({'payload': copyBytes}),
         );
         expect(await _stored(session), hasLength(2));
+        // Without a disposition the lookup selects the ready row itself.
         final byDefault = await _simulateStored(session, ready);
+        expect(byDefault.error, isNull);
+        expect(byDefault.storedLabelMap, containsPair('phase', 'one'));
         expect(byDefault.storedLabelMap, isNot(contains('copy')));
         final future = await _simulateStored(
           session,

@@ -318,6 +318,53 @@ VALUES (CAST(@raw AS uuid),@origin,CAST(@sync AS uuid),@snapshot)''',
         );
       });
 
+      test(
+        'an_unreadable_admission_snapshot_does_not_mask_the_format',
+        () async {
+          final admitted = await publishStreamDb(session);
+          final processing = await publishStreamDb(session, revision: 2);
+          final body = webhook.body({
+            'format': 'correlia.icinga2.stream.v9',
+            'origin': 'stream',
+            'items': <Object?>[],
+          });
+          final key = await seed(
+            icinga2DbSourceId,
+            body,
+            processing,
+            admission: admitted,
+          );
+          // The admission snapshot is not JSON; the processing pin is fine.
+          await session.db.unsafeExecute(
+            '''UPDATE ingest_config_snapshot SET "publicJson"='{not json'
+            WHERE "snapshotId"=@id''',
+            parameters: QueryParameters.named({'id': admitted}),
+          );
+          final inputs = await read(key, processing);
+          expect(
+            () => decodeRow(inputs, body, processedAt: _firstProcessing),
+            throwsA(
+              isA<EventFieldError>().having(
+                (e) => e.code,
+                'code',
+                'unsupported_format',
+              ),
+            ),
+          );
+          // The worker fails the row at once with the row's own format error.
+          await processIcinga2(session, _observed);
+          expect(
+            await queryRows(
+              session,
+              'SELECT "errorClass", "fieldPath" FROM pipeline_failures',
+            ),
+            [
+              {'errorClass': 'unsupported_format', 'fieldPath': 'format'},
+            ],
+          );
+        },
+      );
+
       test('read_decode_inputs_names_a_pin_without_the_source', () async {
         final pin = await publishStreamDb(session);
         final key = await seed(

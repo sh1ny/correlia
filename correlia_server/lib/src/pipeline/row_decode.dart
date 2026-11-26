@@ -86,7 +86,8 @@ final class DecodeInputs {
   }) : namespace = null,
        excludedLabels = const [],
        stream = false,
-       admission = null;
+       admission = null,
+       admissionFailure = null;
 
   /// Creates inputs for a decodable row.
   const DecodeInputs({
@@ -102,6 +103,7 @@ final class DecodeInputs {
     required this.excludedLabels,
     required this.stream,
     required this.admission,
+    this.admissionFailure,
   }) : rejection = null;
 
   /// The row being decoded.
@@ -142,6 +144,12 @@ final class DecodeInputs {
 
   /// The admission metadata of a stream row, `null` when none is stored.
   final StreamAdmission? admission;
+
+  /// Why a stream row's admission snapshot does not read, or `null`.
+  ///
+  /// [decodeRow] throws it only after the row's own format is validated, so a
+  /// row in an unknown format still fails with `unsupported_format`.
+  final InvalidStoredSettings? admissionFailure;
 }
 
 /// The result of decoding one raw row.
@@ -160,8 +168,9 @@ typedef DecodedRow = ({DecodedBatch batch, String? syncId});
 /// not to [pin]. The reads need no row lock and no pipeline claim state, so a
 /// plain read-only transaction [tx] is enough. Throws a [StateError] when the
 /// pin does not exist, and an [InvalidStoredSettings] when the stored snapshot
-/// or source settings do not have the shape this binary reads. Database errors
-/// propagate unchanged.
+/// or source settings do not have the shape this binary reads. An admission
+/// snapshot that is not JSON does not throw here: [DecodeInputs.admissionFailure]
+/// carries it to [decodeRow]. Database errors propagate unchanged.
 Future<DecodeInputs> readDecodeInputs(
   Session session,
   Transaction tx,
@@ -270,12 +279,13 @@ Future<DecodeInputs> _readDecodeInputs(
       kind is Icinga2SourceKind &&
       source['mode'] == SourceMode.eventStreams.wire;
   StreamAdmission? admission;
+  InvalidStoredSettings? admissionFailure;
   if (stream) {
     // The admission snapshot is read as text and decoded here: a U+0000
     // escape elsewhere in it cannot become jsonb, and a failed cast would hide
     // the row's own format error.
     final admitted = await session.db.unsafeQuery(
-      '''SELECT o.origin, o.sync_id::text, c."publicJson"
+      '''SELECT o.origin, o.sync_id::text, c."publicJson", c."snapshotId"
         FROM icinga2_raw_origin o
         JOIN ingest_config_snapshot c ON c."snapshotId"=o.admission_snapshot_id
         WHERE o.raw_id=CAST(@raw AS uuid)''',
@@ -285,7 +295,15 @@ Future<DecodeInputs> _readDecodeInputs(
     );
     if (admitted.isNotEmpty) {
       final metadata = admitted.single;
-      final document = jsonDecode(metadata[2]! as String);
+      Object? document;
+      try {
+        document = jsonDecode(metadata[2]! as String);
+      } on FormatException catch (error) {
+        admissionFailure = InvalidStoredSettings(
+          metadata[3]! as String,
+          error.message,
+        );
+      }
       final admittedSource = switch (document) {
         {'sources': final List<Object?> sources} =>
           sources.whereType<Map<String, Object?>>().where(
@@ -321,6 +339,7 @@ Future<DecodeInputs> _readDecodeInputs(
     ],
     stream: stream,
     admission: admission,
+    admissionFailure: admissionFailure,
   );
 }
 
@@ -329,8 +348,9 @@ Future<DecodeInputs> _readDecodeInputs(
 /// Touches no database and reads no clock: [processedAt] is the processing
 /// time stamped on every event, and [icinga2Decoder] decodes `icinga2` webhook
 /// rows. Throws an [EventValidationError] when the bytes or the stored
-/// admission metadata do not decode, and a [StateError] when [inputs] carries a
-/// [DecodeInputs.rejection].
+/// admission metadata do not decode, an [InvalidStoredSettings] when a stream
+/// row in a known format was admitted under a snapshot that is not JSON, and a
+/// [StateError] when [inputs] carries a [DecodeInputs.rejection].
 DecodedRow decodeRow(
   DecodeInputs inputs,
   Uint8List bytes, {
@@ -358,6 +378,7 @@ DecodedRow decodeRow(
   );
   if (inputs.stream) {
     final envelope = IcingaStreamRow.parse(request.bytes);
+    if (inputs.admissionFailure case final failure?) throw failure;
     final admission = inputs.admission;
     if (admission == null) {
       throw const EventFieldError('origin', 'missing_origin');
