@@ -55,9 +55,9 @@ final class TombstoneSweep {
           fixtureOwnsTimeout = true;
         }
         await bound();
-        // Match admission's relation-before-cutoff order behind partition DDL.
+        // Neither evidence probe may wait behind DDL with the cutoff held.
         await tx.execute(
-          'LOCK TABLE ONLY raw_inbox IN ACCESS SHARE MODE',
+          'LOCK TABLE ONLY raw_inbox, ONLY events IN ACCESS SHARE MODE',
           timeout: remaining(),
         );
         await bound();

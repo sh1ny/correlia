@@ -1171,8 +1171,8 @@ DECLARE
   horizon timestamptz;
   removed integer;
 BEGIN
-  -- Match admission's relation-before-cutoff order if partition DDL queues.
-  LOCK TABLE ONLY raw_inbox IN ACCESS SHARE MODE;
+  -- Neither evidence probe may wait behind partition DDL with the cutoff held.
+  LOCK TABLE ONLY raw_inbox, ONLY events IN ACCESS SHARE MODE;
   PERFORM 1 FROM raw_admission_cutoff WHERE singleton=1 FOR UPDATE;
   SELECT least(c.cutoff,(SELECT min(observed_at) FROM raw_inbox WHERE status IN ('pending','failed')),p_now)
     - interval '7 days 5 minutes' INTO horizon FROM raw_admission_cutoff c WHERE singleton=1;

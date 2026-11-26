@@ -393,8 +393,15 @@ void main() {
         });
       });
 
-      for (final lane in ['observation', 'tombstone']) {
-        test('${lane}_reclaim_waits_on_raw_before_cutoff', () async {
+      for (final (lane, parent) in [
+        for (final lane in ['observation', 'tombstone'])
+          for (final parent in ['raw_inbox', 'events']) (lane, parent),
+      ]) {
+        test('${lane}_reclaim_waits_on_${parent}_before_cutoff', () async {
+          final hasTombstone = lane == 'tombstone' && parent == 'events';
+          if (hasTombstone) {
+            await mark(1, fence.subtract(const Duration(seconds: 1)));
+          }
           final witness = await PostgresLockWitness.start(session);
           addTearDown(witness.close);
           final gate = ContentionGate();
@@ -406,7 +413,7 @@ void main() {
             () => ddl.db.transaction((tx) async {
               final actor = await pooledLockActor(ddl, tx);
               await ddl.db.unsafeExecute(
-                'LOCK TABLE ONLY raw_inbox IN ACCESS EXCLUSIVE MODE',
+                'LOCK TABLE ONLY $parent IN ACCESS EXCLUSIVE MODE',
                 transaction: tx,
               );
               ddlReady.complete(actor);
@@ -420,7 +427,7 @@ void main() {
           try {
             final holder = await Future.any([
               ddlReady.future,
-              holding.then<LockActor>((_) => fail('DDL did not hold raw')),
+              holding.then<LockActor>((_) => fail('DDL did not hold $parent')),
             ]);
             const observation = "SELECT correlia_maintain('observation',now())";
             final sweeping = gate.run(
@@ -456,11 +463,11 @@ void main() {
               waiter,
               holder,
               sweeping,
-              statement: lane == 'observation' ? observation : 'raw_inbox',
+              statement: lane == 'observation' ? observation : parent,
             );
             await gate.join();
             await holding;
-            expect(await sweeping, 0);
+            expect(await sweeping, hasTombstone ? 1 : 0);
           } finally {
             await gate.join();
           }
