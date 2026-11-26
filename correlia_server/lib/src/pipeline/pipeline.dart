@@ -587,9 +587,7 @@ FOR UPDATE SKIP LOCKED LIMIT 1''',
               '''
               SELECT effective_floor FROM pipeline_icinga2_replay_floor
               WHERE singleton=1 AND isfinite(effective_floor)
-                AND @receipt::timestamptz < effective_floor + interval '7 days'
               ''',
-              parameters: QueryParameters.named({'receipt': raw.observed}),
               transaction: tx,
               timeoutInSeconds: 5,
             );

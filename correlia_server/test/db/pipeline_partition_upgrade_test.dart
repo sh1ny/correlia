@@ -371,20 +371,35 @@ void main() {
         await _seed(session);
         await applySchemaSteps(session, schemaSteps);
         expect(await _partitionedParents(session), _parents);
+        final daily = {
+          for (final row in await session.db.unsafeQuery('''
+            SELECT DISTINCT ON (parent_name) parent_name,child_name
+            FROM pipeline_partition_range WHERE isfinite(first_day)
+            ORDER BY parent_name,first_day DESC
+          '''))
+            row[0]: row[1],
+        };
         final indexes = await session.db.unsafeQuery('''
-          SELECT p.relname,count(*) FROM pg_inherits h
+          SELECT p.relname,i.indrelid::regclass::text FROM pg_inherits h
           JOIN pg_class p ON p.oid=h.inhparent
+          JOIN pg_index i ON i.indexrelid=h.inhrelid AND i.indisvalid
           WHERE p.relname IN ('raw_pending_receipt_idx','raw_stream_retained_idx',
             'events_subject_idx','outbox_definition_status_idx')
-          GROUP BY p.relname ORDER BY p.relname
         ''');
-        expect(indexes.map((row) => row[0]), [
-          'events_subject_idx',
-          'outbox_definition_status_idx',
-          'raw_pending_receipt_idx',
-          'raw_stream_retained_idx',
-        ]);
-        expect(indexes.map((row) => row[1]), everyElement(greaterThan(1)));
+        expect(
+          indexes.map((row) => (row[0], row[1])),
+          containsAll([
+            for (final (parent, index) in [
+              ('events', 'events_subject_idx'),
+              ('outbox', 'outbox_definition_status_idx'),
+              ('raw_inbox', 'raw_pending_receipt_idx'),
+              ('raw_inbox', 'raw_stream_retained_idx'),
+            ]) ...[
+              (index, 'legacy_$parent'),
+              (index, daily[parent]),
+            ],
+          ]),
+        );
         final times = await session.db.unsafeQuery(
           'SELECT events_effective_source_time(e) FROM events e',
         );
@@ -398,7 +413,9 @@ void main() {
             INSERT INTO raw_inbox (observed_at,raw_id,source_id,body,body_sha256,content_type)
             SELECT receipt,gen_random_uuid(),gen_random_uuid(),decode('02','hex'),
               'digest','application/json' FROM unnest(ARRAY[
-              '2020-01-01 00:00 UTC'::timestamptz,clock_timestamp()]) receipt
+              '2020-01-01 00:00 UTC'::timestamptz,
+              (SELECT max(first_day)::timestamp AT TIME ZONE 'UTC'
+               FROM pipeline_partition_range WHERE parent_name='raw_inbox')]) receipt
           '''),
           throwsA(
             isA<DatabaseQueryException>().having(

@@ -393,6 +393,80 @@ void main() {
         });
       });
 
+      for (final lane in ['observation', 'tombstone']) {
+        test('${lane}_reclaim_waits_on_raw_before_cutoff', () async {
+          final witness = await PostgresLockWitness.start(session);
+          addTearDown(witness.close);
+          final gate = ContentionGate();
+          final ddl = builder.build();
+          final sweepSession = builder.build();
+          final ddlReady = Completer<LockActor>();
+          final sweepReady = Completer<LockActor>();
+          final holding = gate.run(
+            () => ddl.db.transaction((tx) async {
+              final actor = await pooledLockActor(ddl, tx);
+              await ddl.db.unsafeExecute(
+                'LOCK TABLE ONLY raw_inbox IN ACCESS EXCLUSIVE MODE',
+                transaction: tx,
+              );
+              ddlReady.complete(actor);
+              await gate.future;
+              await ddl.db.unsafeQuery(
+                'SELECT 1 FROM raw_admission_cutoff FOR UPDATE NOWAIT',
+                transaction: tx,
+              );
+            }),
+          );
+          try {
+            final holder = await Future.any([
+              ddlReady.future,
+              holding.then<LockActor>((_) => fail('DDL did not hold raw')),
+            ]);
+            const observation = "SELECT correlia_maintain('observation',now())";
+            final sweeping = gate.run(
+              lane == 'observation'
+                  ? () => sweepSession.db.transaction((tx) async {
+                      sweepReady.complete(
+                        await pooledLockActor(
+                          sweepSession,
+                          tx,
+                          waiter: SqlTimeouts.poolDefault,
+                        ),
+                      );
+                      return (await sweepSession.db.unsafeQuery(
+                            observation,
+                            transaction: tx,
+                          )).single[0]
+                          as int;
+                    })
+                  : TombstoneSweep(
+                      sweepConnection,
+                      clock: () => boundary.add(const Duration(hours: 1)),
+                      beforeCutoffLockForTest: (tx) async =>
+                          sweepReady.complete(
+                            await lockActor(tx, waiter: SqlTimeouts.sweep),
+                          ),
+                    ).runOnce,
+            );
+            final waiter = await Future.any([
+              sweepReady.future,
+              sweeping.then<LockActor>((_) => fail('Sweep did not wait')),
+            ]);
+            await witness.blockedBy(
+              waiter,
+              holder,
+              sweeping,
+              statement: lane == 'observation' ? observation : 'raw_inbox',
+            );
+            await gate.join();
+            await holding;
+            expect(await sweeping, 0);
+          } finally {
+            await gate.join();
+          }
+        });
+      }
+
       test('admission_and_reclamation_fence_both_orders', () async {
         final writer = builder.build();
         final witness = await PostgresLockWitness.start(session);
