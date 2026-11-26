@@ -230,6 +230,8 @@ A closed child whose drop times out waits for its scheduled retry. Other eligibl
 can be dropped during that wait. A drop still rechecks retention and protection under
 the DDL locks. Outbox drops check exact counts per child and output without scanning
 the payload heap. A writer can delay cleanup of its own count without holding up another output.
+Do not truncate individual nonempty outbox children. The database rejects this operation because
+it would leave queue usage, failure entries and references behind.
 
 For offline repair, stop all writers first. In one transaction use the maintenance advisory
 lock `1129271900` and the `correlia_reserve_partition` and `correlia_attach_partition` SQL

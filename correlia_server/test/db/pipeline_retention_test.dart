@@ -749,7 +749,13 @@ void main() {
       test('outbox_count_and_truncate_are_atomic', () async {
         await prepareOldOutbox();
         await _intent(session, 1, 'delivered');
-        await _intent(session, 2, 'delivered', created: '2025-01-01 UTC');
+        await _intent(
+          session,
+          2,
+          'delivered',
+          created: '2025-01-01 UTC',
+          terminal: '2026-09-30 UTC',
+        );
         await session.db.transaction((tx) async {
           final insert = await tx.createSavepoint();
           await _intent(session, 3, 'delivered', tx: tx);
@@ -760,12 +766,6 @@ void main() {
             transaction: tx,
           );
           await delete.rollback();
-          final truncateChild = await tx.createSavepoint();
-          await session.db.unsafeExecute(
-            'TRUNCATE $_oldOutbox',
-            transaction: tx,
-          );
-          await truncateChild.rollback();
           final truncateParent = await tx.createSavepoint();
           await session.db.unsafeExecute('TRUNCATE outbox', transaction: tx);
           await truncateParent.rollback();
@@ -787,6 +787,7 @@ void main() {
             ['outbox_default', 1],
           ],
         );
+        expect(await _maintain(session, 'outbox'), 1);
         await session.db.unsafeExecute('TRUNCATE $_oldOutbox');
         expect(await _dropOldPartition(session, 'outbox', 1), isTrue);
         expect(await _count(session, 'outbox_default'), 1);
@@ -798,6 +799,76 @@ void main() {
         );
         await session.db.unsafeExecute('TRUNCATE outbox');
         expect(await _count(session, 'pipeline_outbox_partition_count'), 0);
+      });
+
+      test('nonempty_outbox_child_cannot_be_truncated', () async {
+        await prepareOldOutbox();
+        await _intent(session, 1, 'queued', terminal: null);
+        await _intent(session, 2, 'dead');
+        await _intent(
+          session,
+          3,
+          'queued',
+          created: '2025-01-01 UTC',
+          terminal: null,
+        );
+        await expectLater(
+          session.db.transaction((tx) async {
+            await session.db.unsafeExecute(
+              'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ',
+              transaction: tx,
+            );
+            await session.db.unsafeExecute(
+              'TRUNCATE $_oldOutbox',
+              transaction: tx,
+            );
+          }),
+          throwsA(
+            isA<DatabaseQueryException>().having(
+              (error) => error.code,
+              'SQLSTATE',
+              '25000',
+            ),
+          ),
+        );
+        for (final child in [_oldOutbox, 'outbox_default']) {
+          await expectLater(
+            session.db.unsafeExecute('TRUNCATE $child'),
+            throwsA(
+              isA<DatabaseQueryException>().having(
+                (error) => error.code,
+                'SQLSTATE',
+                '0A000',
+              ),
+            ),
+          );
+        }
+        expect(await _count(session, 'outbox'), 3);
+        expect(await _count(session, 'pipeline_event_reference'), 3);
+        expect(await _count(session, 'pipeline_dead_letter'), 1);
+        final usage = (await session.db.unsafeQuery('''
+          SELECT used_rows,live_rows FROM pipeline_output_capacity WHERE output_id='$_output'
+        ''')).single;
+        expect(usage.toList(), [3, 2]);
+        expect(
+          (await session.db.unsafeQuery('''
+            SELECT sum(live_count)::bigint FROM pipeline_output_commitment
+          ''')).single[0],
+          2,
+        );
+        await session.db.unsafeExecute('TRUNCATE outbox');
+        expect(await _count(session, 'outbox'), 0);
+        expect(await _count(session, 'pipeline_outbox_partition_count'), 0);
+        expect(await _count(session, 'pipeline_event_reference'), 0);
+        expect(await _count(session, 'pipeline_dead_letter'), 0);
+        expect(await _count(session, 'pipeline_output_commitment'), 0);
+        expect(
+          (await session.db.unsafeQuery('''
+            SELECT used_rows,live_rows FROM pipeline_output_capacity WHERE output_id='$_output'
+          ''')).single.toList(),
+          [0, 0],
+        );
+        expect(await _dropOldPartition(session, 'outbox'), isTrue);
       });
 
       test('drop_requires_read_committed', () async {

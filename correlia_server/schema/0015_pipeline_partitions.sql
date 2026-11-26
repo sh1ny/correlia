@@ -529,7 +529,14 @@ BEGIN
       WHERE child_name=TG_TABLE_NAME AND output_id=OLD.output_id;
     END IF;
   ELSIF TG_OP='TRUNCATE' THEN
-    DELETE FROM pipeline_outbox_partition_count WHERE child_name=TG_TABLE_NAME;
+    -- A parent TRUNCATE resets all queue accounting before the child
+    -- AFTER triggers run. Direct truncation must not bypass row accounting.
+    IF current_setting('transaction_isolation')<>'read committed' THEN
+      RAISE EXCEPTION USING ERRCODE='25000', MESSAGE='outbox truncate requires READ COMMITTED';
+    END IF;
+    IF EXISTS (SELECT 1 FROM pipeline_outbox_partition_count WHERE child_name=TG_TABLE_NAME) THEN
+      RAISE EXCEPTION USING ERRCODE='0A000', MESSAGE='cannot truncate a nonempty outbox child';
+    END IF;
   ELSE
     RAISE EXCEPTION USING ERRCODE='23000', MESSAGE='outbox output ID is immutable';
   END IF;
@@ -545,10 +552,10 @@ CREATE TRIGGER outbox_partition_output_guard BEFORE UPDATE OF output_id ON outbo
 CREATE TRIGGER outbox_row_inventory AFTER INSERT OR DELETE ON outbox
   FOR EACH ROW EXECUTE FUNCTION correlia_account_outbox_partition();
 
-CREATE FUNCTION correlia_install_outbox_truncate_count(p_child text)
+CREATE FUNCTION correlia_install_outbox_truncate_guard(p_child text)
 RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
-  EXECUTE format('CREATE TRIGGER outbox_child_truncate_count AFTER TRUNCATE ON %I
+  EXECUTE format('CREATE TRIGGER outbox_child_truncate_guard AFTER TRUNCATE ON %I
     FOR EACH STATEMENT EXECUTE FUNCTION correlia_account_outbox_partition()',p_child);
 END;
 $$;
@@ -559,7 +566,7 @@ BEGIN
   FOR child IN SELECT c.relname FROM pg_inherits h JOIN pg_class c ON c.oid=h.inhrelid
     WHERE h.inhparent='outbox'::regclass
   LOOP
-    PERFORM correlia_install_outbox_truncate_count(child);
+    PERFORM correlia_install_outbox_truncate_guard(child);
   END LOOP;
 END $outbox_truncate_triggers$;
 
@@ -1052,7 +1059,7 @@ BEGIN
   -- PostgreSQL still validates the default range under the bounded DDL lock.
   EXECUTE format('CREATE TABLE %I PARTITION OF %I FOR VALUES FROM (%L) TO (%L)',
     child,p_parent,p_day::timestamp AT TIME ZONE 'UTC',(p_day+1)::timestamp AT TIME ZONE 'UTC');
-  IF p_parent='outbox' THEN PERFORM correlia_install_outbox_truncate_count(child); END IF;
+  IF p_parent='outbox' THEN PERFORM correlia_install_outbox_truncate_guard(child); END IF;
   INSERT INTO pipeline_partition_range (parent_name,child_name,first_day,end_day)
   VALUES (p_parent,child,p_day,p_day+1);
   DELETE FROM pipeline_partition_retry WHERE (parent_name,day)=(p_parent,p_day);

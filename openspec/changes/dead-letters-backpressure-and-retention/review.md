@@ -61,3 +61,5 @@ The review accepted the regression that parks an expiry failure after rollback, 
 ## Round 7: Drained outbox partitions
 
 Codex accepted D16 after requiring a fresh count snapshot after the partition locks, transactional resets for parent and child truncation, and proof that unrelated outputs can write and reclaim rows while one count is busy. The rechecks confirmed the `READ COMMITTED` guard, both reset scopes and their rollback, and the test-map entries for those cases.
+
+Pre-ship review 41 found that resetting only the count on direct child truncation left queue metadata behind. The guard now refuses direct truncation of nonempty children and requires `READ COMMITTED`. Truncation through the parent still resets queue metadata and counts in one transaction.

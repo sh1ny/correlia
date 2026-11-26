@@ -193,6 +193,8 @@ run in every role unless they are switched off:
   - `pipeline_dead_letter`, `pipeline_retired_delivery`, `pipeline_retention_cursor`,
     `pipeline_maintenance_outcome`, `pipeline_partition_range` and `pipeline_partition_retry`:
     the active failure directory, bounded reclamation progress and daily partition state.
+  - `pipeline_outbox_partition_count`: exact counts per outbox child and output. Retention uses these
+    counts to prove a child is empty before dropping it without a payload heap scan.
 
   `alerts` is a Serverpod-managed table with a unique tenant/fingerprint index.
 
