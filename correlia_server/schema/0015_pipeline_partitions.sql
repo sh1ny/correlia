@@ -289,6 +289,8 @@ DECLARE
   budget jsonb;
   capacity pipeline_output_capacity;
   was_blocking boolean;
+  previous_max_rows integer;
+  previous_max_bytes bigint;
 BEGIN
   UPDATE pipeline_queue_policy SET
     pending_max_rows=coalesce((policy->>'pending_max_rows')::int,50000),
@@ -312,7 +314,8 @@ BEGIN
       SELECT overflow_policy='block_ingest' AND (
         used_rows>=max_rows OR used_bytes>=max_payload_bytes
         OR demand_rows>max_rows-used_rows OR demand_bytes>max_payload_bytes-used_bytes
-      ) INTO was_blocking FROM pipeline_output_capacity WHERE output_id=lane.id FOR UPDATE;
+      ), max_rows,max_payload_bytes INTO was_blocking,previous_max_rows,previous_max_bytes
+      FROM pipeline_output_capacity WHERE output_id=lane.id FOR UPDATE;
       INSERT INTO pipeline_output_capacity
         (output_id,active,max_rows,max_payload_bytes,overflow_policy)
       VALUES (lane.id,true,coalesce((budget->>'max_rows')::int,500000),
@@ -322,8 +325,12 @@ BEGIN
         max_rows=excluded.max_rows,max_payload_bytes=excluded.max_payload_bytes,
         overflow_policy=excluded.overflow_policy RETURNING * INTO capacity;
       IF capacity.overflow_policy='block_ingest' AND capacity.overflow_activity_id IS NULL
-        AND was_blocking IS DISTINCT FROM true
-        AND (capacity.used_rows>=capacity.max_rows OR capacity.used_bytes>=capacity.max_payload_bytes)
+        AND (
+          (capacity.used_rows>=capacity.max_rows
+            AND (was_blocking IS DISTINCT FROM true OR capacity.max_rows<previous_max_rows))
+          OR (capacity.used_bytes>=capacity.max_payload_bytes
+            AND (was_blocking IS DISTINCT FROM true OR capacity.max_payload_bytes<previous_max_bytes))
+        )
       THEN
         PERFORM correlia_mark_overflow(lane.id,'saturated',0,clock_timestamp());
       END IF;
@@ -564,14 +571,11 @@ CREATE TRIGGER raw_truncate_accounting AFTER TRUNCATE ON raw_inbox
 CREATE TRIGGER outbox_truncate_accounting AFTER TRUNCATE ON outbox
   FOR EACH STATEMENT EXECUTE FUNCTION correlia_reset_queue_accounting();
 
-CREATE FUNCTION correlia_disk_pressure() RETURNS boolean LANGUAGE plpgsql AS $$
+CREATE FUNCTION correlia_disk_pressure(budget bigint,watermark integer)
+RETURNS boolean LANGUAGE plpgsql AS $$
 DECLARE
-  budget bigint;
-  watermark integer;
   sample pipeline_disk_sample;
 BEGIN
-  SELECT disk_budget_bytes,disk_watermark_percent INTO budget,watermark
-  FROM pipeline_queue_policy WHERE singleton=1;
   IF budget IS NULL THEN RETURN false; END IF;
   SELECT * INTO sample FROM pipeline_disk_sample WHERE singleton=1;
   IF sample.sampled_at <= clock_timestamp()-interval '1 second' THEN
@@ -585,25 +589,22 @@ BEGIN
 END;
 $$;
 
--- Hold this lock until the actual INSERT; row triggers account only committed
--- work. Replay skips age, disk and output pressure but shares the row cap.
-CREATE FUNCTION correlia_queue_pressure(pending bigint,incoming integer,p_output_blocked boolean DEFAULT NULL)
+CREATE FUNCTION correlia_disk_pressure() RETURNS boolean LANGUAGE sql VOLATILE AS $$
+  SELECT correlia_disk_pressure(disk_budget_bytes,disk_watermark_percent)
+  FROM pipeline_queue_policy WHERE singleton=1
+$$;
+
+CREATE FUNCTION correlia_queue_pressure(policy pipeline_queue_policy,pending bigint,incoming integer,
+  output_blocked boolean,oldest_pending timestamptz)
 RETURNS text LANGUAGE plpgsql AS $$
-DECLARE
-  policy pipeline_queue_policy;
-  age_cutoff timestamptz;
 BEGIN
-  SELECT * INTO policy FROM pipeline_queue_policy WHERE singleton=1;
-  IF correlia_disk_pressure() THEN RETURN 'storage'; END IF;
-  IF coalesce(p_output_blocked,EXISTS (SELECT 1 FROM pipeline_output_capacity WHERE overflow_policy='block_ingest' AND (
-      used_rows >= max_rows OR used_bytes >= max_payload_bytes
-      OR demand_rows > max_rows - used_rows OR demand_bytes > max_payload_bytes - used_bytes
-  ))) THEN RETURN 'output'; END IF;
-  IF pending > policy.pending_max_rows - incoming THEN RETURN 'inbox'; END IF;
-  age_cutoff := clock_timestamp()-make_interval(secs=>policy.pending_max_age_seconds);
-  IF EXISTS (SELECT 1 FROM raw_inbox WHERE status='pending'
-    AND coalesce(queued_at,observed_at)<=age_cutoff
-  ) THEN RETURN 'inbox'; END IF;
+  IF correlia_disk_pressure(policy.disk_budget_bytes,policy.disk_watermark_percent) THEN
+    RETURN 'storage';
+  END IF;
+  IF output_blocked THEN RETURN 'output'; END IF;
+  IF pending > policy.pending_max_rows - incoming
+    OR oldest_pending <= clock_timestamp()-make_interval(secs=>policy.pending_max_age_seconds)
+  THEN RETURN 'inbox'; END IF;
   RETURN NULL;
 END;
 $$;
@@ -616,8 +617,18 @@ BEGIN
   -- Terminal transitions hold the raw relation before updating this counter.
   -- A queued exclusive DDL waiter must not make us invert that order.
   LOCK TABLE ONLY raw_inbox IN ROW EXCLUSIVE MODE;
+  -- Hold the counter until INSERT. Replay shares the count, but skips age,
+  -- disk and output pressure.
   SELECT pending_rows INTO pending FROM pipeline_pending WHERE singleton=1 FOR UPDATE;
-  RETURN correlia_queue_pressure(pending,incoming);
+  -- One snapshot for the policy, output budgets and ages. A disk sample
+  -- refresh can wait while publication replaces that policy.
+  RETURN (SELECT correlia_queue_pressure(p,pending,incoming,
+    EXISTS (SELECT 1 FROM pipeline_output_capacity WHERE overflow_policy='block_ingest' AND (
+      used_rows>=max_rows OR used_bytes>=max_payload_bytes
+      OR demand_rows>max_rows-used_rows OR demand_bytes>max_payload_bytes-used_bytes)),
+    (SELECT coalesce(queued_at,observed_at) FROM raw_inbox WHERE status='pending'
+      ORDER BY coalesce(queued_at,observed_at) LIMIT 1))
+  FROM pipeline_queue_policy p WHERE singleton=1);
 END;
 $$;
 

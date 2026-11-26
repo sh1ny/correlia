@@ -691,11 +691,14 @@ final class QueueOperations {
             OR demand_rows>max_rows-used_rows OR demand_bytes>max_payload_bytes-used_bytes) AS blocks
         FROM pipeline_output_capacity WHERE active OR used_rows>0 OR pinned_rows>0 OR overflow_activity_id IS NOT NULL
         ORDER BY blocks DESC,output_id LIMIT 65
+      ), oldest AS MATERIALIZED (
+        SELECT coalesce(queued_at,observed_at) AS queued FROM raw_inbox
+        WHERE status='pending' ORDER BY queued LIMIT 1
       ), summary AS MATERIALIZED (
         SELECT p.pending_max_rows,p.pending_max_age_seconds,p.disk_budget_bytes,p.disk_watermark_percent,
-          q.pending_rows,correlia_queue_pressure(q.pending_rows,1,EXISTS(SELECT 1 FROM lanes WHERE blocks)),
-          (SELECT greatest(0,extract(epoch FROM clock_timestamp()-coalesce(queued_at,observed_at)))::bigint
-            FROM raw_inbox WHERE status='pending' ORDER BY coalesce(queued_at,observed_at) LIMIT 1),
+          q.pending_rows,correlia_queue_pressure(p,q.pending_rows,1,
+            EXISTS(SELECT 1 FROM lanes WHERE blocks),(SELECT queued FROM oldest)),
+          (SELECT greatest(0,extract(epoch FROM clock_timestamp()-queued))::bigint FROM oldest),
           EXISTS(SELECT 1 FROM pipeline_partition_retry r WHERE problem IS NOT NULL
             AND day>=(clock_timestamp() AT TIME ZONE 'UTC')::date
             AND NOT correlia_partition_covered(r.parent_name,r.day))

@@ -35,6 +35,7 @@ Future<IngestBootstrap> _publish(
   List<String>? routes,
   Map<String, Object?> budgets = const {},
   Map<String, String> urls = const {},
+  Map<String, Object?> pressure = const {},
 }) =>
     IngestConfigRepository(session, secretStore: testSecretStore).publishConfig(
       {
@@ -59,7 +60,7 @@ Future<IngestBootstrap> _publish(
               'signing_key_ref': 'key-v1',
             },
         ],
-        'pipeline_operations': {'output_budgets': budgets},
+        'pipeline_operations': {...pressure, 'output_budgets': budgets},
       },
       {'source-token': config.token(1), 'key-v1': config.token(2)},
       runMode: 'test',
@@ -512,6 +513,93 @@ void main() {
       });
 
       test(
+        'admission_uses_one_policy_when_publication_crosses_disk_sample',
+        () async {
+          final initial = await _publish(
+            session,
+            1,
+            budgets: {
+              _first: {'max_rows': 1000, 'overflow_policy': 'block_ingest'},
+            },
+            pressure: {'disk_budget_bytes': 1024 * 1024 * 1024 * 1024},
+          );
+          await _oldIntents(session, initial, _first, 1000);
+          await session.db.unsafeExecute(
+            "UPDATE pipeline_disk_sample SET sampled_at='-infinity'",
+          );
+          final witness = await PostgresLockWitness.start(session);
+          addTearDown(witness.close);
+          final gate = ContentionGate();
+          final sampler = builder.build();
+          final admitting = builder.build();
+          final sampleReady = Completer<LockActor>();
+          final admitReady = Completer<LockActor>();
+          final holding = gate.run(
+            () => sampler.db.transaction((tx) async {
+              final actor = await pooledLockActor(sampler, tx);
+              await sampler.db.unsafeQuery(
+                'SELECT 1 FROM pipeline_disk_sample FOR UPDATE',
+                transaction: tx,
+              );
+              sampleReady.complete(actor);
+              await gate.future;
+            }),
+          );
+          try {
+            final holder = await Future.any([
+              sampleReady.future,
+              holding.then<LockActor>((_) => fail('Sample was not held')),
+            ]);
+            const reserve = 'SELECT correlia_reserve_raw(1)';
+            final checking = gate.run(
+              () => admitting.db.transaction((tx) async {
+                admitReady.complete(
+                  await pooledLockActor(
+                    admitting,
+                    tx,
+                    waiter: SqlTimeouts.poolDefault,
+                  ),
+                );
+                return (await admitting.db.unsafeQuery(
+                  reserve,
+                  transaction: tx,
+                )).single[0];
+              }),
+            );
+            final waiter = await Future.any([
+              admitReady.future,
+              checking.then<LockActor>(
+                (_) => fail('Admission did not wait for a sample'),
+              ),
+            ]);
+            await witness.blockedBy(
+              waiter,
+              holder,
+              checking,
+              statement: reserve,
+            );
+            await _publish(
+              session,
+              2,
+              budgets: {
+                _first: {'max_rows': 2000, 'overflow_policy': 'block_ingest'},
+              },
+              pressure: {'disk_budget_bytes': 1},
+            );
+            await gate.join();
+            await holding;
+            expect(await checking, 'output');
+            expect(
+              (await session.db.unsafeQuery(reserve)).single[0],
+              'storage',
+            );
+          } finally {
+            await gate.join();
+          }
+        },
+      );
+
+      test(
         'dur_11_block_defers_atomic_batch_without_spending_attempts',
         () async {
           final current = await _publish(
@@ -733,7 +821,11 @@ void main() {
       test('notice_at_exact_cap_blocks_ingress_without_recurse', () async {
         const budgets = {
           _first: {'max_rows': 1},
-          _second: {'max_rows': 1000, 'overflow_policy': 'block_ingest'},
+          _second: {
+            'max_rows': 1001,
+            'max_payload_bytes': 16 * 1024 * 1024,
+            'overflow_policy': 'block_ingest',
+          },
         };
         final snapshot = await _publish(
           session,
@@ -741,13 +833,13 @@ void main() {
           routes: [_first],
           budgets: budgets,
         );
-        await _oldIntents(session, snapshot, _second, 999);
+        await _oldIntents(session, snapshot, _second, 1000);
         await _process(session, ['fills-other']);
         expect(await notices(), 1);
         final router = OverflowNotices(session);
         expect(await router.routeOne(), isTrue);
         expect(await router.routeOne(), isFalse);
-        expect(await _intents(session), {_first: 1, _second: 1000});
+        expect(await _intents(session), {_first: 1, _second: 1001});
         expect(
           (await session.db.unsafeQuery(
             'SELECT correlia_reserve_raw(1)',
@@ -758,6 +850,21 @@ void main() {
         await _publish(session, 2, routes: [_first], budgets: budgets);
         expect(await notices(), 1);
         expect(await router.routeOne(), isFalse);
+        await _publish(
+          session,
+          3,
+          routes: [_first],
+          budgets: {
+            ...budgets,
+            _second: {
+              'max_rows': 1000,
+              'max_payload_bytes': 16 * 1024 * 1024,
+              'overflow_policy': 'block_ingest',
+            },
+          },
+        );
+        expect(await notices(), 2);
+        expect(await _intents(session), {_first: 1, _second: 1001});
       });
 
       for (final parent in ['events', 'outbox']) {
