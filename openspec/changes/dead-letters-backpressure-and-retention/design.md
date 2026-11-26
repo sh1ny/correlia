@@ -115,6 +115,14 @@ Set `CORRELIA_PARTITION_CUTOVER_TIMEOUT_SECONDS` to a positive integer in second
 
 Rejected: fix the timeout at one hour. A large installation that hits the limit would still need a rebuilt binary. Reversal cost: medium. Important: yes, operator configuration. Chosen by: user (item 88).
 
+### D15: Keep maintenance failures visible by job
+
+Keep the last completed batch in `QueueStatus.maintenance`. Return active failures in `maintenanceFailures`, at most one per fixed job, with a sanitized outcome and zero affected rows. The next successful batch of that job clears its failure. Each parent has its own drop job; partition preparation retries still report through the existing partition status.
+
+Allocate a PostgreSQL attempt number before each batch. After a rollback, record the failure only if a newer completed attempt for the same job has not already committed. The attempt fence also covers reservation errors; partition-specific retry records keep their own fence.
+
+Rejected: make `maintenance` prefer an unresolved failure. That hides the actual last completed batch. Reversal cost: medium. Important: yes, the operator RPC contract. Chosen by: user (item 88).
+
 ### Decision summary
 
 | # | Decision | Choice | Rejected | Reversal cost | Important | Chosen by |
@@ -136,6 +144,7 @@ Rejected: fix the timeout at one hour. A large installation that hits the limit 
 | D12 | Historical secrets | Indexed references, unchanged verification | Defer all validation to relay | medium | yes | user |
 | D13 | Default validation | Bounded attempt, durable retry and documented offline repair | Longer online DDL lock | medium | yes | user |
 | D14 | Offline cutover execution deadline | Partition-only setting, default one hour | Fixed one-hour client deadline | medium | yes | user |
+| D15 | Active maintenance faults | Last batch plus one unresolved failure per job | Show a failure in place of the last batch | medium | yes | user |
 
 ## Assumptions
 

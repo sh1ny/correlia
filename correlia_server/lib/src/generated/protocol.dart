@@ -199,6 +199,7 @@ class Protocol extends _is.DatabaseSerializationManager
           _is.getType<List<_i1399vez.QueueFailure>>,
           _is.getType<List<_i738ir7t.QueueReplayItem>>,
           _is.getType<List<_ie72o327.QueueOutputStatus>>,
+          _is.getType<List<_ip4smbu4.QueueMaintenanceStatus>>,
         ],
         modules: const [_isp.Protocol.new],
         classNames: const [
@@ -1930,6 +1931,12 @@ class Protocol extends _is.DatabaseSerializationManager
     if (t == List<_ie72o327.QueueOutputStatus>) {
       return (data as List)
               .map((e) => deserialize<_ie72o327.QueueOutputStatus>(e))
+              .toList()
+          as T;
+    }
+    if (t == List<_ip4smbu4.QueueMaintenanceStatus>) {
+      return (data as List)
+              .map((e) => deserialize<_ip4smbu4.QueueMaintenanceStatus>(e))
               .toList()
           as T;
     }

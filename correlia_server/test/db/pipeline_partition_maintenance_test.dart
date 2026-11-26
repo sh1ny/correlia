@@ -86,7 +86,7 @@ void main() {
             () => maintenance.prepareOne(nowForTest: now),
           ),
           (
-            'drop_partition',
+            'drop_partition:raw_inbox',
             'pipeline_partition_range',
             () => maintenance.dropOld('raw_inbox', nowForTest: now),
           ),
@@ -412,7 +412,7 @@ void main() {
           final status = (await QueueOperations(session).status()).maintenance!;
           expect(
             (status.lane, status.outcome, status.affected),
-            ('drop_partition', 'lock_timeout', 0),
+            ('drop_partition:raw_inbox', 'lock_timeout', 0),
           );
           final restarted = MaintenanceRepository(builder.build());
           await restarted.dropOld('raw_inbox', nowForTest: now);

@@ -466,6 +466,103 @@ void main() {
         }
       });
 
+      test('maintenance_loop_keeps_failure_until_its_lane_succeeds', () async {
+        await _raw(session, 1, 'pending');
+        await _failure(session, 1);
+        const interval = Duration(days: 1);
+        var idle = Completer<void Function()>();
+        var failExpiry = true;
+        final worker = PipelineMaintenance(
+          openSession: () async => builder.build(),
+          log: (_) {},
+          interval: interval,
+          beforeCommitForTest: (lane) async {
+            if (failExpiry && lane == 'expiry')
+              throw StateError('test rollback');
+          },
+        );
+        try {
+          await runZoned(
+            worker.start,
+            zoneSpecification: ZoneSpecification(
+              createTimer: (self, parent, zone, delay, callback) {
+                if (delay >= interval) {
+                  idle.complete(zone.bindCallback(callback));
+                  // The loop's idle timer is driven by the test.
+                  return parent.createTimer(zone, delay, () {});
+                }
+                return parent.createTimer(zone, delay, callback);
+              },
+            ),
+          );
+          final nextPass = await idle.future;
+          final ops = QueueOperations(session);
+          final report = await ops.status();
+          expect(report.maintenance!.lane, isNot('expiry'));
+          expect(report.maintenance!.outcome, 'ok');
+          expect(
+            report.maintenanceFailures.map(
+              (r) => (r.lane, r.outcome, r.affected),
+            ),
+            contains(('expiry', 'failed', 0)),
+          );
+          expect(await _count(session, 'pipeline_dead_letter'), 1);
+
+          failExpiry = false;
+          idle = Completer<void Function()>();
+          nextPass();
+          await idle.future;
+          expect(
+            (await ops.status()).maintenanceFailures.map((r) => r.lane),
+            isNot(contains('expiry')),
+          );
+          expect(await _count(session, 'pipeline_dead_letter'), 0);
+        } finally {
+          await worker.stop();
+        }
+      });
+
+      test('late_sweep_failure_does_not_replace_same_lane_success', () async {
+        await _raw(session, 1, 'pending');
+        await _failure(session, 1);
+        final gate = ContentionGate();
+        final rolledBack = Completer<void>();
+        final older = gate.run(
+          () => MaintenanceRepository(
+            builder.build(),
+            beforeCommitForTest: (_) async => throw StateError('test rollback'),
+            beforeSweepFailureForTest: () async {
+              rolledBack.complete();
+              await gate.future;
+            },
+          ).sweep('expiry'),
+        );
+        try {
+          await Future.any([
+            rolledBack.future,
+            older.then<void>((_) => fail('Older failure was not parked')),
+          ]);
+          await MaintenanceRepository(session).sweep('expiry');
+          final ops = QueueOperations(session);
+          final before = (await ops.status()).maintenance!;
+          expect(
+            (before.lane, before.outcome, before.affected),
+            ('expiry', 'ok', 1),
+          );
+          expect(await _count(session, 'pipeline_dead_letter'), 0);
+          await gate.join();
+          await older;
+          final after = await ops.status();
+          expect(after.maintenance!.toJson(), before.toJson());
+          expect(
+            after.maintenanceFailures.map((r) => r.lane),
+            isNot(contains('expiry')),
+          );
+        } finally {
+          await gate.join();
+        }
+      });
+
       test('failed_batch_reports_no_uncommitted_counts', () async {
         await _raw(session, 1, 'pending');
         await _failure(session, 1);

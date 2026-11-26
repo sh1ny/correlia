@@ -107,11 +107,15 @@ final class MaintenanceRepository {
   const MaintenanceRepository(
     this.session, {
     this.beforeCommitForTest,
+    this.beforeSweepFailureForTest,
     this.beforePartitionFailureForTest,
   });
 
   final Session session;
   final Future<void> Function(String lane)? beforeCommitForTest;
+
+  /// Parks a failed sweep after rollback but before reporting its outcome.
+  final Future<void> Function()? beforeSweepFailureForTest;
 
   /// Parks a failed attach after rollback and before recording the retry.
   final Future<void> Function()? beforePartitionFailureForTest;
@@ -127,16 +131,20 @@ final class MaintenanceRepository {
   Future<void> _outcome(
     Transaction tx,
     String lane,
+    int attempt,
     String outcome,
     int count,
   ) => session.db.unsafeExecute(
     '''
-        INSERT INTO pipeline_maintenance_outcome VALUES (1,@lane,@outcome,clock_timestamp(),@count)
-        ON CONFLICT (singleton) DO UPDATE SET lane=excluded.lane,outcome=excluded.outcome,
+        INSERT INTO pipeline_maintenance_outcome AS prior (lane,attempt,outcome,finished_at,affected)
+        VALUES (@lane,@attempt,@outcome,clock_timestamp(),@count)
+        ON CONFLICT (lane) DO UPDATE SET attempt=excluded.attempt,outcome=excluded.outcome,
           finished_at=excluded.finished_at,affected=excluded.affected
+        WHERE prior.attempt<excluded.attempt
       ''',
     parameters: QueryParameters.named({
       'lane': lane,
+      'attempt': attempt,
       'outcome': outcome,
       'count': count,
     }),
@@ -151,23 +159,35 @@ final class MaintenanceRepository {
     _ => 'failed',
   };
 
-  Future<void> _recordFailure(String lane, Object error) =>
+  Future<void> _recordFailure(String lane, int attempt, Object error) =>
       session.db.transaction((tx) async {
         await _limits(tx);
-        await _outcome(tx, lane, _problem(error), 0);
+        await _outcome(tx, lane, attempt, _problem(error), 0);
       });
 
-  Future<DatabaseResultRow?> _reservePartition(
+  Future<({int attempt, DatabaseResultRow row})?> _reservePartition(
     String lane,
     Future<DatabaseResultRow?> Function(Transaction) reserve,
   ) async {
+    int? attempt;
     try {
       return await session.db.transaction((tx) async {
         await _limits(tx, ddl: true);
-        return reserve(tx);
+        final id =
+            (await session.db.unsafeQuery(
+                  "SELECT nextval('pipeline_maintenance_attempt')",
+                  transaction: tx,
+                  timeoutInSeconds: 4,
+                )).single[0]!
+                as int;
+        attempt = id;
+        final row = await reserve(tx);
+        return row == null ? null : (attempt: id, row: row);
       });
     } catch (error) {
-      await _recordFailure(lane, error);
+      final id = attempt;
+      if (id == null) rethrow;
+      await _recordFailure(lane, id, error);
       return null;
     }
   }
@@ -175,14 +195,19 @@ final class MaintenanceRepository {
   /// Runs one lane on up to 500 candidates. Returns whether a committed batch
   /// reclaimed a full page, so the worker can make another pass without delay.
   Future<bool> sweep(String lane) async {
+    int? attempt;
     try {
       return await session.db.transaction((tx) async {
         await _limits(tx);
-        final held = await session.db.unsafeQuery(
-          'SELECT pg_try_advisory_xact_lock(1129271901)',
-          transaction: tx,
-        );
-        if (held.single[0] != true) return false;
+        final id =
+            (await session.db.unsafeQuery(
+                  '''SELECT CASE WHEN pg_try_advisory_xact_lock(1129271901)
+          THEN nextval('pipeline_maintenance_attempt') END''',
+                  transaction: tx,
+                )).single[0]
+                as int?;
+        if (id == null) return false;
+        attempt = id;
         final count =
             (await session.db.unsafeQuery(
                   'SELECT correlia_maintain(@lane,clock_timestamp(),$_candidateCap)',
@@ -192,20 +217,24 @@ final class MaintenanceRepository {
                 )).single[0]!
                 as int;
         await beforeCommitForTest?.call(lane);
-        await _outcome(tx, lane, 'ok', count);
+        await _outcome(tx, lane, id, 'ok', count);
         return count == _candidateCap;
       });
     } catch (error) {
-      await _recordFailure(lane, error);
+      final id = attempt;
+      if (id == null) rethrow;
+      await beforeSweepFailureForTest?.call();
+      await _recordFailure(lane, id, error);
       return false;
     }
   }
 
   /// Drops at most one eligible closed child, after its final safety check.
   Future<void> dropOld(String parent, {DateTime? nowForTest}) async {
+    final lane = 'drop_partition:$parent';
     final args = QueryParameters.named({'parent': parent, 'now': nowForTest});
     const now = 'coalesce(@now::timestamptz,clock_timestamp())';
-    final reservation = await _reservePartition('drop_partition', (tx) async {
+    final reservation = await _reservePartition(lane, (tx) async {
       return (await session.db.unsafeQuery(
         'SELECT child_name,attempt_id FROM correlia_reserve_drop(@parent,$now)',
         parameters: args,
@@ -214,8 +243,8 @@ final class MaintenanceRepository {
       )).singleOrNull;
     });
     if (reservation == null) return;
-    final child = reservation[0];
-    final attempt = reservation[1];
+    final child = reservation.row[0];
+    final attempt = reservation.row[1];
     try {
       await session.db.transaction((tx) async {
         await _limits(tx, ddl: true);
@@ -233,7 +262,7 @@ final class MaintenanceRepository {
                 )).single[0]
                 as bool?;
         if (result != null) {
-          await _outcome(tx, 'drop_partition', 'ok', result ? 1 : 0);
+          await _outcome(tx, lane, reservation.attempt, 'ok', result ? 1 : 0);
         }
       });
     } catch (error) {
@@ -250,7 +279,7 @@ final class MaintenanceRepository {
           timeoutInSeconds: 4,
         )).single[0];
         if (recorded == true) {
-          await _outcome(tx, 'drop_partition', _problem(error), 0);
+          await _outcome(tx, lane, reservation.attempt, _problem(error), 0);
         }
       });
     }
@@ -293,11 +322,11 @@ final class MaintenanceRepository {
         timeoutInSeconds: 4,
       )).singleOrNull;
     });
-    if (next == null || next[2] == null) return;
+    if (next == null || next.row[2] == null) return;
     final parameters = <String, Object?>{
-      'parent': next[0],
-      'day': next[1],
-      'attempt': next[2],
+      'parent': next.row[0],
+      'day': next.row[1],
+      'attempt': next.row[2],
     };
     try {
       await session.db.transaction((tx) async {
@@ -309,7 +338,7 @@ final class MaintenanceRepository {
           timeoutInSeconds: 4,
         );
         if (attached.single[0] == true) {
-          await _outcome(tx, 'prepare_partition', 'ok', 1);
+          await _outcome(tx, 'prepare_partition', next.attempt, 'ok', 1);
         }
       });
     } catch (error) {
@@ -328,7 +357,7 @@ final class MaintenanceRepository {
           timeoutInSeconds: 4,
         );
         if (recorded.single[0] == true) {
-          await _outcome(tx, 'prepare_partition', problem, 0);
+          await _outcome(tx, 'prepare_partition', next.attempt, problem, 0);
         }
       });
     }

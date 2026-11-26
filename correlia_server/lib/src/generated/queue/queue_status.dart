@@ -30,6 +30,7 @@ abstract class QueueStatus
     required this.outputsTruncated,
     required this.partitionDegraded,
     this.maintenance,
+    required this.maintenanceFailures,
   });
 
   factory QueueStatus({
@@ -45,6 +46,7 @@ abstract class QueueStatus
     required bool outputsTruncated,
     required bool partitionDegraded,
     _ix8ewqul.QueueMaintenanceStatus? maintenance,
+    required List<_ix8ewqul.QueueMaintenanceStatus> maintenanceFailures,
   }) = _QueueStatusImpl;
 
   factory QueueStatus.fromJson(Map<String, dynamic> jsonSerialization) {
@@ -73,6 +75,10 @@ abstract class QueueStatus
           : _i4dbeo9h.Protocol().deserialize<_ix8ewqul.QueueMaintenanceStatus>(
               jsonSerialization['maintenance'],
             ),
+      maintenanceFailures: _i4dbeo9h.Protocol()
+          .deserialize<List<_ix8ewqul.QueueMaintenanceStatus>>(
+            jsonSerialization['maintenanceFailures'],
+          ),
     );
   }
 
@@ -100,6 +106,8 @@ abstract class QueueStatus
 
   _ix8ewqul.QueueMaintenanceStatus? maintenance;
 
+  List<_ix8ewqul.QueueMaintenanceStatus> maintenanceFailures;
+
   /// Returns a shallow copy of this [QueueStatus]
   /// with some or all fields replaced by the given arguments.
   @_is.useResult
@@ -117,6 +125,7 @@ abstract class QueueStatus
     bool? partitionDegraded,
     _ix8ewqul.QueueMaintenanceStatus? maintenance =
         const _UndefinedQueueStatus$maintenance(),
+    List<_ix8ewqul.QueueMaintenanceStatus>? maintenanceFailures,
   });
   @override
   Map<String, dynamic> toJson() {
@@ -135,6 +144,9 @@ abstract class QueueStatus
       'outputsTruncated': outputsTruncated,
       'partitionDegraded': partitionDegraded,
       if (maintenance != null) 'maintenance': maintenance?.toJson(),
+      'maintenanceFailures': maintenanceFailures.toJson(
+        valueToJson: (v) => v.toJson(),
+      ),
     };
   }
 
@@ -155,6 +167,9 @@ abstract class QueueStatus
       'outputsTruncated': outputsTruncated,
       'partitionDegraded': partitionDegraded,
       if (maintenance != null) 'maintenance': maintenance?.toJsonForProtocol(),
+      'maintenanceFailures': maintenanceFailures.toJson(
+        valueToJson: (v) => v.toJsonForProtocol(),
+      ),
     };
   }
 
@@ -185,6 +200,7 @@ class _QueueStatusImpl extends QueueStatus {
     required bool outputsTruncated,
     required bool partitionDegraded,
     _ix8ewqul.QueueMaintenanceStatus? maintenance,
+    required List<_ix8ewqul.QueueMaintenanceStatus> maintenanceFailures,
   }) : super._(
          pendingRows: pendingRows,
          pendingMaxRows: pendingMaxRows,
@@ -198,6 +214,7 @@ class _QueueStatusImpl extends QueueStatus {
          outputsTruncated: outputsTruncated,
          partitionDegraded: partitionDegraded,
          maintenance: maintenance,
+         maintenanceFailures: maintenanceFailures,
        );
 
   /// Returns a shallow copy of this [QueueStatus]
@@ -218,6 +235,7 @@ class _QueueStatusImpl extends QueueStatus {
     bool? partitionDegraded,
     _ix8ewqul.QueueMaintenanceStatus? maintenance =
         const _UndefinedQueueStatus$maintenance(),
+    List<_ix8ewqul.QueueMaintenanceStatus>? maintenanceFailures,
   }) {
     return QueueStatus(
       pendingRows: pendingRows ?? this.pendingRows,
@@ -238,6 +256,9 @@ class _QueueStatusImpl extends QueueStatus {
       maintenance: maintenance is _is.UndefinedSentinel
           ? this.maintenance?.copyWith()
           : maintenance,
+      maintenanceFailures:
+          maintenanceFailures ??
+          this.maintenanceFailures.map((e0) => e0.copyWith()).toList(),
     );
   }
 }

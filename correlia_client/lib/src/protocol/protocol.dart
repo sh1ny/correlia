@@ -131,6 +131,7 @@ class Protocol extends _isc.SerializationManager
           _isc.getType<List<_i1399vez.QueueFailure>>,
           _isc.getType<List<_i738ir7t.QueueReplayItem>>,
           _isc.getType<List<_ie72o327.QueueOutputStatus>>,
+          _isc.getType<List<_ip4smbu4.QueueMaintenanceStatus>>,
         ],
         modules: const [],
         classNames: const [
@@ -412,6 +413,12 @@ class Protocol extends _isc.SerializationManager
     if (t == List<_ie72o327.QueueOutputStatus>) {
       return (data as List)
               .map((e) => deserialize<_ie72o327.QueueOutputStatus>(e))
+              .toList()
+          as T;
+    }
+    if (t == List<_ip4smbu4.QueueMaintenanceStatus>) {
+      return (data as List)
+              .map((e) => deserialize<_ip4smbu4.QueueMaintenanceStatus>(e))
               .toList()
           as T;
     }

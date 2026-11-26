@@ -1188,7 +1188,7 @@ Use `Client.deadLetter` from `correlia_client` with the machine bearer:
 | `list` | Select `raw` or `delivery`. Optionally filter by source/output UUID, error class and inclusive failure-time range. Returns sanitized metadata including the occurrence ID, age and error class. A raw result can include its pinned snapshot and safe field path. |
 | `replay` | Requeue one occurrence of the specified kind. A later failure of the same row has a new occurrence ID. |
 | `replayBatch` | Requeue eligible occurrences in one page of the same filters. Returns queued and refused counts, a reason for each occurrence and a continuation when more matches remain. |
-| `status` | Read pending count, oldest pending age, database pressure, per-output limits and usage, discard counts, overflow episodes and the last maintenance outcome. |
+| `status` | Read pending count, oldest pending age, database pressure, output limits and usage, discard counts, overflow episodes, and the last completed maintenance batch. `maintenanceFailures` lists one sanitized failure per job until that job succeeds. Partition retry status is separate. |
 
 Status shows blocking outputs first, up to 64 lanes. `outputsTruncated` indicates that other
 lanes are omitted. A failed partition attachment reports `prepare_partition` with zero

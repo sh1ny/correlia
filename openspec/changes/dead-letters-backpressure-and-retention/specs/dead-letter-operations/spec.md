@@ -104,7 +104,7 @@ Delivery replay SHALL requeue the same intent with its original bytes, event and
 
 ### Requirement: Protected operational status
 
-The operator RPC SHALL report inbox depth and oldest pending age, database pressure, bounded per-output usage and discard counts, and the last maintenance outcome. It SHALL expose why admission is blocked without including sender data or secrets.
+The operator RPC SHALL report inbox depth and oldest pending age, database pressure, bounded per-output usage and discard counts, and the last completed maintenance outcome. It SHALL also report at most one active sanitized failure per fixed maintenance job, cleared when that job next succeeds. Partition retry status remains separate. Status SHALL expose why admission is blocked without including sender data or secrets.
 
 #### Scenario: Pressure and recovery visible to the demo
 - **WHEN** inbox or output pressure arises and later clears
@@ -117,3 +117,11 @@ The operator RPC SHALL report inbox depth and oldest pending age, database press
 #### Scenario: Maintenance fails after a previous success
 - **WHEN** a maintenance batch rolls back after an earlier batch committed
 - **THEN** status reports the failure without claiming that the failed batch expired or removed any rows
+
+#### Scenario: A different maintenance job succeeds before the failing job recovers
+- **WHEN** a maintenance job fails and other jobs complete before that job succeeds
+- **THEN** the last completed outcome tracks those runs, the failed job remains visible once with zero affected rows, and only success of that same job clears it
+
+#### Scenario: An earlier maintenance failure reports after recovery
+- **WHEN** a failed batch rolls back, a newer attempt of that same job succeeds, and the earlier failure tries to report
+- **THEN** the delayed failure does not replace the newer outcome or reappear as an active failure

@@ -51,3 +51,9 @@ CHANGES_APPLIED: yes
 Codex accepted the source-ingress amendment. The cutoff still fences every new raw insert. Only an authorized replay of an eligible retained failure can requeue the existing row below the cutoff; it keeps the raw ID and receipt without inserting a transport reservation. This implements the behavior the owner approved in D2 and D7.
 
 The reviewer required D14's scenario in the durable-pipeline delta and evidence from PostgreSQL for a nondefault timeout. The recheck accepted both. The default fixture observes the one-hour client deadline. The rollback-and-retry fixture observes the two-hour override and reads `lock_timeout` as `30s` in the cutover transaction. It finds no version record after failure and the expected version after retry.
+
+## Round 6: Active maintenance failures
+
+Codex approved D15 after requiring a fence for late failure reports. Each batch gets an attempt number before doing work. The status write compares that number with the stored outcome for the same job, so a failure delayed past a newer success cannot reopen the job's failure. Partition retry records keep their own fence.
+
+The review accepted the regression that parks an expiry failure after rollback, commits a newer expiry sweep and releases the old report. The successful outcome stays visible and the failure does not reappear. The maintenance loop test separately checks that an unrelated success does not hide the active failure.

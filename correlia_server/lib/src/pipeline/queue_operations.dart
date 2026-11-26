@@ -702,7 +702,7 @@ final class QueueOperations {
           (m.policy).disk_budget_bytes,(m.policy).disk_watermark_percent,
           q.pending_rows,correlia_queue_pressure(m.policy,q.pending_rows,1,
             EXISTS(SELECT 1 FROM lanes WHERE blocks),(SELECT queued FROM oldest),m.database_bytes),
-          (SELECT greatest(0,extract(epoch FROM clock_timestamp()-queued))::bigint FROM oldest),
+          (SELECT greatest(0,floor(extract(epoch FROM clock_timestamp()-queued)))::bigint FROM oldest),
           EXISTS(SELECT 1 FROM pipeline_partition_retry r WHERE problem IS NOT NULL
             AND day>=(clock_timestamp() AT TIME ZONE 'UTC')::date
             AND NOT correlia_partition_covered(r.parent_name,r.day)),
@@ -715,9 +715,17 @@ final class QueueOperations {
     ''',
     );
     final row = rows.first;
-    final maintenance = (await tx.query('''
-      SELECT lane,outcome,finished_at,affected FROM pipeline_maintenance_outcome WHERE singleton=1
-    ''')).singleOrNull;
+    final maintenance = await tx.query('''
+      SELECT lane,outcome,finished_at,affected FROM pipeline_maintenance_outcome
+      ORDER BY finished_at DESC, attempt DESC
+    ''');
+    QueueMaintenanceStatus batch(DatabaseResultRow row) =>
+        QueueMaintenanceStatus(
+          lane: row[0]! as String,
+          outcome: row[1]! as String,
+          finishedAt: (row[2]! as DateTime).toUtc(),
+          affected: row[3]! as int,
+        );
     return QueueStatus(
       pendingMaxRows: row[0]! as int,
       pendingMaxAgeSeconds: row[1]! as int,
@@ -744,14 +752,11 @@ final class QueueOperations {
               blocksIngress: lane[17]! as bool,
             ),
       ],
-      maintenance: maintenance == null
-          ? null
-          : QueueMaintenanceStatus(
-              lane: maintenance[0]! as String,
-              outcome: maintenance[1]! as String,
-              finishedAt: (maintenance[2]! as DateTime).toUtc(),
-              affected: maintenance[3]! as int,
-            ),
+      maintenance: maintenance.isEmpty ? null : batch(maintenance.first),
+      maintenanceFailures: [
+        for (final row in maintenance)
+          if (row[1] != 'ok') batch(row),
+      ],
     );
   });
 }

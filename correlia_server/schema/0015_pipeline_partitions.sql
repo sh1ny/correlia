@@ -896,9 +896,13 @@ CREATE TABLE pipeline_retention_cursor (
   last_serial bigint NOT NULL DEFAULT 0,
   last_created_at timestamptz NOT NULL DEFAULT '-infinity'
 );
+CREATE SEQUENCE pipeline_maintenance_attempt;
 CREATE TABLE pipeline_maintenance_outcome (
-  singleton integer PRIMARY KEY CHECK (singleton=1),
-  lane text NOT NULL,
+  lane text PRIMARY KEY CHECK (lane IN (
+    'expiry','raw','events','outbox','attempts','cutoff','transport','observation',
+    'drop_partition:raw_inbox','drop_partition:events','drop_partition:outbox','prepare_partition'
+  )),
+  attempt bigint NOT NULL,
   outcome text NOT NULL,
   finished_at timestamptz NOT NULL,
   affected integer NOT NULL

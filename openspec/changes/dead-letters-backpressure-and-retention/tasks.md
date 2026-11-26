@@ -31,6 +31,8 @@ Test paths are relative to `correlia_server/`. Green rows carry existing behavio
 | dead-letter-operations → Protected operational status | Retired lanes cannot hide a blocking output | `test/db/output_pressure_test.dart` | `status_prioritizes_a_blocked_lane_over_retired_work` | red |
 | dead-letter-operations → Protected operational status | Maintenance fails after a previous success | `test/db/pipeline_retention_test.dart` | `failed_batch_reports_no_uncommitted_counts` | red |
 | dead-letter-operations → Protected operational status | Maintenance fails after a previous success | `test/db/pipeline_partition_maintenance_test.dart` | `default_validation_timeout_records_retry_without_blocking_writes` | red |
+| dead-letter-operations → Protected operational status | A different maintenance job succeeds before the failing job recovers | `test/db/pipeline_retention_test.dart` | `maintenance_loop_keeps_failure_until_its_lane_succeeds` | red |
+| dead-letter-operations → Protected operational status | An earlier maintenance failure reports after recovery | `test/db/pipeline_retention_test.dart` | `late_sweep_failure_does_not_replace_same_lane_success` | red |
 | durable-pipeline → Rows decode by their source's kind | Two kinds in one batch | `test/db/decoder_dispatch_test.dart` | `two_kinds_in_one_batch` | green |
 | durable-pipeline → Rows decode by their source's kind | Existing rows after the upgrade | `test/db/decoder_dispatch_test.dart` | `existing_rows_after_the_upgrade` | green |
 | durable-pipeline → Rows decode by their source's kind | Row pinned to a format version 1 snapshot | `test/db/decoder_dispatch_test.dart` | `row_pinned_to_a_format_version_1_snapshot` | green |
