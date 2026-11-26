@@ -34,3 +34,5 @@ the non-load database, process and plugin tiers. Tests use only their own embedd
 ## License
 
 Correlia is licensed under the [Elastic License 2.0](LICENSE). Contributions require the [contributor licence agreement](CLA.md).
+
+Third-party files with their own licence notices keep those licences.

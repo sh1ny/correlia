@@ -34,7 +34,7 @@ mise run check       # the full gate: validation, analysis, format and tests
 
 - Branch from `main` and keep each pull request to one change.
 - **Tests.** Add or update tests for behaviour you change. A test must never fail because a machine is slow: wait for an event or a result, never sleep for a fixed time.
-- **Commit messages** follow [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): summary`, for example `fix(map): show transits on Reserve`. If you get it wrong, a maintainer will fix it when merging.
+- **Commit messages** follow [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): summary`, for example `fix(ingest): reject malformed alerts`. If you get it wrong, a maintainer will fix it when merging.
 - **Write it yourself.** Don't copy code from other projects, including translating it from another language. Adding a dependency is fine when its licence is compatible, but mention it in the pull request.
 
 ### Rules specific to Correlia
@@ -52,5 +52,7 @@ CI runs on every pull request. If it fails and you can't see why, say so in the 
 ## Licence
 
 Correlia is under the [Elastic License 2.0](LICENSE): you may use, change and run it yourself, including at your company, but not offer it to others as a hosted or managed service.
+
+Third-party files with their own licence notices keep those licences.
 
 Contributions need the short [contributor licence agreement](CLA.md). You keep the copyright in your work; the agreement lets the project offer Correlia under other terms later, for example a commercial licence for a service provider. You agree to it by ticking its box in the pull request template.
