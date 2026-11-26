@@ -5,7 +5,7 @@
 | Trigger | Applies? | Evidence |
 |---|---|---|
 | T1 Components (new component, or 3+ with directed relationships) | yes | New simulator endpoint and CLI; CLI → endpoint → decode and evaluator |
-| T2 State (persistent state, caches, 3+ state machine) | yes | Two new SQL-owned tables: digests of published matcher content and the fill's completion row |
+| T2 State (persistent state, caches, 3+ state machine) | yes | Two new SQL-owned tables: digests of published matcher content and the fill's watermark row |
 | T3 Concurrency (background work, workers/isolates, async, retries) | yes | The simulator shares the regex worker design with the pipeline; the upgrade fill runs under the publication lock |
 | T4 Boundaries (data format, migration, shared interface, IPC, external) | yes | A new matcher action, a new console API, a schema step |
 | T5 Volume (grows without a fixed bound) | yes | The reserved-label check looks up a history of snapshots that grows forever |
@@ -225,10 +225,13 @@ See proposal.md for scope. What the code does today:
   snapshots in Dart, before it accepts publications; PostgreSQL never parses snapshot JSON, so a
   plugin configuration holding U+0000 cannot block the upgrade. The fill is one transaction under the
   publication advisory lock (`config_repository.dart:142`): it inserts every digest with `ON CONFLICT
-  DO NOTHING` and, last, a completion row in the one-row table `matcher_content_digest_fill`, also
-  created by step `0015`. A crash rolls the whole fill back, so a partial fill is never visible.
-  Publication and startup read the completion row under that lock and, if it is absent, run the fill
-  first; concurrent starters wait on the lock and the second finds the row. Snapshots are written
+  DO NOTHING` and, last, the watermark `filled_through` (the last snapshot table ID read) in the
+  one-row table `matcher_content_digest_fill`, created by step `0015`; step `0016` adds the column.
+  A crash rolls the whole fill back, so a partial fill is never visible. Publication and startup read
+  the watermark under that lock and fill any snapshot after it first; concurrent starters wait on the
+  lock and the second finds nothing left. A snapshot the previous binary published during an offline
+  downgrade, after an earlier fill, is therefore still recorded (pre-ship review round 8; Chosen by:
+  agent, Important: no, since it keeps this decision's promise that unchanged stored content restarts). Snapshots are written
   only by publication. The fill reads snapshots in keyset pages of 100 by snapshot table ID, each page
   starting after the last ID read (never `OFFSET`), so it makes one pass and memory stays bounded
   however long the history is; it stays one transaction, so completion is atomic. Startup runs the
@@ -369,7 +372,7 @@ sequenceDiagram
 
 | State | Owner (sole writer) | Lifetime | Invalidation / rebuild | Authoritative copy |
 |---|---|---|---|---|
-| `matcher_content_digest` rows and the fill completion row | Publication transaction; the one-time upgrade fill, one transaction | Forever, like snapshots | Recomputable from `publicJson` in Dart | `ingest_config_snapshot.publicJson` |
+| `matcher_content_digest` rows and the fill watermark row | Publication transaction; the fill at each start and publication, one transaction each | Forever, like snapshots | Recomputable from `publicJson` in Dart | `ingest_config_snapshot.publicJson` |
 | Simulation trace | The endpoint call | One request | None | Response |
 
 ## Failure & Visibility (FULL)

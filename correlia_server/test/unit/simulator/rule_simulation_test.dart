@@ -771,6 +771,53 @@ void main() {
     expect(result.finalLabels, isNot(contains('nohost')));
   });
 
+  test(
+    'a_write_a_later_action_of_its_rule_overwrites_is_not_applied',
+    () async {
+      final result = await _simulate(
+        _event(),
+        _document([
+          _rule('overwrites', [
+            _label('team', 'first'),
+            {
+              'type': 'map_severity',
+              'values': {'warning': 'critical'},
+            },
+            _label('team', 'second'),
+            {
+              'type': 'map_severity',
+              'values': {'warning': 'info'},
+            },
+            {
+              'type': 'extract',
+              'field': 'summary',
+              'pattern': '(.+)',
+              'group': 1,
+              'key': 'team',
+            },
+            _label('team', 'third'),
+          ]),
+          _rule('later', [_label('team', 'fourth')]),
+        ]),
+      );
+      final overwritten = 'skipped: overwritten later in its rule';
+      expect(result.trace[0].actions.map((a) => (a.effect, a.applied)), [
+        (overwritten, false),
+        (overwritten, false),
+        (overwritten, false),
+        ('staged', true),
+        (overwritten, false),
+        ('staged', true),
+      ]);
+      // The overwritten capture still shows what it captured.
+      expect(result.trace[0].actions[4].detail, startsWith('team = '));
+      // A write in a later rule is a separate, applied patch.
+      expect(result.trace[1].actions.single.applied, isTrue);
+      expect(result.finalLabels['team'], 'fourth');
+      expect(result.finalSeverity, 'info');
+    },
+  );
+
   test('only_a_simulated_classify_sets_the_hint', () async {
     final result = await _simulate(
       _event(),

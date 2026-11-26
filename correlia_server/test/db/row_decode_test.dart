@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:correlia_server/src/event/event_timestamp.dart';
+import 'package:correlia_server/src/event/validation.dart';
 import 'package:correlia_server/src/ingest/bootstrap.dart';
 import 'package:correlia_server/src/ingest/config_repository.dart';
 import 'package:correlia_server/src/pipeline/row_decode.dart';
@@ -270,6 +271,51 @@ VALUES (CAST(@raw AS uuid),@origin,CAST(@sync AS uuid),@snapshot)''',
         expect(inputs.admission?.origin, 'sync');
         expect(inputs.admission?.statePolicy, 'hard_only');
         expect(inputs.admission?.syncId, streamDbSyncId);
+      });
+
+      test('an_admission_snapshot_with_nul_does_not_mask_the_format', () async {
+        final pin = await publishStreamDb(session);
+        // U+0000 in a plugin configuration cannot become jsonb.
+        final text =
+            (await session.db.unsafeQuery(
+                  'SELECT "publicJson" FROM ingest_config_snapshot WHERE "snapshotId"=@pin',
+                  parameters: QueryParameters.named({'pin': pin}),
+                )).single[0]!
+                as String;
+        final document = jsonDecode(text) as Map<String, Object?>;
+        document['outputs'] = [
+          ...(document['outputs'] as List<Object?>),
+          {
+            'id': '33333333-3333-4333-8333-333333333333',
+            'kind': 'plugin',
+            'config': {'token': '\u0000'},
+          },
+        ];
+        await session.db.unsafeExecute(
+          'UPDATE ingest_config_snapshot SET "publicJson"=@json WHERE "snapshotId"=@pin',
+          parameters: QueryParameters.named({
+            'pin': pin,
+            'json': jsonEncode(document),
+          }),
+        );
+        final body = webhook.body({
+          'format': 'correlia.icinga2.stream.v9',
+          'origin': 'stream',
+          'items': <Object?>[],
+        });
+        final key = await seed(icinga2DbSourceId, body, pin, admission: pin);
+        final inputs = await read(key, pin);
+        expect(inputs.stream, isTrue);
+        expect(
+          () => decodeRow(inputs, body, processedAt: _firstProcessing),
+          throwsA(
+            isA<EventFieldError>().having(
+              (e) => e.code,
+              'code',
+              'unsupported_format',
+            ),
+          ),
+        );
       });
 
       test('read_decode_inputs_names_a_pin_without_the_source', () async {

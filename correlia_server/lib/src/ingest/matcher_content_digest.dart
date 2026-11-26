@@ -66,20 +66,22 @@ Future<void> recordMatcherContent(
   );
 }
 
-/// Fills the digest table for snapshots stored before it existed.
+/// Fills the digest table for snapshots it has not read yet.
 ///
-/// The caller holds the publication advisory lock in [transaction]. When the
-/// completion row is present this does nothing. Otherwise it reads the
-/// snapshots in keyset pages, each starting after the last table ID read, so
-/// memory stays bounded and one pass suffices. It inserts every digest and, as
-/// its last statement, the completion row, so a failure that rolls the
-/// transaction back leaves no partial fill visible.
+/// The caller holds the publication advisory lock in [transaction]. The fill
+/// row's `filled_through` is the snapshot table ID it last read, or there is no
+/// row before the first fill. Only snapshots after it are read, in keyset
+/// pages, each starting after the last table ID read, so memory stays bounded
+/// and one pass suffices. A snapshot that a previous binary stored after an
+/// earlier fill, during an offline downgrade, is therefore still recorded. The
+/// fill inserts every digest and, as its last statement, the new watermark, so
+/// a failure that rolls the transaction back leaves no partial fill visible.
 ///
 /// PostgreSQL never parses the stored JSON: the text is decoded here, so a
 /// U+0000 escape in a plugin configuration cannot block the fill.
 ///
 /// The three `ForTest` hooks observe the page reads, each insert, and the
-/// moment before the completion row is written.
+/// moment before the watermark is written.
 Future<void> ensureMatcherDigestFill(
   Session session,
   Transaction transaction, {
@@ -87,13 +89,13 @@ Future<void> ensureMatcherDigestFill(
   Future<void> Function(int inserted)? afterInsertForTest,
   Future<void> Function()? beforeCompletionForTest,
 }) async {
-  final done = await session.db.unsafeQuery(
-    'SELECT 1 FROM matcher_content_digest_fill WHERE singleton = 1',
+  final state = await session.db.unsafeQuery(
+    'SELECT filled_through FROM matcher_content_digest_fill WHERE singleton = 1',
     transaction: transaction,
     timeoutInSeconds: 5,
   );
-  if (done.isNotEmpty) return;
-  var after = 0;
+  final through = state.isEmpty ? null : state.single[0]! as int;
+  var after = through ?? 0;
   var inserted = 0;
   while (true) {
     final page = await session.db.unsafeQuery(
@@ -122,9 +124,13 @@ Future<void> ensureMatcherDigestFill(
     }
     if (page.length < matcherFillPageSize) break;
   }
+  if (through == after) return;
   await beforeCompletionForTest?.call();
   await session.db.unsafeExecute(
-    'INSERT INTO matcher_content_digest_fill (singleton) VALUES (1)',
+    '''INSERT INTO matcher_content_digest_fill (singleton, filled_through)
+    VALUES (1, @after) ON CONFLICT (singleton)
+    DO UPDATE SET filled_through = EXCLUDED.filled_through, completed_at = now()''',
+    parameters: QueryParameters.named({'after': after}),
     transaction: transaction,
   );
 }

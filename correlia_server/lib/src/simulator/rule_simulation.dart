@@ -424,14 +424,22 @@ ActionTrace _actionTrace(
     MatcherExtract(:final key) => (
       'extract',
       switch (effect) {
-        (MatcherActionEffect.staged, final String value) => '$key = $value',
+        (
+          MatcherActionEffect.staged || MatcherActionEffect.superseded,
+          final String value,
+        ) =>
+          '$key = $value',
         _ => key,
       },
     ),
     MatcherLocation() => (
       'location',
       switch (effect) {
-        (MatcherActionEffect.staged, final String labels) when labels != '' =>
+        (
+          MatcherActionEffect.staged || MatcherActionEffect.superseded,
+          final String labels,
+        )
+            when labels != '' =>
           labels,
         _ => 'location table lookup',
       },
@@ -449,6 +457,8 @@ ActionTrace _actionTrace(
       MatcherActionEffect.noCapture => 'skipped: nothing captured',
       MatcherActionEffect.noEntry => 'skipped: no entry matched',
       MatcherActionEffect.noMapping => 'skipped: no mapping for severity',
+      MatcherActionEffect.superseded =>
+        'skipped: overwritten later in its rule',
       MatcherActionEffect.failed =>
         effect?.$2 == null ? 'failed' : 'failed: ${effect!.$2}',
       null => 'not run',

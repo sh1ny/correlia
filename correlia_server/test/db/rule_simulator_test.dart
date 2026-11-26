@@ -645,7 +645,7 @@ SELECT observed_at,event_id,'future_dated',raw_observed_at,raw_id,source_id,conf
         await session.db.unsafeSimpleExecute(
           '''DROP TABLE matcher_content_digest;
 DROP TABLE matcher_content_digest_fill;
-DELETE FROM correlia_schema_versions WHERE version = 15''',
+DELETE FROM correlia_schema_versions WHERE version IN (15, 16)''',
         );
         await initializeIngestSchema(session);
         await _publish(
@@ -842,7 +842,22 @@ DELETE FROM correlia_schema_versions WHERE version = 15''',
             _rule('old', _anySummary, [_label('old', '1')]),
           ]),
         );
-        await _process(session, [_alert()]);
+        // The old snapshot, as the previous binary published it, also writes
+        // the reserved key with set_label.
+        await support.seed(session, [_alert()]);
+        final worker = _worker(session);
+        expect(await worker.pinOne(), isTrue);
+        await _rewriteStoredMatcher(
+          session,
+          first.snapshotId,
+          _matcher([
+            _rule('old', _anySummary, [
+              _label('old', '1'),
+              _writeReserved('legacy'),
+            ]),
+          ]),
+        );
+        expect(await worker.processOne(), isTrue);
         final second = await _publish(
           session,
           matcher: _matcher([
@@ -856,9 +871,12 @@ DELETE FROM correlia_schema_versions WHERE version = 15''',
         expect(result.storedSnapshotId, first.snapshotId);
         expect(result.snapshotId, second.snapshotId);
         expect(result.storedLabels, containsPair('old', '1'));
+        expect(result.storedLabels, containsPair(_key, 'legacy'));
+        expect(result.storedLabelOrigins, containsPair(_key, 'matcher'));
         expect(result.finalLabels, isNot(contains('old')));
         expect(result.noiseClassHint, 'heartbeat');
         expect(result.finalLabels, containsPair(_key, 'heartbeat'));
+        expect(result.finalLabelOrigins, containsPair(_key, 'matcher'));
       });
 
       test('stored_label_is_not_a_hint', () async {

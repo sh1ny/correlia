@@ -413,6 +413,9 @@ The result carries:
   a `failureCode` for a failed rule, and each condition's field, operator, outcome and any failure code. Each
   action reports its effect: staged, skipped with the reason, failed with its rule's failure code, or not run. A
   `route` to an output that the baseline or an earlier route already has is `skipped: route already present`.
+  A write that a later action of the same rule overwrites (a label key, or a second matching `map_severity`) is
+  `skipped: overwritten later in its rule`; a `location` action counts as overwritten only when every label it
+  staged is. A write in a later rule is a separate patch, so both rules' writes are applied.
 - The final labels, label origins, links, severity and `eventKind`, plus `noiseClassHint` when a rule classified
   the event.
 - `baselineRoutes` (the source's routes in the active snapshot) and `addedRoutes` from `route` actions. Added
@@ -572,16 +575,20 @@ The release that adds `classify` follows the same offline sequence (ADR 0033):
 1. Drain pending inbox work and the outbox on the old release, then stop every process of every role.
 2. Start the new release. Schema step `0015` (`schema/0015_matcher_content_digest.sql`) creates
    `matcher_content_digest` (primary key `digest`, the SHA-256 of a snapshot's canonical matcher JSON) and
-   `matcher_content_digest_fill` (primary key `singleton`, one completion row).
+   `matcher_content_digest_fill` (primary key `singleton`, one row). Step `0016`
+   (`schema/0016_matcher_digest_watermark.sql`) adds `filled_through` to that row: the snapshot table id
+   through which the fill has read.
 3. Right after the schema steps and before it reads the configuration file, the process fills
-   `matcher_content_digest` for every snapshot already stored. It reads snapshots in keyset pages of 100 by
-   table id, in one transaction under the publication advisory lock, and writes the completion row last, so a
-   crash leaves no partial fill and the next start redoes it. A second starter waits on the lock and then finds
-   the completion row. The fill waits at most 60 seconds for the lock; past that the process exits non-zero with
+   `matcher_content_digest` for every snapshot after `filled_through` (every stored snapshot on the first
+   start). It reads snapshots in keyset pages of 100 by table id, in one transaction under the publication
+   advisory lock, and writes the new `filled_through` last, so a crash leaves no partial fill and the next start
+   redoes it. A second starter waits on the lock and then finds nothing left to read. Every later start and
+   publication reads only the snapshots after the watermark, so a snapshot that the old release published during
+   an offline downgrade, before any `classify` snapshot, still counts as stored content. The fill waits at most 60 seconds for the lock; past that the process exits non-zero with
    `Schema step 15 failed: lock_timeout`, and the next start retries. The fill decodes snapshot text in the
    server, so a U+0000 escape in a stored plugin configuration cannot block it.
 4. Publication and startup then reject a non-`classify` write to `correlia.noise_class` only in matcher content
-   that no stored snapshot has. Publication runs the fill first if it finds no completion row.
+   that no stored snapshot has. Publication first runs the fill for any snapshot after the watermark.
 
 Do not return to the old release after a snapshot that uses `classify` is published: the old binary rejects an
 unknown action when it reads that snapshot.

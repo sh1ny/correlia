@@ -135,7 +135,7 @@ Future<void> _rewindToBeforeStep15(Session session) async {
   await session.db.unsafeSimpleExecute(
     '''DROP TABLE matcher_content_digest;
     DROP TABLE matcher_content_digest_fill;
-    DELETE FROM correlia_schema_versions WHERE version = 15''',
+    DELETE FROM correlia_schema_versions WHERE version IN (15, 16)''',
   );
 }
 
@@ -543,6 +543,54 @@ matcher:
     expect(await _count(session, 'ingest_config_snapshot'), 1);
   });
 
+  _dbTest('an_older_binary_publishing_after_the_fill_stores_its_content', (
+    builder,
+  ) async {
+    final session = builder.build();
+    // This release ran once, so the fill already read every snapshot.
+    await initializeIngestSchema(session);
+    final directory = await Directory.systemTemp.createTemp(
+      'correlia-reserved-',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    final file = File('${directory.path}/ingest.yaml');
+    await file.writeAsString('''
+format_version: 2
+revision: 1
+sources: []
+outputs: []
+matcher:
+  language: matcher
+  version: 1
+  rules:
+    - id: downgraded
+      when: {field: summary, op: exists}
+      actions:
+        - {type: set_label, key: $_key, value: legacy}
+''');
+    Future<IngestBootstrap?> start(
+      Future<IngestBootstrap> Function(Object? config) publish,
+    ) => IngestBootstrap.load(
+      {'CORRELIA_INGEST_CONFIG': file.path},
+      runMode: 'test',
+      publish: (config, secrets) => publish(config),
+    );
+    // An offline downgrade: the previous binary publishes the file.
+    final old = (await start((config) => _installPreChange(session, config)))!;
+    // This release starts again from the same file.
+    await initializeIngestSchema(session);
+    final restarted = (await start(
+      (config) => _repository(
+        session,
+      ).publishConfig(config, const <String, Object?>{}, runMode: 'test'),
+    ))!;
+    expect(restarted.snapshotId, old.snapshotId);
+    expect(
+      (await _repository(session).activeSnapshot())?['snapshotId'],
+      old.snapshotId,
+    );
+  });
+
   _dbTest('rollback_to_pre_change_content_that_writes_the_reserved_key', (
     builder,
   ) async {
@@ -752,11 +800,14 @@ matcher:
     final base = await _publish(session, 1, null, _matcher(_benign));
     final history = await _insertHistory(session, 250);
     await _rewindToBeforeStep15(session);
+    for (final file in [
+      'schema/0015_matcher_content_digest.sql',
+      'schema/0016_matcher_digest_watermark.sql',
+    ]) {
+      await session.db.unsafeSimpleExecute(File(file).readAsStringSync());
+    }
     await session.db.unsafeSimpleExecute(
-      File('schema/0015_matcher_content_digest.sql').readAsStringSync(),
-    );
-    await session.db.unsafeSimpleExecute(
-      'INSERT INTO correlia_schema_versions (version) VALUES (15)',
+      'INSERT INTO correlia_schema_versions (version) VALUES (15), (16)',
     );
     expect(await _count(session, 'matcher_content_digest_fill'), 0);
     final restored = await _publish(session, 2, base.snapshotId, history[249]);

@@ -95,6 +95,10 @@ List<SchemaStep> get schemaSteps => [
     15,
     File('schema/0015_matcher_content_digest.sql').readAsStringSync(),
   ),
+  SchemaStep(
+    16,
+    File('schema/0016_matcher_digest_watermark.sql').readAsStringSync(),
+  ),
 ];
 
 /// Installs the publisher-version trigger and backfill boundaries in one

@@ -31,6 +31,11 @@ enum MatcherActionEffect {
   /// The action failed, which discards the whole rule's patch. The observed
   /// value is the failure code when there is one.
   failed,
+
+  /// The action staged a change that a later action of the same rule
+  /// overwrote, so its change is not in the patch. The observed value is the
+  /// one it staged.
+  superseded,
 }
 
 /// Receives each action's position, its effect and a value, if any: the
@@ -80,6 +85,21 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
   // a capture the patch validation rejects is reported against its action.
   // Kept only for an observer: the pipeline passes none.
   final extracted = onAction == null ? null : <String, int>{};
+  // The labels each staged write set, the last writer of each label and of
+  // the severity, and the value each write reported, so a write a later
+  // action of the rule overwrote is reported as superseded.
+  final wrote = onAction == null ? null : <int, List<String>>{};
+  final lastWriter = onAction == null ? null : <String, int>{};
+  final severityWrites = onAction == null ? null : <int>[];
+  final reported = onAction == null ? null : <int, String?>{};
+  void recordWrite(int index, List<String> keys, [String? value]) {
+    wrote?[index] = keys;
+    for (final key in keys) {
+      lastWriter?[key] = index;
+    }
+    reported?[index] = value;
+  }
+
   final links = <EventLink>[];
   final routes = <String>{};
   EventSeverity? severity;
@@ -89,10 +109,12 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
       case MatcherLabel(:final key, :final value):
         labels[key] = value;
         extracted?.remove(key);
+        recordWrite(index, [key]);
         onAction?.call(index, MatcherActionEffect.staged, null);
       case MatcherClassify(:final value):
         labels[reservedNoiseKey] = value.name;
         extracted?.remove(reservedNoiseKey);
+        recordWrite(index, [reservedNoiseKey]);
         onAction?.call(index, MatcherActionEffect.staged, null);
       case MatcherRoute(:final outputId):
         routes.add(outputId);
@@ -100,6 +122,7 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
       case MatcherSeverity(:final values):
         final mapped = values[original.severity];
         severity = mapped ?? severity;
+        if (mapped != null) severityWrites?.add(index);
         onAction?.call(
           index,
           mapped == null
@@ -136,6 +159,7 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
         if (value != null) {
           labels[key] = value;
           extracted?[key] = index;
+          recordWrite(index, [key], value);
         }
         onAction?.call(
           index,
@@ -152,6 +176,7 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
         }
         var found = false;
         final written = onAction == null ? null : <String>[];
+        final keys = onAction == null ? null : <String>[];
         for (final entry in entries) {
           if (entry.hostname == input ||
               entry.network?.contains(input) == true) {
@@ -159,15 +184,20 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
               labels['site'] = site;
               extracted?.remove('site');
               written?.add('site=$site');
+              keys?.add('site');
             }
             if (entry.environment case final environment?) {
               labels['environment'] = environment;
               extracted?.remove('environment');
               written?.add('environment=$environment');
+              keys?.add('environment');
             }
             found = true;
             break;
           }
+        }
+        if (found && keys != null) {
+          recordWrite(index, keys, written?.join(', '));
         }
         // The observed value names the labels the entry staged.
         onAction?.call(
@@ -177,6 +207,19 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
         );
     }
     check?.call();
+  }
+  if (onAction != null) {
+    for (final MapEntry(key: index, value: keys) in wrote!.entries) {
+      if (keys.every((key) => lastWriter![key] != index)) {
+        onAction(index, MatcherActionEffect.superseded, reported![index]);
+      }
+    }
+    // Every mapped severity but the last is overwritten.
+    for (final (position, index) in severityWrites!.indexed) {
+      if (position < severityWrites.length - 1) {
+        onAction(index, MatcherActionEffect.superseded, null);
+      }
+    }
   }
   if (labels.isEmpty &&
       links.isEmpty &&

@@ -157,8 +157,9 @@ final class IngestConfigRepository {
           "SET LOCAL correlia.publisher_version = '2'",
           transaction: transaction,
         );
-        // Startup has normally filled the digests already; a publication that
-        // finds no completion row does it first, under the lock it holds.
+        // Startup has normally filled the digests already; a publication first
+        // records any snapshot after the fill's watermark, under the lock it
+        // holds.
         await ensureMatcherDigestFill(session, transaction);
         await _store.checkKey(session, transaction);
         final input = await prepare(transaction);

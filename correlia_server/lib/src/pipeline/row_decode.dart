@@ -222,26 +222,36 @@ Future<DecodeInputs> readDecodeInputs(
       source['mode'] == SourceMode.eventStreams.wire;
   StreamAdmission? admission;
   if (stream) {
+    // The admission snapshot is read as text and decoded here: a U+0000
+    // escape elsewhere in it cannot become jsonb, and a failed cast would hide
+    // the row's own format error.
     final admitted = await session.db.unsafeQuery(
-      '''SELECT o.origin, source->>'state_type_policy', o.sync_id::text
+      '''SELECT o.origin, o.sync_id::text, c."publicJson"
         FROM icinga2_raw_origin o
         JOIN ingest_config_snapshot c ON c."snapshotId"=o.admission_snapshot_id
-        CROSS JOIN LATERAL jsonb_array_elements(c."publicJson"::jsonb->'sources') source
-        WHERE o.raw_id=CAST(@raw AS uuid) AND source->>'id'=@source''',
-      parameters: QueryParameters.named({
-        'raw': rawKey.rawId,
-        'source': sourceId,
-      }),
+        WHERE o.raw_id=CAST(@raw AS uuid)''',
+      parameters: QueryParameters.named({'raw': rawKey.rawId}),
       transaction: tx,
       timeoutInSeconds: 5,
     );
     if (admitted.isNotEmpty) {
       final metadata = admitted.single;
-      admission = StreamAdmission(
-        origin: metadata[0] as String?,
-        statePolicy: metadata[1] as String?,
-        syncId: metadata[2] as String?,
-      );
+      final document = jsonDecode(metadata[2]! as String);
+      final admittedSource = switch (document) {
+        {'sources': final List<Object?> sources} =>
+          sources.whereType<Map<String, Object?>>().where(
+            (entry) => entry['id'] == sourceId,
+          ),
+        _ => const <Map<String, Object?>>[],
+      };
+      if (admittedSource.isNotEmpty) {
+        final policy = admittedSource.first['state_type_policy'];
+        admission = StreamAdmission(
+          origin: metadata[0] as String?,
+          statePolicy: policy is String ? policy : null,
+          syncId: metadata[1] as String?,
+        );
+      }
     }
   }
   return DecodeInputs(
