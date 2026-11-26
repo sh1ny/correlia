@@ -16,6 +16,8 @@ import 'package:correlia_server/src/matcher/matcher_regex_worker.dart';
 import 'package:correlia_server/src/pipeline/pipeline.dart';
 import 'package:correlia_server/src/simulator/rule_simulation.dart';
 import 'package:correlia_server/src/simulator/rule_simulator.dart';
+import 'package:correlia_server/src/simulator/simulation_input.dart';
+import 'package:correlia_server/src/simulator/stored_event_lookup.dart';
 import 'package:serverpod/serverpod.dart';
 import 'package:test/test.dart';
 
@@ -514,6 +516,30 @@ SELECT observed_at,event_id,'future_dated',raw_observed_at,raw_id,source_id,conf
         );
         expect(result.error?.code, 'event_not_found');
         expect(result.trace, isEmpty);
+      });
+
+      test('re_decode_keeps_the_stored_processing_time', () async {
+        // The wire size bound counts the timestamp's text, so the re-decoded
+        // member must carry the time the pipeline stored, not the clock's.
+        await _publish(session);
+        await _process(session, [_alert()]);
+        final stored = (await _stored(session)).single;
+        final found = await session.db.transaction(
+          (tx) => lookupStoredEvent(
+            session,
+            tx,
+            StoredEventRequest(
+              eventId: stored.id,
+              observedAt: stored.observed,
+            ),
+          ),
+        );
+        switch (found) {
+          case FoundStoredEvent(:final member):
+            expect(member.processedAt, stored.event.processedAt);
+          case StoredEventLookupFailure(:final error):
+            fail('lookup failed: ${error.code}');
+        }
       });
 
       test('raw_row_no_longer_retained', () async {

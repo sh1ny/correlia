@@ -152,31 +152,22 @@ typedef DecodedRow = ({DecodedBatch batch, String? syncId});
 /// Every decode of a raw row goes through the shared decode, which reads
 /// stream admission metadata.
 ///
-/// Reads the row's source and digest, the pin's source settings and, for an
-/// Icinga2 Event Streams row, the origin, state policy and sync ID stored at
-/// admission. The admission metadata is joined to the snapshot the row was
-/// admitted under, not to [pin]. The reads need no row lock and no pipeline
-/// claim state, so a plain read-only transaction [tx] is enough. Throws a
-/// [StateError] when the row or the pin does not exist.
+/// The caller passes the row's [sourceId] and body [digest], which it has
+/// already read with the row: the pipeline from its claim, the simulator with
+/// the body. This reads the pin's source settings and, for an Icinga2 Event
+/// Streams row, the origin, state policy and sync ID stored at admission. The
+/// admission metadata is joined to the snapshot the row was admitted under,
+/// not to [pin]. The reads need no row lock and no pipeline claim state, so a
+/// plain read-only transaction [tx] is enough. Throws a [StateError] when the
+/// pin does not exist.
 Future<DecodeInputs> readDecodeInputs(
   Session session,
   Transaction tx,
   RawKey rawKey,
-  String pin,
-) async {
-  final rows = await session.db.unsafeQuery(
-    '''SELECT source_id::text,body_sha256 FROM raw_inbox
-WHERE observed_at=@observed AND raw_id=CAST(@raw AS uuid)''',
-    parameters: QueryParameters.named({
-      'observed': rawKey.observedAt,
-      'raw': rawKey.rawId,
-    }),
-    transaction: tx,
-    timeoutInSeconds: 5,
-  );
-  if (rows.isEmpty) throw StateError('Unknown raw row');
-  final sourceId = rows.single[0]! as String;
-  final digest = rows.single[1]! as String;
+  String pin, {
+  required String sourceId,
+  required String digest,
+}) async {
   final snapshots = await session.db.unsafeQuery(
     'SELECT "publicJson" FROM ingest_config_snapshot WHERE "snapshotId"=@pin',
     parameters: QueryParameters.named({'pin': pin}),

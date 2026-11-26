@@ -127,8 +127,22 @@ VALUES (CAST(@raw AS uuid),@origin,CAST(@sync AS uuid),@snapshot)''',
         };
       }
 
-      Future<DecodeInputs> read(RawKey key, String pin) => session.db
-          .transaction((tx) => readDecodeInputs(session, tx, key, pin));
+      Future<DecodeInputs> read(RawKey key, String pin) async {
+        final row = (await session.db.unsafeQuery(
+          'SELECT source_id::text, body_sha256 FROM raw_inbox WHERE raw_id=CAST(@id AS uuid)',
+          parameters: QueryParameters.named({'id': key.rawId}),
+        )).single;
+        return session.db.transaction(
+          (tx) => readDecodeInputs(
+            session,
+            tx,
+            key,
+            pin,
+            sourceId: row[0]! as String,
+            digest: row[1]! as String,
+          ),
+        );
+      }
 
       /// A stream row with one soft check and one hard check.
       Uint8List streamBody() => webhook.body({

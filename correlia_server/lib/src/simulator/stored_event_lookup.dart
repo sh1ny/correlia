@@ -5,7 +5,6 @@ import 'package:serverpod/serverpod.dart';
 
 import '../event/canonical_event.dart';
 import '../event/cloud_event.dart';
-import '../event/event_timestamp.dart';
 import '../event/validation.dart';
 import '../generated/protocol.dart' hide ConditionTrace;
 import '../pipeline/row_decode.dart';
@@ -65,14 +64,14 @@ const _dispositionOrder = {'ready': 0, 'late': 1, 'future_dated': 2};
 /// disposition when one is given; without one the non-`future_dated` row is
 /// preferred. The row's raw row is decoded again through the shared decode, so
 /// a stream row keeps its admission metadata, and the member is chosen by
-/// [selectKeptMember]. [processedAt] stamps the decoded events; the choice
-/// ignores it.
+/// [selectKeptMember]. The decoded events carry the stored event's own
+/// processing time: the wire size bound counts the timestamp's text, so
+/// another time could push a member that fit when stored over the bound.
 Future<StoredEventLookup> lookupStoredEvent(
   Session session,
   Transaction tx,
-  StoredEventRequest request, {
-  required EventTimestamp processedAt,
-}) async {
+  StoredEventRequest request,
+) async {
   final rows = await session.db.unsafeQuery(
     '''SELECT disposition, raw_observed_at, raw_id::text, config_snapshot_id, payload
 FROM events WHERE observed_at=@observed AND event_id=CAST(@id AS uuid)
@@ -102,7 +101,8 @@ ${request.disposition == null ? '' : 'AND disposition=@disposition'}''',
     return _failure(simulationRawUnavailable, 'eventId');
   }
   final raw = await session.db.unsafeQuery(
-    'SELECT body FROM raw_inbox WHERE observed_at=@observed AND raw_id=CAST(@raw AS uuid)',
+    '''SELECT body, source_id::text, body_sha256 FROM raw_inbox
+WHERE observed_at=@observed AND raw_id=CAST(@raw AS uuid)''',
     parameters: QueryParameters.named({
       'observed': rawKey.observedAt,
       'raw': rawKey.rawId,
@@ -120,7 +120,14 @@ ${request.disposition == null ? '' : 'AND disposition=@disposition'}''',
     timeoutInSeconds: 5,
   );
   if (pinned.isEmpty) return _failure(simulationRawUnavailable, 'eventId');
-  final inputs = await readDecodeInputs(session, tx, rawKey, pin);
+  final inputs = await readDecodeInputs(
+    session,
+    tx,
+    rawKey,
+    pin,
+    sourceId: raw.single[1]! as String,
+    digest: raw.single[2]! as String,
+  );
   if (inputs.rejection != null) {
     return _failure(simulationRawUnavailable, 'eventId');
   }
@@ -129,7 +136,7 @@ ${request.disposition == null ? '' : 'AND disposition=@disposition'}''',
     decoded = decodeRow(
       inputs,
       _bytes(raw.single[0]),
-      processedAt: processedAt,
+      processedAt: stored.processedAt,
     );
   } on EventValidationError {
     return _failure(simulationRawUnavailable, 'eventId');

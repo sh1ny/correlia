@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:serverpod/serverpod.dart';
 
 import '../event/canonical_event.dart';
-import '../event/event_timestamp.dart';
 import '../generated/protocol.dart' hide ConditionTrace;
 import '../ingest/config_repository.dart';
 import '../matcher/matcher_document.dart';
@@ -22,8 +21,8 @@ const simulationInvalidJson = 'invalid_json';
 /// Runs one rule simulation: validates the request, reads what it needs in one
 /// read-only transaction and evaluates the rules after that transaction ends.
 ///
-/// The simulator writes nothing. Its regex worker, clock and budget are
-/// injectable so tests need no real waiting.
+/// The simulator writes nothing. Its regex worker and budget are injectable
+/// so tests need no real waiting.
 final class RuleSimulator {
   /// Creates a simulator; [regexWorker] is shared when given, otherwise each
   /// simulation starts and stops its own.
@@ -31,8 +30,7 @@ final class RuleSimulator {
     this.regexWorker,
     this.elapsed,
     this.optionalBudget = simulationOptionalBudget,
-    DateTime Function()? clock,
-  }) : _clock = clock ?? DateTime.now;
+  });
 
   /// The regex worker to use, or `null` for one per simulation.
   final MatcherRegexWorker? regexWorker;
@@ -42,8 +40,6 @@ final class RuleSimulator {
 
   /// The optional time budget of one simulation.
   final Duration optionalBudget;
-
-  final DateTime Function() _clock;
 
   /// Simulates the one event the request names.
   ///
@@ -161,14 +157,7 @@ final class RuleSimulator {
       case PastedEventRequest(event: final pasted):
         event = pasted;
       case StoredEventRequest():
-        final found = await lookupStoredEvent(
-          session,
-          tx,
-          request,
-          processedAt: EventTimestamp.parse(
-            _clock().toUtc().toIso8601String(),
-          ),
-        );
+        final found = await lookupStoredEvent(session, tx, request);
         switch (found) {
           case StoredEventLookupFailure(:final error):
             return _Failed(error);

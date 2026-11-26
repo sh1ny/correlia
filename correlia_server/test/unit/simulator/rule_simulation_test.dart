@@ -180,6 +180,9 @@ void main() {
     expect(missing.code, isNot('invalid_input'));
     final notJson = _rejected(validateSimulationInput(eventJson: '{nope'));
     expect(notJson.field, isNotNull);
+  });
+
+  test('oversized_pasted_event', () {
     final huge = _rejected(
       validateSimulationInput(
         eventJson: _envelope((e) => e['pad'] = 'x' * 300000),

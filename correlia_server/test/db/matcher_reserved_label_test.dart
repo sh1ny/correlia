@@ -348,6 +348,65 @@ void main() {
     expect(await _count(session, 'ingest_config_snapshot'), 1);
   });
 
+  _dbTest('a_classified_watchdog_keeps_its_live_alert_state', (builder) async {
+    final session = builder.build();
+    await initializeIngestSchema(session);
+    final worker = _worker(session);
+    await _publish(
+      session,
+      1,
+      null,
+      _matcher(
+        [
+          {'type': 'classify', 'value': 'heartbeat'},
+        ],
+        when: const {
+          'field': 'labels.alertname',
+          'op': 'equals',
+          'value': 'Watchdog',
+        },
+      ),
+      source: true,
+    );
+    // The same alert shape twice: one is classified, the other is not.
+    await _insertRaw(session, 1, 'Watchdog');
+    await _insertRaw(session, 2, 'Other');
+    for (var i = 0; i < 2; i++) {
+      expect(await worker.pinOne(), isTrue);
+      expect(await worker.processOne(), isTrue);
+    }
+    final events = {
+      for (final event in await _events(session))
+        event.labels['alertname']: event,
+    };
+    final watchdog = events['Watchdog']!;
+    expect(watchdog.labels, containsPair(_key, 'heartbeat'));
+    expect(watchdog.labelsOrigin, containsPair(_key, 'matcher'));
+    expect(watchdog.kind, EventKind.alert);
+    expect(events['Other']!.labels, isNot(contains(_key)));
+    // The hint changes neither the live alert nor its state.
+    final alerts = {
+      for (final row in await session.db.unsafeQuery(
+        '''SELECT fingerprint, status, severity, summary, silent_tombstone,
+        "firingSince" IS NOT NULL FROM alerts''',
+      ))
+        row[0]! as String: row.sublist(1),
+    };
+    expect(
+      alerts.keys,
+      unorderedEquals([
+        for (final event in events.values) event.fingerprint,
+      ]),
+    );
+    final classified = alerts[watchdog.fingerprint]!;
+    final plain = alerts[events['Other']!.fingerprint]!;
+    expect(classified[0], plain[0], reason: 'status');
+    expect(classified[1], plain[1], reason: 'severity');
+    expect(classified[3], plain[3], reason: 'silent tombstone');
+    expect(classified[4], plain[4], reason: 'firing since set');
+    expect(classified[2], watchdog.summary);
+  });
+
   _dbTest('a_snapshot_pinned_before_the_change_keeps_running', (builder) async {
     final session = builder.build();
     await initializeIngestSchema(session);

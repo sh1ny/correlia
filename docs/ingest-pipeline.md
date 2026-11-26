@@ -396,8 +396,10 @@ The request names the event in exactly one way:
 
 - `eventJson`: a CloudEvent JSON document, decoded and validated like a published event.
 - `eventId` and `observedAt`, with an optional `disposition` (`ready`, `late` or `future_dated`): an event the
-  pipeline stored. The simulator decodes the stored raw row again and picks the member the pipeline kept. Without
-  a `disposition` a `ready` or `late` row is preferred over a `future_dated` one.
+  pipeline stored. The simulator decodes the stored raw row again and picks the member the pipeline kept: the one
+  equal to the stored event in every field the matcher and the pipeline's diagnostics leave alone. When no member
+  is, or several differing members are, the result is `ambiguous_member`. Without a `disposition` a `ready` or
+  `late` row is preferred over a `future_dated` one.
 
 `draftMatcher` is optional text holding a `matcher` section as JSON (at most 64 KiB). Without it the rules of the
 active snapshot run. A draft is checked like a published one, including the reserved `correlia.noise_class` key,
@@ -433,7 +435,7 @@ RPC error.
 | a matcher validation code | the matcher field path | The draft fails the checks of publication, such as `reserved_key:correlia.noise_class;use_classify_or_rename_the_label` |
 | `event_not_found` | `eventId` | No stored event has that key |
 | `raw_unavailable` | `eventId` | The stored event's raw row is gone or cannot be decoded again |
-| `ambiguous_member` | `eventId` | The raw row holds several events with that ID and the stored event does not tell which one was kept |
+| `ambiguous_member` | `eventId` | No member of the decoded raw row matches the stored event, or the raw row holds several differing events with that ID and the stored event does not tell which one was kept |
 
 #### Command line
 
