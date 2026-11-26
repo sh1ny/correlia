@@ -109,12 +109,12 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
       case MatcherLabel(:final key, :final value):
         labels[key] = value;
         extracted?.remove(key);
-        recordWrite(index, [key]);
+        if (onAction != null) recordWrite(index, [key]);
         onAction?.call(index, MatcherActionEffect.staged, null);
       case MatcherClassify(:final value):
         labels[reservedNoiseKey] = value.name;
         extracted?.remove(reservedNoiseKey);
-        recordWrite(index, [reservedNoiseKey]);
+        if (onAction != null) recordWrite(index, [reservedNoiseKey]);
         onAction?.call(index, MatcherActionEffect.staged, null);
       case MatcherRoute(:final outputId):
         routes.add(outputId);
@@ -159,7 +159,7 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
         if (value != null) {
           labels[key] = value;
           extracted?[key] = index;
-          recordWrite(index, [key], value);
+          if (onAction != null) recordWrite(index, [key], value);
         }
         onAction?.call(
           index,

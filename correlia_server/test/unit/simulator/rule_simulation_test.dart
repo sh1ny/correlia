@@ -617,6 +617,32 @@ void main() {
     expect(result.baselineOverFanout, isFalse);
   });
 
+  test('a_present_route_is_reported_when_its_rule_fails', () async {
+    final event = _event();
+    final size = CloudEvent(event: event).toJsonBytes().length;
+    final result = await _simulate(
+      event,
+      _document([
+        _rule('too-big', [
+          {'type': 'route', 'output_id': _routeA},
+          _label('big', 'z' * 200),
+        ]),
+      ]),
+      context: SimulationContext(
+        ruleSource: SimulationRuleSource.active,
+        baselineRoutes: const [_routeA],
+      ),
+      // The event and one baseline copy fit; the larger patch does not.
+      fanoutLimit: 2 * size + 10,
+    );
+    final trace = result.trace.single;
+    expect((trace.outcome, trace.failureCode), ('failed', 'batch_bound'));
+    expect(trace.actions.map((a) => (a.effect, a.applied)), [
+      ('skipped: route already present', false),
+      ('staged', false),
+    ]);
+  });
+
   test('baseline_already_over_the_fanout_bound', () async {
     final event = _event();
     final size = CloudEvent(event: event).toJsonBytes().length;

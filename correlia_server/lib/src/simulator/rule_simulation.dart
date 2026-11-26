@@ -226,6 +226,7 @@ Future<RuleSimulationResult> simulateRules({
     final effects = <int, (MatcherActionEffect, String?)>{};
     // Route actions whose output the baseline or an earlier route already has.
     final present = <int>{};
+    final addedBefore = added.toList();
     String? failure;
     try {
       final patch = await applyMatcherRule(
@@ -263,14 +264,6 @@ Future<RuleSimulationResult> simulateRules({
           current = patch.event;
           payload = bytes;
           added.addAll(extra);
-          final fresh = extra.toSet();
-          for (final (index, action) in rule.actions.indexed) {
-            if (action case MatcherRoute(
-              :final outputId,
-            ) when effects[index]?.$1 == MatcherActionEffect.staged) {
-              if (!fresh.remove(outputId)) present.add(index);
-            }
-          }
         }
       }
     } on _Cutoff {
@@ -282,6 +275,16 @@ Future<RuleSimulationResult> simulateRules({
     } on EventValidationError catch (error) {
       stopped = timedOut = optionalRemaining() <= Duration.zero;
       failure = stopped ? 'matcher_cutoff' : error.code;
+    }
+    // A staged route whose output the baseline, an earlier accepted rule or an
+    // earlier route of this rule already has, whether or not the patch fits.
+    final routed = {...baseRoutes, ...addedBefore};
+    for (final (index, action) in rule.actions.indexed) {
+      if (action case MatcherRoute(
+        :final outputId,
+      ) when effects[index]?.$1 == MatcherActionEffect.staged) {
+        if (!routed.add(outputId)) present.add(index);
+      }
     }
     if (failure != null) {
       // A failed action carries its rule's code, the cutoff included.
