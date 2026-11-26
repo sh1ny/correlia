@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:correlia_client/correlia_client.dart';
+import 'package:crypto/crypto.dart';
 import 'package:postgres/postgres.dart';
 import 'package:test/test.dart';
 
@@ -51,6 +52,7 @@ Future<File> _config(
   int port,
   int rev, {
   int? pendingCap,
+  String signingKeyRef = 'key',
 }) =>
     File(
       '${File(env['CORRELIA_INGEST_CONFIG']!).parent.path}/config-$rev.json',
@@ -77,7 +79,7 @@ Future<File> _config(
             'kind': 'webhook',
             'url':
                 'http://127.0.0.1:$port/${rev == 1 ? 'healthy' : 'replacement'}',
-            'signing_key_ref': 'key',
+            'signing_key_ref': signingKeyRef,
           },
         ],
       }),
@@ -187,12 +189,36 @@ void main() {
           listed.toJson()['failures'].toString(),
           isNot(contains('Recovery')),
         );
-        final rotation = await _config(env, receiver.port, 2);
+        const replacementRef = 'key-2';
+        final replacementKey = List<int>.filled(32, 3);
+        final rotation = await _config(
+          env,
+          receiver.port,
+          2,
+          signingKeyRef: replacementRef,
+        );
+        await File(env['CORRELIA_INGEST_SECRETS']!).writeAsString(
+          jsonEncode({
+            'token': outputToken,
+            'key': outputKey,
+            replacementRef: base64Url
+                .encode(replacementKey)
+                .replaceAll('=', ''),
+          }),
+        );
         await _start(
           db,
           {...opts, 'CORRELIA_INGEST_CONFIG': rotation.path},
           children,
           role: 'api',
+        );
+        expect(
+          (await pg.execute('''
+            SELECT s."publicJson"::jsonb->'outputs'->0->>'signing_key_ref'
+            FROM ingest_active_config a JOIN ingest_config_snapshot s USING ("snapshotId")
+            WHERE a.singleton=1
+          ''')).single[0],
+          replacementRef,
         );
         recovering = true;
         next = notifications.moveNext();
@@ -207,7 +233,11 @@ void main() {
         expect(replayed.path, '/healthy');
         expect(replayed.bytes, failed.first.bytes);
         expect(replayed.eventId, failed.first.eventId);
-        expect(replayed.signature, failed.first.signature);
+        final originalKey = base64Url.decode(base64Url.normalize(outputKey));
+        String sign(List<int> key) =>
+            'sha256=${Hmac(sha256, key).convert(replayed.bytes)}';
+        expect(replayed.signature, sign(originalKey));
+        expect(replayed.signature, isNot(sign(replacementKey)));
         var delivered = false;
         while (await next.timeout(_guard)) {
           if ((delivered = notifications.current.payload == 'delivered')) break;

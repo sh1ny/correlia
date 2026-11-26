@@ -324,6 +324,7 @@ final class PipelineRepository {
     this.afterOutputRefusalForTest,
     this.beforeCapacityLockForTest,
     this.beforeEventWriteForTest,
+    this.beforePendingCounterLockForTest,
     Map<String, int>? retryCounts,
     this.retryDelay,
     PipelineCounters? counters,
@@ -362,6 +363,9 @@ final class PipelineRepository {
 
   /// Lets a fixture expire a statement while the events parent is locked.
   final Future<void> Function(Transaction)? beforeEventWriteForTest;
+
+  /// Lets a fixture expire the statement waiting for the pending counter.
+  final Future<void> Function(Transaction)? beforePendingCounterLockForTest;
   final Map<String, int> _retryCounts;
   final Duration Function(int)? retryDelay;
   final PipelineCounters counters;
@@ -487,6 +491,30 @@ final class PipelineRepository {
           discarded: discarded ?? 0,
         );
       }
+    }
+  }
+
+  // Sync progress must be updated first: pull admission uses that same order.
+  Future<void> _lockPendingCounter(Transaction tx, _Deadline deadline) async {
+    try {
+      await _limits(tx, deadline);
+      // Acquire the write lock before the counter, never while holding it.
+      await session.db.unsafeExecute(
+        'LOCK TABLE ONLY raw_inbox IN ROW EXCLUSIVE MODE',
+        transaction: tx,
+        timeoutInSeconds: 5,
+      );
+      await _limits(tx, deadline);
+      if (beforePendingCounterLockForTest case final beforePending?) {
+        await beforePending(tx);
+      }
+      await session.db.unsafeQuery(
+        'SELECT 1 FROM pipeline_pending WHERE singleton=1 FOR UPDATE',
+        transaction: tx,
+        timeoutInSeconds: 5,
+      );
+    } catch (error, stack) {
+      _PipelineLockWait.throwFor(error, stack);
     }
   }
 
@@ -1132,6 +1160,7 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
               parameters: QueryParameters.named({'raw': raw.id}),
               transaction: tx,
             );
+            await _lockPendingCounter(tx, deadline);
             await _limits(tx, deadline);
             await session.db.unsafeExecute(
               'DELETE FROM raw_inbox WHERE observed_at=@observed AND raw_id=CAST(@raw AS uuid)',
@@ -1145,6 +1174,7 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
             return true;
           }
         }
+        await _lockPendingCounter(tx, deadline);
         await _limits(tx, deadline);
         await session.db.unsafeExecute(
           'UPDATE raw_inbox SET status=\'done\',next_attempt_at=NULL,outcome_json=@outcome WHERE observed_at=@observed AND raw_id=CAST(@raw AS uuid)',
@@ -1315,6 +1345,7 @@ FROM failure''',
     if (failedSync.isNotEmpty) {
       await _finalizeSync(tx, deadline, failedSync.single[0]! as String);
     }
+    await _lockPendingCounter(tx, deadline);
     await _limits(tx, deadline);
     await session.db.unsafeExecute(
       "UPDATE raw_inbox SET status='failed',next_attempt_at=NULL WHERE observed_at=@observed AND raw_id=CAST(@raw AS uuid)",
