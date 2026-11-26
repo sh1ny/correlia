@@ -235,7 +235,7 @@ final class QueueOperations {
           after = DateTime.fromMicrosecondsSinceEpoch(afterUs, isUtc: true);
           if (!validTime(after) ||
               !validTime(bound) ||
-              bound.isAfter(high) ||
+              (through != null && bound.isAfter(through)) ||
               after.isAfter(bound) ||
               (lower != null && after.isBefore(lower))) {
             _invalid('invalid_continuation');

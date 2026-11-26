@@ -909,6 +909,66 @@ void main() {
         expect(await _dropOldPartition(session, 'raw_inbox'), isTrue);
       });
 
+      test('direct_raw_child_dml_cannot_bypass_parent_accounting', () async {
+        const daily = 'raw_inbox_20260101';
+        await _prepareOldPartition(session, 'raw_inbox');
+        addTearDown(
+          () => session.db.unsafeSimpleExecute('''
+          TRUNCATE raw_inbox;
+          DROP TABLE IF EXISTS $daily;
+          DELETE FROM pipeline_partition_range WHERE child_name='$daily'
+        '''),
+        );
+        const children = {
+          daily: _old,
+          'raw_inbox_default': '2026-01-02 UTC',
+        };
+        for (final MapEntry(key: child, value: at) in children.entries) {
+          final row = (await session.db.unsafeQuery('''
+            INSERT INTO raw_inbox(observed_at,raw_id,source_id,body,body_sha256,content_type)
+            VALUES ('$at',gen_random_uuid(),'$_source',decode('ff','hex'),'digest','application/json')
+            RETURNING tableoid::regclass::text
+          ''')).single;
+          expect(row[0], child);
+        }
+        await session.db.unsafeExecute(
+          "UPDATE raw_admission_cutoff SET cutoff='2026-02-01 UTC'",
+        );
+        for (final MapEntry(key: child, value: at) in children.entries) {
+          for (final sql in [
+            '''
+            INSERT INTO $child(observed_at,raw_id,source_id,body,body_sha256,content_type)
+            VALUES ('$at',gen_random_uuid(),'$_source',decode('ff','hex'),'digest','application/json')
+            ''',
+            "UPDATE $child SET status='done'",
+            'DELETE FROM $child',
+          ]) {
+            await expectLater(
+              session.db.unsafeExecute(sql),
+              throwsA(
+                isA<DatabaseQueryException>().having(
+                  (error) => error.code,
+                  'SQLSTATE',
+                  '0A000',
+                ),
+              ),
+            );
+          }
+        }
+        Future<Object?> pending() async => (await session.db.unsafeQuery(
+          'SELECT pending_rows FROM pipeline_pending',
+        )).single[0];
+        expect(await pending(), 2);
+        expect(
+          await session.db.unsafeExecute(
+            "DELETE FROM raw_inbox WHERE status='pending'",
+          ),
+          2,
+        );
+        expect(await pending(), 0);
+        expect(await _dropOldPartition(session, 'raw_inbox'), isTrue);
+      });
+
       test('drop_requires_read_committed', () async {
         await prepareOldOutbox();
         await expectLater(

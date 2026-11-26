@@ -232,8 +232,9 @@ A closed child whose drop times out waits for its scheduled retry. Other eligibl
 can be dropped during that wait. A drop still rechecks retention and protection under
 the DDL locks. Outbox drops check exact counts per child and output without scanning
 the payload heap. A writer can delay cleanup of its own count without holding up another output.
-Do not truncate individual raw children or nonempty outbox children. The database rejects those
-operations because they would leave queue usage, failure entries or references behind.
+Target the `raw_inbox` parent for writes so the admission cutoff and pending count apply.
+The database rejects direct writes to raw children and truncation of nonempty outbox
+children because those operations can leave queue usage, failure entries or references behind.
 
 For offline repair, stop all writers first. In one transaction use the maintenance advisory
 lock `1129271900` and the `correlia_reserve_partition` and `correlia_attach_partition` SQL
@@ -1207,9 +1208,10 @@ affected rows and keeps its retry record. A successful attachment reports one af
 
 Use a limit from 1 to 100 for `list` and `replayBatch`. Pass the continuation to the same
 method with the same filters. It resumes after the last considered occurrence and keeps
-the first page's upper time bound. Start a new listing to include later failures or revisit
-refused items. No reply includes raw bodies, delivery payloads, destinations or signing
-references. Successful replay records the verified machine ID and queued count in `activity`.
+the first page's upper time bound even if the database clock moves back. Start a new listing
+to include later failures or revisit refused items. No reply includes raw bodies, delivery
+payloads, destinations or signing references. Successful replay records the verified machine
+ID and queued count in `activity`.
 
 Plugin dead letters use the `plugin_failure` category for listing and filters. The API does
 not return plugin-supplied error text.

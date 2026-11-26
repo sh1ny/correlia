@@ -574,34 +574,38 @@ CREATE TRIGGER outbox_partition_output_guard BEFORE UPDATE OF output_id ON outbo
 CREATE TRIGGER outbox_row_inventory AFTER INSERT OR DELETE ON outbox
   FOR EACH ROW EXECUTE FUNCTION correlia_account_outbox_partition();
 
-CREATE FUNCTION correlia_guard_raw_truncate() RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE FUNCTION correlia_guard_raw_partition_write() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   -- PostgreSQL runs the parent's BEFORE trigger before its children and
   -- runs every BEFORE trigger before clearing the parent marker afterward.
   IF TG_TABLE_NAME='raw_inbox' THEN
     PERFORM set_config('correlia.raw_parent_truncate','on',true);
-  ELSIF current_setting('correlia.raw_parent_truncate',true) IS DISTINCT FROM 'on' THEN
-    RAISE EXCEPTION USING ERRCODE='0A000', MESSAGE='cannot truncate an individual raw child';
+  ELSIF TG_OP<>'TRUNCATE'
+    OR current_setting('correlia.raw_parent_truncate',true) IS DISTINCT FROM 'on' THEN
+    RAISE EXCEPTION USING ERRCODE='0A000', MESSAGE='write raw work through the raw_inbox parent';
   END IF;
   RETURN NULL;
 END;
 $$;
 CREATE TRIGGER raw_truncate_guard BEFORE TRUNCATE ON raw_inbox
-  FOR EACH STATEMENT EXECUTE FUNCTION correlia_guard_raw_truncate();
+  FOR EACH STATEMENT EXECUTE FUNCTION correlia_guard_raw_partition_write();
 
-CREATE FUNCTION correlia_install_partition_truncate_guard(p_parent text,p_child text)
+CREATE FUNCTION correlia_install_partition_guards(p_parent text,p_child text)
 RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
   IF p_parent='outbox' THEN
     EXECUTE format('CREATE TRIGGER outbox_child_truncate_guard AFTER TRUNCATE ON %I
       FOR EACH STATEMENT EXECUTE FUNCTION correlia_account_outbox_partition()',p_child);
   ELSIF p_parent='raw_inbox' THEN
-    EXECUTE format('CREATE TRIGGER raw_child_truncate_guard BEFORE TRUNCATE ON %I
-      FOR EACH STATEMENT EXECUTE FUNCTION correlia_guard_raw_truncate()',p_child);
+    -- Statement triggers on children fire only when directly targeted.
+    -- Route writes through the parent cutoff and accounting triggers.
+    EXECUTE format('CREATE TRIGGER raw_child_write_guard
+      BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE ON %I
+      FOR EACH STATEMENT EXECUTE FUNCTION correlia_guard_raw_partition_write()',p_child);
   END IF;
 END;
 $$;
-DO $partition_truncate_guards$
+DO $partition_guards$
 DECLARE
   part record;
 BEGIN
@@ -609,9 +613,9 @@ BEGIN
     JOIN pg_class c ON c.oid=h.inhrelid JOIN pg_class p ON p.oid=h.inhparent
     WHERE h.inhparent IN ('outbox'::regclass,'raw_inbox'::regclass)
   LOOP
-    PERFORM correlia_install_partition_truncate_guard(part.parent,part.child);
+    PERFORM correlia_install_partition_guards(part.parent,part.child);
   END LOOP;
-END $partition_truncate_guards$;
+END $partition_guards$;
 
 CREATE FUNCTION correlia_account_outbox() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
@@ -1111,7 +1115,7 @@ BEGIN
   -- PostgreSQL still validates the default range under the bounded DDL lock.
   EXECUTE format('CREATE TABLE %I PARTITION OF %I FOR VALUES FROM (%L) TO (%L)',
     child,p_parent,p_day::timestamp AT TIME ZONE 'UTC',(p_day+1)::timestamp AT TIME ZONE 'UTC');
-  PERFORM correlia_install_partition_truncate_guard(p_parent,child);
+  PERFORM correlia_install_partition_guards(p_parent,child);
   INSERT INTO pipeline_partition_range (parent_name,child_name,first_day,end_day)
   VALUES (p_parent,child,p_day,p_day+1);
   DELETE FROM pipeline_partition_retry WHERE (parent_name,day)=(p_parent,p_day);

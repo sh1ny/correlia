@@ -91,6 +91,39 @@ void main() {
         }
       });
 
+      test(
+        'continuation_keeps_its_bound_after_database_clock_rewinds',
+        () async {
+          await _seed(session, fixture.sourceId, 3);
+          await session.db.unsafeExecute('''
+          UPDATE pipeline_dead_letter SET failed_at='2026-11-25 06:00 UTC'
+          WHERE occurrence_id=(SELECT max(occurrence_id) FROM pipeline_dead_letter)
+        ''');
+          var now = _now;
+          final listing = QueueOperations(session, clock: () => now);
+          final range = QueueFailureFilter(
+            kind: QueueFailureKind.raw,
+            scopeId: fixture.sourceId,
+            through: _now.add(const Duration(days: 1)),
+          );
+          final first = await listing.list(range, limit: 1);
+          expect(first.failures, hasLength(1));
+          expect(first.continuation, isNotNull);
+          now = _now.subtract(const Duration(days: 2));
+          final second = await listing.list(
+            range,
+            limit: 1,
+            cursor: first.continuation,
+          );
+          expect(
+            second.failures.single.occurrence,
+            greaterThan(first.failures.single.occurrence),
+          );
+          expect(second.failures.single.failedAt, DateTime.utc(2026, 11, 24));
+          expect(second.continuation, isNull);
+        },
+      );
+
       test('sparse_filter_pages_use_matching_index', () async {
         await _seed(session, _other, 500);
         await _seed(session, fixture.sourceId, 500, code: 'body_bound');
