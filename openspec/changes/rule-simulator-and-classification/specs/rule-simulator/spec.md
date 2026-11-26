@@ -69,7 +69,7 @@ The system SHALL offer a read-only simulation on the local console API. Its inpu
 
 #### Scenario: No active matcher configuration
 - **WHEN** no snapshot is active, or the active snapshot has no matcher section, and no draft is supplied
-- **THEN** the result has an empty trace, states that no rules are active, and returns the event unchanged
+- **THEN** the result has an empty trace, states that no rules are active, returns the input event's kind, labels, label origins, links and severity, and adds no routes
 
 #### Scenario: Refused outside the local console policy
 - **WHEN** the request does not satisfy the console access policy the mapping preview uses
@@ -97,7 +97,7 @@ A stored-key `observed_at` SHALL be a valid RFC 3339 timestamp with an offset, p
 
 ### Requirement: Explain every rule and condition decision
 
-Each trace entry SHALL give the rule ID, a rule outcome (`matched`, `not matched`, `failed: <code>` or `not attempted`) and, unless not attempted, its condition tree. An evaluated leaf SHALL carry `matched`, `no match: value fails <op>` (the leaf's operator, such as `no match: value fails not_equals`), `no match: field missing` or `failed: <code>`. A leaf skipped by `all` or `any` short-circuiting SHALL show `not evaluated`. A missing field SHALL make only its leaf false, never fall back to another rule or a default value.
+Each trace entry SHALL give the rule ID, a rule outcome (`matched`, `not matched`, `failed: <code>` or `not attempted`) and, unless not attempted, its condition tree. An evaluated leaf SHALL carry `matched`, `no match: value fails <op>` naming its operator, `no match: field missing` or `failed: <code>`; a leaf skipped by short-circuiting SHALL show `not evaluated`. A missing field SHALL make only its leaf false, never fall back to another rule or a default value.
 
 #### Scenario: RUL-2 missing field is visible
 - **WHEN** a rule's condition is the single leaf `labels.site` equals `eu1` and the event has no `site` label
@@ -129,7 +129,7 @@ Each trace entry SHALL give the rule ID, a rule outcome (`matched`, `not matched
 
 ### Requirement: Simulation results match the pipeline
 
-The simulation SHALL use the pipeline's rule evaluation and patch code. The result SHALL show each action's effect, the kind, noise hint, final labels, links and severity, and the routes added beyond the source routes, marked hypothetical: delivery eligibility is not applied to them. A simulation has its own fresh budgets. For a stored event it SHALL also show the errors recorded on the stored event. Equal results are promised only for equal inputs and no budget reached in either run.
+The simulation SHALL use the pipeline's rule evaluation and patch code. The result SHALL show each action's effect, the final event (kind, noise hint, labels with origins, links, severity; not a whole CloudEvent) and the routes added beyond the source routes, marked hypothetical: delivery eligibility is not applied. A simulation has fresh budgets. A stored event's result SHALL also show its recorded errors. Equal results are promised only for equal inputs and no budget reached in either run.
 
 #### Scenario: RUL-1 documented examples produce the documented decisions
 - **WHEN** each priority, label and topology example in `docs/ingest-pipeline.md` is simulated with its documented event and rules
@@ -138,6 +138,10 @@ The simulation SHALL use the pipeline's rule evaluation and patch code. The resu
 #### Scenario: Later rule wins a shared key
 - **WHEN** two matching rules set the same label to different values
 - **THEN** the trace shows both patches applied in order, and the final event carries the later rule's value
+
+#### Scenario: A partly overwritten location action
+- **WHEN** a rule's `location` action stages `site=eu1` and `environment=prod` and a later action of the same rule sets `site` to `eu2`
+- **THEN** the location action is staged and applied, its detail reads `site=eu1 (overwritten later in its rule), environment=prod`, and the final event carries `site=eu2` and `environment=prod`
 
 #### Scenario: A failing action discards only its rule's patch
 - **WHEN** one rule's condition matches, it stages a label and then fails an action, and a later rule succeeds

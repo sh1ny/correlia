@@ -17,83 +17,90 @@ TIER: FULL
 
 See proposal.md for scope. What the code does today:
 
+Line citations in Context are to `main` before this change (commit `1bfa471`).
+
 - **Claim and transaction.** A worker claims a pending, pinned row with `FOR UPDATE SKIP LOCKED`
   inside the processing transaction (`correlia_server/lib/src/pipeline/pipeline.dart:410-417`). The row
   deadline is 10 s (`pipeline.dart:38`), and optional matcher work stops 2 s before it
   (`pipeline.dart:267-268`). Matchers run inside that transaction over the retained events
   (`pipeline.dart:789-818`). This change keeps that shape.
 - **Decode inputs.** Non-stream rows decode from the raw bytes and the processing pin's source
-  settings (`pipeline.dart:443-520`, `:529`). Icinga2 Event Streams rows also load the trusted origin,
+  settings (`pipeline.dart:443-460`, `:511-523`, `:529`). Icinga2 Event Streams rows also load the trusted origin,
   state policy and sync ID from `icinga2_raw_origin`, joined to the **admission** snapshot
-  (`pipeline.dart:524-527`, `:1059-1088`). `processedAt` comes from the clock (`pipeline.dart:521`).
+  (`pipeline.dart:524-527`, `:1060-1089`). `processedAt` comes from the clock (`pipeline.dart:521`).
 - **Stored events.** `events` has primary key `(observed_at, event_id, disposition)` and stores
   `raw_observed_at`, `raw_id` and `config_snapshot_id` (`correlia_server/schema/0001_ingest.sql:17-28`).
   `observed_at` is the event's observed time (`pipeline.dart:520`, `:761`), which is the payload's
   `observed_at` (`proto/correlia/event/v1/event.proto:286-289`), stored as its microsecond projection
   (`pipeline.dart:68-72`): a caller keying a stored event by payload time drops sub-microsecond digits.
-  There is no index on `event_id` alone. A future-dated non-stream event is stored with disposition
-  `future_dated` (the effect is built at `pipeline.dart:752-766` and inserted at `:776-783`), and its
-  later eligible copy at a later `observed_at` (`pipeline.dart:47-65`). A future-dated or late stream
+  There is no index on `event_id` alone: the only secondary index on `events` is
+  `events_subject_idx` (`correlia_server/schema/0007_icinga2_reconcile.sql:27`), and no other step through `0014` indexes it. A future-dated non-stream event is stored with disposition
+  `future_dated` (the effect is built at `pipeline.dart:754-771` and inserted at `:772-778`), and a
+  later delivery of the same alert, which `classifyEvidence` accepts once it is no longer future-dated
+  (`pipeline.dart:47-65`), is stored at its own later `observed_at`. A future-dated or late stream
   item is counted and skipped before retention and is never stored (`pipeline.dart:594-611`).
 - **Duplicates in one raw batch.** The pipeline sorts prepared events by event ID with `List.sort`,
-  which is not stable, then keeps the first of each event ID (`pipeline.dart:567`, `:612-625`). Two
+  which is not stable, then keeps the first of each event ID (`pipeline.dart:567`, `:612-624`). Two
   Alertmanager alerts with equal identity can differ in annotations
-  (`ingest/alertmanager_decoder.dart:196-215`, `:286-299`), so today the retained member is unspecified,
+  (`ingest/alertmanager_decoder.dart:192-211`, `:286-297`), so today the retained member is unspecified,
   and rows stored before this change keep that unspecified member.
 - **Matcher.** `applyMatcherRule` evaluates the condition on the original event and stages actions
-  (`correlia_server/lib/src/matcher/matcher_evaluation.dart:18-102`). `MatcherBatch.enrich` applies
+  (`correlia_server/lib/src/matcher/matcher_evaluation.dart:18-101`). `MatcherBatch.enrich` applies
   patches under the fanout and time budgets and records failures by rule ID
-  (`matcher_evaluation.dart:123-247`): it checks the fanout bound rule by rule and charges only patches
-  it applies (`:188-203`); a cutoff leaves later rules unattempted without a diagnostic, and
-  diagnostics that do not fit are dropped (`:172-176`, `:204-247`). Failures commit through
-  `correlia_record_matcher_batch` (`pipeline.dart:909-915`).
+  (`matcher_evaluation.dart:122-252`): it checks the fanout bound rule by rule and charges only patches
+  it applies (`:188-210`); a cutoff leaves later rules unattempted without a diagnostic, and
+  diagnostics that do not fit are dropped (`:172-177`, `:221-224`, `:226-250`). Failures commit through
+  `correlia_record_matcher_batch` (`pipeline.dart:909-920`).
 - **Conditions.** `matches` returns a bare `bool` (`matcher/matcher_condition.dart:86-87`). A field
   read returns a nullable string with no presence bit (`matcher_condition.dart:239-279`, scalar catalog
   from `:309`), and canonical
   parsing rejects explicit nulls in catalog text fields (`event/canonical_event.dart:1345-1363`). `_Many`
-  short-circuits on the first decisive child (`matcher_condition.dart:158-169`). A leaf returns false
-  on a missing or null value (`matcher_condition.dart:177-186`).
+  short-circuits on the first decisive child (`matcher_condition.dart:163-170`). A leaf returns false
+  on a missing or null value (`matcher_condition.dart:184-186`).
 - **Actions and label keys.** `set_label` writes any key matching the label key pattern
-  (`matcher/matcher_document.dart:302-304`, `:149`), and so does `extract` (`matcher_document.dart:354-368`);
+  (`matcher/matcher_document.dart:302-304`, `:287-291`, `:149`), and so does `extract` (`matcher_document.dart:354-368`);
   the pattern admits `kind` and `correlia.noise_class` today. The previous binary's
-  `MatcherDocument.fromSnapshot` rejects unknown actions (`matcher_document.dart:41-52`, `:300-425`).
+  `MatcherDocument.fromSnapshot` rejects unknown actions: its dispatch has cases for `set_label`, `tag`, `owner`, `team`,
+  `route`, `map_severity`, `link`, `extract` and `location` only, and any other type is
+  `action_type` (`matcher_document.dart:41-42`, `:301-302`, `:305`, `:310`, `:313`, `:319`, `:332`, `:354`,
+  `:369`, `:423-424`).
 - **Regex budgets.** The row's regex worker fails the first over-long regex with `regex_timeout` and
-  every later regex in the row with `regex_budget` (`matcher/matcher_regex_worker.dart:65-145` for the
-  timeout, `:171-201` for the sticky budget state);
+  every later regex in the row with `regex_budget` (`matcher/matcher_regex_worker.dart:66-149` for the
+  timeout, `:157-198` for the sticky budget state);
   non-regex rules keep running. Only the overall optional cutoff stops the rule walk
-  (`matcher_evaluation.dart:172-176`, `:204-220`). A canonical label value is at most 1024 characters
+  (`matcher_evaluation.dart:172-177`, `:211-224`). A canonical label value is at most 1024 characters
   (`proto/correlia/event/v1/event.proto:251-257`); an `extract` capture is staged and the resulting
-  event validated against that bound (`matcher_evaluation.dart:53-58`, `:100-102`).
+  event validated against that bound (`matcher_evaluation.dart:45-55`, `:98`).
 - **Routes.** The pipeline takes the source's route IDs and the output registry from the same
-  processing pin (`pipeline.dart:456-494`) and charges the source routes in the fanout calculation
-  (`pipeline.dart:780-818`, `matcher_evaluation.dart:188-203`).
+  processing pin (`pipeline.dart:460-490`) and charges the source routes in the fanout calculation
+  (`pipeline.dart:780-797`, `matcher_evaluation.dart:163-164`, `:192-210`).
 - **Publication and startup.** Startup parses and validates the bootstrap file before the repository
-  can recognize an identical active snapshot (`ingest/bootstrap.dart:469-501`,
-  `ingest/ingest_startup.dart:64-76`, `ingest/config_repository.dart:71-103`, `:159-179`). The matcher content of a snapshot is `publicJson.matcher`,
-  and the guard compares its digest (`config_repository.dart:161-179`). ADR 0032 and the main matcher
+  can recognize an identical active snapshot (`ingest/bootstrap.dart:472-504`,
+  `ingest/ingest_startup.dart:64-76`, `ingest/config_repository.dart:71-104`, `:159-161`). The matcher content of a snapshot is `publicJson.matcher`,
+  and the guard compares its digest (`config_repository.dart:162-168`, `:178`). ADR 0032 and the main matcher
   spec ("Atomic matcher publication and restore") require an exact-file restart and a rollback to
   earlier matcher content at a higher revision to succeed. The main spec's scenario "NUL operands do
   not break existing snapshot readers" is covered for admission and a direct read of the pinned
-  matcher by `correlia_server/test/db/matcher_publication_test.dart:675-738`; that test does not run the
+  matcher by `correlia_server/test/db/matcher_publication_test.dart:675-741`; that test does not run the
   pinned row through the worker, so the upgrade test of D13 processes such a row through the worker.
-- **Schema.** Schema changes are numbered SQL steps registered in `schema/schema_steps.dart:71-93`
+- **Schema.** Schema changes are numbered SQL steps registered in `schema/schema_steps.dart:72-93`
   (`schema/0001_ingest.sql` to `0014_matcher_failures.sql`). `ingest_config_snapshot` is a
-  Serverpod-managed table (`models/ingest_config_snapshot.spy.yaml`). Plugin configuration strings may
+  Serverpod-managed table (`correlia_server/lib/src/models/ingest_config_snapshot.spy.yaml:1-7`). Plugin configuration strings may
   hold U+0000, stored as a JSON escape in `publicJson` (`ingest/bootstrap.dart:91-145`, `:205-213`,
   `:337-369`), which PostgreSQL refuses to convert to `jsonb`.
 - **Read-only console endpoint pattern.** `ConsoleAccessPolicy.check`, then a helper reading the
-  active snapshot (`endpoints/mapping_preview_endpoint.dart:13-31`, `ingest/mapping_preview.dart:21-46`).
+  active snapshot (`endpoints/mapping_preview_endpoint.dart:20-31`, `ingest/mapping_preview.dart:37-46`).
 - **Kinds.** Icinga2 webhook (`ingest/icinga2/mapper.dart:33-46`). Event Streams: a state change is
   `alert`, but a non-OK SOFT state under `hard_only` yields no event
-  (`ingest/icinga2/stream/decoder.dart:240-259`); acknowledgements, downtimes and flapping are `ack`,
-  `downtime` and `state`, and other types are `unsupported_type` (`stream/decoder.dart:287-324`).
+  (`ingest/icinga2/stream/decoder.dart:241-255`); acknowledgements, downtimes and flapping are `ack`,
+  `downtime` and `state`, and other types are `unsupported_type` (`stream/decoder.dart:289-324`).
   Alertmanager (`ingest/alertmanager_decoder.dart:264`) and generic (`ingest/generic_decoder.dart:190`)
   are `alert`.
 - **Console.** The live alert list reads only firing alerts
-  (`correlia_server/lib/src/feed/feed_reader.dart:22-47`) and renders severity, summary, source and
-  times (`correlia_flutter/lib/src/alert_list_page.dart:115-150`). The console bundle `web/app` is
+  (`correlia_server/lib/src/feed/feed_reader.dart:41-49`) and renders severity, summary, source and
+  times (`correlia_flutter/lib/src/alert_list_page.dart:137-150`). The console bundle `web/app` is
   gitignored; without `index.html` the server serves its not-built route
-  (`runtime/console_subsystem.dart:35-63`; `correlia_server/.gitignore:9` ignores `web/app`). Alert state keeps the original severity: main spec
+  (`runtime/console_subsystem.dart:51-63`; `correlia_server/.gitignore:9` ignores `web/app`). Alert state keeps the original severity: main spec
   `openspec/specs/matcher-rules/spec.md`, scenario "Enrichment cannot alter alert state or
   reconciliation".
 
@@ -103,8 +110,10 @@ See proposal.md for scope. What the code does today:
 
 - **Choice:** `MatcherCondition` gains `explain(event, regexTest)`, which returns a trace tree. It
   evaluates children in order, stops at the first decisive child exactly as `_Many` does now, and
-  marks the rest `not_evaluated`. Leaves carry `matched`, `value_differs`, `field_missing` or
-  `failed:<code>`. `matches` shares the same control flow with a no-op sink and allocates no trace. A
+  marks the rest `not_evaluated`. Leaves carry `matched`, `valueFails` (the field is present and
+  the operator rejects it, serialized as `no match: value fails <op>`, such as `no match: value fails
+  not_equals`; owner's choice in pre-ship review round 13), `fieldMissing` or `failed:<code>`;
+  missing fields, skipped leaves and regex failures stay distinct from `valueFails`. `matches` shares the same control flow with a no-op sink and allocates no trace. A
   test proves that a skipped regex child is never called. There is no null reason, because no input
   path can carry an explicit null to a leaf.
 - **Rejected:** a separate explaining evaluator that visits every leaf, because it would run regex
@@ -124,7 +133,7 @@ See proposal.md for scope. What the code does today:
   ID or an unknown disposition is `invalid_input` naming the field. `observedAt` is an RFC 3339
   timestamp checked as ADR 0021 checks canonical timestamps: an invalid calendar date, or a missing or
   invalid offset, is `invalid_input` naming `observedAt`, never read in the machine's local zone. A
-  valid value is projected to the stored UTC microsecond key (`pipeline.dart:68-72`, `:761`) before
+  valid value is projected to the stored UTC microsecond key (`pipeline.dart:67-70`, `:748`) before
   lookup. The CLI passes the operator's text through unchanged and prints that field error. `RuleTrace` carries
   a rule outcome, `matched`, `not matched`, `failed` (with its code) or `not attempted`, apart from the
   condition outcome: a rule can match its condition and then fail an action. A `not attempted` rule
@@ -149,8 +158,8 @@ See proposal.md for scope. What the code does today:
   match, or matches that differ from each other, is `ambiguous_member`. This finds the member the
   pipeline kept whenever the stored fields tell the members apart, for rows stored before D14 too.
   Members that share an event ID can still differ only in fields the projection leaves out, such as
-  an identity-excluded label (`pipeline.dart:517-518`, `alertmanager_decoder.dart:196-209`,
-  `:286-299`); such a row is `ambiguous_member` even after D14, and a test covers one. A missing raw row is
+  an identity-excluded label (`pipeline/row_decode.dart:267-268`, `:296`, `alertmanager_decoder.dart:192-204`,
+  `:286`, `:296`); such a row is `ambiguous_member` even after D14, and a test covers one. A missing raw row is
   `raw_unavailable`.
 - **Rejected:** event ID alone with a new index on `events(event_id)` (write cost on the hottest
   table); event ID alone with a bounded partition scan (old events cannot be found); stripping matcher
@@ -164,10 +173,10 @@ See proposal.md for scope. What the code does today:
 
 - **Choice:** the simulator runs `applyMatcherRule` rule by rule over its one event, with the same
   regex worker design and fresh regex and time budgets, and applies each patch with the same fanout
-  rule as `MatcherBatch` (`matcher_evaluation.dart:188-203`), using the whole 16 MiB limit (`pipeline.dart:39`) for that one
+  rule as `MatcherBatch` (`matcher_evaluation.dart:296-305`, `:396-415`), using the whole 16 MiB limit (`pipeline.dart:37-38`) for that one
   event: an effect beyond it shows as `failed: batch_bound`. It records an `ActionTrace` per action and
   writes nothing. It reports the routes added beyond the source's routes
-  (`matcher_evaluation.dart:195-203`), marked hypothetical: delivery eligibility is not applied. For a
+  (`matcher_evaluation.dart:286-294`), marked hypothetical: delivery eligibility is not applied. For a
   stored event it also shows the stored labels (including any `correlia.noise_class` an older
   snapshot wrote) apart from the simulated hint, names the snapshot the event was processed under next
   to the one simulated, and shows the stored payload's `enrichment_errors`, noting that the pipeline
@@ -175,7 +184,11 @@ See proposal.md for scope. What the code does today:
   diagnostic. Route baseline: the source routes are those of the event's source in the configuration
   the rules come from (the active snapshot, which a draft also uses for sources and outputs), for
   pasted and stored events alike; a source absent there has an empty baseline and the result says so.
-  A route the source configuration no longer has but a rule adds therefore shows as added. Rule
+  A route the source configuration no longer has but a rule adds therefore shows as added. A write
+  that a later action of the same rule overwrites is `skipped: overwritten later in its rule`; a
+  `location` action only some of whose labels are overwritten stays staged, and its detail marks each
+  overwritten label (design review round 12; Chosen by: agent, Important: no, since it changes only
+  trace wording). Rule
   states: `matched`, `not matched`, `failed: <code>` and `not attempted`. The first over-long regex
   fails with `regex_timeout`; later regex work in the simulation fails with `regex_budget` while
   non-regex rules still run; at the overall cutoff the rule in progress fails with `matcher_cutoff`
@@ -220,11 +233,11 @@ See proposal.md for scope. What the code does today:
   check runs after parsing and only for content that makes such a write. Lookup: a new SQL-owned table
   `matcher_content_digest(digest bytea PRIMARY KEY, first_snapshot_id text)`, created by schema step
   `0015` (registered in `schema_steps.dart`). The key is the digest the publication guard already
-  computes, `sha256Digest` of the matcher JSON (`config_repository.dart:161-179`). Publication inserts
+  computes, `sha256Digest` of the matcher JSON (`config_repository.dart:179-185`, `:195`; `ingest/matcher_content_digest.dart:26-32`). Publication inserts
   it in the same transaction as the snapshot. On upgrade, the new binary fills it once for existing
   snapshots in Dart, before it accepts publications; PostgreSQL never parses snapshot JSON, so a
   plugin configuration holding U+0000 cannot block the upgrade. The fill is one transaction under the
-  publication advisory lock (`config_repository.dart:142`): it inserts every digest with `ON CONFLICT
+  publication advisory lock (`config_repository.dart:143-147`): it inserts every digest with `ON CONFLICT
   DO NOTHING` and, last, the watermark `filled_through` (the last snapshot table ID read) in the
   one-row table `matcher_content_digest_fill`, created by step `0015`; step `0016` adds the column.
   A crash rolls the whole fill back, so a partial fill is never visible. Publication and startup read
@@ -237,7 +250,8 @@ See proposal.md for scope. What the code does today:
   however long the history is; it stays one transaction, so completion is atomic. Startup runs the
   fill as its own step right after the schema steps and before the configuration file is parsed or
   validated, so completion never depends on the candidate file. It takes the advisory lock with its
-  own 60 s timeout rather than publication's 5 s (`config_repository.dart:137-153`); a starter that
+  own 60 s timeout (`ingest/matcher_content_digest.dart:15`, `:155-166`) rather than publication's 5 s
+  (`config_repository.dart:143-155`); a starter that
   times out exits non-zero with failure class `lock_timeout`, like a schema-step lock timeout, and
   the next start retries. Tests cover a fill spanning several pages and a concurrent starter. The check is one primary-key probe
   however long the history grows. Like `raw_inbox`, the table is SQL-owned, outside Serverpod's
@@ -269,9 +283,9 @@ See proposal.md for scope. What the code does today:
 ### D14: One deterministic retained member per event ID
 
 - **Choice:** the pipeline orders prepared events by event ID and then by input position, a stable
-  order, and leaves the gates where they are: each stream item is still classified and counted by
-  its own receipt time before the same-ID check (`pipeline.dart:534-544`, `:594-611`), and the
-  existing same-ID check (`:612`) admits the first remaining item of each event ID in input order.
+  order (`pipeline.dart:551-554`), and leaves the gates where they are: each stream item is still classified and counted by
+  its own receipt time before the same-ID check (`pipeline.dart:513-522`, `:581-598`), and the
+  existing same-ID check (`:599-611`) admits the first remaining item of each event ID in input order.
   Later items count as duplicates as today. A stream copy before the future limit is therefore kept
   even when an earlier copy of the same ID was future-dated. It governs rows processed after
   this change. The simulator selects the kept member only when D9's projection identifies it, and
@@ -342,6 +356,11 @@ D1 to D6 were query enrichment decisions; they moved with S9 (see "Handed to que
   Kind: invariant. Destination: spec: specs/durable-pipeline/spec.md → Requirement: The earliest
   same-ID member of a batch is the candidate.
 
+- **C14:** The simulator selects a stored row's kept member only when the stored fields identify it
+  (D9's projection); otherwise it returns `ambiguous_member`, for rows processed after D14's stable
+  order too. A deterministic input order is not enough to pick the member. Kind: invariant.
+  Destination: spec: specs/rule-simulator/spec.md → Requirement: Stored event keys and members.
+
 C1, C2, C6, C7, C10, C12 and C13 concerned query enrichment and moved with S9.
 
 ## Diagrams (FULL)
@@ -392,7 +411,7 @@ sequenceDiagram
 | Simulated regex | Fresh row regex budget | First `regex_timeout`, later regex `regex_budget`; non-regex rules run | Row optional budget | n/a |
 | Simulated time | Fresh optional budget | Rule in progress `matcher_cutoff`, later rules `not attempted` | Row optional budget | n/a |
 | Matcher content history lookup | One primary-key probe | n/a | Publication lock timeout | Unchanged as history grows |
-| Upgrade digest fill | One pass over existing snapshots, once | n/a | Offline upgrade | Linear in history, once |
+| Upgrade digest fill | First start after steps `0015` and `0016`: one keyset pass over every stored snapshot; later starts and publications: only the snapshots after the `filled_through` watermark | n/a | Lock wait capped at 60 s (`lock_timeout`, next start retries); the fill itself has no deadline | Initial scan linear in history; later fills linear in the unfilled suffix, usually empty |
 
 ## Flow & State Gaps (FULL)
 
@@ -426,12 +445,16 @@ sequenceDiagram
 ## Release and upgrade
 
 - Upgrade is offline (ADR 0033): stop admission, drain the inbox and outbox on the old release, stop
-  every old process and supervisor, then start the new binary, which applies schema step `0015` and
-  fills `matcher_content_digest` before accepting publications. A
-  previous binary cannot read a snapshot whose matcher uses `classify` (`matcher_document.dart:41-52`,
-  `:300-425`), so going back to it after such a publication is not supported. The upgrade section of
+  every old process and supervisor, then start the new binary, which applies schema steps `0015` and
+  `0016` and fills `matcher_content_digest` for every snapshot after the `filled_through` watermark
+  (all of them on the first start) before accepting publications. The startup lock wait is capped at
+  60 s; the fill's own time grows with the unfilled suffix. A
+  previous binary cannot read a snapshot whose matcher uses `classify` (its action dispatch has no
+  `classify` case: `matcher_document.dart:41-42`, `:301-302`, `:369`, `:423-424` at 1bfa471), so going back to it after such a publication is not supported. The upgrade section of
   `docs/ingest-pipeline.md` gives this sequence. Tests cover a fresh install and an upgrade through
-  `0015`, and startup with an active snapshot that uses `classify`.
+  `0016`, startup with an active snapshot that uses `classify`, and a snapshot an older binary
+  published during an offline downgrade after the fill
+  (`an_older_binary_publishing_after_the_fill_stores_its_content`).
 
 ## ADRs
 
@@ -463,17 +486,17 @@ decisions, already taken by the owner on 2026-11-25:
 The open findings handed over are exactly those listed here; that change's design and review will
 raise others afresh:
 
-- Bearer bytes must join the two-way historical reuse check (`ingest/secret_reuse.dart:10-108`), and
+- Bearer bytes must join the two-way historical reuse check (`ingest/secret_reuse.dart:10-107`), and
   the previous publisher (version 2, `schema/0010_publisher_version_2.sql`,
-  `config_repository.dart:155`) must be fenced at cutover so it cannot bypass that check.
+  `config_repository.dart:156-159`) must be fenced at cutover so it cannot bypass that check.
 - Round 5 settled that the credential-echo check runs on the decoded values the action reads, not
   on raw bytes; carry that forward.
 - The 16 MiB staging bound must keep today's behaviour of not charging rejected patches
-  (`matcher_evaluation.dart:188-203`) and must not charge candidates that later prove not retained.
+  (`matcher_evaluation.dart:406-415`) and must not charge candidates that later prove not retained.
   Regression cases: a candidate that loses its observation-key reservation or quarantine insert,
   and a later small patch that fits after an oversized one failed.
 - The claim must tell the worker which path a row takes before the lease commits, although the pin's
-  matcher is parsed only after the claim (`pipeline.dart:410-417`, `:443-473`).
+  matcher is parsed only after the claim (`pipeline.dart:409-419`, `:461-466`).
 - Outstanding DNS lookups must be bounded across rows and simulations, not only per row.
 - The evaluation cutoff must say what happens to a rule in progress, matching the main matcher spec's
   cutoff scenario; lease takeover tests should advance an injected clock. The sequence diagram's
@@ -502,10 +525,10 @@ and classification converged. The demo change starts from these decisions, taken
   Ctrl-C. Event Streams is not simulated (it needs a live Icinga2 API).
 - A new `natsdev consume` subcommand reads the stream from its start as an ordered JetStream
   consumer, stopping after `--count` or `--deadline 30s`; the demo prints a `consume` command, not a
-  live `natsdev sub` (`tool/natsdev/main.go:124-145`).
+  live `natsdev sub` (`tool/natsdev/main.go:123-147`).
 - The demo rules include a deterministic failure: an `extract` capture longer than the canonical
   1024-character label value bound (`proto/correlia/event/v1/event.proto:251-257`,
-  `matcher_evaluation.dart:53-58`, `:100-102`).
+  `matcher_evaluation.dart:166-170`, `:270-281`).
 - Each child must be ready within 60 s; any failure stops every process started and exits non-zero.
   `--check` runs the same flow without waiting, through the e2e child harness, and an `e2e` test runs
   the real `mise run demo:enrichment --check`. A `[user]` task has the owner check the live console
@@ -525,7 +548,7 @@ and classification converged. The demo change starts from these decisions, taken
   `server.dart:59-61`) becomes `CORRELIA_EXIT_ON_STDIN_CLOSE=1` in every run mode. End of file during
   startup sets a latch that `RoleRuntime.start()` checks after `port.start()` and after each subsystem
   (`role_runtime.dart:108-135`); the one lifecycle owner then stops what started. `natsdev stream`
-  gains the same end-of-file exit as `natsdev serve` (`tool/natsdev/main.go:39-81`).
+  gains the same end-of-file exit as `natsdev serve` (`tool/natsdev/main.go:77-81`).
 - Ports: the interactive demo uses fixed ports, API 8080 as the bundle's `correlia_flutter/assets/
   config.json` names; `--check` uses harness-picked ports with the lost-port retry. Both check the
   console configuration their server serves against their own API port.

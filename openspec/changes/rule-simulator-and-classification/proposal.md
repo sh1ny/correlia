@@ -34,9 +34,10 @@ This change advances two M2 exit criteria:
   JSON) or a stored event's ID and `observed_at`, and runs it through the active matcher snapshot or a
   pasted draft matcher section. It returns a trace: each rule in document order, each condition's result
   with a reason (`matched`, `no match: value fails <op>`, `no match: field missing`, `failed: <code>`,
-  `not evaluated`), each action's effect or failure, the event's kind and noise class hint, and the
-  final enriched event with its added routes. It writes nothing: no failure counts, no activity notices,
-  no deliveries, no pins.
+  `not evaluated`), each action's effect or failure, and the final event: its kind, noise class
+  hint, labels with their origins, links and severity (a projection of the enriched event, not a
+  whole CloudEvent), with its added routes. It writes nothing: no failure counts, no activity
+  notices, no deliveries, no pins.
 - **Event classification.**
   - Kind stays owned by the decoders. This change specifies each source's kind table (Alertmanager,
     Thanos, Icinga2 webhook and Event Streams, generic webhook) and tests it.
