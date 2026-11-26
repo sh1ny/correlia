@@ -93,10 +93,17 @@ final class PipelineMaintenance extends Subsystem {
 /// Fences each batch across workers. It reports counts only after a successful
 /// transaction; a failed batch records its fixed failure class after rollback.
 final class MaintenanceRepository {
-  const MaintenanceRepository(this.session, {this.beforeCommitForTest});
+  const MaintenanceRepository(
+    this.session, {
+    this.beforeCommitForTest,
+    this.beforePartitionFailureForTest,
+  });
 
   final Session session;
   final Future<void> Function(String lane)? beforeCommitForTest;
+
+  /// Parks a failed attach after rollback and before recording the retry.
+  final Future<void> Function()? beforePartitionFailureForTest;
 
   Future<void> _limits(
     Transaction tx, {
@@ -243,6 +250,7 @@ final class MaintenanceRepository {
         }
       });
     } catch (error) {
+      await beforePartitionFailureForTest?.call();
       final problem = _problem(error);
       await session.db.transaction((tx) async {
         await _limits(tx, ddl: true);

@@ -13,6 +13,7 @@ Test paths are relative to `correlia_server/`. Green rows carry existing behavio
 | dead-letter-operations → Bounded dead-letter listing | Equal failure times and invalid filters | `test/db/dead_letter_operations_test.dart` | `equal_times_and_invalid_filter_cursor` | red |
 | dead-letter-operations → Bounded dead-letter listing | Filter remains pageable among unrelated failures | `test/db/dead_letter_operations_test.dart` | `sparse_filter_pages_use_matching_index` | red |
 | dead-letter-operations → Bounded replay selection and audit | Bulk replay by filter | `test/db/dead_letter_operations_test.dart` | `filtered_replay_batches_report_and_audit` | red |
+| dead-letter-operations → Bounded replay selection and audit | Replay exhausts its request deadline | `test/db/dead_letter_operations_test.dart` | `replay_rolls_back_when_its_transaction_budget_is_spent` | red |
 | dead-letter-operations → Bounded replay selection and audit | Replay races replay or expiry | `test/db/dead_letter_operations_test.dart` | `replay_and_expiry_lock_one_occurrence` | red |
 | dead-letter-operations → Bounded replay selection and audit | Replay races replay or expiry | `test/db/dead_letter_operations_test.dart` | `concurrent_replays_and_late_replay_cannot_requeue_twice` | red |
 | dead-letter-operations → Bounded replay selection and audit | Replay competes for the last pending slot | `test/db/raw_replay_test.dart` | `replay_and_ingress_share_last_slot` | red |
@@ -86,6 +87,7 @@ Test paths are relative to `correlia_server/`. Green rows carry existing behavio
 | output-delivery → Blocking-output policy protects accepted work | Blocking budget cannot fit a legal raw row | `test/db/pipeline_inventory_test.dart` | `undersized_blocking_budget_cannot_publish` | red |
 | output-delivery → Blocking-output policy protects accepted work | Discard-only demand does not block after a policy change | `test/db/output_pressure_test.dart` | `switch_to_blocking_ignores_discard_only_demand` | red |
 | output-delivery → Output overflow notice does not recurse | Alert reaches a healthy output | `test/db/output_pressure_test.dart` | `notice_reaches_healthy_output_with_ledger_evidence` | red |
+| output-delivery → Output overflow notice does not recurse | A lower cap opens an episode with no raw work | `test/db/output_pressure_test.dart` | `lower_blocking_cap_opens_an_episode_with_empty_inbox` | red |
 | output-delivery → Output overflow notice does not recurse | All other outputs are full | `test/db/output_pressure_test.dart` | `full_notice_destinations_do_not_enqueue_or_recurse` | red |
 | output-delivery → Output overflow notice does not recurse | Notice uses a blocking output's last slot | `test/db/output_pressure_test.dart` | `notice_at_exact_cap_blocks_ingress_without_recurse` | red |
 | output-delivery → Output overflow notice does not recurse | Notice selection races registry publication | `test/db/output_pressure_test.dart` | `notice_registry_race_keeps_live_lane_limit` | red |

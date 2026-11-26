@@ -255,6 +255,7 @@ DECLARE
   policy jsonb := doc->'pipeline_operations';
   lane record;
   budget jsonb;
+  capacity pipeline_output_capacity;
 BEGIN
   UPDATE pipeline_queue_policy SET
     pending_max_rows=coalesce((policy->>'pending_max_rows')::int,50000),
@@ -282,7 +283,12 @@ BEGIN
         coalesce(budget->>'overflow_policy','discard_new'))
       ON CONFLICT (output_id) DO UPDATE SET active=true,
         max_rows=excluded.max_rows,max_payload_bytes=excluded.max_payload_bytes,
-        overflow_policy=excluded.overflow_policy;
+        overflow_policy=excluded.overflow_policy RETURNING * INTO capacity;
+      IF capacity.overflow_policy='block_ingest' AND capacity.overflow_activity_id IS NULL
+        AND (capacity.used_rows>=capacity.max_rows OR capacity.used_bytes>=capacity.max_payload_bytes)
+      THEN
+        PERFORM correlia_mark_overflow(lane.id,'saturated',0,0,0,clock_timestamp());
+      END IF;
     ELSE
       UPDATE pipeline_output_capacity SET active=false WHERE output_id=lane.id;
     END IF;
@@ -332,10 +338,6 @@ CROSS JOIN LATERAL correlia_intent_commitments(
 ) c
 GROUP BY c.reference,c.commitment,c.kind
 ON CONFLICT (reference,commitment,kind) DO UPDATE SET live_count=excluded.live_count;
-
-SELECT correlia_publish_queue_policy(s."publicJson"::jsonb)
-FROM ingest_active_config a JOIN ingest_config_snapshot s USING ("snapshotId")
-WHERE a.singleton=1;
 
 CREATE OR REPLACE FUNCTION correlia_retained_output_ids() RETURNS TABLE (output_id text)
 LANGUAGE sql STABLE AS $$
@@ -642,6 +644,10 @@ CREATE TRIGGER output_capacity_recovered BEFORE UPDATE OF
   used_rows,used_bytes,max_rows,max_payload_bytes,overflow_policy ON pipeline_output_capacity
   FOR EACH ROW WHEN (OLD.overflow_activity_id IS NOT NULL)
   EXECUTE FUNCTION correlia_close_satisfied_overflow();
+
+SELECT correlia_publish_queue_policy(s."publicJson"::jsonb)
+FROM ingest_active_config a JOIN ingest_config_snapshot s USING ("snapshotId")
+WHERE a.singleton=1;
 
 CREATE TABLE pipeline_dead_letter (
   occurrence_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

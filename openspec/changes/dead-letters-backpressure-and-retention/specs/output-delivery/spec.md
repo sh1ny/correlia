@@ -84,6 +84,10 @@ Each overflow episode SHALL raise one durable Correlia alert and attempt to rout
 - **WHEN** one output enters overflow while another active output has capacity
 - **THEN** the healthy output receives one canonical alert with no sender raw key and with a reference, digest and size that match its sanitized ledger evidence; the overflowing output receives no notice for itself
 
+#### Scenario: A lower cap opens an episode with no raw work
+- **WHEN** publication lowers a blocking output's budget to its retained usage or below while the inbox is empty
+- **THEN** the new policy, overflow ledger entry and pending notice commit together, and repeating the publication does not open another episode
+
 #### Scenario: All other outputs are full
 - **WHEN** no other active output has room for an overflow notice
 - **THEN** the episode remains visible in operator status and the ledger, no extra intents are enqueued, and no recursive overflow notices appear

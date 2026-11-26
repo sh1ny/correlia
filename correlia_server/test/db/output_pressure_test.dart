@@ -256,6 +256,46 @@ void main() {
         expect((lane.blocksIngress, lane.usedBytes), (true, budget));
       });
 
+      test('lower_blocking_cap_opens_an_episode_with_empty_inbox', () async {
+        const budget = 16 * 1024 * 1024;
+        Future<IngestBootstrap> publish(int revision, int bytes) => _publish(
+          session,
+          revision,
+          outputs: [_first],
+          budgets: {
+            _first: {
+              'max_payload_bytes': bytes,
+              'max_rows': 1000,
+              'overflow_policy': 'block_ingest',
+            },
+          },
+        );
+        final initial = await publish(1, budget * 2);
+        await _oldIntents(session, initial, _first, 1, payloadBytes: budget);
+        final ops = QueueOperations(session);
+        expect((await ops.status()).pressure, isNull);
+        await publish(2, budget);
+        final pressure = await ops.status();
+        expect((pressure.pendingRows, pressure.pressure), (0, 'output'));
+        final episode = pressure.outputs.single.overflowActivityId;
+        expect(episode, isNotNull);
+        await publish(3, budget);
+        final notice = (await session.db.unsafeQuery('''
+          SELECT n.activity_id,a.change_kind,n.output_id::text,n.reason,n.handled
+          FROM pipeline_overflow_notice n JOIN activity a ON a.id=n.activity_id
+        ''')).single;
+        expect(notice.toList(), [
+          episode,
+          'output_overflow',
+          _first,
+          'saturated',
+          false,
+        ]);
+        expect(await _usage(session, _first), [1, budget, 0]);
+        await publish(4, budget * 2);
+        expect((await ops.status()).outputs.single.overflowActivityId, isNull);
+      });
+
       for (final byBytes in [false, true]) {
         test(
           'parallel_workers_respect_both_caps ${byBytes ? 'bytes' : 'rows'}',

@@ -153,6 +153,41 @@ void main() {
         ]);
       });
 
+      test('replay_rolls_back_when_its_transaction_budget_is_spent', () async {
+        await _seed(session, fixture.sourceId, 2);
+        final before = (await operations.list(
+          filter(),
+        )).failures.map((f) => f.occurrence).toList();
+        var elapsed = Duration.zero;
+        final replay = QueueOperations(
+          session,
+          clock: () => _now,
+          elapsedForTest: () => elapsed,
+          beforeWorkLockForTest: () async {
+            elapsed = const Duration(seconds: 4);
+          },
+          beforeConfigLockForTest: () async {
+            elapsed += const Duration(seconds: 1);
+          },
+        );
+        await expectLater(
+          replay.replayBatch(filter(), 'operator'),
+          throwsA(isA<TimeoutException>()),
+        );
+        expect(
+          (await operations.list(filter())).failures.map((f) => f.occurrence),
+          before,
+        );
+        expect((await operations.status()).pendingRows, 0);
+        expect(
+          (await session.db.unsafeQuery(
+            'SELECT count(*) FROM activity',
+          )).single[0],
+          0,
+        );
+        expect((await operations.replayBatch(filter(), 'operator')).queued, 2);
+      });
+
       test('publication_shortens_retention_before_replay_locks_policy', () async {
         await _seed(session, fixture.sourceId, 1);
         final before = (await operations.list(filter())).failures.single;

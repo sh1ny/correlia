@@ -279,6 +279,7 @@ the other active outputs. Each destination must have room. The notice does not a
 state, does not generate another notice and carries only a reference and hash of its stored
 ledger evidence, not sender data. The ledger still shows the episode when none of the
 other outputs can take the alert.
+A change to a blocking budget can open an episode even when the inbox is empty.
 
 ## Retention and expiry
 

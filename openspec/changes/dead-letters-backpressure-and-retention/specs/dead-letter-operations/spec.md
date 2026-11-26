@@ -46,6 +46,10 @@ An authorized caller SHALL replay one named occurrence or one bounded batch by e
 - **WHEN** a machine replays a filter matching more than one batch of pipeline failures or dead deliveries
 - **THEN** only matching occurrences are considered in each batch, the reply identifies how many were queued and refused, and the machine can use the continuation without repeating prior occurrences
 
+#### Scenario: Replay exhausts its request deadline
+- **WHEN** a replay page spends its five-second database budget across statements
+- **THEN** no work in the page is requeued or audited as successful, and the caller can retry the same page
+
 #### Scenario: Replay races replay or expiry
 - **WHEN** two requests target the same failed occurrence, or replay and expiry race for it
 - **THEN** at most one request can requeue that occurrence, expiry cannot discard a requeued row, and an occurrence already expired or changed is not replayed or audited as a success

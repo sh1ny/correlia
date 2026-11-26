@@ -7,8 +7,9 @@
 - Add an opt-in, machine-authenticated RPC to list and replay dead letters and inspect queue
   pressure. Raw replay pins current configuration; delivery replay retains the original
   bytes and destination. Both record the machine actor and queued count.
-- Add versioned matcher rules for event enrichment and routing. Live upgrades are unsupported:
-  stop intake, drain pending inbox work and the outbox manually, then stop Correlia before upgrading.
+- Add versioned matcher rules for event enrichment and routing. Before upgrading from a
+  release without matcher support, stop intake, drain pending inbox work and the outbox
+  manually, then stop Correlia. Live upgrades remain unsupported.
 - Add authenticated production output plugin connections with ephemeral in-memory identities,
   separated configuration secrets, bounded batch credits, per-event results and health deadlines.
 - Supervise pinned plugin definitions with verified launches, durable crash budgets, fair bounded

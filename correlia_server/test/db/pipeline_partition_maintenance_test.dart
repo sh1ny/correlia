@@ -20,16 +20,10 @@ Future<int?> _reserve(Session session, String day, DateTime now) async =>
         )).single[0]
         as int?;
 
-Future<bool> _attach(
-  Session session,
-  String day,
-  int attempt, {
-  Transaction? tx,
-}) async =>
+Future<bool> _attach(Session session, String day, int attempt) async =>
     (await session.db.unsafeQuery(
           "SELECT correlia_attach_partition('raw_inbox',@day::date,@attempt)",
           parameters: QueryParameters.named({'day': day, 'attempt': attempt}),
-          transaction: tx,
         )).single[0]!
         as bool;
 
@@ -177,29 +171,74 @@ void main() {
       test('late_attach_failure_cannot_replace_success', () async {
         final session = builder.build();
         await initializeIngestSchema(session);
-        const day = '2030-03-01';
-        final now = DateTime.utc(2030, 2, 27);
-        final first = (await _reserve(session, day, now))!;
-        await expectLater(
-          session.db.transaction((tx) async {
-            expect(await _attach(session, day, first, tx: tx), isTrue);
-            await session.db.unsafeQuery('SELECT 1/0', transaction: tx);
+        const day = '2030-05-01';
+        final now = DateTime.utc(2030, 5, 1);
+        final lock = ContentionGate();
+        final held = Completer<void>();
+        final blocker = builder.build();
+        final blocking = lock.run(
+          () => blocker.db.transaction((tx) async {
+            await blocker.db.unsafeExecute(
+              'LOCK TABLE ONLY events_default IN SHARE MODE',
+              transaction: tx,
+            );
+            held.complete();
+            await lock.future;
           }),
-          throwsA(isA<DatabaseQueryException>()),
         );
-        final successor = builder.build();
-        final next = (await _reserve(
-          successor,
-          day,
-          now.add(const Duration(minutes: 10)),
-        ))!;
-        expect(await _attach(successor, day, next), isTrue);
-        expect(await _fail(session, day, first, now), isFalse);
-        expect(await _reserve(session, day, now), isNull);
-        expect(await _write(session, day), 'raw_inbox_20300301');
+        final afterRollback = ContentionGate();
+        final rolledBack = Completer<void>();
+        await held.future;
+        final first = afterRollback.run(
+          () => MaintenanceRepository(
+            session,
+            beforePartitionFailureForTest: () async {
+              rolledBack.complete();
+              await afterRollback.future;
+            },
+          ).prepareOne(nowForTest: now),
+        );
+        await Future.any([
+          rolledBack.future,
+          first.then((_) => fail('The first attempt did not roll back')),
+        ]);
+        await lock.join();
+        await blocking;
+        final successor = MaintenanceRepository(builder.build());
+        for (var i = 0; i < 24; i++) {
+          await successor.prepareOne(
+            nowForTest: now.add(const Duration(minutes: 1)),
+          );
+        }
+        expect(await _writeEvent(session, day), 'events_20300501');
+        final committed = (await QueueOperations(
+          session,
+        ).status()).maintenance!;
+        expect(
+          (committed.lane, committed.outcome, committed.affected),
+          ('prepare_partition', 'ok', 1),
+        );
+        await afterRollback.join();
+        await first;
+        final status = await QueueOperations(session).status();
+        expect(status.partitionDegraded, isFalse);
+        expect(
+          (
+            status.maintenance!.lane,
+            status.maintenance!.outcome,
+            status.maintenance!.affected,
+            status.maintenance!.finishedAt,
+          ),
+          (
+            committed.lane,
+            committed.outcome,
+            committed.affected,
+            committed.finishedAt,
+          ),
+        );
         expect(
           (await session.db.unsafeQuery(
-            "SELECT count(*) FROM pipeline_partition_retry WHERE day='$day'",
+            "SELECT count(*) FROM pipeline_partition_retry WHERE parent_name='events' AND day='$day'",
           )).single[0],
           0,
         );
