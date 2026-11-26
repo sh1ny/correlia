@@ -1,6 +1,8 @@
 import 'dart:convert';
 
 import 'package:correlia_server/event.dart';
+import 'package:correlia_server/src/event/cloud_event.dart'
+    show cloudEventEnvelopeLimit;
 import 'package:correlia_server/src/generated/protocol.dart'
     hide ConditionTrace;
 import 'package:correlia_server/src/generated/protocol.dart'
@@ -229,6 +231,39 @@ void main() {
     );
     expect(huge.code, 'too_large');
     expect(huge.field, 'eventJson');
+  });
+
+  test('a_pasted_event_within_the_bound_keeps_its_validation_error', () {
+    // Without `subject` and `partitionkey` the text fits the wire bound, but
+    // the canonical form, which carries both, does not.
+    String envelope(int length) => _envelope((e) {
+      e
+        ..remove('subject')
+        ..remove('partitionkey');
+      final data = e['data']! as Map<String, Object?>;
+      final chunks = [
+        for (var i = 0; i < length; i += 1024)
+          'x' * (length - i < 1024 ? length - i : 1024),
+      ];
+      data['annotations'] = {
+        for (final (i, chunk) in chunks.take(128).indexed) 'padding$i': chunk,
+      };
+      data['labels'] = {
+        'alertname': 'Watchdog',
+        for (final (i, chunk) in chunks.skip(128).indexed) 'padding$i': chunk,
+      };
+    });
+    int bytes(int length) => utf8.encode(envelope(length)).length;
+    var (low, high) = (0, (128 + 126) * 1024);
+    while (low < high) {
+      final middle = (low + high + 1) ~/ 2;
+      (low, high) = bytes(middle) > cloudEventEnvelopeLimit
+          ? (low, middle - 1)
+          : (middle, high);
+    }
+    expect(bytes(low), lessThanOrEqualTo(cloudEventEnvelopeLimit));
+    final error = _rejected(validateSimulationInput(eventJson: envelope(low)));
+    expect((error.code, error.field), ('event_too_large', 'event'));
   });
 
   test('invalid_stored_key', () {
@@ -736,6 +771,25 @@ void main() {
     final rule = result.trace.single;
     expect((rule.outcome, rule.failureCode), ('failed', 'event_too_large'));
     expect(rule.actions.map((a) => a.effect), ['failed: event_too_large']);
+  });
+
+  test('an_unchanged_severity_is_not_a_second_writer', () async {
+    final result = await _simulate(
+      _largestEvent(),
+      _document([
+        _rule('large', [
+          {
+            'type': 'map_severity',
+            'values': {'warning': 'warning'},
+          },
+          _label('over', 'x' * 64),
+        ]),
+      ]),
+    );
+    final rule = result.trace.single;
+    expect((rule.outcome, rule.failureCode), ('failed', 'event_too_large'));
+    expect(rule.actions[1].effect, 'failed: event_too_large');
+    expect(rule.actions[0].effect, isNot(startsWith('failed')));
   });
 
   test('a_severity_past_the_size_limit_keeps_its_target', () async {

@@ -442,7 +442,7 @@ RPC error.
 | Code | Field | Cause |
 |---|---|---|
 | `invalid_input` | `eventJson`, `eventId`, `observedAt` or `disposition` | Both or neither way of naming the event, a partial or malformed key, an unknown disposition, or an `observedAt` that is not an RFC 3339 timestamp with an offset |
-| `too_large` | `eventJson` or `draftMatcher` | An event over the wire bound, or a draft over 64 KiB |
+| `too_large` | `eventJson` or `draftMatcher` | Pasted event text over the wire bound of 256 KiB, or a draft over 64 KiB. Text within the bound whose canonical form is over it gets the event's own `event_too_large` error on `event` |
 | `invalid_json` | `draftMatcher` | The draft is not JSON |
 | an event validation code | the event field path | The pasted event fails validation |
 | a matcher validation code | the matcher field path | The draft fails the checks of publication, such as `reserved_key:correlia.noise_class;use_classify_or_rename_the_label` |

@@ -321,7 +321,12 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
           ),
           _ => extracted?[key],
         } ??
-        _soleWriter(lastWriter, linkWriters, severityWrites);
+        _soleWriter(
+          lastWriter,
+          linkWriters,
+          // A severity left at the event's own changes nothing in the patch.
+          severity == current.severity ? null : severityWrites,
+        );
     if (failed != null) {
       onAction?.call(failed, MatcherActionEffect.failed, error.code);
     }

@@ -134,18 +134,21 @@ SimulationInputCheck validateSimulationInput({
 }
 
 SimulationInputCheck _pasted(String eventJson) {
+  final bytes = Uint8List.fromList(utf8.encode(eventJson));
+  // Only text over the wire bound is `too_large`. Text within it that decodes
+  // to an event whose canonical form is over the bound keeps the event's own
+  // validation error.
+  if (bytes.length > cloudEventEnvelopeLimit) {
+    return RejectedSimulationInput(
+      SimulationError(code: simulationTooLarge, field: 'eventJson'),
+    );
+  }
   try {
-    final event = CloudEvent.decode(
-      Uint8List.fromList(utf8.encode(eventJson)),
-    ).event;
+    final event = CloudEvent.decode(bytes).event;
     return AcceptedSimulationInput(PastedEventRequest(event));
   } on EventValidationError catch (error) {
-    final tooLarge = error.code == 'event_too_large';
     return RejectedSimulationInput(
-      SimulationError(
-        code: tooLarge ? simulationTooLarge : error.code,
-        field: tooLarge ? 'eventJson' : error.path,
-      ),
+      SimulationError(code: error.code, field: error.path),
     );
   }
 }
