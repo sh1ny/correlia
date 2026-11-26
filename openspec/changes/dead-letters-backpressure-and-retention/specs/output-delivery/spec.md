@@ -89,8 +89,8 @@ Each overflow episode SHALL raise one durable Correlia alert and attempt to rout
 - **THEN** the new policy, overflow ledger entry and pending notice commit together, and repeating the publication does not open another episode
 
 #### Scenario: Oversized discard does not keep an episode open
-- **WHEN** `discard_new` rejects a payload larger than an empty queue can hold and the output next processes a fitting delivery
-- **THEN** recovery closes the episode when usage is below both limits, and a later refusal can open another episode
+- **WHEN** `discard_new` rejects a payload larger than an empty queue can hold and a later fitting delivery completes
+- **THEN** queuing that delivery does not end the episode; completion closes it if the released capacity leaves usage below both limits, and a later refusal can open a new episode
 
 #### Scenario: All other outputs are full
 - **WHEN** no other active output has room for an overflow notice
