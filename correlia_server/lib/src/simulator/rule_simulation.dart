@@ -460,9 +460,11 @@ ActionTrace _actionTrace(
     MatcherRoute(:final outputId) => ('route', outputId),
     MatcherSeverity(:final values) => (
       'severity',
-      switch (effect) {
-        // The mapping that fired, from the event's original severity.
-        (_, final String target) => '${original.name} -> $target',
+      switch ((effect, values[original])) {
+        // The mapping that fired, from the event's original severity. The
+        // target comes from the mapping: a failed action reports its failure
+        // code as its value.
+        ((_, _)?, final target?) => '${original.name} -> ${target.name}',
         _ => [
           for (final entry in values.entries)
             '${entry.key.name} -> ${entry.value.name}',
