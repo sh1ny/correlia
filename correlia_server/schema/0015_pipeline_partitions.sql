@@ -571,12 +571,12 @@ CREATE TRIGGER raw_truncate_accounting AFTER TRUNCATE ON raw_inbox
 CREATE TRIGGER outbox_truncate_accounting AFTER TRUNCATE ON outbox
   FOR EACH STATEMENT EXECUTE FUNCTION correlia_reset_queue_accounting();
 
-CREATE FUNCTION correlia_disk_pressure(budget bigint,watermark integer)
-RETURNS boolean LANGUAGE plpgsql AS $$
+CREATE FUNCTION correlia_sample_database(budget bigint)
+RETURNS bigint LANGUAGE plpgsql AS $$
 DECLARE
   sample pipeline_disk_sample;
 BEGIN
-  IF budget IS NULL THEN RETURN false; END IF;
+  IF budget IS NULL THEN RETURN NULL; END IF;
   SELECT * INTO sample FROM pipeline_disk_sample WHERE singleton=1;
   IF sample.sampled_at <= clock_timestamp()-interval '1 second' THEN
     SELECT * INTO sample FROM pipeline_disk_sample WHERE singleton=1 FOR UPDATE;
@@ -585,20 +585,26 @@ BEGIN
         sampled_at=clock_timestamp() WHERE singleton=1 RETURNING * INTO sample;
     END IF;
   END IF;
-  RETURN sample.database_bytes::numeric*100 >= budget::numeric*watermark;
+  RETURN sample.database_bytes;
 END;
 $$;
 
+CREATE FUNCTION correlia_disk_over_watermark(budget bigint,watermark integer,database_bytes bigint)
+RETURNS boolean LANGUAGE sql IMMUTABLE AS $$
+  SELECT coalesce(database_bytes::numeric*100 >= budget::numeric*watermark,false)
+$$;
+
 CREATE FUNCTION correlia_disk_pressure() RETURNS boolean LANGUAGE sql VOLATILE AS $$
-  SELECT correlia_disk_pressure(disk_budget_bytes,disk_watermark_percent)
+  SELECT correlia_disk_over_watermark(disk_budget_bytes,disk_watermark_percent,
+    correlia_sample_database(disk_budget_bytes))
   FROM pipeline_queue_policy WHERE singleton=1
 $$;
 
 CREATE FUNCTION correlia_queue_pressure(policy pipeline_queue_policy,pending bigint,incoming integer,
-  output_blocked boolean,oldest_pending timestamptz)
+  output_blocked boolean,oldest_pending timestamptz,database_bytes bigint)
 RETURNS text LANGUAGE plpgsql AS $$
 BEGIN
-  IF correlia_disk_pressure(policy.disk_budget_bytes,policy.disk_watermark_percent) THEN
+  IF correlia_disk_over_watermark(policy.disk_budget_bytes,policy.disk_watermark_percent,database_bytes) THEN
     RETURN 'storage';
   END IF;
   IF output_blocked THEN RETURN 'output'; END IF;
@@ -627,7 +633,8 @@ BEGIN
       used_rows>=max_rows OR used_bytes>=max_payload_bytes
       OR demand_rows>max_rows-used_rows OR demand_bytes>max_payload_bytes-used_bytes)),
     (SELECT coalesce(queued_at,observed_at) FROM raw_inbox WHERE status='pending'
-      ORDER BY coalesce(queued_at,observed_at) LIMIT 1))
+      ORDER BY coalesce(queued_at,observed_at) LIMIT 1),
+    correlia_sample_database(p.disk_budget_bytes))
   FROM pipeline_queue_policy p WHERE singleton=1);
 END;
 $$;

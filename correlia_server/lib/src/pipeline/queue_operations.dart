@@ -694,15 +694,20 @@ final class QueueOperations {
       ), oldest AS MATERIALIZED (
         SELECT coalesce(queued_at,observed_at) AS queued FROM raw_inbox
         WHERE status='pending' ORDER BY queued LIMIT 1
+      ), measured AS MATERIALIZED (
+        SELECT p AS policy,correlia_sample_database(p.disk_budget_bytes) AS database_bytes
+        FROM pipeline_queue_policy p WHERE p.singleton=1
       ), summary AS MATERIALIZED (
-        SELECT p.pending_max_rows,p.pending_max_age_seconds,p.disk_budget_bytes,p.disk_watermark_percent,
-          q.pending_rows,correlia_queue_pressure(p,q.pending_rows,1,
-            EXISTS(SELECT 1 FROM lanes WHERE blocks),(SELECT queued FROM oldest)),
+        SELECT (m.policy).pending_max_rows,(m.policy).pending_max_age_seconds,
+          (m.policy).disk_budget_bytes,(m.policy).disk_watermark_percent,
+          q.pending_rows,correlia_queue_pressure(m.policy,q.pending_rows,1,
+            EXISTS(SELECT 1 FROM lanes WHERE blocks),(SELECT queued FROM oldest),m.database_bytes),
           (SELECT greatest(0,extract(epoch FROM clock_timestamp()-queued))::bigint FROM oldest),
           EXISTS(SELECT 1 FROM pipeline_partition_retry r WHERE problem IS NOT NULL
             AND day>=(clock_timestamp() AT TIME ZONE 'UTC')::date
-            AND NOT correlia_partition_covered(r.parent_name,r.day))
-        FROM pipeline_queue_policy p CROSS JOIN pipeline_pending q WHERE p.singleton=1 AND q.singleton=1
+            AND NOT correlia_partition_covered(r.parent_name,r.day)),
+          m.database_bytes
+        FROM measured m CROSS JOIN pipeline_pending q WHERE q.singleton=1
       )
       SELECT s.*,l.output_id::text,l.max_rows,l.max_payload_bytes,l.overflow_policy,l.used_rows,l.used_bytes,
         l.discarded_count,l.overflow_activity_id,l.blocks
@@ -710,12 +715,6 @@ final class QueueOperations {
     ''',
     );
     final row = rows.first;
-    final sample = row[2] == null
-        ? null
-        : (await tx.query(
-                'SELECT database_bytes FROM pipeline_disk_sample WHERE singleton=1',
-              )).single[0]
-              as int?;
     final maintenance = (await tx.query('''
       SELECT lane,outcome,finished_at,affected FROM pipeline_maintenance_outcome WHERE singleton=1
     ''')).singleOrNull;
@@ -728,21 +727,21 @@ final class QueueOperations {
       pressure: row[5] as String?,
       oldestPendingAgeSeconds: row[6] as int?,
       partitionDegraded: row[7]! as bool,
-      databaseBytes: sample,
+      databaseBytes: row[8] as int?,
       outputsTruncated: rows.length > 64,
       outputs: [
-        if (row[8] != null)
+        if (row[9] != null)
           for (final lane in rows.take(64))
             QueueOutputStatus(
-              outputId: lane[8]! as String,
-              maxRows: lane[9]! as int,
-              maxPayloadBytes: lane[10]! as int,
-              overflowPolicy: lane[11]! as String,
-              usedRows: lane[12]! as int,
-              usedBytes: lane[13]! as int,
-              discardedCount: lane[14]! as int,
-              overflowActivityId: lane[15] as int?,
-              blocksIngress: lane[16]! as bool,
+              outputId: lane[9]! as String,
+              maxRows: lane[10]! as int,
+              maxPayloadBytes: lane[11]! as int,
+              overflowPolicy: lane[12]! as String,
+              usedRows: lane[13]! as int,
+              usedBytes: lane[14]! as int,
+              discardedCount: lane[15]! as int,
+              overflowActivityId: lane[16] as int?,
+              blocksIngress: lane[17]! as bool,
             ),
       ],
       maintenance: maintenance == null

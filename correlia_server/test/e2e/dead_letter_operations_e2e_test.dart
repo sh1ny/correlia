@@ -35,6 +35,21 @@ Future<(int, String)> _operatorRequest(
 
 void main() {
   final timeout = Timeout(const Duration(minutes: 6));
+  // Compare wire field paths, not values (e.g. age can change between calls).
+  Iterable<String> fields(Object? value, [String prefix = '']) sync* {
+    if (value is Map<String, Object?>) {
+      for (final MapEntry(:key, value: child) in value.entries) {
+        final path = '$prefix.$key';
+        yield path;
+        yield* fields(child, path);
+      }
+    } else if (value is List<Object?>) {
+      for (final child in value) {
+        yield* fields(child, '$prefix[]');
+      }
+    }
+  }
+
   test('operator_success_redacts_and_attributes', () async {
     await withOutputProcess((db, env, _, children) async {
       final file = await operatorCredentials(env['TEST_GATE_PATH']!);
@@ -66,6 +81,22 @@ void main() {
             'old-snapshot','https://example.test/destination-canary','reference-canary','commitment-canary',
             convert_to('delivery-canary','UTF8'),'dead','network')
         ''');
+        final replies = <String>[];
+        Future<Map<String, Object?>> wire(
+          String method, [
+          Map<String, Object?> args = const {},
+        ]) async {
+          final (status, body) = await _operatorRequest(
+            child,
+            method: method,
+            token: operatorToken,
+            arguments: args,
+          );
+          expect(status, 200);
+          replies.add(body);
+          return jsonDecode(body) as Map<String, Object?>;
+        }
+
         final raw = await client.deadLetter.list(
           QueueFailureFilter(kind: QueueFailureKind.raw),
           limit: 10,
@@ -76,13 +107,61 @@ void main() {
         );
         expect(raw.failures.single.errorClass, 'invalid_json');
         expect(delivery.failures.single.errorClass, 'network');
-        final result = await client.deadLetter.replay(
-          QueueFailureKind.raw,
-          raw.failures.single.occurrence,
+        for (final (kind, page) in [
+          (QueueFailureKind.raw, raw),
+          (QueueFailureKind.delivery, delivery),
+        ]) {
+          final response = await wire('list', {
+            'filter': QueueFailureFilter(kind: kind).toJson(),
+            'limit': 10,
+          });
+          expect(fields(response).toSet(), fields(page.toJson()).toSet());
+          expect(
+            (response['failures']! as List<Object?>).single,
+            isA<Map<String, Object?>>().having(
+              (row) => row['occurrence'],
+              'occurrence',
+              page.failures.single.occurrence,
+            ),
+          );
+        }
+        final before = await client.deadLetter.status();
+        expect(
+          fields(await wire('status')).toSet(),
+          fields(before.toJson()).toSet(),
         );
+        final replayedRaw = await wire('replay', {
+          'kind': QueueFailureKind.raw.name,
+          'occurrence': raw.failures.single.occurrence,
+        });
+        final result = QueueReplayResult.fromJson(replayedRaw);
         expect(result.queued, 1);
+        expect(fields(replayedRaw).toSet(), fields(result.toJson()).toSet());
         final status = await client.deadLetter.status();
         expect(status.pendingRows, 1);
+        final refused = await client.deadLetter.replay(
+          QueueFailureKind.delivery,
+          delivery.failures.single.occurrence,
+        );
+        final directReplay = await wire('replay', {
+          'kind': QueueFailureKind.delivery.name,
+          'occurrence': delivery.failures.single.occurrence,
+        });
+        expect(fields(directReplay).toSet(), fields(refused.toJson()).toSet());
+        final filter = QueueFailureFilter(kind: QueueFailureKind.delivery);
+        final refusedBatch = await client.deadLetter.replayBatch(
+          filter,
+          limit: 10,
+        );
+        expect(refusedBatch.items, hasLength(1));
+        final directBatch = await wire('replayBatch', {
+          'filter': filter.toJson(),
+          'limit': 10,
+        });
+        expect(
+          fields(directBatch).toSet(),
+          fields(refusedBatch.toJson()).toSet(),
+        );
         expect(
           (await pg.execute(
             Sql.named(
@@ -92,12 +171,7 @@ void main() {
           )).single.toList(),
           ['machine', operatorMachine, raw.failures.single.occurrence],
         );
-        final replies = jsonEncode([
-          raw.toJson(),
-          delivery.toJson(),
-          result.toJson(),
-          status.toJson(),
-        ]);
+        final wireBodies = replies.join('\n');
         final logs = (await pg.execute('''
           SELECT row_to_json(s)::text FROM serverpod_session_log s
           UNION ALL SELECT row_to_json(l)::text FROM serverpod_log l
@@ -111,7 +185,11 @@ void main() {
           'commitment-canary',
           'delivery-canary',
         ]) {
-          expect(replies, isNot(contains(canary)));
+          expect(wireBodies, isNot(contains(canary)));
+          expect(
+            wireBodies,
+            isNot(contains(base64.encode(utf8.encode(canary)))),
+          );
           expect(child.output, isNot(contains(canary)));
           expect(logs, isNot(contains(canary)));
         }
