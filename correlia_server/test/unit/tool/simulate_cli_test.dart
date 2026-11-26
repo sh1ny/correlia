@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'dart:io' show FileSystemException;
+import 'dart:io' show FileSystemException, Platform, Process;
 
 import 'package:correlia_client/correlia_client.dart' as rpc;
 import 'package:test/test.dart';
@@ -328,6 +328,46 @@ void main() {
     expect(text, contains('old=label (matcher)'));
     expect(text, isNot(contains('unknown origin')));
   });
+
+  test('a server that is not an http URL is a usage error', () async {
+    for (final server in ['localhost:8080', 'ftp://x.example/', 'http://']) {
+      final h = _Harness(_result());
+      expect(
+        await h.run([
+          '--server',
+          server,
+          '--event-id',
+          _id,
+          '--observed-at',
+          'T',
+        ]),
+        64,
+        reason: server,
+      );
+      expect(h.calls, isEmpty, reason: server);
+      expect(h.err.toString(), contains('--server must be'), reason: server);
+    }
+    expect(isServerUrl('https://correlia.example:8443/'), isTrue);
+  });
+
+  test(
+    'the entry point reports a bad server URL as a usage error',
+    () async {
+      final run = await Process.run(Platform.resolvedExecutable, [
+        'run',
+        'tool/simulate.dart',
+        '--server',
+        'localhost:8080',
+        '--event-id',
+        _id,
+        '--observed-at',
+        'T',
+      ]);
+      expect(run.exitCode, 64, reason: '${run.stderr}');
+      expect('${run.stderr}', contains('--server must be'));
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
 
   test('an unreadable file path cannot forge a diagnostic line', () async {
     final h = _Harness(_result());

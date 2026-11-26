@@ -78,7 +78,8 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
   final labels = <String, String>{};
   // The `extract` action that wrote each label still holding its capture, so
   // a capture the patch validation rejects is reported against its action.
-  final extracted = <String, int>{};
+  // Kept only for an observer: the pipeline passes none.
+  final extracted = onAction == null ? null : <String, int>{};
   final links = <EventLink>[];
   final routes = <String>{};
   EventSeverity? severity;
@@ -87,11 +88,11 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
     switch (action) {
       case MatcherLabel(:final key, :final value):
         labels[key] = value;
-        extracted.remove(key);
+        extracted?.remove(key);
         onAction?.call(index, MatcherActionEffect.staged, null);
       case MatcherClassify(:final value):
         labels[reservedNoiseKey] = value.name;
-        extracted.remove(reservedNoiseKey);
+        extracted?.remove(reservedNoiseKey);
         onAction?.call(index, MatcherActionEffect.staged, null);
       case MatcherRoute(:final outputId):
         routes.add(outputId);
@@ -134,7 +135,7 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
         }
         if (value != null) {
           labels[key] = value;
-          extracted[key] = index;
+          extracted?[key] = index;
         }
         onAction?.call(
           index,
@@ -150,19 +151,19 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
           continue;
         }
         var found = false;
-        final written = <String>[];
+        final written = onAction == null ? null : <String>[];
         for (final entry in entries) {
           if (entry.hostname == input ||
               entry.network?.contains(input) == true) {
             if (entry.site case final site?) {
               labels['site'] = site;
-              extracted.remove('site');
-              written.add('site=$site');
+              extracted?.remove('site');
+              written?.add('site=$site');
             }
             if (entry.environment case final environment?) {
               labels['environment'] = environment;
-              extracted.remove('environment');
-              written.add('environment=$environment');
+              extracted?.remove('environment');
+              written?.add('environment=$environment');
             }
             found = true;
             break;
@@ -172,7 +173,7 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
         onAction?.call(
           index,
           found ? MatcherActionEffect.staged : MatcherActionEffect.noEntry,
-          found ? written.join(', ') : null,
+          found ? written?.join(', ') : null,
         );
     }
     check?.call();
@@ -210,7 +211,7 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
     final key = error.path.startsWith('labels.')
         ? error.path.substring('labels.'.length)
         : null;
-    if (extracted[key] case final index?) {
+    if (extracted?[key] case final index?) {
       onAction?.call(index, MatcherActionEffect.failed, error.code);
     }
     rethrow;

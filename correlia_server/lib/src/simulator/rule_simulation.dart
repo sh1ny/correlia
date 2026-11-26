@@ -224,6 +224,8 @@ Future<RuleSimulationResult> simulateRules({
     }
     ConditionExplanation? explanation;
     final effects = <int, (MatcherActionEffect, String?)>{};
+    // Route actions whose output the baseline or an earlier route already has.
+    final present = <int>{};
     String? failure;
     try {
       final patch = await applyMatcherRule(
@@ -261,6 +263,14 @@ Future<RuleSimulationResult> simulateRules({
           current = patch.event;
           payload = bytes;
           added.addAll(extra);
+          final fresh = extra.toSet();
+          for (final (index, action) in rule.actions.indexed) {
+            if (action case MatcherRoute(
+              :final outputId,
+            ) when effects[index]?.$1 == MatcherActionEffect.staged) {
+              if (!fresh.remove(outputId)) present.add(index);
+            }
+          }
         }
       }
     } on _Cutoff {
@@ -272,6 +282,14 @@ Future<RuleSimulationResult> simulateRules({
     } on EventValidationError catch (error) {
       stopped = timedOut = optionalRemaining() <= Duration.zero;
       failure = stopped ? 'matcher_cutoff' : error.code;
+    }
+    if (failure != null) {
+      // A failed action carries its rule's code, the cutoff included.
+      for (final MapEntry(:key, :value) in effects.entries.toList()) {
+        if (value.$1 == MatcherActionEffect.failed) {
+          effects[key] = (MatcherActionEffect.failed, failure);
+        }
+      }
     }
     final conditionMatched = explanation?.matched ?? false;
     final outcome = failure != null
@@ -310,9 +328,11 @@ Future<RuleSimulationResult> simulateRules({
                 index,
                 action,
                 effects[index],
+                routePresent: present.contains(index),
                 applied:
                     outcome == ruleOutcomeMatched &&
-                    effects[index]?.$1 == MatcherActionEffect.staged,
+                    effects[index]?.$1 == MatcherActionEffect.staged &&
+                    !present.contains(index),
               ),
         ],
       ),
@@ -383,6 +403,7 @@ ActionTrace _actionTrace(
   int index,
   MatcherAction action,
   (MatcherActionEffect, String?)? effect, {
+  required bool routePresent,
   required bool applied,
 }) {
   final (type, detail) = switch (action) {
@@ -421,6 +442,8 @@ ActionTrace _actionTrace(
     type: type,
     detail: detail,
     effect: switch (effect?.$1) {
+      MatcherActionEffect.staged when routePresent =>
+        'skipped: route already present',
       MatcherActionEffect.staged => 'staged',
       MatcherActionEffect.noInput => 'skipped: field missing',
       MatcherActionEffect.noCapture => 'skipped: nothing captured',

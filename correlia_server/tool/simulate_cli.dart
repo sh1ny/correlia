@@ -57,6 +57,13 @@ String serverOption(List<String> args) {
   }
 }
 
+/// Whether [server] is an absolute `http` or `https` URL with a host, the only
+/// form the generated client accepts.
+bool isServerUrl(String server) => switch (Uri.tryParse(server)) {
+  Uri(scheme: 'http' || 'https', host: final host) when host.isNotEmpty => true,
+  _ => false,
+};
+
 /// Runs the simulator command line and returns its exit code.
 ///
 /// Reads the pasted event and draft files through [readFile] (default: the
@@ -93,6 +100,9 @@ Future<int> runSimulate(
       ..writeln('Usage: dart run tool/simulate.dart [options]')
       ..writeln(parser.usage);
     return 0;
+  }
+  if (!isServerUrl(results.option('server') ?? defaultServer)) {
+    return usage('--server must be an http:// or https:// URL.');
   }
   final eventFile = results.option('event');
   final eventId = results.option('event-id');

@@ -569,6 +569,36 @@ void main() {
     expect(result.trace[1].outcome, 'matched');
   });
 
+  test('an_extraction_that_reaches_the_cutoff_names_it', () async {
+    var expired = false;
+    final result = await _simulate(
+      _event(),
+      _document([
+        _rule('extracts', [
+          {
+            'type': 'extract',
+            'field': 'summary',
+            'pattern': '(.+)',
+            'group': 1,
+            'key': 'slow',
+          },
+        ]),
+        _rule('after', [_label('b', '2')]),
+      ]),
+      capture: (pattern, input, group) async {
+        expired = true;
+        return 'captured';
+      },
+      remaining: () => expired ? Duration.zero : const Duration(seconds: 1),
+    );
+    final cut = result.trace[0];
+    expect((cut.outcome, cut.failureCode), ('failed', 'matcher_cutoff'));
+    expect(cut.actions.map((a) => (a.effect, a.applied)), [
+      ('failed: matcher_cutoff', false),
+    ]);
+    expect(result.trace[1].outcome, 'not attempted');
+  });
+
   test('simulated_effect_beyond_the_fanout_bound', () async {
     final event = _event();
     final size = CloudEvent(event: event).toJsonBytes().length;
@@ -650,9 +680,34 @@ void main() {
     expect(result.addedRoutes, [_routeB]);
     expect(result.routeNote, contains('delivery eligibility'));
     expect(result.sourceAbsent, isFalse);
-    expect(result.trace.single.actions.map((a) => a.type), [
-      'route',
-      'route',
+    expect(
+      result.trace.single.actions.map((a) => (a.detail, a.effect, a.applied)),
+      [
+        (_routeA, 'skipped: route already present', false),
+        (_routeB, 'staged', true),
+      ],
+    );
+  });
+
+  test('a_route_an_earlier_rule_added_is_already_present', () async {
+    final result = await _simulate(
+      _event(),
+      _document([
+        _rule('first', [
+          {'type': 'route', 'output_id': _routeB},
+        ]),
+        _rule('second', [
+          {'type': 'route', 'output_id': _routeB},
+          {'type': 'route', 'output_id': _routeB},
+        ]),
+      ]),
+    );
+    expect(result.addedRoutes, [_routeB]);
+    expect(result.trace[0].actions.single.effect, 'staged');
+    expect(result.trace[1].outcome, 'matched');
+    expect(result.trace[1].actions.map((a) => (a.effect, a.applied)), [
+      ('skipped: route already present', false),
+      ('skipped: route already present', false),
     ]);
   });
 
