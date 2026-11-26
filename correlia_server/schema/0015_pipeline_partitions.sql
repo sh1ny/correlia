@@ -806,6 +806,19 @@ CREATE INDEX events_observation_key_idx ON events (event_id);
 CREATE INDEX transport_expiry_idx ON transport_keys ("expiresAt",id);
 CREATE INDEX observation_expiry_idx ON observation_keys (greatest("sourceTime","firstSeenAt"),id);
 
+-- The operator directory indexes public categories, not plugin-controlled
+-- detail. Use the same mapping for pre-cutover rows and live transitions.
+CREATE FUNCTION correlia_public_delivery_error(p_kind text,p_reason text)
+RETURNS text LANGUAGE sql IMMUTABLE AS $$
+  SELECT CASE
+    WHEN p_kind='plugin' THEN 'plugin_failure'
+    WHEN p_reason IN ('http_permanent','http_retryable','interrupted',
+                      'invalid_url','network','payload_too_large','shutdown','timeout')
+      THEN p_reason
+    ELSE 'delivery_failed'
+  END
+$$;
+
 INSERT INTO pipeline_dead_letter (kind,scope_id,failed_at,error_class,work_at,work_id,snapshot_id,field_path)
 SELECT 'raw',r.source_id,coalesce(f."createdAt" AT TIME ZONE 'UTC',transaction_timestamp()),
   coalesce(f."errorClass",'processing_failed'),r.observed_at,r.raw_id,r.config_snapshot_id,f."fieldPath"
@@ -815,7 +828,7 @@ FROM raw_inbox r LEFT JOIN LATERAL (
   ORDER BY "createdAt" DESC,id DESC LIMIT 1
 ) f ON true WHERE r.status='failed';
 INSERT INTO pipeline_dead_letter (kind,scope_id,failed_at,error_class,work_at,work_id,snapshot_id)
-SELECT 'delivery',output_id,terminal_at,coalesce(dead_reason,'delivery_failed'),
+SELECT 'delivery',output_id,terminal_at,correlia_public_delivery_error(output_kind,dead_reason),
   created_at,delivery_id,config_snapshot_id FROM outbox WHERE status='dead';
 
 CREATE FUNCTION correlia_record_raw_failure(
@@ -850,7 +863,8 @@ BEGIN
     DELETE FROM pipeline_dead_letter WHERE (kind,work_at,work_id)=('delivery',OLD.created_at,OLD.delivery_id);
   ELSIF TG_OP <> 'DELETE' AND NEW.status='dead' AND (TG_OP='INSERT' OR OLD.status<>'dead') THEN
     INSERT INTO pipeline_dead_letter (kind,scope_id,failed_at,error_class,work_at,work_id,snapshot_id)
-    VALUES ('delivery',NEW.output_id,NEW.terminal_at,coalesce(NEW.dead_reason,'delivery_failed'),
+    VALUES ('delivery',NEW.output_id,NEW.terminal_at,
+      correlia_public_delivery_error(NEW.output_kind,NEW.dead_reason),
       NEW.created_at,NEW.delivery_id,NEW.config_snapshot_id);
   END IF;
   RETURN NULL;

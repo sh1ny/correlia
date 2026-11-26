@@ -1351,12 +1351,18 @@ void main() {
             session,
             schemaSteps.where((step) => step.version < 15).toList(),
           );
+          const priorOutput = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
           await session.db.unsafeSimpleExecute('''
         INSERT INTO events (observed_at,event_id,disposition,raw_observed_at,raw_id,source_id,
           config_snapshot_id,source_time,payload)
         VALUES ('2026-11-10 23:00 UTC',gen_random_uuid(),'ready','2026-11-10 23:00 UTC',
           gen_random_uuid(),'${config.sourceId}','prior-pin','2026-11-10 23:00 UTC',
-          convert_to('{"subject":"historical-fixture","data":{}}','UTF8'))
+          convert_to('{"subject":"historical-fixture","data":{}}','UTF8'));
+        INSERT INTO outbox (created_at,delivery_id,event_observed_at,event_id,event_disposition,
+          output_id,config_snapshot_id,output_kind,definition_digest,payload,status,dead_reason)
+        VALUES ('2026-11-10 23:00 UTC',gen_random_uuid(),'2026-11-10 23:00 UTC',gen_random_uuid(),
+          'ready','$priorOutput','prior-pin','plugin',
+          repeat('a',64),convert_to('{}','UTF8'),'dead','old_plugin_private_label')
       ''');
           const legacy = '''
             SELECT raw_observed_at,raw_id::text,payload FROM events WHERE config_snapshot_id='prior-pin'
@@ -1383,6 +1389,12 @@ void main() {
             await request.response.close();
           });
           await applySchemaSteps(session, schemaSteps);
+          expect(
+            (await session.db.unsafeQuery('''
+              SELECT error_class FROM pipeline_dead_letter WHERE kind='delivery'
+            ''')).single[0],
+            'plugin_failure',
+          );
           await _publish(
             session,
             1,
@@ -1426,7 +1438,11 @@ void main() {
           final evidence = utf8.encode(result[4]! as String);
           expect(envelope.raw.sha256, sha256.convert(evidence).toString());
           expect(envelope.raw.size, evidence.length);
-          expect(await _intents(session), {_first: 1, _second: 1});
+          expect(await _intents(session), {
+            _first: 1,
+            _second: 1,
+            priorOutput: 1,
+          });
           final relay = OutputRelayRepository(
             session,
             testSecretResolver(session).resolve,

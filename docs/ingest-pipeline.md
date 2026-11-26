@@ -1200,12 +1200,19 @@ the first page's upper time bound. Start a new listing to include later failures
 refused items. No reply includes raw bodies, delivery payloads, destinations or signing
 references. Successful replay records the verified machine ID and queued count in `activity`.
 
+Plugin dead letters use the `plugin_failure` category for listing and filters. The API does
+not return plugin-supplied error text.
+
 Raw replay needs a free pending slot and an enabled source with the same admission mode.
 It pins the configuration active at replay, retaining the original bytes, receipt, Icinga 2
 origin and generation 0. Queue age alone does not block replay. An unavailable source, full
 inbox or expired failure cannot be requeued. A replay of a reconcile row does not change its
 original sync run. If it finishes without writing an event, the worker records that outcome
 in the ledger before deleting the raw row.
+
+A pre-upgrade Icinga 2 item below the published reclamation boundary counts as late.
+If it is also future-dated relative to its original receipt, the worker keeps the quarantine
+rules and counts both conditions.
 
 Delivery replay keeps the original payload, event ID, delivery ID, destination, and signing
 commitment. It requires the original webhook signing material and room in the live output

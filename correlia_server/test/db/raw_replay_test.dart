@@ -522,6 +522,10 @@ void main() {
           session,
           pin,
           [
+            streamDbCheck(
+              now.subtract(const Duration(days: 1)),
+              host: 'quarantined-and-below-floor',
+            ),
             streamDbCheck(now, host: 'before-floor'),
             streamDbCheck(
               now.add(const Duration(seconds: 2)),
@@ -529,7 +533,9 @@ void main() {
             ),
             streamDbCheck(now, host: 'old-evidence-received-later'),
           ],
-          itemReceipt: (index) => now.add(Duration(seconds: 2 * index)),
+          itemReceipt: (index) => index == 0
+              ? now.subtract(const Duration(days: 3))
+              : now.add(Duration(seconds: 2 * index)),
         );
         await markFailure(id, pin, legacy: true);
         await session.db.unsafeExecute(
@@ -542,9 +548,12 @@ void main() {
         expect((await replay(old.occurrence)).queued, 1);
         expect(await worker().processOne(), isTrue);
         final outcome = await outcomeOf(session, id);
-        expect(outcome['late'], 2);
+        expect(outcome['late'], 3);
+        expect(outcome['future_dated'], 1);
         expect(outcome['committed'], 1);
         expect(await countRows(session, 'outbox'), 1);
+        expect(await countRows(session, 'observation_keys'), 1);
+        expect(await countRows(session, 'events'), 1);
         expect((await theAlert(session))['summary'], contains('after-floor'));
         expect(
           (await session.db.unsafeQuery(

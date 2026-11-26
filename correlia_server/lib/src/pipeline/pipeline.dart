@@ -658,17 +658,16 @@ FOR UPDATE SKIP LOCKED LIMIT 1''',
             final source = event.sourceTime!;
             final receipt = stream ? _date(event.observedAt) : raw.observed;
             var disposition = classifyEvidence(source, receipt);
-            // A legacy batch can span the old fence. Compare each item's
-            // effective time, keeping the normal future quarantine intact.
+            // An item can predate the old fence and still be far ahead of
+            // its own receipt. Count it as late without lifting quarantine.
             final legacyLate =
                 floorMicros != null &&
-                disposition != EvidenceDisposition.futureDated &&
                 (source.seconds * 1000000 + source.nanos ~/ 1000 <
                         floorMicros ||
                     receipt.microsecondsSinceEpoch +
                             stateSkewAllowance.inMicroseconds <
                         floorMicros);
-            if (legacyLate) {
+            if (legacyLate && disposition != EvidenceDisposition.futureDated) {
               disposition = EvidenceDisposition.late;
             }
             final data = CloudEvent(event: event).toJsonBytes();
@@ -728,12 +727,12 @@ FOR UPDATE SKIP LOCKED LIMIT 1''',
               EvidenceDisposition.late => StreamEligibility.late,
               EvidenceDisposition.futureDated => StreamEligibility.futureDated,
             };
+            if (item.legacyLate ||
+                (stream && eligibility == StreamEligibility.late)) {
+              late++;
+            }
             if (stream && eligibility != StreamEligibility.ready) {
-              if (eligibility == StreamEligibility.late) {
-                late++;
-              } else {
-                quarantines++;
-              }
+              if (eligibility == StreamEligibility.futureDated) quarantines++;
               if (reconcile) {
                 stateInputs.add(
                   StateInput(
@@ -747,7 +746,6 @@ FOR UPDATE SKIP LOCKED LIMIT 1''',
               continue;
             }
             if (!seen.add(event.eventId)) {
-              if (item.legacyLate) late++;
               if (item.disposition == EvidenceDisposition.futureDated) {
                 duplicateQuarantine++;
               } else {
@@ -784,7 +782,6 @@ ON CONFLICT ("eventId") DO NOTHING RETURNING "eventId"''',
               );
               if (key.isEmpty) {
                 duplicates++;
-                if (item.legacyLate) late++;
                 // Late evidence cannot refresh an alert, regardless of the
                 // original key's disposition or whether retention removed it.
                 if (item.disposition != EvidenceDisposition.ready) continue;
@@ -994,7 +991,7 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
               throw StateError('Eligible event key conflict');
             }
             if (item.disposition == EvidenceDisposition.late) {
-              late++;
+              if (!item.legacyLate) late++;
               continue;
             }
             committed++;
