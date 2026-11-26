@@ -172,9 +172,12 @@ run in every role unless they are switched off:
   - `events`, `raw_inbox`, `outbox`: SQL-owned time-qualified composite primary keys, initially ordinary
     tables, with partition maintenance deferred to M2 (ADR 0016). Schema step 0002 adds nullable
     `events.state_outcome` to distinguish applied and stale observations.
-  - `matcher_content_digest`, `matcher_content_digest_fill`: schema step 0015 creates the digest of every
-    published matcher section (primary key `digest`) and the one-row completion marker of its upgrade fill,
-    so the reserved-label check is one primary-key probe (ADR 0034).
+  - `matcher_content_digest`, `matcher_content_digest_fill`: schema step 0015 creates both tables: the
+    digest of every published matcher section (primary key `digest`) and a one-row fill state. Step 0016
+    adds the row's `filled_through` watermark, the last snapshot ID the fill has read. Startup and
+    publication fill the digests for every snapshot after the watermark, including one an older binary
+    published during an offline downgrade, so an existing row does not mean the fill has no work left. The
+    reserved-label check is one primary-key probe (ADR 0034).
 
   `alerts` is a Serverpod-managed table with a unique tenant/fingerprint index.
 

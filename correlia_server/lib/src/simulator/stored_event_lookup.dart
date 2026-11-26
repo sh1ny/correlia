@@ -7,6 +7,7 @@ import '../event/canonical_event.dart';
 import '../event/cloud_event.dart';
 import '../event/validation.dart';
 import '../generated/protocol.dart' hide ConditionTrace;
+import '../ingest/bootstrap.dart' show BootstrapError;
 import '../pipeline/row_decode.dart';
 import 'simulation_input.dart';
 
@@ -120,14 +121,21 @@ WHERE observed_at=@observed AND raw_id=CAST(@raw AS uuid)''',
     timeoutInSeconds: 5,
   );
   if (pinned.isEmpty) return _failure(simulationRawUnavailable, 'eventId');
-  final inputs = await readDecodeInputs(
-    session,
-    tx,
-    rawKey,
-    pin,
-    sourceId: raw.single[1]! as String,
-    digest: raw.single[2]! as String,
-  );
+  final DecodeInputs inputs;
+  try {
+    inputs = await readDecodeInputs(
+      session,
+      tx,
+      rawKey,
+      pin,
+      sourceId: raw.single[1]! as String,
+      digest: raw.single[2]! as String,
+    );
+  } on BootstrapError {
+    // The pin's decode settings no longer parse, such as a mapping in a
+    // format this binary cannot read. Database failures still propagate.
+    return _failure(simulationRawUnavailable, 'eventId');
+  }
   if (inputs.rejection != null) {
     return _failure(simulationRawUnavailable, 'eventId');
   }

@@ -442,7 +442,7 @@ RPC error.
 | an event validation code | the event field path | The pasted event fails validation |
 | a matcher validation code | the matcher field path | The draft fails the checks of publication, such as `reserved_key:correlia.noise_class;use_classify_or_rename_the_label` |
 | `event_not_found` | `eventId` | No stored event has that key |
-| `raw_unavailable` | `eventId` | The stored event's raw row is gone or cannot be decoded again |
+| `raw_unavailable` | `eventId` | The stored event's raw row is gone or cannot be decoded again, including when its processing snapshot is gone or its decode settings no longer parse |
 | `ambiguous_member` | `eventId` | No member of the decoded raw row matches the stored event, or the raw row holds several differing events with that ID and the stored event does not tell which one was kept |
 
 #### Command line

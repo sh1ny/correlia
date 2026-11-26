@@ -564,6 +564,45 @@ SELECT observed_at,event_id,'future_dated',raw_observed_at,raw_id,source_id,conf
         expect(result.trace, isEmpty);
       });
 
+      test('pinned_decode_settings_that_no_longer_parse', () async {
+        await _publish(session);
+        await _process(session, [_alert()]);
+        final stored = (await _stored(session)).single;
+        // The pin now names a generic mapping in a format this binary cannot
+        // read, so the row's decode settings cannot be built.
+        final pin = (await session.db.unsafeQuery(
+          'SELECT config_snapshot_id FROM events',
+        )).single[0]!;
+        final json =
+            (await session.db.unsafeQuery(
+                  'SELECT "publicJson" FROM ingest_config_snapshot '
+                  'WHERE "snapshotId"=@pin',
+                  parameters: QueryParameters.named({'pin': pin}),
+                )).single[0]!
+                as String;
+        final snapshot = jsonDecode(json) as Map<String, Object?>;
+        final source =
+            (snapshot['sources']! as List<Object?>).single!
+                as Map<String, Object?>;
+        source
+          ..['kind'] = 'generic'
+          ..['mapping'] = 'future';
+        snapshot['mappings'] = [
+          {'name': 'future', 'mapping_format': 2},
+        ];
+        await session.db.unsafeExecute(
+          'UPDATE ingest_config_snapshot SET "publicJson"=@json '
+          'WHERE "snapshotId"=@pin',
+          parameters: QueryParameters.named({
+            'json': jsonEncode(snapshot),
+            'pin': pin,
+          }),
+        );
+        final result = await _simulateStored(session, stored);
+        expect(result.error?.code, 'raw_unavailable');
+        expect(result.trace, isEmpty);
+      });
+
       test('invalid_draft', () async {
         await _publish(session);
         final base = _rule('r', _anySummary, [_label('a', '1')]);

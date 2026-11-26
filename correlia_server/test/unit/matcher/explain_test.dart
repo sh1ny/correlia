@@ -1,5 +1,7 @@
 import 'package:correlia_server/event.dart';
 import 'package:correlia_server/src/matcher/matcher_condition.dart';
+import 'package:correlia_server/src/matcher/matcher_document.dart';
+import 'package:correlia_server/src/matcher/matcher_evaluation.dart';
 import 'package:correlia_server/src/matcher/matcher_regex_worker.dart';
 import 'package:test/test.dart';
 
@@ -59,6 +61,75 @@ void main() {
     expect(explained.failureCode, isNull);
     expect(regex.calls, isEmpty);
   });
+
+  // The pipeline's rule runner skips the same children: no regex is armed and
+  // no failure is counted.
+  for (final (name, condition, labels, matched) in [
+    (
+      'a_decisive_any_skips_a_slow_regex_in_the_pipeline',
+      {
+        'any': [_leaf('labels.site', 'equals', 'eu1'), slow],
+      },
+      {'site': 'eu1'},
+      true,
+    ),
+    (
+      'a_decisive_all_skips_a_slow_regex_in_the_pipeline',
+      {
+        'all': [_leaf('labels.site', 'equals', 'eu1'), slow],
+      },
+      {'site': 'us1'},
+      false,
+    ),
+  ]) {
+    test(name, () async {
+      final document = MatcherDocument.parse({
+        'language': 'matcher',
+        'version': 1,
+        'rules': [
+          {
+            'id': 'short',
+            'when': condition,
+            'actions': [
+              {'type': 'set_label', 'key': 'team', 'value': 'ops'},
+            ],
+          },
+        ],
+      }, const {});
+      var armed = 0;
+      var elapsed = Duration.zero;
+      final worker = MatcherRegexWorker(
+        elapsed: () => elapsed,
+        // Any regex that ran would be overdue at once.
+        arm: (_, _) {
+          armed++;
+          elapsed = const Duration(minutes: 1);
+          return () {};
+        },
+      );
+      addTearDown(worker.close);
+      const clock = Duration(seconds: 1);
+      final batch = MatcherBatch(
+        document,
+        worker.newRow(() => clock),
+        () => clock,
+        availableBytes: 8 * 1024,
+      );
+      final event = _event(labels: labels);
+      final result = await batch.enrich(
+        event,
+        CloudEvent(event: event).toJsonBytes(),
+        const {},
+        false,
+      );
+      final out = CloudEvent.decode(result.payload).event;
+      expect(out.labels['team'], matched ? 'ops' : isNull);
+      expect(out.pipeline.enrichmentErrors, isEmpty);
+      expect(armed, 0);
+      expect(batch.failures, isEmpty);
+      expect(batch.unattempted, 0);
+    });
+  }
 
   test('rul_2_missing_field_is_visible', () async {
     final condition = MatcherCondition.parse(
