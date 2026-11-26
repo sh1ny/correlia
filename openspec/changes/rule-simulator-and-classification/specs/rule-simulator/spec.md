@@ -16,7 +16,7 @@ The system SHALL offer a read-only simulation on the local console API. Its inpu
 - **THEN** the result names the active snapshot ID and revision and contains one trace entry per active rule in document order
 
 #### Scenario: Simulate a stored event against a draft
-- **WHEN** an operator submits a stored event's ID and `observed_at` and a valid draft matcher section
+- **WHEN** an operator submits a stored event's ID and `observed_at`, whose kept member the stored fields identify, and a valid draft matcher section
 - **THEN** the simulator decodes the event's raw row as the pipeline decoded it, including the admission metadata of a stream row, evaluates the member the pipeline kept, identified from stored fields, against the draft rules, and marks the rule source as `draft`
 
 #### Scenario: Future-dated row and its later ready row
