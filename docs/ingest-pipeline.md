@@ -416,7 +416,8 @@ The result carries:
   A write that a later action of the same rule overwrites (a label key, or a second matching `map_severity`) is
   `skipped: overwritten later in its rule`; a `location` action counts as overwritten only when every label it
   staged is. When only some are, the action stays staged and its detail marks each overwritten label, as in
-  `site=eu1 (overwritten later in its rule), environment=prod`. A write in a later rule is a separate patch, so both rules' writes are applied. A `map_severity`
+  `site=eu1 (overwritten later in its rule), environment=prod`. When a later action fails, the writes before it
+  that a later action had already overwritten still show this, and nothing of the rule is applied. A write in a later rule is a separate patch, so both rules' writes are applied. A `map_severity`
   whose target equals the event's current severity is `skipped: severity already <value>`.
 - The final labels, label origins, links, severity and `eventKind`, plus `noiseClassHint` when a rule classified
   the event. `finalLabelOrigins` gives every label its effective origin: a label with no recorded origin, as
@@ -512,7 +513,7 @@ expect:
   labels: {alertname: DiskFull, team: storage, owner: storage-team}
 ```
 
-**Labels.** `set_label` writes a fixed value. `extract` copies a capture group of a regular expression applied to
+**Labels.** `set_label` writes a fixed value. `tag` sets the label `tags.<key>` to `"true"`. `extract` copies a capture group of a regular expression applied to
 a field; the first match is used, and the pattern dialect has no anchors. Here the pattern matches both `api-12`
 and `pod-7`, and `node` takes the first.
 
@@ -528,6 +529,7 @@ matcher:
       when: {field: labels.alertname, op: equals, value: HighLatency}
       actions:
         - {type: set_label, key: tier, value: frontend}
+        - {type: tag, key: latency}
         - {type: extract, field: labels.instance, pattern: "([a-z]+-[0-9]+)", group: 1, key: node}
 expect:
   rules:
@@ -536,6 +538,7 @@ expect:
     alertname: HighLatency
     instance: "api-12.pod-7.example.org:9100"
     tier: frontend
+    tags.latency: "true"
     node: api-12
 ```
 

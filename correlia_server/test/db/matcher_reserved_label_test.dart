@@ -558,8 +558,34 @@ matcher:
       runMode: 'test',
       publish: (config, secrets) => publish(config),
     );
-    // The previous binary started from the file and stored its snapshot.
-    final old = (await start((config) => _installPreChange(session, config)))!;
+    // The previous binary started from the file and stored this snapshot.
+    // The ID and JSON are what revision 1bfa471's IngestBootstrap.parse
+    // produced for the file, frozen here so that a change to today's parser
+    // cannot make the test agree with itself.
+    const frozenId =
+        '9a0f6d9e884e950c5f0014202f2b785a600f472272160c4f5d4d3518a07fb730';
+    const frozenJson =
+        '{"format_version":2,"revision":1,"sources":[],"outputs":[],'
+        '"matcher":{"language":"matcher","rules":[{"actions":[{"key":'
+        '"correlia.noise_class","type":"set_label","value":"legacy"}],'
+        '"id":"example","when":{"field":"summary","op":"exists"}}],'
+        '"version":1}}';
+    await _asPublisher(session, (transaction) async {
+      await session.db.unsafeExecute(
+        '''INSERT INTO ingest_config_snapshot ("snapshotId",revision,"publicJson")
+        VALUES (@id,1,@json)''',
+        parameters: QueryParameters.named({
+          'id': frozenId,
+          'json': frozenJson,
+        }),
+        transaction: transaction,
+      );
+      await session.db.unsafeExecute(
+        'INSERT INTO ingest_active_config (singleton,"snapshotId") VALUES (1,@id)',
+        parameters: QueryParameters.named({'id': frozenId}),
+        transaction: transaction,
+      );
+    });
     await _rewindToBeforeStep15(session);
     await initializeIngestSchema(session);
     // This binary starts from the same file through the startup path.
@@ -568,10 +594,10 @@ matcher:
         session,
       ).publishConfig(config, const <String, Object?>{}, runMode: 'test'),
     ))!;
-    expect(restarted.snapshotId, old.snapshotId);
+    expect(restarted.snapshotId, frozenId);
     expect(
       (await _repository(session).activeSnapshot())?['snapshotId'],
-      old.snapshotId,
+      frozenId,
     );
     expect(await _count(session, 'ingest_config_snapshot'), 1);
   });

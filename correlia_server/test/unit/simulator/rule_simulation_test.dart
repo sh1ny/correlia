@@ -575,6 +575,36 @@ void main() {
     expect(result.finalLabels, isNot(contains('long')));
   });
 
+  test('an_overwrite_before_a_failed_action_is_still_reported', () async {
+    final result = await _simulate(
+      _event(),
+      _document([
+        _rule('overwrites', [
+          _label('team', 'net'),
+          _label('team', 'platform'),
+          {
+            'type': 'extract',
+            'field': 'summary',
+            'pattern': '(a+)+b',
+            'group': 1,
+            'key': 'slow',
+          },
+        ]),
+      ]),
+      capture: (pattern, input, group) async =>
+          throw const MatcherRegexUnavailable('regex_timeout'),
+    );
+    final rule = result.trace.single;
+    expect(rule.outcome, 'failed');
+    expect(rule.actions.map((a) => a.effect), [
+      'skipped: overwritten later in its rule',
+      'staged',
+      'failed: regex_timeout',
+    ]);
+    expect(rule.actions.map((a) => a.applied), [false, false, false]);
+    expect(result.finalLabels, isNot(contains('team')));
+  });
+
   test('failed_extraction_is_reported_as_failed', () async {
     final result = await _simulate(
       _event(),

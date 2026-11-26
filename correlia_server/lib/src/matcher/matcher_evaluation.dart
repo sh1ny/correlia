@@ -104,117 +104,11 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
     reported?[index] = value;
   }
 
-  final links = <EventLink>[];
-  final routes = <String>{};
-  EventSeverity? severity;
-  for (final (index, action) in rule.actions.indexed) {
-    check?.call();
-    switch (action) {
-      case MatcherLabel(:final key, :final value):
-        labels[key] = value;
-        extracted?.remove(key);
-        if (onAction != null) recordWrite(index, [key]);
-        onAction?.call(index, MatcherActionEffect.staged, null);
-      case MatcherClassify(:final value):
-        labels[reservedNoiseKey] = value.name;
-        extracted?.remove(reservedNoiseKey);
-        if (onAction != null) recordWrite(index, [reservedNoiseKey]);
-        onAction?.call(index, MatcherActionEffect.staged, null);
-      case MatcherRoute(:final outputId):
-        routes.add(outputId);
-        onAction?.call(index, MatcherActionEffect.staged, null);
-      case MatcherSeverity(:final values):
-        final mapped = values[original.severity];
-        severity = mapped ?? severity;
-        if (mapped != null) {
-          severityWrites?.add(index);
-          reported?[index] = mapped.name;
-        }
-        onAction?.call(
-          index,
-          mapped == null
-              ? MatcherActionEffect.noMapping
-              : MatcherActionEffect.staged,
-          mapped?.name,
-        );
-      case MatcherLink(:final link):
-        links.add(link);
-        onAction?.call(index, MatcherActionEffect.staged, null);
-      case MatcherExtract(
-        :final field,
-        :final pattern,
-        :final key,
-        :final group,
-      ):
-        final input = field.read(original);
-        if (input == null) {
-          onAction?.call(index, MatcherActionEffect.noInput, null);
-          continue;
-        }
-        final String? value;
-        try {
-          value = await capture(pattern.dartPattern, input, group);
-          check?.call();
-        } catch (error) {
-          onAction?.call(
-            index,
-            MatcherActionEffect.failed,
-            error is MatcherRegexUnavailable ? error.code : null,
-          );
-          rethrow;
-        }
-        if (value != null) {
-          labels[key] = value;
-          extracted?[key] = index;
-          if (onAction != null) recordWrite(index, [key], value);
-        }
-        onAction?.call(
-          index,
-          value == null
-              ? MatcherActionEffect.noCapture
-              : MatcherActionEffect.staged,
-          value,
-        );
-      case MatcherLocation(:final field, :final entries):
-        final input = field.read(original);
-        if (input == null) {
-          onAction?.call(index, MatcherActionEffect.noInput, null);
-          continue;
-        }
-        var found = false;
-        final written = onAction == null ? null : <(String, String)>[];
-        for (final entry in entries) {
-          if (entry.hostname == input ||
-              entry.network?.contains(input) == true) {
-            if (entry.site case final site?) {
-              labels['site'] = site;
-              extracted?.remove('site');
-              written?.add(('site', 'site=$site'));
-            }
-            if (entry.environment case final environment?) {
-              labels['environment'] = environment;
-              extracted?.remove('environment');
-              written?.add(('environment', 'environment=$environment'));
-            }
-            found = true;
-            break;
-          }
-        }
-        final text = written?.map((label) => label.$2).join(', ');
-        if (found && written != null) {
-          recordWrite(index, [for (final (key, _) in written) key], text);
-          staged?[index] = written;
-        }
-        // The observed value names the labels the entry staged.
-        onAction?.call(
-          index,
-          found ? MatcherActionEffect.staged : MatcherActionEffect.noEntry,
-          found ? text : null,
-        );
-    }
-    check?.call();
-  }
-  if (onAction != null) {
+  // Reports each staged write a later action of the rule overwrote. It runs
+  // after the last action and also when an action fails, so the trace of a
+  // failed rule still shows which of its earlier writes were overwritten.
+  void reportOverwrites() {
+    if (onAction == null) return;
     for (final MapEntry(key: index, value: keys) in wrote!.entries) {
       if (keys.every((key) => lastWriter![key] != index)) {
         onAction(index, MatcherActionEffect.superseded, reported![index]);
@@ -241,6 +135,123 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
       }
     }
   }
+
+  final links = <EventLink>[];
+  final routes = <String>{};
+  EventSeverity? severity;
+  try {
+    for (final (index, action) in rule.actions.indexed) {
+      check?.call();
+      switch (action) {
+        case MatcherLabel(:final key, :final value):
+          labels[key] = value;
+          extracted?.remove(key);
+          if (onAction != null) recordWrite(index, [key]);
+          onAction?.call(index, MatcherActionEffect.staged, null);
+        case MatcherClassify(:final value):
+          labels[reservedNoiseKey] = value.name;
+          extracted?.remove(reservedNoiseKey);
+          if (onAction != null) recordWrite(index, [reservedNoiseKey]);
+          onAction?.call(index, MatcherActionEffect.staged, null);
+        case MatcherRoute(:final outputId):
+          routes.add(outputId);
+          onAction?.call(index, MatcherActionEffect.staged, null);
+        case MatcherSeverity(:final values):
+          final mapped = values[original.severity];
+          severity = mapped ?? severity;
+          if (mapped != null) {
+            severityWrites?.add(index);
+            reported?[index] = mapped.name;
+          }
+          onAction?.call(
+            index,
+            mapped == null
+                ? MatcherActionEffect.noMapping
+                : MatcherActionEffect.staged,
+            mapped?.name,
+          );
+        case MatcherLink(:final link):
+          links.add(link);
+          onAction?.call(index, MatcherActionEffect.staged, null);
+        case MatcherExtract(
+          :final field,
+          :final pattern,
+          :final key,
+          :final group,
+        ):
+          final input = field.read(original);
+          if (input == null) {
+            onAction?.call(index, MatcherActionEffect.noInput, null);
+            continue;
+          }
+          final String? value;
+          try {
+            value = await capture(pattern.dartPattern, input, group);
+            check?.call();
+          } catch (error) {
+            onAction?.call(
+              index,
+              MatcherActionEffect.failed,
+              error is MatcherRegexUnavailable ? error.code : null,
+            );
+            rethrow;
+          }
+          if (value != null) {
+            labels[key] = value;
+            extracted?[key] = index;
+            if (onAction != null) recordWrite(index, [key], value);
+          }
+          onAction?.call(
+            index,
+            value == null
+                ? MatcherActionEffect.noCapture
+                : MatcherActionEffect.staged,
+            value,
+          );
+        case MatcherLocation(:final field, :final entries):
+          final input = field.read(original);
+          if (input == null) {
+            onAction?.call(index, MatcherActionEffect.noInput, null);
+            continue;
+          }
+          var found = false;
+          final written = onAction == null ? null : <(String, String)>[];
+          for (final entry in entries) {
+            if (entry.hostname == input ||
+                entry.network?.contains(input) == true) {
+              if (entry.site case final site?) {
+                labels['site'] = site;
+                extracted?.remove('site');
+                written?.add(('site', 'site=$site'));
+              }
+              if (entry.environment case final environment?) {
+                labels['environment'] = environment;
+                extracted?.remove('environment');
+                written?.add(('environment', 'environment=$environment'));
+              }
+              found = true;
+              break;
+            }
+          }
+          final text = written?.map((label) => label.$2).join(', ');
+          if (found && written != null) {
+            recordWrite(index, [for (final (key, _) in written) key], text);
+            staged?[index] = written;
+          }
+          // The observed value names the labels the entry staged.
+          onAction?.call(
+            index,
+            found ? MatcherActionEffect.staged : MatcherActionEffect.noEntry,
+            found ? text : null,
+          );
+      }
+      check?.call();
+    }
+  } catch (_) {
+    reportOverwrites();
+    rethrow;
+  }
+  reportOverwrites();
   if (labels.isEmpty &&
       links.isEmpty &&
       (severity == null || severity == current.severity)) {
