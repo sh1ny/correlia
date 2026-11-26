@@ -27,7 +27,7 @@ A kind or format with no decoder SHALL fail the row with a bounded error, never 
 
 #### Scenario: Schema runner waits behind another starter
 - **WHEN** another session holds the schema advisory lock while the schema runner starts against a historical fixture at step 3
-- **THEN** the start fails within the lock timeout with failure class `lock_timeout` and no step recorded
+- **THEN** the start fails within the lock timeout with failure class `lock_timeout` and no step recorded; after the lock is released, the next start applies the schema steps
 
 #### Scenario: Missing kind in a version 2 snapshot
 - **WHEN** a pending row is pinned to a version 2 snapshot whose source has no `kind`
