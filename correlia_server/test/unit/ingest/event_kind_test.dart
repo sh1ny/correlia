@@ -131,6 +131,67 @@ void main() {
     }
   });
 
+  test('icinga2_webhook_kinds_on_the_golden_captures', () {
+    // Every delivery Correlia admitted in the committed captures of each
+    // Icinga2 release, decoded as the pipeline decodes it.
+    final seen = <String>{};
+    var deliveries = 0;
+    for (final file in Directory(
+      'test/unit/ingest/fixtures/icinga2',
+    ).listSync(recursive: true).whereType<File>()) {
+      if (!file.path.contains('/linux-x64/') ||
+          file.path.endsWith('manifest.json')) {
+        continue;
+      }
+      final capture =
+          jsonDecode(file.readAsStringSync()) as Map<String, Object?>;
+      for (final record in capture['records']! as List<Object?>) {
+        if (record case {
+          'kind': 'admitted',
+          'response_status': 202,
+          'request': {'body': final String text},
+        }) {
+          final document = jsonDecode(text) as Map<String, Object?>;
+          final type = document['notification_type']! as String;
+          final stateType = document['state_type'];
+          final expected = switch (type) {
+            // A recovery resolves the alert whatever its state type.
+            'RECOVERY' => EventKind.alert,
+            'PROBLEM' when stateType == 'HARD' => EventKind.alert,
+            'PROBLEM' => EventKind.state,
+            'FLAPPINGSTART' || 'FLAPPINGEND' => EventKind.state,
+            'ACKNOWLEDGEMENT' => EventKind.ack,
+            'DOWNTIMESTART' ||
+            'DOWNTIMEEND' ||
+            'DOWNTIMECANCELLED' => EventKind.downtime,
+            'CUSTOM' => EventKind.comment,
+            _ => fail('${file.path}: unexpected type $type'),
+          };
+          expect(
+            decodeOne(document).kind,
+            expected,
+            reason: '${file.path} ${record['id']}: $type $stateType',
+          );
+          seen.add(type);
+          deliveries++;
+        }
+      }
+    }
+    expect(deliveries, greaterThan(0));
+    // The synthetic table above covers the types the captures lack: a SOFT
+    // problem and a cancelled downtime.
+    expect(seen, {
+      'PROBLEM',
+      'RECOVERY',
+      'FLAPPINGSTART',
+      'FLAPPINGEND',
+      'ACKNOWLEDGEMENT',
+      'DOWNTIMESTART',
+      'DOWNTIMEEND',
+      'CUSTOM',
+    });
+  });
+
   test('icinga2_event_streams_kinds_under_each_state_policy', () {
     final events = capturedStreamEvents(streamCaptures.last);
     Map<String, Object?> state(String output) => events.firstWhere(

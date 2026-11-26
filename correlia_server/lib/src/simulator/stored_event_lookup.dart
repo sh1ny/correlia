@@ -135,6 +135,10 @@ WHERE observed_at=@observed AND raw_id=CAST(@raw AS uuid)''',
     // The pin's decode settings no longer parse, such as a mapping in a
     // format this binary cannot read. Database failures still propagate.
     return _failure(simulationRawUnavailable, 'eventId');
+  } on InvalidStoredSettings {
+    // The pin's stored source settings have the wrong shape, such as a
+    // source without its namespace.
+    return _failure(simulationRawUnavailable, 'eventId');
   }
   if (inputs.rejection != null) {
     return _failure(simulationRawUnavailable, 'eventId');

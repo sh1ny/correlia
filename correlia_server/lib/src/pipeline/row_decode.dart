@@ -159,8 +159,50 @@ typedef DecodedRow = ({DecodedBatch batch, String? syncId});
 /// admission metadata is joined to the snapshot the row was admitted under,
 /// not to [pin]. The reads need no row lock and no pipeline claim state, so a
 /// plain read-only transaction [tx] is enough. Throws a [StateError] when the
-/// pin does not exist.
+/// pin does not exist, and an [InvalidStoredSettings] when the stored snapshot
+/// or source settings do not have the shape this binary reads. Database errors
+/// propagate unchanged.
 Future<DecodeInputs> readDecodeInputs(
+  Session session,
+  Transaction tx,
+  RawKey rawKey,
+  String pin, {
+  required String sourceId,
+  required String digest,
+}) async {
+  try {
+    return await _readDecodeInputs(
+      session,
+      tx,
+      rawKey,
+      pin,
+      sourceId: sourceId,
+      digest: digest,
+    );
+  } on TypeError catch (error) {
+    throw InvalidStoredSettings(pin, '$error');
+  } on FormatException catch (error) {
+    throw InvalidStoredSettings(pin, error.message);
+  }
+}
+
+/// The stored snapshot [pin] or its source settings do not have the shape
+/// this binary reads, such as a source without its `namespace`.
+final class InvalidStoredSettings implements Exception {
+  /// Creates the error for snapshot [pin], with what failed in [detail].
+  const InvalidStoredSettings(this.pin, this.detail);
+
+  /// The snapshot whose stored settings failed to read.
+  final String pin;
+
+  /// What failed to read.
+  final String detail;
+
+  @override
+  String toString() => 'Stored settings of snapshot $pin do not read: $detail';
+}
+
+Future<DecodeInputs> _readDecodeInputs(
   Session session,
   Transaction tx,
   RawKey rawKey,

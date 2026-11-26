@@ -22,6 +22,7 @@
 | durable-pipeline → Rows decode by their source's kind | Generic row pinned to a snapshot without its mapping | `correlia_server/test/db/decoder_dispatch_test.dart` | `generic_row_pinned_to_a_snapshot_without_its_mapping` | green |
 | event-classification → Decoder-owned event kind | Alertmanager-protocol and generic kinds | `correlia_server/test/unit/ingest/event_kind_test.dart` | `alertmanager_protocol_and_generic_kinds` | green |
 | event-classification → Decoder-owned event kind | Icinga2 webhook kinds | `correlia_server/test/unit/ingest/event_kind_test.dart` | `icinga2_webhook_kinds` | green |
+| event-classification → Decoder-owned event kind | Icinga2 webhook kinds | `correlia_server/test/unit/ingest/event_kind_test.dart` | `icinga2_webhook_kinds_on_the_golden_captures` | green |
 | event-classification → Decoder-owned event kind | Icinga2 Event Streams kinds under each state policy | `correlia_server/test/unit/ingest/event_kind_test.dart` | `icinga2_event_streams_kinds_under_each_state_policy` | green |
 | event-classification → Decoder-owned event kind | A label named kind does not change kind | `correlia_server/test/unit/ingest/event_kind_test.dart` | `a_label_named_kind_does_not_change_kind` | green |
 | event-classification → Noise class hints | Classify a watchdog alert | `correlia_server/test/unit/matcher/classify_test.dart` | `classify_a_watchdog_alert` | green |

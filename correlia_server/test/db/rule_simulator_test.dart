@@ -564,12 +564,14 @@ SELECT observed_at,event_id,'future_dated',raw_observed_at,raw_id,source_id,conf
         expect(result.trace, isEmpty);
       });
 
-      test('pinned_decode_settings_that_no_longer_parse', () async {
-        await _publish(session);
-        await _process(session, [_alert()]);
-        final stored = (await _stored(session)).single;
-        // The pin now names a generic mapping in a format this binary cannot
-        // read, so the row's decode settings cannot be built.
+      /// Rewrites the stored event's pinned snapshot with [edit].
+      Future<void> rewritePin(
+        void Function(
+          Map<String, Object?> snapshot,
+          Map<String, Object?> source,
+        )
+        edit,
+      ) async {
         final pin = (await session.db.unsafeQuery(
           'SELECT config_snapshot_id FROM events',
         )).single[0]!;
@@ -584,12 +586,7 @@ SELECT observed_at,event_id,'future_dated',raw_observed_at,raw_id,source_id,conf
         final source =
             (snapshot['sources']! as List<Object?>).single!
                 as Map<String, Object?>;
-        source
-          ..['kind'] = 'generic'
-          ..['mapping'] = 'future';
-        snapshot['mappings'] = [
-          {'name': 'future', 'mapping_format': 2},
-        ];
+        edit(snapshot, source);
         await session.db.unsafeExecute(
           'UPDATE ingest_config_snapshot SET "publicJson"=@json '
           'WHERE "snapshotId"=@pin',
@@ -598,9 +595,50 @@ SELECT observed_at,event_id,'future_dated',raw_observed_at,raw_id,source_id,conf
             'pin': pin,
           }),
         );
+      }
+
+      test('pinned_decode_settings_that_no_longer_parse', () async {
+        await _publish(session);
+        await _process(session, [_alert()]);
+        final stored = (await _stored(session)).single;
+        // The pin now names a generic mapping in a format this binary cannot
+        // read, so the row's decode settings cannot be built.
+        await rewritePin((snapshot, source) {
+          source
+            ..['kind'] = 'generic'
+            ..['mapping'] = 'future';
+          snapshot['mappings'] = [
+            {'name': 'future', 'mapping_format': 2},
+          ];
+        });
         final result = await _simulateStored(session, stored);
         expect(result.error?.code, 'raw_unavailable');
         expect(result.trace, isEmpty);
+      });
+
+      test('pinned_source_settings_with_the_wrong_shape', () async {
+        await _publish(session);
+        await _process(session, [_alert()]);
+        final stored = (await _stored(session)).single;
+        // A recognised source kind whose stored settings lack a field the
+        // decode reads, or hold it with the wrong type.
+        final edits = <String, void Function(Map<String, Object?>)>{
+          'no namespace': (source) => source.remove('namespace'),
+          'excluded labels not a list': (source) =>
+              source['excluded_identity_labels'] = 'job',
+        };
+        for (final MapEntry(key: name, value: edit) in edits.entries) {
+          await rewritePin((_, source) => edit(source));
+          final result = await _simulateStored(session, stored);
+          expect(result.error?.code, 'raw_unavailable', reason: name);
+          expect(result.error?.field, 'eventId', reason: name);
+          expect(result.trace, isEmpty, reason: name);
+          // Restore the setting for the next case.
+          await rewritePin((_, source) {
+            source['namespace'] ??= source['id'];
+            source['excluded_identity_labels'] = <Object?>[];
+          });
+        }
       });
 
       test('invalid_draft', () async {
