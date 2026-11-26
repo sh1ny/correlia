@@ -427,6 +427,36 @@ void main() {
         expect((await ops.status()).outputs.single.overflowActivityId, isNull);
       });
 
+      test('lower_discard_cap_opens_an_episode_without_pressure', () async {
+        final initial = await _publish(session, 1);
+        await _oldIntents(session, initial, _first, 3);
+        final ops = QueueOperations(session);
+        const budgets = {
+          _first: {'max_rows': 3},
+        };
+        await _publish(session, 2, budgets: budgets);
+        final status = await ops.status();
+        expect((status.pendingRows, status.pressure), (0, null));
+        final episode = status.outputs
+            .singleWhere((lane) => lane.outputId == _first)
+            .overflowActivityId;
+        expect(episode, isNotNull);
+        await _publish(session, 3, budgets: budgets);
+        expect(await OverflowNotices(session).routeOne(), isTrue);
+        expect(await OverflowNotices(session).routeOne(), isFalse);
+        expect(await _intents(session), {_first: 3, _second: 1});
+        final notice = (await session.db.unsafeQuery('''
+          SELECT n.activity_id,a.change_kind,n.output_id::text,n.reason
+          FROM pipeline_overflow_notice n JOIN activity a ON a.id=n.activity_id
+        ''')).single;
+        expect(notice.toList(), [
+          episode,
+          'output_overflow',
+          _first,
+          'saturated',
+        ]);
+      });
+
       for (final byBytes in [false, true]) {
         test(
           'parallel_workers_respect_both_caps ${byBytes ? 'bytes' : 'rows'}',

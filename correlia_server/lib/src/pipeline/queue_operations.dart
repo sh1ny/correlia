@@ -370,7 +370,7 @@ final class QueueOperations {
         final rows = await tx.query(
           '''
           SELECT f.occurrence_id,f.work_at,f.work_id::text,
-            f.failed_at<=@now::timestamptz-make_interval(days=>p.dead_letter_retention_days), $fields
+            f.failed_at<=correlia_retention_cutoff(@now::timestamptz,p.dead_letter_retention_days), $fields
           FROM jsonb_array_elements_text(@ids::jsonb) ids(id)
           JOIN pipeline_dead_letter f ON f.occurrence_id=ids.id::bigint
           JOIN $table w ON (w.$at,w.$id)=(f.work_at,f.work_id)
@@ -448,7 +448,7 @@ final class QueueOperations {
   Future<DateTime> _expiryCutoff(_QueueTransaction tx, DateTime now) async =>
       (await tx.query(
             '''
-        SELECT @now::timestamptz-make_interval(days=>dead_letter_retention_days)
+        SELECT correlia_retention_cutoff(@now::timestamptz,dead_letter_retention_days)
         FROM pipeline_queue_policy WHERE singleton=1
         ''',
             parameters: QueryParameters.named({'now': now}),

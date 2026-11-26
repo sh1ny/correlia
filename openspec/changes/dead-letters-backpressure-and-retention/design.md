@@ -65,6 +65,8 @@ Rejected: copy all old rows into daily partitions, which needs a second copy of 
 
 Open an overflow episode on reaching a budget or refusing work for it. End it when the budget admits work again. Record the episode in the ledger and route a sanitized canonical alert to other active outputs with room. Never ingest or match the notice, change alert state, or raise a new episode for its delivery. If no output fits, the ledger and status RPC still show the episode. An event has either both existing sender raw key columns or one `system_activity_id`, never both or neither. The system event's `activity:` reference, digest and size describe a stored, sanitized evidence document. Event retention removes that reference; its document follows indefinite ledger retention.
 
+Lowering a cap to or below retained usage opens an episode for either policy. Republishing the same caps and policy does not open another episode. Only a blocking output can refuse new ingress.
+
 Rejected: feed-only notices, which do not fulfill ADR 0016's delivery to other outputs. Reversal cost: high. Important: yes, externally observable event origin and routing. Chosen by: user.
 
 ### D7: Guard replay against reclaimed ordering evidence

@@ -241,6 +241,42 @@ void main() {
         );
       });
 
+      test('replay_and_expiry_use_utc_days_in_non_utc_sessions', () async {
+        await _seed(session, fixture.sourceId, 1);
+        await delivery.seed(session);
+        await session.db.unsafeSimpleExecute('''
+          UPDATE outbox SET status='dead',dead_reason='network';
+          UPDATE pipeline_dead_letter SET failed_at='2026-03-02 12:30 UTC'
+        ''');
+        final before = DateTime.utc(2026, 3, 16, 12);
+        const timezone = "SET LOCAL TIME ZONE 'America/New_York'";
+        final eligible = QueueOperations(
+          session,
+          clock: () => before,
+          secretStore: testSecretStore,
+          observePageQueryForTest: (tx, _, _) =>
+              session.db.unsafeSimpleExecute(timezone, transaction: tx),
+        );
+        Future<int> expire(DateTime now) => session.db.transaction((tx) async {
+          await session.db.unsafeSimpleExecute(timezone, transaction: tx);
+          return (await session.db.unsafeQuery(
+                "SELECT correlia_maintain('expiry',@now,10)",
+                parameters: QueryParameters.named({'now': now}),
+                transaction: tx,
+              )).single[0]!
+              as int;
+        });
+        final deliveries = QueueFailureFilter(kind: QueueFailureKind.delivery);
+        expect(await expire(before), 0);
+        expect((await eligible.replayBatch(filter(), 'demo')).queued, 1);
+        expect((await eligible.replayBatch(deliveries, 'demo')).queued, 1);
+        await _seed(session, fixture.sourceId, 1);
+        await session.db.unsafeExecute(
+          "UPDATE pipeline_dead_letter SET failed_at='2026-03-02 12:30 UTC'",
+        );
+        expect(await expire(DateTime.utc(2026, 3, 16, 12, 30)), 1);
+      });
+
       test('concurrent_replays_and_late_replay_cannot_requeue_twice', () async {
         await _seed(session, fixture.sourceId, 1);
         final occurrence = (await operations.list(

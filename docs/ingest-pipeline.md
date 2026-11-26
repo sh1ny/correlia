@@ -226,6 +226,8 @@ a delayed error from an earlier attempt cannot overwrite a successful attachment
 tries unprepared days with no previous attempt first, then retries the least recently attempted
 range. Preparation has no deadline when PostgreSQL must validate a large default child.
 
+Retention measures days as 24 hours in UTC, regardless of the database session time zone.
+
 A closed child whose drop times out waits for its scheduled retry. Other eligible children
 can be dropped during that wait. A drop still rechecks retention and protection under
 the DDL locks. Outbox drops check exact counts per child and output without scanning

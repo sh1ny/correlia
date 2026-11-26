@@ -2,6 +2,12 @@
 LOCK TABLE raw_inbox, events, outbox IN ACCESS EXCLUSIVE MODE;
 SET LOCAL TIME ZONE 'UTC';
 
+-- A retention day is 24 hours even if a runtime session uses local time.
+CREATE FUNCTION correlia_retention_cutoff(p_now timestamptz,p_days integer)
+RETURNS timestamptz LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE AS $$
+  SELECT ((p_now AT TIME ZONE 'UTC')-make_interval(days=>p_days)) AT TIME ZONE 'UTC'
+$$;
+
 -- The parent's event type changes, and parent-targeted INSERT statements need
 -- their own transition table trigger. Neither can stay bound to the old heap.
 DROP FUNCTION events_effective_source_time(events);
@@ -76,7 +82,7 @@ CREATE TABLE pipeline_icinga2_replay_floor (
   effective_floor timestamptz NOT NULL
 );
 INSERT INTO pipeline_icinga2_replay_floor (singleton, effective_floor)
-SELECT singleton, cutoff - interval '7 days' FROM raw_admission_cutoff;
+SELECT singleton,correlia_retention_cutoff(cutoff,7) FROM raw_admission_cutoff;
 
 CREATE TABLE raw_inbox (
   LIKE legacy_raw_inbox INCLUDING ALL EXCLUDING INDEXES,
@@ -298,6 +304,7 @@ DECLARE
   budget jsonb;
   capacity pipeline_output_capacity;
   was_blocking boolean;
+  new_blocking boolean;
   previous_max_rows integer;
   previous_max_bytes bigint;
 BEGIN
@@ -333,12 +340,13 @@ BEGIN
       ON CONFLICT (output_id) DO UPDATE SET active=true,
         max_rows=excluded.max_rows,max_payload_bytes=excluded.max_payload_bytes,
         overflow_policy=excluded.overflow_policy RETURNING * INTO capacity;
-      IF capacity.overflow_policy='block_ingest' AND capacity.overflow_activity_id IS NULL
+      new_blocking := capacity.overflow_policy='block_ingest' AND was_blocking IS DISTINCT FROM true;
+      IF capacity.overflow_activity_id IS NULL
         AND (
           (capacity.used_rows>=capacity.max_rows
-            AND (was_blocking IS DISTINCT FROM true OR capacity.max_rows<previous_max_rows))
+            AND (new_blocking OR capacity.max_rows<previous_max_rows))
           OR (capacity.used_bytes>=capacity.max_payload_bytes
-            AND (was_blocking IS DISTINCT FROM true OR capacity.max_payload_bytes<previous_max_bytes))
+            AND (new_blocking OR capacity.max_payload_bytes<previous_max_bytes))
         )
       THEN
         PERFORM correlia_mark_overflow(lane.id,'saturated',0,clock_timestamp());
@@ -1128,7 +1136,7 @@ BEGIN
       ON h.inhrelid=to_regclass(r.child_name) AND h.inhparent=to_regclass(r.parent_name)
     CROSS JOIN pipeline_queue_policy q
     WHERE q.singleton=1 AND r.parent_name=p_parent AND r.drop_retry_at<=p_now
-      AND r.end_day::timestamp AT TIME ZONE 'UTC' <= p_now-make_interval(days=>
+      AND r.end_day::timestamp AT TIME ZONE 'UTC' <= correlia_retention_cutoff(p_now,
         CASE p_parent WHEN 'events' THEN q.event_retention_days
           WHEN 'outbox' THEN q.outbox_retention_days ELSE q.raw_retention_days END)
     ORDER BY r.checked_at NULLS FIRST,r.end_day LIMIT 1
@@ -1173,7 +1181,7 @@ BEGIN
   SELECT CASE p_parent WHEN 'events' THEN event_retention_days
     WHEN 'outbox' THEN outbox_retention_days ELSE raw_retention_days END INTO days
   FROM pipeline_queue_policy WHERE singleton=1 FOR SHARE NOWAIT;
-  IF part.end_day::timestamp AT TIME ZONE 'UTC' > p_now-make_interval(days=>days)
+  IF part.end_day::timestamp AT TIME ZONE 'UTC' > correlia_retention_cutoff(p_now,days)
     OR NOT EXISTS (SELECT 1 FROM pg_inherits h
       WHERE h.inhrelid=to_regclass(part.child_name) AND h.inhparent=to_regclass(p_parent))
   THEN RETURN false; END IF;
@@ -1329,8 +1337,9 @@ BEGIN
   -- Neither evidence probe may wait behind partition DDL with the cutoff held.
   LOCK TABLE ONLY raw_inbox, ONLY events IN ACCESS SHARE MODE;
   PERFORM 1 FROM raw_admission_cutoff WHERE singleton=1 FOR UPDATE;
-  SELECT least(c.cutoff,(SELECT min(observed_at) FROM raw_inbox WHERE status IN ('pending','failed')),p_now)
-    - interval '7 days 5 minutes' INTO horizon FROM raw_admission_cutoff c WHERE singleton=1;
+  SELECT correlia_retention_cutoff(
+    least(c.cutoff,(SELECT min(observed_at) FROM raw_inbox WHERE status IN ('pending','failed')),p_now),7
+  )-interval '5 minutes' INTO horizon FROM raw_admission_cutoff c WHERE singleton=1;
   SELECT * INTO cursor_row FROM pipeline_retention_cursor WHERE lane='observation';
   WITH page AS MATERIALIZED (
     SELECT id,greatest("sourceTime","firstSeenAt") AS seen FROM observation_keys
@@ -1379,11 +1388,11 @@ BEGIN
     SELECT * INTO cursor_row FROM pipeline_retention_cursor WHERE lane=p_lane;
   END IF;
   IF p_lane='expiry' THEN
-    RETURN correlia_expire_dead_letters(p_now,p_now-make_interval(days=>policy.dead_letter_retention_days),p_cap);
+    RETURN correlia_expire_dead_letters(p_now,correlia_retention_cutoff(p_now,policy.dead_letter_retention_days),p_cap);
   ELSIF p_lane='raw' THEN
     WITH page AS MATERIALIZED (
       SELECT observed_at,raw_id FROM raw_inbox
-      WHERE observed_at<p_now-make_interval(days=>policy.raw_retention_days)
+      WHERE observed_at<correlia_retention_cutoff(p_now,policy.raw_retention_days)
         AND status IN ('done','discarded')
         AND (observed_at,raw_id)>(coalesce(cursor_row.last_time,'-infinity'),
           coalesce(cursor_row.last_id,'00000000-0000-0000-0000-000000000000'))
@@ -1406,19 +1415,19 @@ BEGIN
     )
     SELECT count(*) INTO affected FROM removed;
   ELSIF p_lane='events' THEN
-    RETURN correlia_reclaim_events(p_now-make_interval(days=>policy.event_retention_days),p_cap);
+    RETURN correlia_reclaim_events(correlia_retention_cutoff(p_now,policy.event_retention_days),p_cap);
   ELSIF p_lane='outbox' THEN
     WITH page AS MATERIALIZED (
       (SELECT terminal_at,created_at,delivery_id FROM outbox
        WHERE status IN ('delivered','discarded')
-         AND terminal_at<p_now-make_interval(days=>policy.outbox_retention_days)
+         AND terminal_at<correlia_retention_cutoff(p_now,policy.outbox_retention_days)
          AND (terminal_at,created_at,delivery_id)>(coalesce(cursor_row.last_time,'-infinity'),
            coalesce(cursor_row.last_created_at,'-infinity'),
            coalesce(cursor_row.last_id,'00000000-0000-0000-0000-000000000000'))
        ORDER BY terminal_at,created_at,delivery_id LIMIT p_cap)
       UNION ALL
       (SELECT terminal_at,created_at,delivery_id FROM pipeline_legacy_delivery_terminal
-       WHERE delivered AND terminal_at<p_now-make_interval(days=>policy.outbox_retention_days)
+       WHERE delivered AND terminal_at<correlia_retention_cutoff(p_now,policy.outbox_retention_days)
          AND (terminal_at,created_at,delivery_id)>(coalesce(cursor_row.last_time,'-infinity'),
            coalesce(cursor_row.last_created_at,'-infinity'),
            coalesce(cursor_row.last_id,'00000000-0000-0000-0000-000000000000'))
@@ -1429,7 +1438,7 @@ BEGIN
       FROM outbox o JOIN page p USING (created_at,delivery_id) JOIN pg_class c ON c.oid=o.tableoid
       LEFT JOIN pipeline_legacy_delivery_terminal t ON (t.created_at,t.delivery_id)=(o.created_at,o.delivery_id)
       WHERE o.status IN ('delivered','discarded')
-        AND coalesce(o.terminal_at,t.terminal_at)<p_now-make_interval(days=>policy.outbox_retention_days)
+        AND coalesce(o.terminal_at,t.terminal_at)<correlia_retention_cutoff(p_now,policy.outbox_retention_days)
       ORDER BY o.created_at,o.delivery_id FOR UPDATE OF o SKIP LOCKED
     ), locked_counts AS MATERIALIZED (
       -- A cross-output batch must not wait on a second stripe already in use
