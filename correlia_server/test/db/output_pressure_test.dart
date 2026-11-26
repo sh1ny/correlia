@@ -703,6 +703,102 @@ void main() {
         expect(await router.routeOne(), isFalse);
       });
 
+      for (final parent in ['events', 'outbox']) {
+        test('notice_leaves_capacity_free_while_${parent}_ddl_waits', () async {
+          await _publish(
+            session,
+            1,
+            routes: [_first],
+            budgets: {
+              _first: {'max_rows': 1},
+            },
+          );
+          await _process(session, ['ddl-overflow-a', 'ddl-overflow-b']);
+          expect(await notices(), 1);
+          final witness = await PostgresLockWitness.start(session);
+          addTearDown(witness.close);
+          final waiters = ContentionGate();
+          final releaseWriter = ContentionGate();
+          final writer = builder.build();
+          final ddl = builder.build();
+          final router = builder.build();
+          final writerReady = Completer<LockActor>();
+          final ddlReady = Completer<LockActor>();
+          final routerReady = Completer<LockActor>();
+          final writing = releaseWriter.run(
+            () => writer.db.transaction((tx) async {
+              final actor = await pooledLockActor(writer, tx);
+              await writer.db.unsafeExecute(
+                'LOCK TABLE ONLY $parent IN ROW EXCLUSIVE MODE',
+                transaction: tx,
+              );
+              writerReady.complete(actor);
+              await releaseWriter.future;
+              await writer.db.unsafeQuery('''
+              SELECT 1 FROM pipeline_output_capacity
+              WHERE output_id='$_second' FOR UPDATE NOWAIT
+            ''', transaction: tx);
+            }),
+          );
+          try {
+            final holder = await Future.any([
+              writerReady.future,
+              writing.then<LockActor>(
+                (_) => fail('Writer did not hold $parent'),
+              ),
+            ]);
+            final ddlLock = 'LOCK TABLE ONLY $parent IN ACCESS EXCLUSIVE MODE';
+            final altering = waiters.run(
+              () => ddl.db.transaction((tx) async {
+                ddlReady.complete(
+                  await pooledLockActor(
+                    ddl,
+                    tx,
+                    waiter: SqlTimeouts.poolDefault,
+                  ),
+                );
+                await ddl.db.unsafeExecute(ddlLock, transaction: tx);
+              }),
+            );
+            final ahead = await Future.any([
+              ddlReady.future,
+              altering.then<LockActor>((_) => fail('DDL did not wait')),
+            ]);
+            await witness.blockedBy(
+              ahead,
+              holder,
+              altering,
+              statement: ddlLock,
+            );
+            final routing = waiters.run(
+              () => OverflowNotices(
+                router,
+                afterRegistryLockForTest: (tx) async => routerReady.complete(
+                  await pooledLockActor(
+                    router,
+                    tx,
+                    waiter: SqlTimeouts.overflowNotice,
+                  ),
+                ),
+              ).routeOne(),
+            );
+            final behind = await Future.any([
+              routerReady.future,
+              routing.then<LockActor>((_) => fail('Notice did not wait')),
+            ]);
+            await witness.blockedBy(behind, ahead, routing, statement: parent);
+            await releaseWriter.join();
+            await writing;
+            await altering;
+            expect(await routing, isTrue);
+            verifyEvidence((await noticePayload(_second)).single);
+          } finally {
+            await releaseWriter.join();
+            await waiters.join();
+          }
+        });
+      }
+
       test('notice_registry_race_keeps_live_lane_limit', () async {
         await _publish(
           session,
@@ -724,7 +820,7 @@ void main() {
         final routing = gate.run(
           () => OverflowNotices(
             builder.build(),
-            afterRegistryLockForTest: () async {
+            afterRegistryLockForTest: (_) async {
               claimed.complete();
               await gate.future;
             },

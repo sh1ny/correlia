@@ -16,7 +16,7 @@ final class OverflowNotices {
   const OverflowNotices(this.session, {this.afterRegistryLockForTest});
 
   /// A bounded publication barrier for contention fixtures.
-  final Future<void> Function()? afterRegistryLockForTest;
+  final Future<void> Function(Transaction)? afterRegistryLockForTest;
   final Session session;
 
   /// Returns true only when a pending occurrence has been handled.
@@ -36,7 +36,7 @@ final class OverflowNotices {
     );
     final active = registry.singleOrNull;
     if (active == null) return false;
-    await afterRegistryLockForTest?.call();
+    await afterRegistryLockForTest?.call(tx);
     final pending = (await session.db.unsafeQuery(
       '''SELECT activity_id,output_id::text,occurred_at,evidence
       FROM pipeline_overflow_notice WHERE NOT handled
@@ -82,6 +82,15 @@ final class OverflowNotices {
       ),
     );
     final payload = CloudEvent(event: event).toJsonBytes();
+    if (destinations.isNotEmpty) {
+      // Match normal processing and relay finalization before capacity locks.
+      // Queued partition DDL cannot invert the order through an INSERT.
+      await session.db.unsafeExecute(
+        'LOCK TABLE ONLY events, ONLY outbox IN ROW EXCLUSIVE MODE',
+        transaction: tx,
+        timeoutInSeconds: afterRegistryLockForTest == null ? 5 : 300,
+      );
+    }
     final caps = await lockOutputCapacity(
       session,
       tx,

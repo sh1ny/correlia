@@ -35,6 +35,7 @@ final class IngestAdmission {
     this.session, {
     this.window = const Duration(minutes: 10),
     this.afterReservationConflictForTest,
+    this.beforeCapacityLockForTest,
     this.beforeRawInsertForTest,
     this.reservationElapsedForTest,
   });
@@ -47,6 +48,9 @@ final class IngestAdmission {
 
   /// Pauses after an existing transport reservation wins the insert.
   final Future<void> Function()? afterReservationConflictForTest;
+
+  /// Lets a contention fixture identify the transaction before it waits.
+  final Future<void> Function(Transaction)? beforeCapacityLockForTest;
 
   /// Observes accepted admission while its pending-count reservation is held.
   final Future<void> Function(Transaction)? beforeRawInsertForTest;
@@ -193,10 +197,12 @@ WHERE "sourceId"=CAST(@source AS uuid) AND "key"=@key FOR UPDATE''',
           timeoutInSeconds: 5,
         );
       }
+      final beforeCapacityLock = beforeCapacityLockForTest;
+      if (beforeCapacityLock != null) await beforeCapacityLock(tx);
       final pressure = (await session.db.unsafeQuery(
         'SELECT correlia_reserve_raw(1)',
         transaction: tx,
-        timeoutInSeconds: 5,
+        timeoutInSeconds: beforeCapacityLock == null ? 5 : 300,
       )).single[0];
       if (pressure != null) {
         // Only the receipt inserted by this transaction can be removed.

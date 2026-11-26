@@ -141,24 +141,98 @@ void main() {
       );
 
       test('two_apis_and_pull_contend_for_last_slot', () async {
-        final attempts = await Future.wait([
-          webhook(first, 'first-api', 'first').then((result) => result.name),
-          webhook(second, 'second-api', 'second').then((result) => result.name),
-          admit(batch()).then((result) => result.name),
-        ]);
-        final accepted = attempts.where(
-          (result) => result == 'accepted' || result == 'committed',
+        final witness = await PostgresLockWitness.start(session);
+        addTearDown(witness.close);
+        final endpoint = await StreamDatabaseEndpoint.resolve(
+          session.serverpod,
         );
-        expect(accepted, hasLength(1));
-        expect(await _count(session, 'raw_inbox'), 1);
-        expect(
-          await _count(session, 'transport_keys'),
-          accepted.single == 'accepted' ? 1 : 0,
+        final pullConnection = await endpoint.open(
+          queryTimeout: const Duration(minutes: 5),
         );
-        expect(
-          await _count(session, 'icinga2_admitted_batch'),
-          accepted.single == 'committed' ? 1 : 0,
+        addTearDown(pullConnection.close);
+        final gate = ContentionGate();
+        final reserving = builder.build();
+        final competing = builder.build();
+        final reserved = Completer<LockActor>();
+        final apiReady = Completer<LockActor>();
+        final pullReady = Completer<LockActor>();
+        final accepted = gate.run(
+          () => webhook(
+            IngestAdmission(
+              reserving,
+              beforeRawInsertForTest: (tx) async {
+                reserved.complete(await pooledLockActor(reserving, tx));
+                await gate.future;
+              },
+            ),
+            'first-api',
+            'first',
+          ),
         );
+        try {
+          final holder = await Future.any([
+            reserved.future,
+            accepted.then<LockActor>((_) => fail('First API did not reserve')),
+          ]);
+          final refusedApi = gate.run(
+            () => webhook(
+              IngestAdmission(
+                competing,
+                beforeCapacityLockForTest: (tx) async => apiReady.complete(
+                  await pooledLockActor(
+                    competing,
+                    tx,
+                    waiter: SqlTimeouts.webhook,
+                  ),
+                ),
+              ),
+              'second-api',
+              'second',
+            ),
+          );
+          final apiWaiter = await Future.any([
+            apiReady.future,
+            refusedApi.then<LockActor>((_) => fail('Second API did not wait')),
+          ]);
+          await witness.blockedBy(
+            apiWaiter,
+            holder,
+            refusedApi,
+            statement: 'correlia_reserve_raw',
+          );
+          final refusedPull = gate.run(
+            () => admit(
+              batch(),
+              repo: ConsumerAdmission(
+                pullConnection,
+                beforeCapacityLockForTest: (tx) async => pullReady.complete(
+                  await lockActor(tx, waiter: SqlTimeouts.streamWrite),
+                ),
+              ),
+            ),
+          );
+          final pullWaiter = await Future.any([
+            pullReady.future,
+            refusedPull.then<LockActor>((_) => fail('Pull did not wait')),
+          ]);
+          // The second API already queues on the holder's row and takes the
+          // tuple wait lock. The pull transaction queues behind that waiter.
+          await witness.blockedBy(
+            pullWaiter,
+            apiWaiter,
+            refusedPull,
+            statement: 'correlia_reserve_raw',
+          );
+          await gate.join();
+          expect(await accepted, AdmissionOutcome.accepted);
+          expect(await refusedApi, AdmissionOutcome.inboxPressure);
+          expect(await refusedPull, StreamAdmissionResult.atCapacity);
+          expect(await _count(session, 'raw_inbox'), 1);
+          expect(await _count(session, 'transport_keys'), 1);
+          expect(await _count(session, 'icinga2_admitted_batch'), 0);
+        } finally {
+          await gate.join();
+        }
       });
 
       test('admission_leaves_counter_free_while_ddl_waits_for_worker', () async {

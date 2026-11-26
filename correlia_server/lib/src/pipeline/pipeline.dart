@@ -247,6 +247,12 @@ Future<void> _writeIntents(
   DateTime created,
 ) async {
   if (intents.isEmpty) return;
+  // Relay finalization holds the outbox relation before releasing capacity.
+  await session.db.unsafeExecute(
+    'LOCK TABLE ONLY outbox IN ROW EXCLUSIVE MODE',
+    transaction: tx,
+    timeoutInSeconds: 5,
+  );
   final caps = await lockOutputCapacity(session, tx, destinations);
   final demands = <String, ({int rows, int bytes})>{};
   for (final intent in intents) {

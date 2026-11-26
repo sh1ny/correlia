@@ -84,6 +84,8 @@ const _timeoutsSql = '''SELECT setting::int FROM pg_settings
 
 /// Expected ordinary SQL settings, in milliseconds, on the contested transaction.
 enum SqlTimeouts {
+  webhook(0, 5000, 5000),
+  overflowNotice(0, 2000, 5000),
   streamWrite(5000, 2000, 2000),
   sweep(5000, 1000, 1000),
   poolDefault(0, 0, 0),

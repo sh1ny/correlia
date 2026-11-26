@@ -344,6 +344,8 @@ Give every maintenance lane one bounded batch per pass. If a committed sweep rec
 
 Record a single episode-opening ledger occurrence before a worker tries to fan out its alert. On a bounded maintenance claim, lock the active publication pointer in shared mode from reading destinations through commit. Publication takes the exclusive lock before checking live output inventory, so a notice cannot add a historical live lane after that check. Construct a canonical CloudEvent with stable Correlia source and observation identity derived from the episode. Reference stored, sanitized ledger evidence. The event and fitting delivery intents commit with the handled marker in one transaction. Consider active output IDs in deterministic order and exclude the overflowing destination. Use the same capacity checks and count successful notice intents, including a notice that uses the last available slot. Suppress new episode creation for notice attempts themselves: a notice at exact saturation can block new ingress without recursively emitting another alert. The ledger covers the no-fit outcome; status does not claim a successful delivery.
 
+Take the event and outbox relation locks before the notice locks capacity. Normal processing already holds events when it reaches delivery; it takes the outbox relation lock before reserving capacity, in the same order as relay finalization. Queued partition DDL cannot invert that order.
+
 ## Mechanism Ledger (FULL)
 
 | Mechanism | Built? | Reason | Evidence that would change the call |

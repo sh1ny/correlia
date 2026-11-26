@@ -118,6 +118,7 @@ final class ConsumerAdmission {
     this.connection, {
     this.afterFence,
     this.beforeSyncProgressLockForTest,
+    this.beforeCapacityLockForTest,
     this.beforeCommit,
     this.beforeWriteForTest,
     this.writeErrorForTest,
@@ -133,6 +134,9 @@ final class ConsumerAdmission {
 
   /// Observes the transaction immediately before locking sync progress.
   final Future<void> Function(pg.TxSession)? beforeSyncProgressLockForTest;
+
+  /// Lets a contention fixture identify the transaction before it waits.
+  final Future<void> Function(pg.TxSession)? beforeCapacityLockForTest;
 
   /// Observes or stages the exact raw write transaction in a fixture.
   final Future<void> Function(pg.TxSession, StreamRawBatch)? beforeWriteForTest;
@@ -220,6 +224,9 @@ final class ConsumerAdmission {
             parameters: {...sourceArg, 'sync': syncId},
           );
           if (progress.isEmpty) throw StateError('Icinga2 sync is not reading');
+        }
+        if (beforeCapacityLockForTest case final beforeCapacityLock?) {
+          await beforeCapacityLock(tx);
         }
         final pressure = (await tx.execute(
           pg.Sql.named('SELECT correlia_reserve_raw(@count)'),
