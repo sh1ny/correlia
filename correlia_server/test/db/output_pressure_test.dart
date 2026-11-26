@@ -1499,6 +1499,13 @@ void main() {
           await applySchemaSteps(session, schemaSteps);
           expect(
             (await session.db.unsafeQuery('''
+              SELECT stored_rows FROM pipeline_outbox_partition_count
+              WHERE child_name='legacy_outbox' AND output_id='$priorOutput'
+            ''')).single[0],
+            1,
+          );
+          expect(
+            (await session.db.unsafeQuery('''
               SELECT error_class FROM pipeline_dead_letter WHERE kind='delivery'
             ''')).single[0],
             'plugin_failure',

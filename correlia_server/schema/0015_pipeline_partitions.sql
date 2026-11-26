@@ -497,6 +497,72 @@ CREATE TRIGGER raw_pending_delete AFTER DELETE ON raw_inbox
   REFERENCING OLD TABLE AS prior_raw FOR EACH STATEMENT
   EXECUTE FUNCTION correlia_account_pending();
 
+CREATE TABLE pipeline_outbox_partition_count (
+  child_name text NOT NULL,
+  output_id uuid NOT NULL,
+  stored_rows bigint NOT NULL CHECK (stored_rows>=0),
+  PRIMARY KEY (child_name,output_id)
+);
+INSERT INTO pipeline_outbox_partition_count (child_name,output_id,stored_rows)
+SELECT c.relname,o.output_id,count(*) FROM outbox o
+JOIN pg_class c ON c.oid=o.tableoid
+GROUP BY c.relname,o.output_id;
+
+CREATE FUNCTION correlia_account_outbox_partition() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  remaining bigint;
+BEGIN
+  IF TG_OP='INSERT' THEN
+    INSERT INTO pipeline_outbox_partition_count (child_name,output_id,stored_rows)
+    VALUES (TG_TABLE_NAME,NEW.output_id,1)
+    ON CONFLICT (child_name,output_id) DO UPDATE
+      SET stored_rows=pipeline_outbox_partition_count.stored_rows+1;
+  ELSIF TG_OP='DELETE' THEN
+    UPDATE pipeline_outbox_partition_count SET stored_rows=stored_rows-1
+    WHERE child_name=TG_TABLE_NAME AND output_id=OLD.output_id
+    RETURNING stored_rows INTO remaining;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION USING ERRCODE='23000', MESSAGE='missing outbox partition count';
+    END IF;
+    IF remaining=0 THEN
+      DELETE FROM pipeline_outbox_partition_count
+      WHERE child_name=TG_TABLE_NAME AND output_id=OLD.output_id;
+    END IF;
+  ELSIF TG_OP='TRUNCATE' THEN
+    DELETE FROM pipeline_outbox_partition_count WHERE child_name=TG_TABLE_NAME;
+  ELSE
+    RAISE EXCEPTION USING ERRCODE='23000', MESSAGE='outbox output ID is immutable';
+  END IF;
+  RETURN NULL;
+END;
+$$;
+
+CREATE TRIGGER outbox_partition_output_guard BEFORE UPDATE OF output_id ON outbox
+  FOR EACH ROW WHEN (OLD.output_id IS DISTINCT FROM NEW.output_id)
+  EXECUTE FUNCTION correlia_account_outbox_partition();
+-- This runs after queue accounting. Production writers already lock lanes
+-- before inserting, and retention prelocks the count before deleting.
+CREATE TRIGGER outbox_row_inventory AFTER INSERT OR DELETE ON outbox
+  FOR EACH ROW EXECUTE FUNCTION correlia_account_outbox_partition();
+
+CREATE FUNCTION correlia_install_outbox_truncate_count(p_child text)
+RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  EXECUTE format('CREATE TRIGGER outbox_child_truncate_count AFTER TRUNCATE ON %I
+    FOR EACH STATEMENT EXECUTE FUNCTION correlia_account_outbox_partition()',p_child);
+END;
+$$;
+DO $outbox_truncate_triggers$
+DECLARE
+  child text;
+BEGIN
+  FOR child IN SELECT c.relname FROM pg_inherits h JOIN pg_class c ON c.oid=h.inhrelid
+    WHERE h.inhparent='outbox'::regclass
+  LOOP
+    PERFORM correlia_install_outbox_truncate_count(child);
+  END LOOP;
+END $outbox_truncate_triggers$;
+
 CREATE FUNCTION correlia_account_outbox() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
   old_used boolean := TG_OP <> 'INSERT' AND OLD.status IN ('queued','delivering','dead');
@@ -560,7 +626,7 @@ BEGIN
     UPDATE pipeline_output_capacity SET used_rows=0,used_bytes=0,live_rows=0
     WHERE used_rows<>0 OR live_rows<>0;
     UPDATE pipeline_output_commitment SET live_count=0 WHERE live_count<>0;
-    TRUNCATE pipeline_event_reference;
+    TRUNCATE pipeline_event_reference,pipeline_outbox_partition_count;
   END IF;
   DELETE FROM pipeline_output_commitment WHERE pinned_count=0 AND live_count=0;
   RETURN NULL;
@@ -986,6 +1052,7 @@ BEGIN
   -- PostgreSQL still validates the default range under the bounded DDL lock.
   EXECUTE format('CREATE TABLE %I PARTITION OF %I FOR VALUES FROM (%L) TO (%L)',
     child,p_parent,p_day::timestamp AT TIME ZONE 'UTC',(p_day+1)::timestamp AT TIME ZONE 'UTC');
+  IF p_parent='outbox' THEN PERFORM correlia_install_outbox_truncate_count(child); END IF;
   INSERT INTO pipeline_partition_range (parent_name,child_name,first_day,end_day)
   VALUES (p_parent,child,p_day,p_day+1);
   DELETE FROM pipeline_partition_retry WHERE (parent_name,day)=(p_parent,p_day);
@@ -1046,6 +1113,11 @@ DECLARE
 BEGIN
   IF p_parent NOT IN ('raw_inbox','events','outbox')
     OR NOT pg_try_advisory_xact_lock(1129271900) THEN RETURN NULL; END IF;
+  -- The reservation can be read before waiting for a writer. Do not allow
+  -- an isolation level that would keep that old snapshot for the proof.
+  IF current_setting('transaction_isolation')<>'read committed' THEN
+    RAISE EXCEPTION USING ERRCODE='25000', MESSAGE='partition drop requires READ COMMITTED';
+  END IF;
   SELECT * INTO part FROM pipeline_partition_range
   WHERE parent_name=p_parent AND child_name=p_child AND drop_attempt_id=p_attempt;
   IF NOT FOUND THEN RETURN NULL; END IF;
@@ -1072,7 +1144,8 @@ BEGIN
         part.child_name) INTO blocked;
     END IF;
   ELSE
-    EXECUTE format('SELECT EXISTS (SELECT 1 FROM %I)',part.child_name) INTO blocked;
+    SELECT EXISTS (SELECT 1 FROM pipeline_outbox_partition_count WHERE child_name=p_child)
+    INTO blocked;
   END IF;
   IF blocked THEN RETURN false; END IF;
   EXECUTE format('DROP TABLE %I',part.child_name);
@@ -1298,12 +1371,20 @@ BEGIN
           coalesce(cursor_row.last_id,'00000000-0000-0000-0000-000000000000'))
       ORDER BY terminal_at,created_at,delivery_id LIMIT p_cap
     ), held AS MATERIALIZED (
-      SELECT o.created_at,o.delivery_id FROM outbox o JOIN page p USING (created_at,delivery_id)
+      SELECT o.created_at,o.delivery_id,o.output_id,c.relname::text AS child_name
+      FROM outbox o JOIN page p USING (created_at,delivery_id) JOIN pg_class c ON c.oid=o.tableoid
       WHERE o.status IN ('delivered','discarded')
         AND o.terminal_at<p_now-make_interval(days=>policy.outbox_retention_days)
       ORDER BY o.created_at,o.delivery_id FOR UPDATE OF o SKIP LOCKED
+    ), locked_counts AS MATERIALIZED (
+      -- A cross-output batch must not wait on a second stripe already in use
+      -- by a writer. Advancing the page still allows a later pass to retry.
+      SELECT c.child_name,c.output_id FROM pipeline_outbox_partition_count c
+      WHERE (c.child_name,c.output_id) IN (SELECT child_name,output_id FROM held)
+      ORDER BY c.child_name,c.output_id FOR UPDATE OF c SKIP LOCKED
     ), removed AS (
-      DELETE FROM outbox o USING held h WHERE (o.created_at,o.delivery_id)=(h.created_at,h.delivery_id)
+      DELETE FROM outbox o USING held h JOIN locked_counts c USING (child_name,output_id)
+      WHERE (o.created_at,o.delivery_id)=(h.created_at,h.delivery_id)
       RETURNING o.created_at,o.delivery_id
     ), tracked AS (
       INSERT INTO pipeline_retired_delivery SELECT * FROM removed RETURNING 1

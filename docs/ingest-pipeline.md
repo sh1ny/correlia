@@ -228,7 +228,8 @@ range. Preparation has no deadline when PostgreSQL must validate a large default
 
 A closed child whose drop times out waits for its scheduled retry. Other eligible children
 can be dropped during that wait. A drop still rechecks retention and protection under
-the DDL locks.
+the DDL locks. Outbox drops check exact counts per child and output without scanning
+the payload heap. A writer can delay cleanup of its own count without holding up another output.
 
 For offline repair, stop all writers first. In one transaction use the maintenance advisory
 lock `1129271900` and the `correlia_reserve_partition` and `correlia_attach_partition` SQL

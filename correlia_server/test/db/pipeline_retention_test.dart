@@ -10,7 +10,7 @@ import 'package:test/test.dart';
 
 import '../integration/test_tools/serverpod_test_tools.dart';
 import '../support/ingest_schema.dart';
-import '../support/postgres_lock_witness.dart' show ContentionGate;
+import '../support/postgres_lock_witness.dart';
 import '../support/secret_fixture.dart';
 import '../unit/ingest/alertmanager_decoder_test.dart' as payload;
 import 'ingest_config_test.dart' as config;
@@ -19,7 +19,9 @@ import 'pipeline_test.dart' as fixture;
 final _now = DateTime.utc(2026, 10, 1);
 const _source = 'e1000000-0000-4000-8000-000000000001';
 const _output = 'e2000000-0000-4000-8000-000000000001';
+const _otherOutput = 'e2000000-0000-4000-8000-000000000002';
 const _old = '2026-01-01 UTC';
+const _oldOutbox = 'outbox_20260101';
 
 String _id(int n) => 'e0000000-0000-4000-8000-${n.toString().padLeft(12, '0')}';
 
@@ -59,11 +61,13 @@ Future<Object?> _dropOldPartition(
   Session session,
   String parent, [
   int pass = 0,
+  Transaction? tx,
 ]) async {
   final now = _now.add(Duration(minutes: pass));
   final reservation = (await session.db.unsafeQuery(
     'SELECT child_name,attempt_id FROM correlia_reserve_drop(@parent,@now)',
     parameters: QueryParameters.named({'parent': parent, 'now': now}),
+    transaction: tx,
   )).single;
   return (await session.db.unsafeQuery(
     'SELECT correlia_drop_old_partition(@parent,@child,@attempt,@now)',
@@ -73,6 +77,7 @@ Future<Object?> _dropOldPartition(
       'child': reservation[0],
       'attempt': reservation[1],
     }),
+    transaction: tx,
   )).single[0];
 }
 
@@ -97,14 +102,20 @@ Future<void> _intent(
   int id,
   String status, {
   String? terminal = _old,
+  String created = _old,
+  String output = _output,
+  Transaction? tx,
 }) async {
-  await session.db.unsafeSimpleExecute('''
+  await session.db.unsafeSimpleExecute(
+    '''
     INSERT INTO outbox(created_at,delivery_id,event_observed_at,event_id,event_disposition,
       output_id,config_snapshot_id,target_url,signing_key_ref,signing_key_commitment,payload,status,terminal_at)
-    VALUES ('$_old','${_id(100 + id)}','$_old','${_id(id)}','ready','$_output','fixture',
+    VALUES ('$created','${_id(100 + id)}','$_old','${_id(id)}','ready','$output','fixture',
       'https://example.com','key','commitment',decode('ffaa','hex'),'$status',
       ${terminal == null ? 'NULL' : "'$terminal'"})
-  ''');
+  ''',
+    transaction: tx,
+  );
 }
 
 Future<void> _failure(Session session, int id, {String seen = _old}) async {
@@ -125,6 +136,8 @@ Future<int> _count(Session session, String table) async =>
         as int;
 
 void main() {
+  final cluster = LockWitnessCluster();
+  tearDownAll(cluster.close);
   withServerpod(
     'pipeline retention',
     (builder, _) {
@@ -612,6 +625,235 @@ void main() {
         expect(await _count(session, 'events'), 6);
       });
 
+      Future<void> prepareOldOutbox() async {
+        await _prepareOldPartition(session, 'outbox');
+        addTearDown(
+          () => session.db.unsafeSimpleExecute('''
+          TRUNCATE outbox;
+          DROP TABLE IF EXISTS $_oldOutbox;
+          DELETE FROM pipeline_partition_range WHERE child_name='$_oldOutbox'
+        '''),
+        );
+      }
+
+      test('drained_outbox_drop_does_not_scan_heap', () async {
+        await prepareOldOutbox();
+        await session.db.unsafeSimpleExecute('''
+          ALTER TABLE $_oldOutbox SET (autovacuum_enabled=false);
+          INSERT INTO outbox(created_at,delivery_id,event_observed_at,event_id,event_disposition,
+            output_id,config_snapshot_id,target_url,signing_key_ref,signing_key_commitment,payload,status,terminal_at)
+          SELECT '$_old',gen_random_uuid(),'$_old',gen_random_uuid(),'ready','$_output','fixture',
+            'https://example.com','key','commitment',convert_to(repeat(md5(n::text),16),'UTF8'),
+            'delivered','$_old' FROM generate_series(1,512) n
+        ''');
+        expect(await _maintain(session, 'outbox', cap: 500), 500);
+        expect(await _maintain(session, 'outbox', cap: 500), 12);
+        expect(await _count(session, _oldOutbox), 0);
+        expect(
+          (await session.db.unsafeQuery(
+            "SELECT pg_relation_size('$_oldOutbox')",
+          )).single[0],
+          greaterThan(128 * 1024),
+        );
+        await session.db.transaction((tx) async {
+          // A reused backend can carry unflushed scans from earlier work.
+          final before = (await session.db.unsafeQuery(
+            '''
+            SELECT (seq_scan+idx_scan)::text FROM pg_stat_xact_user_tables
+            WHERE relid='$_oldOutbox'::regclass
+            ''',
+            transaction: tx,
+          )).single[0];
+          expect(before, isA<String>());
+          await session.db.unsafeSimpleExecute(
+            '''
+            CREATE FUNCTION test_drop_scans() RETURNS event_trigger AS \$\$
+            BEGIN
+              PERFORM set_config('correlia.test_drop_scans',(seq_scan+idx_scan)::text,true)
+              FROM pg_stat_xact_user_tables WHERE relid='$_oldOutbox'::regclass;
+            END
+            \$\$ LANGUAGE plpgsql;
+            CREATE EVENT TRIGGER test_drop_scans ON ddl_command_start
+              WHEN TAG IN ('DROP TABLE') EXECUTE FUNCTION test_drop_scans()
+            ''',
+            transaction: tx,
+          );
+          expect(await _dropOldPartition(session, 'outbox', 0, tx), isTrue);
+          final scans = (await session.db.unsafeQuery(
+            "SELECT current_setting('correlia.test_drop_scans',true)",
+            transaction: tx,
+          )).single[0];
+          expect(scans, before);
+          await session.db.unsafeSimpleExecute(
+            'DROP EVENT TRIGGER test_drop_scans; DROP FUNCTION test_drop_scans()',
+            transaction: tx,
+          );
+        });
+      });
+
+      test('outbox_drop_rechecks_after_concurrent_insert', () async {
+        await prepareOldOutbox();
+        final writer = builder.build();
+        final dropper = builder.build();
+        final witness = await PostgresLockWitness.start(session);
+        addTearDown(witness.close);
+        final gate = ContentionGate();
+        final written = Completer<LockActor>();
+        final aboutToDrop = Completer<LockActor>();
+        final holding = gate.run(
+          () => writer.db.transaction((tx) async {
+            final actor = await pooledLockActor(writer, tx);
+            await _intent(writer, 1, 'delivered', tx: tx);
+            written.complete(actor);
+            await gate.future;
+          }),
+        );
+        try {
+          final holder = await Future.any([
+            written.future,
+            holding.then<LockActor>((_) => fail('Insert was not held')),
+          ]);
+          final dropping = gate.run(
+            () => dropper.db.transaction((tx) async {
+              aboutToDrop.complete(
+                await pooledLockActor(
+                  dropper,
+                  tx,
+                  waiter: SqlTimeouts.poolDefault,
+                ),
+              );
+              return _dropOldPartition(dropper, 'outbox', 0, tx);
+            }),
+          );
+          final waiter = await Future.any([
+            aboutToDrop.future,
+            dropping.then<LockActor>((_) => fail('Drop did not wait')),
+          ]);
+          await witness.blockedBy(
+            waiter,
+            holder,
+            dropping,
+            statement: 'correlia_drop_old_partition',
+          );
+          await gate.join();
+          await holding;
+          expect(await dropping, isFalse);
+          expect(await _count(session, _oldOutbox), 1);
+          expect(await _maintain(session, 'outbox'), 1);
+          expect(await _dropOldPartition(session, 'outbox', 1), isTrue);
+        } finally {
+          await gate.join();
+        }
+      });
+
+      test('outbox_count_and_truncate_are_atomic', () async {
+        await prepareOldOutbox();
+        await _intent(session, 1, 'delivered');
+        await _intent(session, 2, 'delivered', created: '2025-01-01 UTC');
+        await session.db.transaction((tx) async {
+          final insert = await tx.createSavepoint();
+          await _intent(session, 3, 'delivered', tx: tx);
+          await insert.rollback();
+          final delete = await tx.createSavepoint();
+          await session.db.unsafeExecute(
+            "DELETE FROM outbox WHERE delivery_id='${_id(101)}'",
+            transaction: tx,
+          );
+          await delete.rollback();
+          final truncateChild = await tx.createSavepoint();
+          await session.db.unsafeExecute(
+            'TRUNCATE $_oldOutbox',
+            transaction: tx,
+          );
+          await truncateChild.rollback();
+          final truncateParent = await tx.createSavepoint();
+          await session.db.unsafeExecute('TRUNCATE outbox', transaction: tx);
+          await truncateParent.rollback();
+        });
+        expect(await _dropOldPartition(session, 'outbox'), isFalse);
+        expect(
+          await _column(
+            session,
+            'SELECT delivery_id::text FROM $_oldOutbox ORDER BY delivery_id',
+          ),
+          [_id(101)],
+        );
+        expect(
+          (await session.db.unsafeQuery('''
+            SELECT child_name,stored_rows FROM pipeline_outbox_partition_count ORDER BY child_name
+          ''')).map((row) => row.toList()),
+          [
+            [_oldOutbox, 1],
+            ['outbox_default', 1],
+          ],
+        );
+        await session.db.unsafeExecute('TRUNCATE $_oldOutbox');
+        expect(await _dropOldPartition(session, 'outbox', 1), isTrue);
+        expect(await _count(session, 'outbox_default'), 1);
+        expect(
+          (await session.db.unsafeQuery('''
+            SELECT child_name,stored_rows FROM pipeline_outbox_partition_count
+          ''')).single.toList(),
+          ['outbox_default', 1],
+        );
+        await session.db.unsafeExecute('TRUNCATE outbox');
+        expect(await _count(session, 'pipeline_outbox_partition_count'), 0);
+      });
+
+      test('drop_requires_read_committed', () async {
+        await prepareOldOutbox();
+        await expectLater(
+          session.db.transaction((tx) async {
+            await session.db.unsafeExecute(
+              'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ',
+              transaction: tx,
+            );
+            return _dropOldPartition(session, 'outbox', 0, tx);
+          }),
+          throwsA(
+            isA<DatabaseQueryException>().having(
+              (error) => error.code,
+              'SQLSTATE',
+              '25000',
+            ),
+          ),
+        );
+        expect(await _dropOldPartition(session, 'outbox'), isTrue);
+      });
+
+      test('outbox_cleanup_skips_busy_output_count', () async {
+        await prepareOldOutbox();
+        await _intent(session, 1, 'delivered');
+        final writer = builder.build();
+        final gate = ContentionGate();
+        final written = Completer<void>();
+        final holding = gate.run(
+          () => writer.db.transaction((tx) async {
+            await _intent(writer, 2, 'delivered', tx: tx);
+            written.complete();
+            await gate.future;
+          }),
+        );
+        try {
+          await Future.any([
+            written.future,
+            holding.then<void>((_) => fail('Insert was not held')),
+          ]);
+          await _intent(session, 3, 'delivered', output: _otherOutput);
+          expect(await _maintain(session, 'outbox'), 1);
+          expect(
+            await _column(session, 'SELECT delivery_id::text FROM outbox'),
+            [_id(101)],
+          );
+          await gate.join();
+          await holding;
+          expect(await _maintain(session, 'outbox'), 2);
+          expect(await _dropOldPartition(session, 'outbox'), isTrue);
+        } finally {
+          await gate.join();
+        }
+      });
+
       test('delivered_retention_reclaims_only_matching_attempts', () async {
         await _intent(session, 1, 'delivered');
         await _intent(session, 2, 'queued', terminal: null);
@@ -737,6 +979,8 @@ void main() {
       });
     },
     rollbackDatabase: RollbackDatabase.disabled,
+    ephemeralDatabase: false,
+    configOverride: cluster.override,
     testGroupTagsOverride: ['db'],
   );
 }
