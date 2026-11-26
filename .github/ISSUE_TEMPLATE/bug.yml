@@ -1,0 +1,59 @@
+name: Bug report
+description: Something in Correlia doesn't work the way it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting this. Only the first box is required; fill in what you can, and "not sure" is a fine answer.
+        Found a security problem? Please don't post it here. Report it privately instead: see SECURITY.md.
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What went wrong? A sentence or two is enough.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen instead?
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: What you did, step by step. Write "intermittent" or "unknown" if you can't make it happen again.
+      placeholder: |
+        1.
+        2.
+        3.
+  - type: textarea
+    id: environment
+    attributes:
+      label: Version and environment
+      description: Whatever you know of these. Leave out what you don't.
+      placeholder: |
+        Correlia version or commit:
+        How you run it (local dev, container, other):
+        Source system and its version, if it's about ingest:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Your best guess is fine. Leave it empty if you're not sure.
+      options:
+        - "Ingest: Icinga2"
+        - "Ingest: Thanos / Alertmanager"
+        - "Ingest: other source"
+        - Normalization and enrichment
+        - Correlation and incidents
+        - Outputs (NATS)
+        - Web console
+        - Plugins
+        - Setup and CLI
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and screenshots
+      description: "Alert payloads often hold host names, internal URLs and tokens. Replace them with placeholders before you paste."
