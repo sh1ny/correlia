@@ -20,6 +20,7 @@ final class RelaySubsystem extends Subsystem {
     this.beforeAcquire,
     this.beforeClaimCommit,
     this.beforePluginComplete,
+    this.beforeNoticeRoutingForTest,
     this.onUnavailable,
     this.pluginRouter,
     this.pollInterval = const Duration(milliseconds: 250),
@@ -36,6 +37,9 @@ final class RelaySubsystem extends Subsystem {
 
   /// Optional test barrier after a plugin response and before its commit.
   final Future<void> Function(int acknowledgedCount)? beforePluginComplete;
+
+  /// Lets a fixture pause a claimed notice before it locks destinations.
+  final Future<void> Function(Transaction)? beforeNoticeRoutingForTest;
 
   /// Receives fixed unavailable-key diagnostics without secret material.
   final void Function(String, String)? onUnavailable;
@@ -63,6 +67,8 @@ final class RelaySubsystem extends Subsystem {
 
   Future<void> _run() async {
     final session = await pod.createSession(enableLogging: false);
+    Session? noticeSession;
+    Future<void>? routing;
     try {
       final repository = OutputRelayRepository(
         session,
@@ -70,18 +76,21 @@ final class RelaySubsystem extends Subsystem {
         diagnostics: _diagnostics,
         onUnavailable: onUnavailable,
       );
-      final notices = OverflowNotices(session);
+      noticeSession = await pod.createSession(enableLogging: false);
+      final notices = OverflowNotices(
+        noticeSession,
+        beforeRelationLocksForTest: beforeNoticeRoutingForTest,
+      );
       while (!_stopped.isCompleted) {
         if (beforeAcquire != null) {
           await Future.any([beforeAcquire!(), _stopped.future]);
           if (_stopped.isCompleted) break;
         }
-        try {
-          await notices.routeOne();
-        } catch (_) {
-          // The durable occurrence remains pending for the next poll.
-        }
-        if (_stopped.isCompleted) break;
+        // At most one notice transaction can run. Do not await a contended
+        // destination lock before discovering delivery work on other lanes.
+        routing ??= _routeNotice(notices).whenComplete(() {
+          routing = null;
+        });
         try {
           await repository.recoverExpired();
           final available = await repository.discover(
@@ -112,7 +121,17 @@ final class RelaySubsystem extends Subsystem {
         _wake = null;
       }
     } finally {
+      await routing;
+      await noticeSession?.close();
       await session.close();
+    }
+  }
+
+  Future<void> _routeNotice(OverflowNotices notices) async {
+    try {
+      await notices.routeOne();
+    } catch (_) {
+      // The durable occurrence remains pending for the next poll.
     }
   }
 

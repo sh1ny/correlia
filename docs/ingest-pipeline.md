@@ -286,7 +286,8 @@ discard count. The same transaction appends one `output_discarded` ledger row pe
 output with the number discarded from that raw row. Other outputs still receive their
 intents. `block_ingest` defers an accepted raw row if all its intents for that output cannot fit.
 The row keeps its configuration pin and retry allowance. No partial state, event or delivery
-effects commit; the worker tries the row again when it becomes eligible.
+effects commit. The worker tries the row again when it becomes eligible. A rolled-back attempt
+cannot replace a newer attempt's recorded demand.
 
 An output opens one overflow episode per period of saturation or refusal. The activity
 ledger records the episode before the worker tries to route a sanitized Correlia alert to
@@ -294,7 +295,8 @@ the other active outputs. Each destination must have room. The notice does not a
 state, does not generate another notice and carries only a reference and hash of its stored
 ledger evidence, not sender data. The ledger still shows the episode when none of the
 other outputs can take the alert.
-A change to a blocking budget can open an episode even when the inbox is empty.
+Notice routing runs one transaction at a time, separately from delivery discovery. A change
+to either overflow policy's budget can open an episode even when the inbox is empty.
 
 ## Retention and expiry
 

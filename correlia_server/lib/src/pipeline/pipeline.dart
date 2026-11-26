@@ -217,6 +217,7 @@ final class _Raw {
     this.digest,
     this.pin,
     this.epoch,
+    this.revision,
     this.legacyFailure,
   );
   final DateTime observed;
@@ -226,6 +227,7 @@ final class _Raw {
   final String digest;
   final String pin;
   final int epoch;
+  final int revision;
   final bool legacyFailure;
   bool get replayed => epoch != 0;
   String get retryKey => '$id:$epoch';
@@ -322,6 +324,7 @@ final class PipelineRepository {
     this.afterKeyReservationForTest,
     this.elapsedForTest,
     this.afterOutputRefusalForTest,
+    this.beforeOutputDeferralRetryForTest,
     this.beforeCapacityLockForTest,
     this.beforeEventWriteForTest,
     this.beforePendingCounterLockForTest,
@@ -357,6 +360,9 @@ final class PipelineRepository {
 
   /// Lets a fixture exhaust the remaining row deadline after a refusal.
   final void Function()? afterOutputRefusalForTest;
+
+  /// Lets another worker process the row after a refusal rolls back.
+  final Future<void> Function()? beforeOutputDeferralRetryForTest;
 
   /// Lets a fixture hold a capacity lock past the remaining SQL deadline.
   final Future<void> Function(Transaction)? beforeCapacityLockForTest;
@@ -614,11 +620,17 @@ WHERE observed_at=@observed AND raw_id=CAST(@id AS uuid)''',
         await _limits(tx, deadline);
         // A deferral moves behind work that was already eligible.
         final rows = await session.db.unsafeQuery(
-          '''SELECT observed_at,raw_id::text,source_id::text,body,body_sha256,config_snapshot_id,processing_epoch,legacy_failure
-FROM raw_inbox WHERE status='pending' AND config_snapshot_id IS NOT NULL
-AND (next_attempt_at IS NULL OR next_attempt_at<=@now)
-ORDER BY coalesce(next_attempt_at,observed_at),observed_at,raw_id
-FOR UPDATE SKIP LOCKED LIMIT 1''',
+          '''WITH claimed AS MATERIALIZED (
+  SELECT observed_at,raw_id,source_id,body,body_sha256,config_snapshot_id,
+    processing_epoch,legacy_failure
+  FROM raw_inbox WHERE status='pending' AND config_snapshot_id IS NOT NULL
+  AND (next_attempt_at IS NULL OR next_attempt_at<=@now)
+  ORDER BY coalesce(next_attempt_at,observed_at),observed_at,raw_id
+  FOR UPDATE SKIP LOCKED LIMIT 1
+)
+SELECT observed_at,raw_id::text,source_id::text,body,body_sha256,config_snapshot_id,
+  processing_epoch,nextval('pipeline_raw_attempt_revision'),legacy_failure
+FROM claimed''',
           parameters: QueryParameters.named({'now': clock().toUtc()}),
           transaction: tx,
           timeoutInSeconds: 5,
@@ -642,7 +654,8 @@ FOR UPDATE SKIP LOCKED LIMIT 1''',
           row[4] as String,
           row[5] as String,
           row[6] as int,
-          row[7] as bool,
+          row[7] as int,
+          row[8] as bool,
         );
         claimed = raw;
         if (afterClaim case final hook?) await hook();
@@ -1258,6 +1271,7 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
       if (outputDeferral case final refusal?) {
         // The original transaction rolled back. Recheck the demand under the
         // current budgets without charging the processing allowance.
+        await beforeOutputDeferralRetryForTest?.call();
         final retryDeadline = _Deadline(elapsedForTest);
         await session.db.transaction(
           (tx) => _deferOutput(tx, retryDeadline, claimed!, refusal),
@@ -1279,13 +1293,15 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
     _OutputDeferral refusal,
   ) async {
     await _limits(tx, deadline);
-    // Take the row lock and fence this before touching any demand. Another
-    // worker may have finished the row or replayed it after our rollback.
+    // A newer claim may have scheduled a different outcome after our rollback.
+    // Fence both replay and newer committed outcomes before touching demands.
     final scheduled = await session.db.unsafeExecute(
       '''
-      UPDATE raw_inbox SET next_attempt_at=greatest(next_attempt_at,@next::timestamptz)
+      UPDATE raw_inbox SET next_attempt_at=greatest(next_attempt_at,@next::timestamptz),
+        attempt_revision=@revision
       WHERE observed_at=@observed AND raw_id=@id::uuid AND status='pending'
         AND config_snapshot_id=@pin AND processing_epoch=@epoch
+        AND attempt_revision<@revision
       ''',
       parameters: QueryParameters.named({
         'next': clock().toUtc().add(const Duration(seconds: 1)),
@@ -1293,6 +1309,7 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
         'id': raw.id,
         'pin': raw.pin,
         'epoch': raw.epoch,
+        'revision': raw.revision,
       }),
       transaction: tx,
       timeoutInSeconds: 5,
@@ -1412,12 +1429,13 @@ FROM failure''',
       final rows = await session.db.unsafeQuery(
         '''SELECT attempt_count FROM raw_inbox WHERE observed_at=@observed
 AND raw_id=CAST(@raw AS uuid) AND status='pending' AND config_snapshot_id=@pin
-AND processing_epoch=@epoch FOR UPDATE''',
+AND processing_epoch=@epoch AND attempt_revision<@revision FOR UPDATE''',
         parameters: QueryParameters.named({
           'observed': raw.observed,
           'raw': raw.id,
           'pin': raw.pin,
           'epoch': raw.epoch,
+          'revision': raw.revision,
         }),
         transaction: tx,
         timeoutInSeconds: 5,
@@ -1454,13 +1472,14 @@ AND processing_epoch=@epoch FOR UPDATE''',
         final delay = retryDelay?.call(failures) ?? Duration(seconds: seconds);
         await _limits(tx, deadline);
         await session.db.unsafeExecute(
-          '''UPDATE raw_inbox SET attempt_count=@attempts,next_attempt_at=@next
+          '''UPDATE raw_inbox SET attempt_count=@attempts,next_attempt_at=@next,attempt_revision=@revision
 WHERE observed_at=@observed AND raw_id=CAST(@raw AS uuid)''',
           parameters: QueryParameters.named({
             'attempts': attempts,
             'next': clock().toUtc().add(delay),
             'observed': raw.observed,
             'raw': raw.id,
+            'revision': raw.revision,
           }),
           transaction: tx,
           timeoutInSeconds: 5,

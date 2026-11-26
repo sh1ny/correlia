@@ -9,6 +9,7 @@ import 'package:correlia_server/src/ingest/config_repository.dart';
 import 'package:correlia_server/src/output/overflow_notices.dart';
 import 'package:correlia_server/src/schema/schema_steps.dart';
 import 'package:correlia_server/src/output/output_relay.dart';
+import 'package:correlia_server/src/output/relay_subsystem.dart';
 import 'package:correlia_server/src/output/webhook_output.dart';
 import 'package:correlia_server/src/pipeline/pipeline.dart';
 import 'package:correlia_server/src/pipeline/queue_operations.dart';
@@ -974,6 +975,68 @@ void main() {
         },
       );
 
+      test('rolled_back_deferral_cannot_replace_newer_output_demand', () async {
+        const limit = {'max_rows': 1000, 'overflow_policy': 'block_ingest'};
+        final snapshot = await _publish(
+          session,
+          1,
+          budgets: {_first: limit, _second: limit},
+        );
+        await _oldIntents(session, snapshot, _first, 999);
+        await _oldIntents(session, snapshot, _second, 998);
+        await _send(session, ['revision-a', 'revision-b']);
+        await session.db.unsafeExecute(
+          'UPDATE raw_inbox SET queued_at=clock_timestamp()',
+        );
+        final retrying = Completer<void>();
+        final resume = Completer<void>();
+        var expire = false;
+        final older = PipelineRepository(
+          builder.build(),
+          clock: () => raw.now,
+          elapsedForTest: () {
+            if (!expire) return Duration.zero;
+            expire = false;
+            return pipelineRowDeadline;
+          },
+          afterOutputRefusalForTest: () => expire = true,
+          beforeOutputDeferralRetryForTest: () async {
+            retrying.complete();
+            await resume.future;
+          },
+        );
+        expect(await older.pinOne(), isTrue);
+        final stale = older.processOne();
+        Future<Object?> pressure() async => (await session.db.unsafeQuery(
+          'SELECT correlia_reserve_raw(1)',
+        )).single[0];
+        try {
+          await Future.any([
+            retrying.future,
+            stale.then<void>((_) => fail('Older worker did not roll back')),
+          ]);
+          await session.db.unsafeExecute('''
+            UPDATE outbox SET status='delivered'
+            WHERE (created_at,delivery_id) IN (
+              SELECT created_at,delivery_id FROM outbox
+              WHERE output_id='$_first' ORDER BY created_at,delivery_id LIMIT 2)
+          ''');
+          await _oldIntents(session, snapshot, _second, 1);
+          expect(await _worker(session).processOne(), isTrue);
+          expect(await pressure(), 'output');
+          resume.complete();
+          expect(await stale, isTrue);
+          expect(await pressure(), 'output', reason: 'B still lacks one slot');
+          final row = (await session.db.unsafeQuery(
+            'SELECT status,attempt_count FROM raw_inbox',
+          )).single;
+          expect(row.toList(), ['pending', 0]);
+        } finally {
+          if (!resume.isCompleted) resume.complete();
+          await stale;
+        }
+      });
+
       test('eligible_old_deferrals_cannot_starve_healthy_work', () async {
         final previous = await _publish(
           session,
@@ -1107,6 +1170,62 @@ void main() {
         expect(envelope.raw.size, evidence.length);
         expect(row[4], isNot(contains('https://')));
       }
+
+      test('delivery_continues_while_notice_routing_is_paused', () async {
+        final receiver = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        addTearDown(() => receiver.close(force: true));
+        final healthy = Completer<void>();
+        receiver.listen((request) async {
+          await request.drain<void>();
+          request.response.statusCode = 204;
+          await request.response.close();
+          if (request.uri.path == '/healthy' && !healthy.isCompleted) {
+            healthy.complete();
+          }
+        });
+        final base = 'http://127.0.0.1:${receiver.port}';
+        final urls = {_first: '$base/saturated', _second: '$base/healthy'};
+        const budgets = {
+          _first: {'max_rows': 1},
+        };
+        await _publish(
+          session,
+          1,
+          routes: [_first],
+          urls: urls,
+          budgets: budgets,
+        );
+        await _process(session, ['notice-poll-a', 'notice-poll-b']);
+        expect(await notices(), 1);
+        final routing = Completer<void>();
+        final resumeRouting = Completer<void>();
+        final relay = RelaySubsystem(
+          pod: session.serverpod,
+          resolveKey: testSecretResolver(session).resolve,
+          runMode: 'test',
+          beforeNoticeRoutingForTest: (_) async {
+            routing.complete();
+            await resumeRouting.future;
+          },
+        );
+        await relay.start();
+        try {
+          await routing.future;
+          await _publish(
+            session,
+            2,
+            routes: [_second],
+            urls: urls,
+            budgets: budgets,
+          );
+          await _process(session, ['queued-after-notice-pause']);
+          await healthy.future.timeout(const Duration(seconds: 45));
+          expect(await noticePayload(_second), isEmpty);
+        } finally {
+          resumeRouting.complete();
+          await relay.stop();
+        }
+      });
 
       test('notice_reaches_healthy_output_with_ledger_evidence', () async {
         await _publish(

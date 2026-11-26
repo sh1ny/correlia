@@ -26,9 +26,14 @@ ALTER INDEX outbox_pkey RENAME TO legacy_outbox_pkey;
 ALTER INDEX outbox_eligibility_idx RENAME TO legacy_outbox_eligibility_idx;
 ALTER INDEX outbox_definition_status_idx RENAME TO legacy_outbox_definition_status_idx;
 
+-- Allocate revisions under the raw row lock. Unlike a row update, a
+-- sequence value survives rollback until the worker can record its outcome.
+CREATE SEQUENCE pipeline_raw_attempt_revision;
+
 ALTER TABLE legacy_raw_inbox
   ADD COLUMN queued_at timestamptz,
   ADD COLUMN processing_epoch bigint NOT NULL DEFAULT 0,
+  ADD COLUMN attempt_revision bigint NOT NULL DEFAULT 0,
   ADD COLUMN legacy_failure boolean NOT NULL DEFAULT false;
 
 -- Index the receipt on the small provenance table, not the raw body heap.
