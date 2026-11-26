@@ -97,11 +97,15 @@ A stored-key `observed_at` SHALL be a valid RFC 3339 timestamp with an offset, p
 
 ### Requirement: Explain every rule and condition decision
 
-Each trace entry SHALL give the rule ID, a rule outcome (`matched`, `not matched`, `failed: <code>` or `not attempted`) and, unless not attempted, its condition tree. An evaluated leaf SHALL carry `matched`, `no match: value differs`, `no match: field missing` or `failed: <code>`. A leaf skipped by `all` or `any` short-circuiting SHALL show `not evaluated`. A missing field SHALL make only its leaf false, never fall back to another rule or a default value.
+Each trace entry SHALL give the rule ID, a rule outcome (`matched`, `not matched`, `failed: <code>` or `not attempted`) and, unless not attempted, its condition tree. An evaluated leaf SHALL carry `matched`, `no match: value fails <op>` (the leaf's operator, such as `no match: value fails not_equals`), `no match: field missing` or `failed: <code>`. A leaf skipped by `all` or `any` short-circuiting SHALL show `not evaluated`. A missing field SHALL make only its leaf false, never fall back to another rule or a default value.
 
 #### Scenario: RUL-2 missing field is visible
 - **WHEN** a rule's condition is the single leaf `labels.site` equals `eu1` and the event has no `site` label
 - **THEN** the trace shows that leaf as `no match: field missing`, the rule as not matched, no actions applied, and later rules evaluated as usual
+
+#### Scenario: A false leaf names its operator
+- **WHEN** one rule's condition is `summary` not_equals the event's summary and another's is `summary` equals a different text
+- **THEN** the first leaf shows `no match: value fails not_equals` and the second `no match: value fails equals`
 
 #### Scenario: Missing field under not
 - **WHEN** a rule's condition is `not` of a leaf that reads a missing field

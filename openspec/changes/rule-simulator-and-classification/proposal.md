@@ -33,7 +33,7 @@ This change advances two M2 exit criteria:
 - **Rule simulator API.** A read-only local console endpoint. It takes a canonical event (CloudEvent
   JSON) or a stored event's ID and `observed_at`, and runs it through the active matcher snapshot or a
   pasted draft matcher section. It returns a trace: each rule in document order, each condition's result
-  with a reason (`matched`, `no match: value differs`, `no match: field missing`, `failed: <code>`,
+  with a reason (`matched`, `no match: value fails <op>`, `no match: field missing`, `failed: <code>`,
   `not evaluated`), each action's effect or failure, the event's kind and noise class hint, and the
   final enriched event with its added routes. It writes nothing: no failure counts, no activity notices,
   no deliveries, no pins.
