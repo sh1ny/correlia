@@ -103,6 +103,7 @@ List<SchemaStep> get schemaSteps => [
     17,
     File('schema/0017_matcher_digest_snapshot_fk.sql').readAsStringSync(),
   ),
+  SchemaStep(15, File('schema/0015_pipeline_partitions.sql').readAsStringSync()),
 ];
 
 /// Installs the publisher-version trigger and backfill boundaries in one

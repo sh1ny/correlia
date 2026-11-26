@@ -1,6 +1,10 @@
 # Ingest pipeline schema ownership
 
-Serverpod migrations own source and configuration snapshots, the active pointer, secret commitments, transport and observation keys, pipeline failures and delivery attempts. Correlia's ordered `correlia_server/schema/*.sql` steps exclusively own `raw_inbox`, `events` and `outbox`. These tables have no generated table models. They are ordinary PostgreSQL tables with time-qualified composite primary keys; future partition maintenance remains with the SQL schema owner. References to SQL-owned identities always include their time component. Managed tables do not have foreign keys to SQL-owned tables.
+Serverpod migrations own source and configuration snapshots, the active pointer, secret commitments,
+transport and observation keys, pipeline failures and delivery attempts. Correlia's ordered
+`correlia_server/schema/*.sql` steps own `raw_inbox`, `events` and `outbox`, their partitions and
+maintenance metadata. The queue tables have no generated table models. Their composite identities
+always include the timestamp; managed tables do not reference them by foreign key.
 
 ## Fresh databases and upgrades
 
@@ -192,9 +196,41 @@ LEFT JOIN icinga2_stream_lease l USING ("sourceId");
 Do not read the stored `state` alone: an expired lease can leave a `connected`
 row even though the worker is gone. The query reports `stale` without rewriting it.
 
+## Offline partition cutover
+
+Stop all old `api`, `worker` and `all` processes before starting the first upgraded process. Back up
+the database before the cutover. When upgrading from a release that already has matcher support,
+there is no need to drain pending inbox rows or queued output. Older releases still need to follow
+the [matcher upgrade procedure](adr/0033-offline-matcher-upgrade.md) first. Do not restart an older
+binary after the cutover.
+
+The startup schema step attaches each populated heap to a new parent under the original name. It
+includes timestamps through the last populated UTC day, then uses daily UTC partitions and a
+default partition for timestamps outside prepared ranges. It does not copy payloads between
+tables. Allow offline time to validate the three attachments, backfill old terminal delivery times
+and initialize metadata. Existing delivered and dead entries without a matching attempt receive
+the cutover time, not their original creation time.
+
+Wait for startup before restarting writers. If the schema step fails, its table changes and
+version record roll back together. Clear the blocking transaction or fix the cause and restart the
+new binary. A successful forward cutover can be undone only by restoring the pre-upgrade backup.
+
+With writers stopped, an operator can repair a missing day by taking the maintenance lock,
+verifying the UTC range has no overlapping attached child and no rows in the default child, and
+attaching an empty partition for just that range. Never detach the default child or move
+protected rows to make validation pass.
+
 ## Repair migrations
 
-Serverpod's repair diff sees SQL-owned tables as extraneous and may propose destructive changes. Before applying any generated repair, inspect its entire SQL against the current schema and **remove all operations that drop or alter** `raw_inbox`, `events`, `outbox`, `activity`, `correlia_schema_versions`, `matcher_content_digest` (primary key `digest`), `matcher_content_digest_fill` (primary key `singleton`), their indexes, constraints and time-qualified references. Review related cascades as well. Preserve data and the version table; never force a destructive repair merely to silence drift. Inspect any other unmanaged exceptions individually. If the desired SQL-owned schema itself needs correction, write a new forward schema step, not an edit to an applied step or a generated definition. Review the resulting repair and schema step together on a populated copy before production use.
+Serverpod's repair diff may propose dropping SQL-owned objects it does not recognize. Review the
+complete repair SQL and remove operations against the `raw_inbox`, `events` and `outbox` parents,
+their historical, daily and default children, and all associated indexes, constraints and triggers.
+Preserve `activity`, `correlia_schema_versions`, `matcher_content_digest` (primary key `digest`),
+`matcher_content_digest_fill` (primary key `singleton`), `pipeline_icinga2_replay_floor` and other
+SQL-owned metadata listed in [the architecture](../openspec/architecture.md), including indirect
+cascades and time-qualified references. Inspect any other unmanaged exceptions individually.
+Correct the SQL-owned schema in a new forward step, not in an applied step or generated
+definition. Test the repair and the new step together on a populated copy before production use.
 
 `matcher_content_digest` has the foreign key `matcher_content_digest_first_snapshot_fk` from `first_snapshot_id` to `ingest_config_snapshot."snapshotId"`, and `icinga2_raw_origin` has one from `admission_snapshot_id`. A repair that drops or recreates `ingest_config_snapshot` must keep both constraints or recreate them, with their data intact. Correlia never deletes a snapshot, and deleting one by hand is not supported. The two foreign keys cover only digests and stream admissions. Other rows name a snapshot with no constraint: the active pointer `ingest_active_config."snapshotId"`, the pin `raw_inbox.config_snapshot_id` of a row still waiting to be processed, and `config_snapshot_id` of retained `events` and `outbox` rows. With their snapshot gone, the worker cannot decode a waiting row and the rule simulator returns `raw_unavailable` for those events.
 

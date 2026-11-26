@@ -393,7 +393,7 @@ VALUES
           "SELECT relfilenode::text FROM pg_class WHERE oid = 'events'::regclass",
         )).single[0];
         final before = await fileNode();
-        await applySchemaSteps(session, schemaSteps);
+        await applySchemaSteps(session, schemaSteps.take(4).toList());
         expect(await fileNode(), before, reason: 'step 4 rewrote events');
         final stored = await session.db.unsafeQuery(
           'SELECT effective_source_time FROM events',

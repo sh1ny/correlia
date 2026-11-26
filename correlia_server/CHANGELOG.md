@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Attach the inbox, event store and outbox as UTC range partitions during an offline upgrade.
+  Stop every old role before starting the new version; this cutover retains all pending work.
 - Add versioned matcher rules for event enrichment and routing. Live upgrades are unsupported:
   stop intake, drain pending inbox work and the outbox manually, then stop Correlia before upgrading.
 - Add authenticated production output plugin connections with ephemeral in-memory identities,

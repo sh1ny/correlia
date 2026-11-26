@@ -150,6 +150,9 @@ run in every role unless they are switched off:
   automation and third parties: incidents, alerts, actions and rule import/export. API keys are scoped. Any
   malformed input (bad timestamp, naive datetime, unknown enum, oversize field) is a 400/422 with a field
   error (`application/problem+json`), never a 500 (legacy B7).
+- **Queue operator API:** opt-in typed Serverpod methods for dead-letter inspection, replay and pressure
+  status. Dedicated machine bearer credentials set the replay ledger actor. Replies contain operational
+  metadata, not raw bodies, delivery payloads or secrets ([ADR 0034](../docs/adr/0034-durable-queue-operations.md)).
 - **Identities:** source, transport delivery, observation (event id) and alert (fingerprint), with one
   canonical encoding (ADRs [0024](../docs/adr/0024-identities-and-upstream-evidence.md), [0021](../docs/adr/0021-canonical-event-v1-contract.md)). The fixed UUIDv5
   namespace is `f36aac0f-16fa-46db-951b-bb578b323aed`, distinct from operator alert namespace strings.
@@ -169,8 +172,9 @@ run in every role unless they are switched off:
   Each exception is a reviewed one listed here:
   - `activity`: schema step 0002 creates the ledger with its
     `txid xid8 DEFAULT pg_current_xact_id()` column (ADR 0017);
-  - `events`, `raw_inbox`, `outbox`: SQL-owned time-qualified composite primary keys, initially ordinary
-    tables, with partition maintenance deferred to M2 (ADR 0016). Schema step 0002 adds nullable
+  - `events`, `raw_inbox`, `outbox`: SQL-owned time-qualified composite primary keys. The M2 partition
+    cutover attaches populated heaps offline, then uses UTC daily children and a default child (ADRs 0016,
+    0034). Raw writes still use the parent cutoff trigger. Schema step 0002 adds nullable
     `events.state_outcome` to distinguish applied and stale observations.
   - `matcher_content_digest`, `matcher_content_digest_fill`: schema step 0015 creates both tables: the
     digest of every published matcher section (primary key `digest`) and a one-row fill state. Step 0016
@@ -178,6 +182,8 @@ run in every role unless they are switched off:
     publication fill the digests for every snapshot after the watermark, including one an older binary
     published during an offline downgrade, so an existing row does not mean the fill has no work left. The
     reserved-label check is one primary-key probe (ADR 0034).
+  - `pipeline_icinga2_replay_floor`: receipt floor captured from the old admission cutoff at the M2
+    cutover; earlier pre-upgrade Icinga2 replay cannot recreate firing state.
 
   `alerts` is a Serverpod-managed table with a unique tenant/fingerprint index.
 
@@ -268,6 +274,7 @@ Accepted ADRs only.
 | [0032](../docs/adr/0032-matcher-rules-and-versions.md) | Typed matcher rules, Dart and SQL evaluation, guarded publication and operator rollback, pinned runtime failure counts | [0008](../docs/adr/0008-rule-language.md) |
 | [0033](../docs/adr/0033-offline-matcher-upgrade.md) | Offline matcher upgrade with a manual drain before shutdown | 0032 rollout only; matcher behavior and publication are unchanged |
 | [0034](../docs/adr/0034-rule-simulator-and-event-classification.md) | Read-only rule simulator over re-decoded stored events, decoder-owned kind, `classify` and the reserved noise label checked against new content, matcher content digest tables, stable duplicate order | none (extends 0032) |
+| [0034](../docs/adr/0034-durable-queue-operations.md) | Scoped dead-letter operations, shared queue pressure, retention and offline partition cutover | none (refines 0016, 0030) |
 
 ### Superseded ADRs
 
