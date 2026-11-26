@@ -602,6 +602,61 @@ matcher:
     expect(await _count(session, 'ingest_config_snapshot'), 1);
   });
 
+  _dbTest('exact_restart_with_an_active_classify_snapshot', (builder) async {
+    final session = builder.build();
+    await initializeIngestSchema(session);
+    final directory = await Directory.systemTemp.createTemp(
+      'correlia-classify-',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    // One file, unchanged across the restart: JSON is valid YAML.
+    final file = File('${directory.path}/ingest.yaml');
+    await file.writeAsString(
+      jsonEncode(
+        _config(
+          1,
+          null,
+          _matcher(
+            [
+              {'type': 'classify', 'value': 'heartbeat'},
+            ],
+            when: const {
+              'field': 'labels.alertname',
+              'op': 'equals',
+              'value': 'Watchdog',
+            },
+          ),
+          source: true,
+        ),
+      ),
+    );
+    Future<IngestBootstrap> start() async => (await IngestBootstrap.load(
+      {'CORRELIA_INGEST_CONFIG': file.path},
+      runMode: 'test',
+      publish: (config, secrets) => _repository(
+        session,
+      ).publishConfig(config, _reserved, runMode: 'test'),
+    ))!;
+    final first = await start();
+    // The restart: the schema steps run again, then the same file loads.
+    await initializeIngestSchema(session);
+    final restarted = await start();
+    expect(restarted.snapshotId, first.snapshotId);
+    expect(
+      (await _repository(session).activeSnapshot())?['snapshotId'],
+      first.snapshotId,
+    );
+    expect(await _count(session, 'ingest_config_snapshot'), 1);
+    // The snapshot still classifies after the restart.
+    await _insertRaw(session, 1, 'Watchdog');
+    final worker = _worker(session);
+    expect(await worker.pinOne(), isTrue);
+    expect(await worker.processOne(), isTrue);
+    final event = (await _events(session)).single;
+    expect(event.labels, containsPair(_key, 'heartbeat'));
+    expect(event.labelsOrigin, containsPair(_key, 'matcher'));
+  });
+
   _dbTest('an_older_binary_publishing_after_the_fill_stores_its_content', (
     builder,
   ) async {

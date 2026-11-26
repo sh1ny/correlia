@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import '../event/canonical_event.dart';
 import '../event/cloud_event.dart';
 import '../event/validation.dart';
+import '../event_generated/correlia/event/v1/event_bounds.dart';
 import 'matcher_condition.dart';
 import 'matcher_document.dart';
 import 'matcher_regex_worker.dart';
@@ -96,6 +97,18 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
   // Each label a `location` action staged, as its key and `key=value` text,
   // so a partly overwritten lookup can mark the labels that did not survive.
   final staged = onAction == null ? null : <int, List<(String, String)>>{};
+  // The action behind each label key the event did not have, in the order the
+  // keys were added, and behind each added link, so a count over the event's
+  // limit is reported against the action that went past it.
+  final newKeyWriters = onAction == null ? null : <int>[];
+  final linkWriters = onAction == null ? null : <int>[];
+  void put(int index, String key, String value) {
+    if (!labels.containsKey(key) && !current.labels.containsKey(key)) {
+      newKeyWriters?.add(index);
+    }
+    labels[key] = value;
+  }
+
   void recordWrite(int index, List<String> keys, [String? value]) {
     wrote?[index] = keys;
     for (final key in keys) {
@@ -144,12 +157,12 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
       check?.call();
       switch (action) {
         case MatcherLabel(:final key, :final value):
-          labels[key] = value;
+          put(index, key, value);
           extracted?.remove(key);
           if (onAction != null) recordWrite(index, [key]);
           onAction?.call(index, MatcherActionEffect.staged, null);
         case MatcherClassify(:final value):
-          labels[reservedNoiseKey] = value.name;
+          put(index, reservedNoiseKey, value.name);
           extracted?.remove(reservedNoiseKey);
           if (onAction != null) recordWrite(index, [reservedNoiseKey]);
           onAction?.call(index, MatcherActionEffect.staged, null);
@@ -172,6 +185,7 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
           );
         case MatcherLink(:final link):
           links.add(link);
+          linkWriters?.add(index);
           onAction?.call(index, MatcherActionEffect.staged, null);
         case MatcherExtract(
           :final field,
@@ -197,7 +211,7 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
             rethrow;
           }
           if (value != null) {
-            labels[key] = value;
+            put(index, key, value);
             extracted?[key] = index;
             if (onAction != null) recordWrite(index, [key], value);
           }
@@ -220,12 +234,12 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
             if (entry.hostname == input ||
                 entry.network?.contains(input) == true) {
               if (entry.site case final site?) {
-                labels['site'] = site;
+                put(index, 'site', site);
                 extracted?.remove('site');
                 written?.add(('site', 'site=$site'));
               }
               if (entry.environment case final environment?) {
-                labels['environment'] = environment;
+                put(index, 'environment', environment);
                 extracted?.remove('environment');
                 written?.add(('environment', 'environment=$environment'));
               }
@@ -285,8 +299,20 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
     final key = error.path.startsWith('labels.')
         ? error.path.substring('labels.'.length)
         : null;
-    if (extracted?[key] case final index?) {
-      onAction?.call(index, MatcherActionEffect.failed, error.code);
+    // A count over a limit is the action whose label or link went past it.
+    final failed = switch (error.path) {
+      'labels' => newKeyWriters?.elementAtOrNull(
+        CanonicalEventBounds.CanonicalEventLabelsLength.max! -
+            current.labels.length,
+      ),
+      'links' => linkWriters?.elementAtOrNull(
+        CanonicalEventBounds.CanonicalEventLinksLength.max! -
+            current.links.length,
+      ),
+      _ => extracted?[key],
+    };
+    if (failed != null) {
+      onAction?.call(failed, MatcherActionEffect.failed, error.code);
     }
     rethrow;
   }

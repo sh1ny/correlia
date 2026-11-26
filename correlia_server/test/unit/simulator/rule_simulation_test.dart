@@ -605,6 +605,62 @@ void main() {
     expect(result.finalLabels, isNot(contains('team')));
   });
 
+  test('a_link_past_the_limit_is_the_failed_action', () async {
+    final data = eventFixture()['data']! as Map<String, Object?>;
+    data['labels'] = {'alertname': 'Watchdog'};
+    data.remove('labels_origin');
+    data['links'] = [
+      for (var i = 0; i < 15; i++)
+        {'href': 'https://example.com/$i', 'relation': 'other'},
+    ];
+    Map<String, Object?> link(String name) => {
+      'type': 'link',
+      'href': 'https://example.com/$name',
+      'relation': 'runbook',
+    };
+    final result = await _simulate(
+      CanonicalEvent.fromJson(data),
+      _document([
+        // The 16th link fits; the 17th is over the limit.
+        _rule('links', [link('fits'), _label('team', 'net'), link('over')]),
+      ]),
+    );
+    final rule = result.trace.single;
+    expect((rule.outcome, rule.failureCode), ('failed', 'invalid_count'));
+    expect(rule.actions.map((a) => a.effect), [
+      'staged',
+      'staged',
+      'failed: invalid_count',
+    ]);
+    expect(rule.actions.map((a) => a.applied), [false, false, false]);
+  });
+
+  test('a_label_past_the_limit_is_the_failed_action', () async {
+    final result = await _simulate(
+      _event(labels: {for (var i = 0; i < 127; i++) 'k$i': 'v'}),
+      _document([
+        _rule(
+          'labels',
+          [
+            // An existing key adds no label; the first new one fits and the
+            // second is over the limit of 128.
+            _label('k0', 'w'),
+            _label('fits', 'x'),
+            _label('over', 'y'),
+          ],
+          when: _leaf('labels.k1', 'equals', 'v'),
+        ),
+      ]),
+    );
+    final rule = result.trace.single;
+    expect((rule.outcome, rule.failureCode), ('failed', 'invalid_count'));
+    expect(rule.actions.map((a) => a.effect), [
+      'staged',
+      'staged',
+      'failed: invalid_count',
+    ]);
+  });
+
   test('failed_extraction_is_reported_as_failed', () async {
     final result = await _simulate(
       _event(),

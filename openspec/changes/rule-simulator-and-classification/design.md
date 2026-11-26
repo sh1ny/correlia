@@ -452,7 +452,9 @@ sequenceDiagram
   previous binary cannot read a snapshot whose matcher uses `classify` (its action dispatch has no
   `classify` case: `matcher_document.dart:41-42`, `:301-302`, `:369`, `:423-424` at 1bfa471), so going back to it after such a publication is not supported. The upgrade section of
   `docs/ingest-pipeline.md` gives this sequence. Tests cover a fresh install and an upgrade through
-  `0016`, startup with an active snapshot that uses `classify`, and a snapshot an older binary
+  `0016`, startup with an active snapshot that uses `classify`
+  (`exact_restart_with_an_active_classify_snapshot`: the same file restarts onto the same snapshot,
+  which still classifies), and a snapshot an older binary
   published during an offline downgrade after the fill
   (`an_older_binary_publishing_after_the_fill_stores_its_content`).
 
