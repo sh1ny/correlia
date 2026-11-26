@@ -1,6 +1,3 @@
-The available tools cannot write `review.md` in place. Complete replacement:
-
-```markdown
 # Review
 
 ## Metadata
@@ -66,4 +63,3 @@ None.
 
 VERDICT: APPROVE_WITH_CHANGES
 CHANGES_APPLIED: yes
-```

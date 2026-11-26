@@ -69,7 +69,7 @@ The system SHALL offer a read-only simulation on the local console API. Its inpu
 
 #### Scenario: No active matcher configuration
 - **WHEN** no snapshot is active, or the active snapshot has no matcher section, and no draft is supplied
-- **THEN** the result has an empty trace, states that no rules are active, returns the input event's kind, labels, label origins, links and severity, and adds no routes
+- **THEN** the result has an empty trace, states that no rules are active, returns the input event's kind, labels, effective label origins (a label with no recorded origin shows `source`), links and severity, and adds no routes
 
 #### Scenario: Refused outside the local console policy
 - **WHEN** the request does not satisfy the console access policy the mapping preview uses
@@ -149,7 +149,7 @@ The simulation SHALL use the pipeline's rule evaluation and patch code. The resu
 
 #### Scenario: Pipeline and simulator agree for a deliverable event
 - **WHEN** a ready, deliverable webhook event, alone in its raw row, is processed by the pipeline and simulated against the same snapshot and evaluation time, with a regex condition on one rule, and neither run reaches a budget, cutoff or fanout bound
-- **THEN** the stored enriched event and the simulated final event have equal labels, labels origin, links and severity, and the simulated routes added beyond the source routes equal the routes the pipeline added
+- **THEN** the stored enriched event and the simulated final event have equal labels, effective label origins (a label with no recorded origin counts as `source` on both sides; the stored origin map itself may stay sparse), links and severity, and the simulated routes added beyond the source routes equal the routes the pipeline added
 
 #### Scenario: The pipeline's cutoff left rules unattempted
 - **WHEN** a stored event's later rules were left unattempted at the pipeline's cutoff, with no diagnostic stored, and the event is simulated
