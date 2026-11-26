@@ -740,6 +740,76 @@ void main() {
         );
       }
 
+      test('outbox_retention_lock_keeps_processing_allowance', () async {
+        final snapshot = await _publish(session, 1, outputs: [_first]);
+        await _oldIntents(session, snapshot, _first, 1);
+        final created =
+            (await session.db.unsafeQuery(
+                  'SELECT created_at FROM outbox',
+                )).single[0]!
+                as DateTime;
+        await session.db.unsafeExecute("UPDATE outbox SET status='delivered'");
+        await _send(session, ['retention-contends-with-valid-raw']);
+        final pinner = _worker(session);
+        expect(await pinner.pinOne(), isTrue);
+        await session.db.unsafeExecute('UPDATE raw_inbox SET attempt_count=4');
+        final maintenance = builder.build();
+        final held = Completer<void>();
+        final gate = ContentionGate();
+        final sweep = gate.run(
+          () => maintenance.db.transaction((tx) async {
+            final rows = await maintenance.db.unsafeQuery(
+              "SELECT correlia_maintain('outbox',@cutoff::timestamptz,1)",
+              parameters: QueryParameters.named({
+                'cutoff': created.add(const Duration(days: 8)),
+              }),
+              transaction: tx,
+            );
+            expect(rows.single[0], 1);
+            held.complete();
+            await gate.future;
+          }),
+        );
+        try {
+          await Future.any([
+            held.future,
+            sweep.then<void>(
+              (_) => fail('Retention did not delete the intent'),
+            ),
+          ]);
+          final contender = PipelineRepository(
+            session,
+            clock: () => created,
+            elapsedForTest: () => Duration.zero,
+            beforeIntentWriteForTest: (tx) => session.db.unsafeSimpleExecute(
+              "SET LOCAL statement_timeout='50ms'; SET LOCAL lock_timeout=0",
+              transaction: tx,
+            ),
+          );
+          expect(await contender.processOne(), isTrue);
+          final row = (await session.db.unsafeQuery(
+            'SELECT status,attempt_count,next_attempt_at FROM raw_inbox',
+          )).single;
+          expect(row.toList(), [
+            'pending',
+            4,
+            created.add(const Duration(seconds: 1)),
+          ]);
+          expect(await raw.count(session, 'pipeline_failures'), 0);
+          expect(await raw.count(session, 'events'), 0);
+          await gate.join();
+          await sweep;
+          await session.db.unsafeExecute(
+            'UPDATE raw_inbox SET next_attempt_at=NULL',
+          );
+          expect(await pinner.processOne(), isTrue);
+          expect(await _intents(session), {_first: 1});
+          expect(await raw.count(session, 'events'), 1);
+        } finally {
+          await gate.join();
+        }
+      });
+
       test('pending_counter_timeout_keeps_processing_allowance', () async {
         await _publish(session, 1, outputs: [_first]);
         await _send(session, ['valid-during-pending-counter-contention']);
@@ -1225,6 +1295,90 @@ void main() {
           resumeRouting.complete();
           await relay.stop();
         }
+      });
+
+      test('delivery_continues_while_lease_recovery_is_paused', () async {
+        final receiver = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        addTearDown(() => receiver.close(force: true));
+        final healthy = Completer<void>();
+        receiver.listen((request) async {
+          await request.drain<void>();
+          request.response.statusCode = 204;
+          await request.response.close();
+          if (!healthy.isCompleted) healthy.complete();
+        });
+        final snapshot = await _publish(
+          session,
+          1,
+          routes: [_second],
+          urls: {_second: 'http://127.0.0.1:${receiver.port}/healthy'},
+        );
+        await _oldIntents(session, snapshot, _first, 1);
+        await session.db.unsafeExecute('UPDATE outbox SET attempt_count=19');
+        final repo = OutputRelayRepository(
+          session,
+          testSecretResolver(session).resolve,
+        );
+        expect((await repo.claim(_first))!.claims.single.attemptNumber, 20);
+        await session.db.unsafeExecute(
+          "UPDATE outbox SET lease_until='-infinity'",
+        );
+        await _process(session, ['healthy-during-lease-recovery']);
+        await session.db.unsafeExecute('''
+          UPDATE outbox SET next_attempt_at='infinity' WHERE output_id='$_second'
+        ''');
+        final recovery = Completer<void>();
+        final resumeRecovery = Completer<void>();
+        final locked = Completer<void>();
+        final release = ContentionGate();
+        final locker = builder.build();
+        final holding = release.run(
+          () => locker.db.transaction((tx) async {
+            await locker.db.unsafeQuery('''
+              SELECT 1 FROM pipeline_output_capacity WHERE output_id='$_first'
+              FOR UPDATE
+            ''', transaction: tx);
+            locked.complete();
+            await release.future;
+          }),
+        );
+        final relay = RelaySubsystem(
+          pod: session.serverpod,
+          resolveKey: testSecretResolver(session).resolve,
+          runMode: 'test',
+          afterRecoveryLockForTest: (_) async {
+            recovery.complete();
+            await resumeRecovery.future;
+          },
+        );
+        try {
+          await Future.any([
+            locked.future,
+            holding.then<void>((_) => fail('Capacity lock was not held')),
+          ]);
+          await relay.start();
+          await recovery.future;
+          await session.db.unsafeExecute('''
+            UPDATE outbox SET next_attempt_at=NULL WHERE output_id='$_second'
+          ''');
+          await healthy.future.timeout(const Duration(seconds: 45));
+          expect(
+            (await session.db.unsafeQuery('''
+            SELECT status FROM outbox WHERE output_id='$_first'
+          ''')).single[0],
+            'delivering',
+          );
+        } finally {
+          await release.join();
+          resumeRecovery.complete();
+          await relay.stop();
+        }
+        expect(
+          (await session.db.unsafeQuery('''
+          SELECT status,dead_reason FROM outbox WHERE output_id='$_first'
+        ''')).single.toList(),
+          ['dead', 'interrupted'],
+        );
       });
 
       test('notice_reaches_healthy_output_with_ledger_evidence', () async {

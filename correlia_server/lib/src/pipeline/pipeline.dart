@@ -326,6 +326,7 @@ final class PipelineRepository {
     this.afterOutputRefusalForTest,
     this.beforeOutputDeferralRetryForTest,
     this.beforeCapacityLockForTest,
+    this.beforeIntentWriteForTest,
     this.beforeEventWriteForTest,
     this.beforePendingCounterLockForTest,
     Map<String, int>? retryCounts,
@@ -366,6 +367,9 @@ final class PipelineRepository {
 
   /// Lets a fixture hold a capacity lock past the remaining SQL deadline.
   final Future<void> Function(Transaction)? beforeCapacityLockForTest;
+
+  /// Lets a fixture shorten the SQL deadline while the partition count is held.
+  final Future<void> Function(Transaction)? beforeIntentWriteForTest;
 
   /// Lets a fixture expire a statement while the events parent is locked.
   final Future<void> Function(Transaction)? beforeEventWriteForTest;
@@ -478,7 +482,15 @@ final class PipelineRepository {
       final bytes = intent.payload.length;
       if (caps[id]!.take(bytes)) {
         if (refresh() case final setting?) await setting;
-        await insertQueueIntent(session, tx, raw.pin, created, intent);
+        if (beforeIntentWriteForTest case final beforeIntentWrite?) {
+          await beforeIntentWrite(tx);
+        }
+        try {
+          // The bounded insert also acquires the child/output count stripe.
+          await insertQueueIntent(session, tx, raw.pin, created, intent);
+        } catch (error, stack) {
+          _PipelineLockWait.throwFor(error, stack);
+        }
       } else {
         ignored[id] = (ignored[id] ?? 0) + 1;
       }

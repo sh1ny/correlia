@@ -21,6 +21,7 @@ final class RelaySubsystem extends Subsystem {
     this.beforeClaimCommit,
     this.beforePluginComplete,
     this.beforeNoticeRoutingForTest,
+    this.afterRecoveryLockForTest,
     this.onUnavailable,
     this.pluginRouter,
     this.pollInterval = const Duration(milliseconds: 250),
@@ -40,6 +41,9 @@ final class RelaySubsystem extends Subsystem {
 
   /// Lets a fixture pause a claimed notice before it locks destinations.
   final Future<void> Function(Transaction)? beforeNoticeRoutingForTest;
+
+  /// Lets a fixture pause an expired delivery after recovery locks it.
+  final Future<void> Function(Transaction)? afterRecoveryLockForTest;
 
   /// Receives fixed unavailable-key diagnostics without secret material.
   final void Function(String, String)? onUnavailable;
@@ -68,7 +72,9 @@ final class RelaySubsystem extends Subsystem {
   Future<void> _run() async {
     final session = await pod.createSession(enableLogging: false);
     Session? noticeSession;
+    Session? recoverySession;
     Future<void>? routing;
+    Future<void>? recovering;
     try {
       final repository = OutputRelayRepository(
         session,
@@ -81,18 +87,22 @@ final class RelaySubsystem extends Subsystem {
         noticeSession,
         beforeRelationLocksForTest: beforeNoticeRoutingForTest,
       );
+      recoverySession = await pod.createSession(enableLogging: false);
+      final recovery = OutputRelayRepository(recoverySession, resolveKey);
       while (!_stopped.isCompleted) {
         if (beforeAcquire != null) {
           await Future.any([beforeAcquire!(), _stopped.future]);
           if (_stopped.isCompleted) break;
         }
-        // At most one notice transaction can run. Do not await a contended
-        // destination lock before discovering delivery work on other lanes.
+        // A contended notice or expired lease must not delay discovery.
+        // Each job owns a session and runs at most one transaction per poll.
         routing ??= _routeNotice(notices).whenComplete(() {
           routing = null;
         });
+        recovering ??= _recoverExpired(recovery).whenComplete(() {
+          recovering = null;
+        });
         try {
-          await repository.recoverExpired();
           final available = await repository.discover(
             _busy,
             readyDefinitions: pluginRouter?.readyDefinitions ?? {},
@@ -122,6 +132,8 @@ final class RelaySubsystem extends Subsystem {
       }
     } finally {
       await routing;
+      await recovering;
+      await recoverySession?.close();
       await noticeSession?.close();
       await session.close();
     }
@@ -132,6 +144,16 @@ final class RelaySubsystem extends Subsystem {
       await notices.routeOne();
     } catch (_) {
       // The durable occurrence remains pending for the next poll.
+    }
+  }
+
+  Future<void> _recoverExpired(OutputRelayRepository repository) async {
+    try {
+      await repository.recoverExpired(
+        afterLockForTest: afterRecoveryLockForTest,
+      );
+    } catch (_) {
+      // The lease remains recoverable on the next poll.
     }
   }
 
