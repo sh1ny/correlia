@@ -13,6 +13,7 @@
 import 'package:correlia_client/src/protocol/protocol.dart' as _iowdjkrj;
 import 'package:serverpod_client/serverpod_client.dart' as _isc;
 import 'rule_trace.dart' as _ingcfw9t;
+import 'simulated_label.dart' as _i3ntsck3;
 import 'simulated_link.dart' as _ieclo1rh;
 import 'simulation_error.dart' as _izi5l5xj;
 import 'stored_enrichment_error.dart' as _iy99nx4o;
@@ -54,8 +55,8 @@ abstract class RuleSimulationResult
     required String eventKind,
     String? noiseClassHint,
     required List<_ingcfw9t.RuleTrace> trace,
-    required Map<String, String> finalLabels,
-    required Map<String, String> finalLabelOrigins,
+    required List<_i3ntsck3.SimulatedLabel> finalLabels,
+    required List<_i3ntsck3.SimulatedLabel> finalLabelOrigins,
     required List<_ieclo1rh.SimulatedLink> finalLinks,
     required String finalSeverity,
     required List<String> baselineRoutes,
@@ -65,8 +66,8 @@ abstract class RuleSimulationResult
     required bool baselineOverFanout,
     required List<String> notes,
     String? storedSnapshotId,
-    Map<String, String>? storedLabels,
-    Map<String, String>? storedLabelOrigins,
+    List<_i3ntsck3.SimulatedLabel>? storedLabels,
+    List<_i3ntsck3.SimulatedLabel>? storedLabelOrigins,
     List<_iy99nx4o.StoredEnrichmentError>? storedEnrichmentErrors,
     String? storedBudgetNote,
   }) = _RuleSimulationResultImpl;
@@ -91,12 +92,14 @@ abstract class RuleSimulationResult
       trace: _iowdjkrj.Protocol().deserialize<List<_ingcfw9t.RuleTrace>>(
         jsonSerialization['trace'],
       ),
-      finalLabels: _iowdjkrj.Protocol().deserialize<Map<String, String>>(
-        jsonSerialization['finalLabels'],
-      ),
-      finalLabelOrigins: _iowdjkrj.Protocol().deserialize<Map<String, String>>(
-        jsonSerialization['finalLabelOrigins'],
-      ),
+      finalLabels: _iowdjkrj.Protocol()
+          .deserialize<List<_i3ntsck3.SimulatedLabel>>(
+            jsonSerialization['finalLabels'],
+          ),
+      finalLabelOrigins: _iowdjkrj.Protocol()
+          .deserialize<List<_i3ntsck3.SimulatedLabel>>(
+            jsonSerialization['finalLabelOrigins'],
+          ),
       finalLinks: _iowdjkrj.Protocol()
           .deserialize<List<_ieclo1rh.SimulatedLink>>(
             jsonSerialization['finalLinks'],
@@ -121,12 +124,12 @@ abstract class RuleSimulationResult
       storedSnapshotId: jsonSerialization['storedSnapshotId'] as String?,
       storedLabels: jsonSerialization['storedLabels'] == null
           ? null
-          : _iowdjkrj.Protocol().deserialize<Map<String, String>>(
+          : _iowdjkrj.Protocol().deserialize<List<_i3ntsck3.SimulatedLabel>>(
               jsonSerialization['storedLabels'],
             ),
       storedLabelOrigins: jsonSerialization['storedLabelOrigins'] == null
           ? null
-          : _iowdjkrj.Protocol().deserialize<Map<String, String>>(
+          : _iowdjkrj.Protocol().deserialize<List<_i3ntsck3.SimulatedLabel>>(
               jsonSerialization['storedLabelOrigins'],
             ),
       storedEnrichmentErrors:
@@ -156,9 +159,9 @@ abstract class RuleSimulationResult
 
   List<_ingcfw9t.RuleTrace> trace;
 
-  Map<String, String> finalLabels;
+  List<_i3ntsck3.SimulatedLabel> finalLabels;
 
-  Map<String, String> finalLabelOrigins;
+  List<_i3ntsck3.SimulatedLabel> finalLabelOrigins;
 
   List<_ieclo1rh.SimulatedLink> finalLinks;
 
@@ -178,9 +181,9 @@ abstract class RuleSimulationResult
 
   String? storedSnapshotId;
 
-  Map<String, String>? storedLabels;
+  List<_i3ntsck3.SimulatedLabel>? storedLabels;
 
-  Map<String, String>? storedLabelOrigins;
+  List<_i3ntsck3.SimulatedLabel>? storedLabelOrigins;
 
   List<_iy99nx4o.StoredEnrichmentError>? storedEnrichmentErrors;
 
@@ -199,8 +202,8 @@ abstract class RuleSimulationResult
     String? eventKind,
     String? noiseClassHint,
     List<_ingcfw9t.RuleTrace>? trace,
-    Map<String, String>? finalLabels,
-    Map<String, String>? finalLabelOrigins,
+    List<_i3ntsck3.SimulatedLabel>? finalLabels,
+    List<_i3ntsck3.SimulatedLabel>? finalLabelOrigins,
     List<_ieclo1rh.SimulatedLink>? finalLinks,
     String? finalSeverity,
     List<String>? baselineRoutes,
@@ -210,10 +213,10 @@ abstract class RuleSimulationResult
     bool? baselineOverFanout,
     List<String>? notes,
     String? storedSnapshotId,
-    Map<String, String>? storedLabels =
-        const _isc.$UndefinedMap<String, String>(),
-    Map<String, String>? storedLabelOrigins =
-        const _isc.$UndefinedMap<String, String>(),
+    List<_i3ntsck3.SimulatedLabel>? storedLabels =
+        const _isc.$UndefinedList<_i3ntsck3.SimulatedLabel>(),
+    List<_i3ntsck3.SimulatedLabel>? storedLabelOrigins =
+        const _isc.$UndefinedList<_i3ntsck3.SimulatedLabel>(),
     List<_iy99nx4o.StoredEnrichmentError>? storedEnrichmentErrors =
         const _isc.$UndefinedList<_iy99nx4o.StoredEnrichmentError>(),
     String? storedBudgetNote,
@@ -230,8 +233,10 @@ abstract class RuleSimulationResult
       'eventKind': eventKind,
       if (noiseClassHint != null) 'noiseClassHint': noiseClassHint,
       'trace': trace.toJson(valueToJson: (v) => v.toJson()),
-      'finalLabels': finalLabels.toJson(),
-      'finalLabelOrigins': finalLabelOrigins.toJson(),
+      'finalLabels': finalLabels.toJson(valueToJson: (v) => v.toJson()),
+      'finalLabelOrigins': finalLabelOrigins.toJson(
+        valueToJson: (v) => v.toJson(),
+      ),
       'finalLinks': finalLinks.toJson(valueToJson: (v) => v.toJson()),
       'finalSeverity': finalSeverity,
       'baselineRoutes': baselineRoutes.toJson(),
@@ -241,9 +246,12 @@ abstract class RuleSimulationResult
       'baselineOverFanout': baselineOverFanout,
       'notes': notes.toJson(),
       if (storedSnapshotId != null) 'storedSnapshotId': storedSnapshotId,
-      if (storedLabels != null) 'storedLabels': storedLabels?.toJson(),
+      if (storedLabels != null)
+        'storedLabels': storedLabels?.toJson(valueToJson: (v) => v.toJson()),
       if (storedLabelOrigins != null)
-        'storedLabelOrigins': storedLabelOrigins?.toJson(),
+        'storedLabelOrigins': storedLabelOrigins?.toJson(
+          valueToJson: (v) => v.toJson(),
+        ),
       if (storedEnrichmentErrors != null)
         'storedEnrichmentErrors': storedEnrichmentErrors?.toJson(
           valueToJson: (v) => v.toJson(),
@@ -264,8 +272,12 @@ abstract class RuleSimulationResult
       'eventKind': eventKind,
       if (noiseClassHint != null) 'noiseClassHint': noiseClassHint,
       'trace': trace.toJson(valueToJson: (v) => v.toJsonForProtocol()),
-      'finalLabels': finalLabels.toJson(),
-      'finalLabelOrigins': finalLabelOrigins.toJson(),
+      'finalLabels': finalLabels.toJson(
+        valueToJson: (v) => v.toJsonForProtocol(),
+      ),
+      'finalLabelOrigins': finalLabelOrigins.toJson(
+        valueToJson: (v) => v.toJsonForProtocol(),
+      ),
       'finalLinks': finalLinks.toJson(
         valueToJson: (v) => v.toJsonForProtocol(),
       ),
@@ -277,9 +289,14 @@ abstract class RuleSimulationResult
       'baselineOverFanout': baselineOverFanout,
       'notes': notes.toJson(),
       if (storedSnapshotId != null) 'storedSnapshotId': storedSnapshotId,
-      if (storedLabels != null) 'storedLabels': storedLabels?.toJson(),
+      if (storedLabels != null)
+        'storedLabels': storedLabels?.toJson(
+          valueToJson: (v) => v.toJsonForProtocol(),
+        ),
       if (storedLabelOrigins != null)
-        'storedLabelOrigins': storedLabelOrigins?.toJson(),
+        'storedLabelOrigins': storedLabelOrigins?.toJson(
+          valueToJson: (v) => v.toJsonForProtocol(),
+        ),
       if (storedEnrichmentErrors != null)
         'storedEnrichmentErrors': storedEnrichmentErrors?.toJson(
           valueToJson: (v) => v.toJsonForProtocol(),
@@ -311,8 +328,8 @@ class _RuleSimulationResultImpl extends RuleSimulationResult {
     required String eventKind,
     String? noiseClassHint,
     required List<_ingcfw9t.RuleTrace> trace,
-    required Map<String, String> finalLabels,
-    required Map<String, String> finalLabelOrigins,
+    required List<_i3ntsck3.SimulatedLabel> finalLabels,
+    required List<_i3ntsck3.SimulatedLabel> finalLabelOrigins,
     required List<_ieclo1rh.SimulatedLink> finalLinks,
     required String finalSeverity,
     required List<String> baselineRoutes,
@@ -322,8 +339,8 @@ class _RuleSimulationResultImpl extends RuleSimulationResult {
     required bool baselineOverFanout,
     required List<String> notes,
     String? storedSnapshotId,
-    Map<String, String>? storedLabels,
-    Map<String, String>? storedLabelOrigins,
+    List<_i3ntsck3.SimulatedLabel>? storedLabels,
+    List<_i3ntsck3.SimulatedLabel>? storedLabelOrigins,
     List<_iy99nx4o.StoredEnrichmentError>? storedEnrichmentErrors,
     String? storedBudgetNote,
   }) : super._(
@@ -366,8 +383,8 @@ class _RuleSimulationResultImpl extends RuleSimulationResult {
     String? eventKind,
     Object? noiseClassHint = _Undefined,
     List<_ingcfw9t.RuleTrace>? trace,
-    Map<String, String>? finalLabels,
-    Map<String, String>? finalLabelOrigins,
+    List<_i3ntsck3.SimulatedLabel>? finalLabels,
+    List<_i3ntsck3.SimulatedLabel>? finalLabelOrigins,
     List<_ieclo1rh.SimulatedLink>? finalLinks,
     String? finalSeverity,
     List<String>? baselineRoutes,
@@ -377,10 +394,10 @@ class _RuleSimulationResultImpl extends RuleSimulationResult {
     bool? baselineOverFanout,
     List<String>? notes,
     Object? storedSnapshotId = _Undefined,
-    Map<String, String>? storedLabels =
-        const _isc.$UndefinedMap<String, String>(),
-    Map<String, String>? storedLabelOrigins =
-        const _isc.$UndefinedMap<String, String>(),
+    List<_i3ntsck3.SimulatedLabel>? storedLabels =
+        const _isc.$UndefinedList<_i3ntsck3.SimulatedLabel>(),
+    List<_i3ntsck3.SimulatedLabel>? storedLabelOrigins =
+        const _isc.$UndefinedList<_i3ntsck3.SimulatedLabel>(),
     List<_iy99nx4o.StoredEnrichmentError>? storedEnrichmentErrors =
         const _isc.$UndefinedList<_iy99nx4o.StoredEnrichmentError>(),
     Object? storedBudgetNote = _Undefined,
@@ -399,27 +416,10 @@ class _RuleSimulationResultImpl extends RuleSimulationResult {
           : this.noiseClassHint,
       trace: trace ?? this.trace.map((e0) => e0.copyWith()).toList(),
       finalLabels:
-          finalLabels ??
-          this.finalLabels.map(
-            (
-              key0,
-              value0,
-            ) => MapEntry(
-              key0,
-              value0,
-            ),
-          ),
+          finalLabels ?? this.finalLabels.map((e0) => e0.copyWith()).toList(),
       finalLabelOrigins:
           finalLabelOrigins ??
-          this.finalLabelOrigins.map(
-            (
-              key0,
-              value0,
-            ) => MapEntry(
-              key0,
-              value0,
-            ),
-          ),
+          this.finalLabelOrigins.map((e0) => e0.copyWith()).toList(),
       finalLinks:
           finalLinks ?? this.finalLinks.map((e0) => e0.copyWith()).toList(),
       finalSeverity: finalSeverity ?? this.finalSeverity,
@@ -434,26 +434,10 @@ class _RuleSimulationResultImpl extends RuleSimulationResult {
           ? storedSnapshotId
           : this.storedSnapshotId,
       storedLabels: storedLabels is _isc.UndefinedSentinel
-          ? this.storedLabels?.map(
-              (
-                key0,
-                value0,
-              ) => MapEntry(
-                key0,
-                value0,
-              ),
-            )
+          ? this.storedLabels?.map((e0) => e0.copyWith()).toList()
           : storedLabels,
       storedLabelOrigins: storedLabelOrigins is _isc.UndefinedSentinel
-          ? this.storedLabelOrigins?.map(
-              (
-                key0,
-                value0,
-              ) => MapEntry(
-                key0,
-                value0,
-              ),
-            )
+          ? this.storedLabelOrigins?.map((e0) => e0.copyWith()).toList()
           : storedLabelOrigins,
       storedEnrichmentErrors: storedEnrichmentErrors is _isc.UndefinedSentinel
           ? this.storedEnrichmentErrors?.map((e0) => e0.copyWith()).toList()

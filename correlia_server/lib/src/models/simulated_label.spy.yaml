@@ -1,0 +1,11 @@
+### One label of a simulation result, as its key and value.
+###
+### Labels travel as a list of these, not as a map: the generated client reads
+### a map's `__className__` key as a model name before decoding the map, and
+### `__className__` is a valid label key.
+class: SimulatedLabel
+fields:
+  ### The label key.
+  key: String
+  ### The label value, or for an origins list, the label's origin.
+  value: String

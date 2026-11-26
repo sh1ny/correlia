@@ -422,7 +422,9 @@ The result carries:
 - The final labels, label origins, links, severity and `eventKind`, plus `noiseClassHint` when a rule classified
   the event. `finalLabelOrigins` gives every label its effective origin: a label with no recorded origin, as
   Alertmanager leaves its source labels, shows `source`. `storedLabelOrigins` is the stored map as it is, so it
-  can leave such labels out.
+  can leave such labels out. The four label fields are lists of `{key, value}` entries in label order, not JSON
+  objects: the generated client reads an object's `__className__` key as a model name, and `__className__` is a
+  valid label key.
 - `baselineRoutes` (the source's routes in the active snapshot) and `addedRoutes` from `route` actions. Added
   routes are hypothetical: delivery eligibility is not evaluated. `sourceAbsent` is true when the event's source
   is not in the active snapshot.

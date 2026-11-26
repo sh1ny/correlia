@@ -112,6 +112,33 @@ final class _Cutoff implements Exception {
 }
 
 /// The result that carries only [error].
+/// The entries of [labels] in its order, as a result carries them.
+List<SimulatedLabel> labelEntries(Map<String, String> labels) => [
+  for (final MapEntry(:key, :value) in labels.entries)
+    SimulatedLabel(key: key, value: value),
+];
+
+/// The label lists of a [RuleSimulationResult] as maps.
+extension RuleSimulationLabels on RuleSimulationResult {
+  /// [finalLabels] as a map.
+  Map<String, String> get finalLabelMap => _map(finalLabels);
+
+  /// [finalLabelOrigins] as a map.
+  Map<String, String> get finalLabelOriginMap => _map(finalLabelOrigins);
+
+  /// [storedLabels] as a map, `null` when the result has none.
+  Map<String, String>? get storedLabelMap =>
+      storedLabels == null ? null : _map(storedLabels!);
+
+  /// [storedLabelOrigins] as a map, `null` when the result has none.
+  Map<String, String>? get storedLabelOriginMap =>
+      storedLabelOrigins == null ? null : _map(storedLabelOrigins!);
+}
+
+Map<String, String> _map(List<SimulatedLabel> labels) => {
+  for (final label in labels) label.key: label.value,
+};
+
 RuleSimulationResult simulationFailure(
   SimulationError error, {
   SimulationRuleSource ruleSource = SimulationRuleSource.active,
@@ -121,8 +148,8 @@ RuleSimulationResult simulationFailure(
   noRulesActive: false,
   eventKind: '',
   trace: [],
-  finalLabels: {},
-  finalLabelOrigins: {},
+  finalLabels: [],
+  finalLabelOrigins: [],
   finalLinks: [],
   finalSeverity: '',
   baselineRoutes: [],
@@ -376,11 +403,11 @@ Future<RuleSimulationResult> simulateRules({
     eventKind: current.kind.name,
     noiseClassHint: hint,
     trace: traces,
-    finalLabels: Map.of(current.labels),
-    finalLabelOrigins: {
+    finalLabels: labelEntries(current.labels),
+    finalLabelOrigins: labelEntries({
       for (final key in current.labels.keys)
         key: current.labelsOrigin[key] ?? 'source',
-    },
+    }),
     finalLinks: [
       for (final link in current.links)
         SimulatedLink(
@@ -397,8 +424,10 @@ Future<RuleSimulationResult> simulateRules({
     baselineOverFanout: baselineOver,
     notes: notes,
     storedSnapshotId: stored?.snapshotId,
-    storedLabels: stored == null ? null : Map.of(stored.labels),
-    storedLabelOrigins: stored == null ? null : Map.of(stored.labelsOrigin),
+    storedLabels: stored == null ? null : labelEntries(stored.labels),
+    storedLabelOrigins: stored == null
+        ? null
+        : labelEntries(stored.labelsOrigin),
     storedEnrichmentErrors: stored == null
         ? null
         : [

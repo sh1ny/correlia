@@ -72,8 +72,8 @@ rpc.RuleSimulationResult _result({
           actions: [],
         ),
       ],
-  finalLabels: {'team': 'ops'},
-  finalLabelOrigins: {'team': 'rule:matched-rule'},
+  finalLabels: _labels({'team': 'ops'}),
+  finalLabelOrigins: _labels({'team': 'rule:matched-rule'}),
   finalLinks: [
     rpc.SimulatedLink(href: 'https://x.example/a', relation: 'runbook'),
   ],
@@ -85,8 +85,8 @@ rpc.RuleSimulationResult _result({
   baselineOverFanout: false,
   notes: ['a note'],
   storedSnapshotId: 'snap-0',
-  storedLabels: {'old': 'label'},
-  storedLabelOrigins: {'old': 'normalizer'},
+  storedLabels: _labels({'old': 'label'}),
+  storedLabelOrigins: _labels({'old': 'normalizer'}),
   storedEnrichmentErrors: [
     rpc.StoredEnrichmentError(stage: 'regex', code: 'budget', message: 'slow'),
   ],
@@ -194,8 +194,8 @@ void main() {
             ),
           ],
         );
-        result.finalLabels = {'team': forged};
-        result.storedLabels = {'old': forged};
+        result.finalLabels = _labels({'team': forged});
+        result.storedLabels = _labels({'old': forged});
         result.finalLinks = [
           rpc.SimulatedLink(
             href: 'https://x.example/a',
@@ -230,12 +230,13 @@ void main() {
       expect(code, 0);
       final decoded = jsonDecode(h.out.toString()) as Map<String, Object?>;
       expect(decoded['ruleSource'], 'active');
-      expect(decoded['finalLabels'], {'team': 'ops'});
+      // Labels are a list of key and value entries, as the endpoint sends them.
+      expect(_jsonLabels(decoded['finalLabels']), {'team': 'ops'});
     });
 
     test('--json escapes DEL and C1 controls', () async {
       const value = 'a\u007fb\u009b2Jc\u0085d';
-      final result = _result()..finalLabels = {'team': value};
+      final result = _result()..finalLabels = _labels({'team': value});
       final h = _Harness(result);
       final code = await h.run([
         '--event-id',
@@ -249,7 +250,7 @@ void main() {
       expect(text.runes.where((r) => r >= 0x7f && r <= 0x9f), isEmpty);
       expect(text, contains(r'\u009b'));
       final decoded = jsonDecode(text) as Map<String, Object?>;
-      expect(decoded['finalLabels'], {'team': value});
+      expect(_jsonLabels(decoded['finalLabels']), {'team': value});
     });
 
     test('a pasted event file and a draft file are passed as read', () async {
@@ -406,8 +407,8 @@ void main() {
 
   test('a stored label without an origin shows the source origin', () async {
     final result = _result()
-      ..storedLabels = {'alertname': 'Example', 'old': 'label'}
-      ..storedLabelOrigins = {'old': 'matcher'};
+      ..storedLabels = _labels({'alertname': 'Example', 'old': 'label'})
+      ..storedLabelOrigins = _labels({'old': 'matcher'});
     final h = _Harness(result);
     expect(await h.run(['--event-id', _id, '--observed-at', 'T']), 0);
     final text = h.out.toString();
@@ -535,3 +536,15 @@ void main() {
     expect(err.toString(), contains('connection refused'));
   });
 }
+
+/// [labels] as a result carries them.
+List<rpc.SimulatedLabel> _labels(Map<String, String> labels) => [
+  for (final MapEntry(:key, :value) in labels.entries)
+    rpc.SimulatedLabel(key: key, value: value),
+];
+
+/// The `key` and `value` of each label entry of a `--json` document.
+Map<String, Object?> _jsonLabels(Object? entries) => {
+  for (final entry in (entries! as List<Object?>).cast<Map<String, Object?>>())
+    entry['key']! as String: entry['value'],
+};

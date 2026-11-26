@@ -305,11 +305,11 @@ void main() {
           ],
         );
         expect(_outcomes(result), ['matched', 'not matched']);
-        expect(result.finalLabels, containsPair('a', '1'));
-        expect(result.finalLabels, isNot(contains('b')));
+        expect(result.finalLabelMap, containsPair('a', '1'));
+        expect(result.finalLabelMap, isNot(contains('b')));
         expect(result.baselineRoutes, [_outA]);
         expect(result.storedSnapshotId, isNull);
-        expect(result.storedLabels, isNull);
+        expect(result.storedLabelMap, isNull);
       });
 
       test('simulate_a_stored_event_against_a_draft', () async {
@@ -334,14 +334,14 @@ void main() {
         expect(result.error, isNull);
         expect(result.ruleSource, 'draft');
         expect([for (final rule in result.trace) rule.ruleId], ['draft-rule']);
-        expect(result.finalLabels, containsPair('draft', 'yes'));
-        expect(result.finalLabels, isNot(contains('active')));
+        expect(result.finalLabelMap, containsPair('draft', 'yes'));
+        expect(result.finalLabelMap, isNot(contains('active')));
         expect(result.addedRoutes, [_outB]);
         expect(result.baselineRoutes, [_outA]);
         expect(result.snapshotId, active.snapshotId);
         expect(result.storedSnapshotId, stored.snapshot);
-        expect(result.storedLabels, containsPair('active', '1'));
-        expect(result.storedLabelOrigins, containsPair('active', 'matcher'));
+        expect(result.storedLabelMap, containsPair('active', '1'));
+        expect(result.storedLabelOriginMap, containsPair('active', 'matcher'));
       });
 
       test('future_dated_row_and_its_later_ready_row', () async {
@@ -377,8 +377,8 @@ void main() {
         expect(two.error, isNull);
         expect(one.storedSnapshotId, first.snapshotId);
         expect(two.storedSnapshotId, second.snapshotId);
-        expect(one.storedLabels, containsPair('phase', 'one'));
-        expect(two.storedLabels, containsPair('phase', 'two'));
+        expect(one.storedLabelMap, containsPair('phase', 'one'));
+        expect(two.storedLabelMap, containsPair('phase', 'two'));
         final named = await _simulateStored(
           session,
           rows[0],
@@ -415,19 +415,19 @@ SELECT observed_at,event_id,'future_dated',raw_observed_at,raw_id,source_id,conf
         );
         expect(await _stored(session), hasLength(2));
         final byDefault = await _simulateStored(session, ready);
-        expect(byDefault.storedLabels, isNot(contains('copy')));
+        expect(byDefault.storedLabelMap, isNot(contains('copy')));
         final future = await _simulateStored(
           session,
           ready,
           disposition: 'future_dated',
         );
-        expect(future.storedLabels, containsPair('copy', 'future'));
+        expect(future.storedLabelMap, containsPair('copy', 'future'));
         final named = await _simulateStored(
           session,
           ready,
           disposition: 'ready',
         );
-        expect(named.storedLabels, isNot(contains('copy')));
+        expect(named.storedLabelMap, isNot(contains('copy')));
         expect(named.error, isNull);
       });
 
@@ -461,7 +461,7 @@ SELECT observed_at,event_id,'future_dated',raw_observed_at,raw_id,source_id,conf
             kept == 'desc-b' ? 'matched' : 'not matched',
           ]);
           expect(
-            result.finalLabels.containsKey('hit'),
+            result.finalLabelMap.containsKey('hit'),
             row.event.labels.containsKey('hit'),
           );
         }
@@ -504,7 +504,7 @@ SELECT observed_at,event_id,'future_dated',raw_observed_at,raw_id,source_id,conf
         );
         expect(result.error, isNull);
         expect(_outcomes(result), ['not matched', 'matched']);
-        expect(result.finalLabels, containsPair('which', 'b'));
+        expect(result.finalLabelMap, containsPair('which', 'b'));
       });
 
       test('unknown_stored_event', () async {
@@ -626,6 +626,8 @@ SELECT observed_at,event_id,'future_dated',raw_observed_at,raw_id,source_id,conf
           'no namespace': (source) => source.remove('namespace'),
           'excluded labels not a list': (source) =>
               source['excluded_identity_labels'] = 'job',
+          'excluded label not a string': (source) =>
+              source['excluded_identity_labels'] = ['job', 7],
         };
         for (final MapEntry(key: name, value: edit) in edits.entries) {
           await rewritePin((_, source) => edit(source));
@@ -772,7 +774,7 @@ DELETE FROM correlia_schema_versions WHERE version IN (15, 16)''',
           none.notes,
           contains(startsWith("The event's source is not in the active")),
         );
-        expect(none.finalLabels, {
+        expect(none.finalLabelMap, {
           'alertname': 'Example',
           'severity': 'warning',
         });
@@ -863,8 +865,8 @@ DELETE FROM correlia_schema_versions WHERE version IN (15, 16)''',
         expect(result.error, isNull);
         expect(_outcomes(result), ['matched', 'matched']);
         final event = stored.event;
-        expect(result.finalLabels, event.labels);
-        expect(result.finalLabelOrigins, {
+        expect(result.finalLabelMap, event.labels);
+        expect(result.finalLabelOriginMap, {
           for (final key in event.labels.keys)
             key: event.labelsOrigin[key] ?? 'source',
         });
@@ -913,7 +915,7 @@ DELETE FROM correlia_schema_versions WHERE version IN (15, 16)''',
         expect(stored.event.pipeline.enrichmentErrors, isEmpty);
         final result = await _simulateStored(session, stored);
         expect(_outcomes(result), ['matched', 'matched']);
-        expect(result.finalLabels, containsPair('two', '2'));
+        expect(result.finalLabelMap, containsPair('two', '2'));
         expect(result.storedEnrichmentErrors, isEmpty);
         expect(result.storedBudgetNote, simulationStoredBudgetNote);
         expect(
@@ -957,13 +959,13 @@ DELETE FROM correlia_schema_versions WHERE version IN (15, 16)''',
         final result = await _simulateStored(session, stored);
         expect(result.storedSnapshotId, first.snapshotId);
         expect(result.snapshotId, second.snapshotId);
-        expect(result.storedLabels, containsPair('old', '1'));
-        expect(result.storedLabels, containsPair(_key, 'legacy'));
-        expect(result.storedLabelOrigins, containsPair(_key, 'matcher'));
-        expect(result.finalLabels, isNot(contains('old')));
+        expect(result.storedLabelMap, containsPair('old', '1'));
+        expect(result.storedLabelMap, containsPair(_key, 'legacy'));
+        expect(result.storedLabelOriginMap, containsPair(_key, 'matcher'));
+        expect(result.finalLabelMap, isNot(contains('old')));
         expect(result.noiseClassHint, 'heartbeat');
-        expect(result.finalLabels, containsPair(_key, 'heartbeat'));
-        expect(result.finalLabelOrigins, containsPair(_key, 'matcher'));
+        expect(result.finalLabelMap, containsPair(_key, 'heartbeat'));
+        expect(result.finalLabelOriginMap, containsPair(_key, 'matcher'));
       });
 
       test('stored_label_is_not_a_hint', () async {
@@ -994,7 +996,7 @@ DELETE FROM correlia_schema_versions WHERE version IN (15, 16)''',
         // the simulation as a label, and is not a hint.
         final underOld = await _simulateStored(session, stored);
         expect(underOld.error, isNull);
-        expect(underOld.finalLabels, containsPair(_key, 'legacy'));
+        expect(underOld.finalLabelMap, containsPair(_key, 'legacy'));
         expect(underOld.noiseClassHint, isNull);
 
         // Other rules are active and none classifies the event.
@@ -1007,9 +1009,9 @@ DELETE FROM correlia_schema_versions WHERE version IN (15, 16)''',
         final result = await _simulateStored(session, stored);
         expect(result.noiseClassHint, isNull);
         expect(result.storedSnapshotId, old.snapshotId);
-        expect(result.storedLabels, containsPair(_key, 'legacy'));
-        expect(result.storedLabelOrigins, containsPair(_key, 'matcher'));
-        expect(result.finalLabels, isNot(contains(_key)));
+        expect(result.storedLabelMap, containsPair(_key, 'legacy'));
+        expect(result.storedLabelOriginMap, containsPair(_key, 'matcher'));
+        expect(result.finalLabelMap, isNot(contains(_key)));
       });
 
       test('source_label_with_the_reserved_key_is_not_a_hint', () async {
@@ -1027,9 +1029,9 @@ DELETE FROM correlia_schema_versions WHERE version IN (15, 16)''',
         final result = await _simulateStored(session, stored);
         expect(result.error, isNull);
         expect(result.noiseClassHint, isNull);
-        expect(result.finalLabels, containsPair(_key, 'custom'));
-        expect(result.finalLabelOrigins, containsPair(_key, 'source'));
-        expect(result.storedLabelOrigins?[_key] ?? 'source', 'source');
+        expect(result.finalLabelMap, containsPair(_key, 'custom'));
+        expect(result.finalLabelOriginMap, containsPair(_key, 'source'));
+        expect(result.storedLabelOriginMap?[_key] ?? 'source', 'source');
       });
 
       test('a_route_moved_from_source_configuration_to_a_rule', () async {
@@ -1093,7 +1095,7 @@ DELETE FROM correlia_schema_versions WHERE version IN (15, 16)''',
         );
         final rule = result.trace.single;
         expect((rule.outcome, rule.failureCode), ('failed', 'regex_timeout'));
-        expect(result.finalLabels, isNot(contains('a')));
+        expect(result.finalLabelMap, isNot(contains('a')));
         expect(await _count(session, 'matcher_failure'), failures);
         expect(await _count(session, 'activity'), activity);
       });
@@ -1125,7 +1127,7 @@ DELETE FROM correlia_schema_versions WHERE version IN (15, 16)''',
         final result = await _simulateStored(session, ran);
         expect(result.error, isNull);
         expect(_outcomes(result), ['matched']);
-        expect(result.finalLabels, containsPair('hit', 'yes'));
+        expect(result.finalLabelMap, containsPair('hit', 'yes'));
         final stored = result.storedEnrichmentErrors!.single;
         expect((stored.code, stored.message), ('regex_budget', 'blocked'));
       });
@@ -1147,7 +1149,7 @@ DELETE FROM correlia_schema_versions WHERE version IN (15, 16)''',
         final stored = (await _stored(session)).single;
         final result = await _simulateStored(session, stored);
         expect(_outcomes(result), ['matched']);
-        expect(result.finalLabels, containsPair('hit', 'yes'));
+        expect(result.finalLabelMap, containsPair('hit', 'yes'));
         final error = result.storedEnrichmentErrors!.single;
         expect((error.code, error.message), ('regex_timeout', 'slow'));
       });

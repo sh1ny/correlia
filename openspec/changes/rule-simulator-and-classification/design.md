@@ -296,6 +296,19 @@ Line citations in Context are to `main` before this change (commit `1bfa471`).
 - **Important:** no (it makes an unspecified choice deterministic; no stored format changes).
 - **Chosen by:** agent
 
+### D15: Simulator labels as typed entries
+
+- **Choice:** the result's `finalLabels`, `finalLabelOrigins`, `storedLabels` and `storedLabelOrigins`
+  are lists of `SimulatedLabel` (`key`, `value`) in label order. The generated client reads a map's
+  `__className__` key as a model name before it decodes the map, and `__className__` is a valid label
+  key, so a label map could decode as another model (pre-ship review round 22). The CLI's `--json`
+  prints the lists as the endpoint sends them. This stays within D8's typed models.
+- **Rejected:** keeping maps and rejecting the key, because the event and the matcher accept it and
+  stored events may already carry it.
+- **Reversal cost:** low (the endpoint is new in this change).
+- **Important:** no (a wire shape inside D8's typed models; no behaviour in the specs changes).
+- **Chosen by:** agent
+
 D1 to D6 were query enrichment decisions; they moved with S9 (see "Handed to query-enrichment").
 
 ### Decision summary
@@ -318,6 +331,7 @@ D1 to D6 were query enrichment decisions; they moved with S9 (see "Handed to que
 | D12 | Row decode | Input read + pure decode, with admission metadata | Pin-only decode | low | no | agent |
 | D13 | Reserved key | Reject new content only, digest table; restart, rollback and pins run | Separate origin; reject always | low | yes | user |
 | D14 | Retained member | Event ID, then input position | Unstable sort + stored position | low | no | agent |
+| D15 | Simulator labels | Typed `{key, value}` entries | Maps; reject `__className__` | low | no | agent |
 
 ## Assumptions
 

@@ -8,8 +8,8 @@ fields:
   eventKind: String
   noiseClassHint: String?
   trace: List<RuleTrace>
-  finalLabels: Map<String, String>
-  finalLabelOrigins: Map<String, String>
+  finalLabels: List<SimulatedLabel>
+  finalLabelOrigins: List<SimulatedLabel>
   finalLinks: List<SimulatedLink>
   finalSeverity: String
   baselineRoutes: List<String>
@@ -19,7 +19,7 @@ fields:
   baselineOverFanout: bool
   notes: List<String>
   storedSnapshotId: String?
-  storedLabels: Map<String, String>?
-  storedLabelOrigins: Map<String, String>?
+  storedLabels: List<SimulatedLabel>?
+  storedLabelOrigins: List<SimulatedLabel>?
   storedEnrichmentErrors: List<StoredEnrichmentError>?
   storedBudgetNote: String?

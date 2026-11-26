@@ -282,9 +282,12 @@ void writeTrace(RuleSimulationResult result, StringSink sink) {
   if (result.noiseClassHint case final hint?) {
     out.writeln('noise class hint: $hint');
   }
+  final finalOrigins = {
+    for (final origin in result.finalLabelOrigins) origin.key: origin.value,
+  };
   _section(out, 'final labels', [
-    for (final MapEntry(:key, :value) in result.finalLabels.entries)
-      '$key=$value (${result.finalLabelOrigins[key] ?? 'unknown origin'})',
+    for (final SimulatedLabel(:key, :value) in result.finalLabels)
+      '$key=$value (${finalOrigins[key] ?? 'unknown origin'})',
   ]);
   _section(out, 'links', [
     for (final link in result.finalLinks)
@@ -307,9 +310,13 @@ void writeTrace(RuleSimulationResult result, StringSink sink) {
     out.writeln('stored snapshot: $id');
   }
   if (result.storedLabels case final labels?) {
-    final origins = result.storedLabelOrigins ?? const {};
+    final origins = {
+      for (final origin
+          in result.storedLabelOrigins ?? const <SimulatedLabel>[])
+        origin.key: origin.value,
+    };
     _section(out, 'stored labels', [
-      for (final MapEntry(:key, :value) in labels.entries)
+      for (final SimulatedLabel(:key, :value) in labels)
         // A label with no explicit origin came from the source, as in the
         // simulated labels.
         '$key=$value (${origins[key] ?? 'source'})',

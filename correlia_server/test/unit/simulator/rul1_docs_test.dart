@@ -64,7 +64,7 @@ void main() {
         expected['rules'],
         reason: '$name: rule outcomes in order',
       );
-      expect(result.finalLabels, expected['labels'], reason: '$name: labels');
+      expect(result.finalLabelMap, expected['labels'], reason: '$name: labels');
     }
   });
 }

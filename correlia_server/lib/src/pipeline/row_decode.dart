@@ -306,8 +306,12 @@ Future<DecodeInputs> _readDecodeInputs(
     kind: kind!,
     mapping: mapping,
     namespace: source['namespace'] as String,
-    excludedLabels: (source['excluded_identity_labels'] as List<Object?>)
-        .cast<String>(),
+    // Each element is checked here: a lazy cast would fail later, in the
+    // decoder, outside the settings read.
+    excludedLabels: [
+      for (final label in source['excluded_identity_labels'] as List<Object?>)
+        label as String,
+    ],
     stream: stream,
     admission: admission,
   );

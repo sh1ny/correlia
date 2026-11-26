@@ -30,6 +30,7 @@ import 'mapping_preview_validation_error.dart' as _i2ozkwub;
 import 'matcher_failure_view.dart' as _ik186lp1;
 import 'rule_simulation_result.dart' as _i2oitrdy;
 import 'rule_trace.dart' as _ingcfw9t;
+import 'simulated_label.dart' as _i3ntsck3;
 import 'simulated_link.dart' as _ieclo1rh;
 import 'simulation_error.dart' as _izi5l5xj;
 import 'stored_enrichment_error.dart' as _iy99nx4o;
@@ -51,6 +52,7 @@ export 'mapping_preview_validation_error.dart';
 export 'matcher_failure_view.dart';
 export 'rule_simulation_result.dart';
 export 'rule_trace.dart';
+export 'simulated_label.dart';
 export 'simulated_link.dart';
 export 'simulation_error.dart';
 export 'stored_enrichment_error.dart';
@@ -87,6 +89,7 @@ class Protocol extends _isc.SerializationManager
           _isc.getType<_ik186lp1.MatcherFailureView>,
           _isc.getType<_i2oitrdy.RuleSimulationResult>,
           _isc.getType<_ingcfw9t.RuleTrace>,
+          _isc.getType<_i3ntsck3.SimulatedLabel>,
           _isc.getType<_ieclo1rh.SimulatedLink>,
           _isc.getType<_izi5l5xj.SimulationError>,
           _isc.getType<_iy99nx4o.StoredEnrichmentError>,
@@ -108,6 +111,7 @@ class Protocol extends _isc.SerializationManager
           _isc.getType<_ik186lp1.MatcherFailureView?>,
           _isc.getType<_i2oitrdy.RuleSimulationResult?>,
           _isc.getType<_ingcfw9t.RuleTrace?>,
+          _isc.getType<_i3ntsck3.SimulatedLabel?>,
           _isc.getType<_ieclo1rh.SimulatedLink?>,
           _isc.getType<_izi5l5xj.SimulationError?>,
           _isc.getType<_iy99nx4o.StoredEnrichmentError?>,
@@ -117,10 +121,10 @@ class Protocol extends _isc.SerializationManager
           _isc.getType<List<_i20s3xik.MappingPreviewEvent>>,
           _isc.getType<List<_ibaui0zg.MappingPreviewDiagnostic>>,
           _isc.getType<List<_ingcfw9t.RuleTrace>>,
-          _isc.getType<Map<String, String>>,
+          _isc.getType<List<_i3ntsck3.SimulatedLabel>>,
           _isc.getType<List<_ieclo1rh.SimulatedLink>>,
           _isc.getType<List<String>>,
-          _isc.getType<Map<String, String>?>,
+          _isc.getType<List<_i3ntsck3.SimulatedLabel>?>,
           _isc.getType<List<_iy99nx4o.StoredEnrichmentError>>,
           _isc.getType<List<_iy99nx4o.StoredEnrichmentError>?>,
           _isc.getType<List<_i0ehnxud.ConditionTrace>>,
@@ -146,6 +150,7 @@ class Protocol extends _isc.SerializationManager
           'MatcherFailureView',
           'RuleSimulationResult',
           'RuleTrace',
+          'SimulatedLabel',
           'SimulatedLink',
           'SimulationError',
           'StoredEnrichmentError',
@@ -229,6 +234,9 @@ class Protocol extends _isc.SerializationManager
     }
     if (t == _ingcfw9t.RuleTrace) {
       return _ingcfw9t.RuleTrace.fromJson(data) as T;
+    }
+    if (t == _i3ntsck3.SimulatedLabel) {
+      return _i3ntsck3.SimulatedLabel.fromJson(data) as T;
     }
     if (t == _ieclo1rh.SimulatedLink) {
       return _ieclo1rh.SimulatedLink.fromJson(data) as T;
@@ -323,6 +331,10 @@ class Protocol extends _isc.SerializationManager
     if (t == _isc.getType<_ingcfw9t.RuleTrace?>()) {
       return (data != null ? _ingcfw9t.RuleTrace.fromJson(data) : null) as T;
     }
+    if (t == _isc.getType<_i3ntsck3.SimulatedLabel?>()) {
+      return (data != null ? _i3ntsck3.SimulatedLabel.fromJson(data) : null)
+          as T;
+    }
     if (t == _isc.getType<_ieclo1rh.SimulatedLink?>()) {
       return (data != null ? _ieclo1rh.SimulatedLink.fromJson(data) : null)
           as T;
@@ -373,10 +385,10 @@ class Protocol extends _isc.SerializationManager
               .toList()
           as T;
     }
-    if (t == Map<String, String>) {
-      return (data as Map).map(
-            (k, v) => MapEntry(deserialize<String>(k), deserialize<String>(v)),
-          )
+    if (t == List<_i3ntsck3.SimulatedLabel>) {
+      return (data as List)
+              .map((e) => deserialize<_i3ntsck3.SimulatedLabel>(e))
+              .toList()
           as T;
     }
     if (t == List<_ieclo1rh.SimulatedLink>) {
@@ -388,12 +400,11 @@ class Protocol extends _isc.SerializationManager
     if (t == List<String>) {
       return (data as List).map((e) => deserialize<String>(e)).toList() as T;
     }
-    if (t == _isc.getType<Map<String, String>?>()) {
+    if (t == _isc.getType<List<_i3ntsck3.SimulatedLabel>?>()) {
       return (data != null
-              ? (data as Map).map(
-                  (k, v) =>
-                      MapEntry(deserialize<String>(k), deserialize<String>(v)),
-                )
+              ? (data as List)
+                    .map((e) => deserialize<_i3ntsck3.SimulatedLabel>(e))
+                    .toList()
               : null)
           as T;
     }
@@ -447,6 +458,7 @@ class Protocol extends _isc.SerializationManager
       _ik186lp1.MatcherFailureView => 'MatcherFailureView',
       _i2oitrdy.RuleSimulationResult => 'RuleSimulationResult',
       _ingcfw9t.RuleTrace => 'RuleTrace',
+      _i3ntsck3.SimulatedLabel => 'SimulatedLabel',
       _ieclo1rh.SimulatedLink => 'SimulatedLink',
       _izi5l5xj.SimulationError => 'SimulationError',
       _iy99nx4o.StoredEnrichmentError => 'StoredEnrichmentError',
@@ -500,6 +512,8 @@ class Protocol extends _isc.SerializationManager
         return 'RuleSimulationResult';
       case _ingcfw9t.RuleTrace():
         return 'RuleTrace';
+      case _i3ntsck3.SimulatedLabel():
+        return 'SimulatedLabel';
       case _ieclo1rh.SimulatedLink():
         return 'SimulatedLink';
       case _izi5l5xj.SimulationError():
@@ -569,6 +583,9 @@ class Protocol extends _isc.SerializationManager
     }
     if (dataClassName == 'RuleTrace') {
       return deserialize<_ingcfw9t.RuleTrace>(data['data']);
+    }
+    if (dataClassName == 'SimulatedLabel') {
+      return deserialize<_i3ntsck3.SimulatedLabel>(data['data']);
     }
     if (dataClassName == 'SimulatedLink') {
       return deserialize<_ieclo1rh.SimulatedLink>(data['data']);

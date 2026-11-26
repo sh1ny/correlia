@@ -307,7 +307,7 @@ void main() {
     expect(first.conditions.single.field, 'labels.site');
     expect(first.actions, isEmpty);
     expect(result.trace[1].outcome, 'matched');
-    expect(result.finalLabels['team'], 'b');
+    expect(result.finalLabelMap['team'], 'b');
   });
 
   test('a_false_leaf_names_the_operator_it_fails', () async {
@@ -348,7 +348,7 @@ void main() {
       expect(trace.actions, isEmpty);
       expect(trace.failureCode, isNull);
     }
-    expect(result.finalLabels, {'alertname': 'Watchdog'});
+    expect(result.finalLabelMap, {'alertname': 'Watchdog'});
   });
 
   test('conditions_are_a_flat_list_with_parent_indexes', () async {
@@ -405,9 +405,9 @@ void main() {
     final later = result.trace[1];
     expect((later.outcome, later.failureCode), ('failed', 'regex_budget'));
     expect(result.trace[2].outcome, 'matched');
-    expect(result.finalLabels, containsPair('c', '3'));
-    expect(result.finalLabels, isNot(contains('a')));
-    expect(result.finalLabels, isNot(contains('b')));
+    expect(result.finalLabelMap, containsPair('c', '3'));
+    expect(result.finalLabelMap, isNot(contains('a')));
+    expect(result.finalLabelMap, isNot(contains('b')));
   });
 
   test('simulation_reaches_the_optional_cutoff', () async {
@@ -437,9 +437,9 @@ void main() {
       expect(trace.conditions, isEmpty);
       expect(trace.actions, isEmpty);
     }
-    expect(result.finalLabels, containsPair('a', '1'));
-    expect(result.finalLabels, isNot(contains('b')));
-    expect(result.finalLabels, isNot(contains('c')));
+    expect(result.finalLabelMap, containsPair('a', '1'));
+    expect(result.finalLabelMap, isNot(contains('b')));
+    expect(result.finalLabelMap, isNot(contains('c')));
   });
 
   test('cutoff_before_the_condition_is_evaluated', () async {
@@ -494,7 +494,7 @@ void main() {
       'site=fra1, environment=production',
       'site=ams2, environment=production',
     ]);
-    expect(result.finalLabels, containsPair('site', 'ams2'));
+    expect(result.finalLabelMap, containsPair('site', 'ams2'));
   });
 
   test('a_partly_overwritten_location_marks_the_overwritten_label', () async {
@@ -519,8 +519,8 @@ void main() {
       'site=eu1 (overwritten later in its rule), environment=prod',
     );
     expect((location.effect, location.applied), ('staged', true));
-    expect(result.finalLabels, containsPair('site', 'eu2'));
-    expect(result.finalLabels, containsPair('environment', 'prod'));
+    expect(result.finalLabelMap, containsPair('site', 'eu2'));
+    expect(result.finalLabelMap, containsPair('environment', 'prod'));
   });
 
   test('later_rule_wins_a_shared_key', () async {
@@ -534,9 +534,9 @@ void main() {
     expect(result.trace.map((t) => t.outcome), ['matched', 'matched']);
     expect(result.trace[0].actions.single.applied, isTrue);
     expect(result.trace[1].actions.single.applied, isTrue);
-    expect(result.finalLabels['team'], 'platform');
-    expect(result.finalLabelOrigins['team'], 'matcher');
-    expect(result.finalLabelOrigins['alertname'], 'source');
+    expect(result.finalLabelMap['team'], 'platform');
+    expect(result.finalLabelOriginMap['team'], 'matcher');
+    expect(result.finalLabelOriginMap['alertname'], 'source');
   });
 
   test('a_failing_action_discards_only_its_rule_s_patch', () async {
@@ -570,9 +570,9 @@ void main() {
     ]);
     expect(broken.actions[1].detail, 'long');
     expect(result.trace[1].outcome, 'matched');
-    expect(result.finalLabels, containsPair('kept', 'y'));
-    expect(result.finalLabels, isNot(contains('staged')));
-    expect(result.finalLabels, isNot(contains('long')));
+    expect(result.finalLabelMap, containsPair('kept', 'y'));
+    expect(result.finalLabelMap, isNot(contains('staged')));
+    expect(result.finalLabelMap, isNot(contains('long')));
   });
 
   test('an_overwrite_before_a_failed_action_is_still_reported', () async {
@@ -602,7 +602,7 @@ void main() {
       'failed: regex_timeout',
     ]);
     expect(rule.actions.map((a) => a.applied), [false, false, false]);
-    expect(result.finalLabels, isNot(contains('team')));
+    expect(result.finalLabelMap, isNot(contains('team')));
   });
 
   test('a_link_past_the_limit_is_the_failed_action', () async {
@@ -695,9 +695,9 @@ void main() {
       'not run',
     ]);
     expect(extracts.actions.map((a) => a.applied), [false, false, false]);
-    expect(result.finalLabels, isNot(contains('staged')));
-    expect(result.finalLabels, isNot(contains('slow')));
-    expect(result.finalLabels, isNot(contains('after')));
+    expect(result.finalLabelMap, isNot(contains('staged')));
+    expect(result.finalLabelMap, isNot(contains('slow')));
+    expect(result.finalLabelMap, isNot(contains('after')));
     expect(result.trace[1].outcome, 'matched');
   });
 
@@ -745,7 +745,7 @@ void main() {
     expect((trace.outcome, trace.failureCode), ('failed', 'batch_bound'));
     expect(trace.conditions.single.outcome, 'matched');
     expect(trace.actions.single.applied, isFalse);
-    expect(result.finalLabels, isNot(contains('big')));
+    expect(result.finalLabelMap, isNot(contains('big')));
     expect(result.baselineOverFanout, isFalse);
   });
 
@@ -796,7 +796,7 @@ void main() {
       'not attempted',
     ]);
     expect(result.notes.join(' '), contains('baseline'));
-    expect(result.finalLabels, {'alertname': 'Watchdog'});
+    expect(result.finalLabelMap, {'alertname': 'Watchdog'});
   });
 
   test('no_rules_active_returns_the_event_unchanged', () async {
@@ -814,7 +814,7 @@ void main() {
     expect(result.trace, isEmpty);
     expect(result.ruleSource, 'active');
     expect((result.snapshotId, result.snapshotRevision), ('snap-1', 4));
-    expect(result.finalLabels, event.labels);
+    expect(result.finalLabelMap, event.labels);
     expect(result.finalSeverity, event.severity.name);
     expect(result.eventKind, event.kind.name);
     expect(result.error, isNull);
@@ -926,7 +926,7 @@ void main() {
     expect(result.finalSeverity, 'critical');
     expect(result.finalLinks.single.href, 'https://example.com/runbook');
     expect(result.finalLinks.single.relation, 'runbook');
-    expect(result.finalLabels, isNot(contains('nohost')));
+    expect(result.finalLabelMap, isNot(contains('nohost')));
   });
 
   test(
@@ -971,7 +971,7 @@ void main() {
       expect(result.trace[0].actions[4].detail, startsWith('team = '));
       // A write in a later rule is a separate, applied patch.
       expect(result.trace[1].actions.single.applied, isTrue);
-      expect(result.finalLabels['team'], 'fourth');
+      expect(result.finalLabelMap['team'], 'fourth');
       expect(result.finalSeverity, 'info');
     },
   );
@@ -1035,8 +1035,8 @@ void main() {
       ]),
     );
     expect(result.noiseClassHint, 'heartbeat');
-    expect(result.finalLabels[_key], 'heartbeat');
-    expect(result.finalLabelOrigins[_key], 'matcher');
+    expect(result.finalLabelMap[_key], 'heartbeat');
+    expect(result.finalLabelOriginMap[_key], 'matcher');
   });
 
   test('a_source_label_with_the_reserved_key_is_not_a_hint', () async {
@@ -1050,8 +1050,8 @@ void main() {
       ]),
     );
     expect(result.noiseClassHint, isNull);
-    expect(result.finalLabels[_key], 'heartbeat');
-    expect(result.finalLabelOrigins[_key], 'source');
+    expect(result.finalLabelMap[_key], 'heartbeat');
+    expect(result.finalLabelOriginMap[_key], 'source');
   });
 
   test('a_later_write_to_the_reserved_key_is_not_a_hint', () async {
@@ -1065,7 +1065,7 @@ void main() {
       ]),
     );
     expect(result.noiseClassHint, isNull);
-    expect(result.finalLabels[_key], 'other');
+    expect(result.finalLabelMap[_key], 'other');
   });
 
   test('stored_event_data_is_shown_apart_from_the_hint', () async {
@@ -1096,9 +1096,9 @@ void main() {
     );
     expect(result.noiseClassHint, isNull);
     expect(result.storedSnapshotId, 'old-snap');
-    expect(result.storedLabels, containsPair(_key, 'heartbeat'));
-    expect(result.storedLabelOrigins, containsPair(_key, 'matcher'));
-    expect(result.finalLabels, isNot(contains(_key)));
+    expect(result.storedLabelMap, containsPair(_key, 'heartbeat'));
+    expect(result.storedLabelOriginMap, containsPair(_key, 'matcher'));
+    expect(result.finalLabelMap, isNot(contains(_key)));
     final error = result.storedEnrichmentErrors!.single;
     expect(
       (error.stage, error.code, error.message),
@@ -1115,7 +1115,7 @@ void main() {
   test('a_pasted_event_carries_no_stored_data', () async {
     final result = await _simulate(_event(), MatcherDocument.empty);
     expect(result.storedSnapshotId, isNull);
-    expect(result.storedLabels, isNull);
+    expect(result.storedLabelMap, isNull);
     expect(result.storedEnrichmentErrors, isNull);
     expect(result.storedBudgetNote, isNull);
   });

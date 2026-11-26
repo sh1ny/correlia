@@ -185,6 +185,59 @@ void main() {
         expect(await _sessionLogs(session, 'ruleSimulator'), 0);
       });
 
+      test('a_label_key_that_names_a_model_reaches_the_client', () async {
+        // `__className__` is a valid label key, and its value names a model
+        // the client knows: the labels must still decode as labels.
+        await support.seed(session, [
+          payload.alert(
+            startsAt: '2026-11-10T12:00:00Z',
+            labels: {'alertname': 'Example', '__className__': 'RuleTrace'},
+          ),
+        ]);
+        final worker = PipelineRepository(
+          session,
+          clock: () => support.now,
+          elapsedForTest: () => Duration.zero,
+        );
+        expect(await worker.pinOne(), isTrue);
+        expect(await worker.processOne(), isTrue);
+        final event = (await session.db.unsafeQuery(
+          'SELECT event_id::text, observed_at FROM events',
+        )).single;
+        final result = await client.ruleSimulator.simulate(
+          eventId: event[0]! as String,
+          observedAt: (event[1]! as DateTime).toUtc().toIso8601String(),
+          draftMatcher: jsonEncode(
+            _matcher([
+              _rule('draft', [
+                {
+                  'type': 'set_label',
+                  'key': '__className__',
+                  'value': 'SimulationError',
+                },
+              ]),
+            ]),
+          ),
+        );
+        expect(result.error, isNull);
+        expect(
+          labelMap(result.storedLabels!),
+          containsPair('__className__', 'RuleTrace'),
+        );
+        expect(
+          labelMap(result.finalLabels),
+          containsPair('__className__', 'SimulationError'),
+        );
+        expect(
+          labelMap(result.finalLabelOrigins),
+          containsPair('__className__', 'matcher'),
+        );
+        expect(
+          labelMap(result.storedLabelOrigins!),
+          isA<Map<String, String>>(),
+        );
+      });
+
       test('simulation_leaves_stored_state_unchanged', () async {
         await support.seed(session, [
           payload.alert(
@@ -220,7 +273,7 @@ void main() {
         );
         expect(result.error, isNull);
         expect(result.ruleSource, 'draft');
-        expect(result.finalLabels, containsPair('draft', 'yes'));
+        expect(labelMap(result.finalLabels), containsPair('draft', 'yes'));
         expect(result.addedRoutes, [_outB]);
         expect(await _state(session), before);
       });
@@ -240,3 +293,8 @@ Future<void> _waitForLogs(Session session, String endpoint, int count) async {
   }
   fail('no session log row for $endpoint');
 }
+
+/// [labels] as a map, as the client receives them.
+Map<String, String> labelMap(List<rpc.SimulatedLabel> labels) => {
+  for (final label in labels) label.key: label.value,
+};

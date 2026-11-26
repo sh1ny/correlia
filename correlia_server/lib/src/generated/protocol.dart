@@ -47,6 +47,7 @@ import 'plugin_instance_status.dart' as _i5barlkw;
 import 'rule_simulation_result.dart' as _i2oitrdy;
 import 'rule_trace.dart' as _ingcfw9t;
 import 'secret_record.dart' as _ibz1p89x;
+import 'simulated_label.dart' as _i3ntsck3;
 import 'simulated_link.dart' as _ieclo1rh;
 import 'simulation_error.dart' as _izi5l5xj;
 import 'stored_enrichment_error.dart' as _iy99nx4o;
@@ -85,6 +86,7 @@ export 'plugin_instance_status.dart';
 export 'rule_simulation_result.dart';
 export 'rule_trace.dart';
 export 'secret_record.dart';
+export 'simulated_label.dart';
 export 'simulated_link.dart';
 export 'simulation_error.dart';
 export 'stored_enrichment_error.dart';
@@ -137,6 +139,7 @@ class Protocol extends _is.DatabaseSerializationManager
           _is.getType<_i2oitrdy.RuleSimulationResult>,
           _is.getType<_ingcfw9t.RuleTrace>,
           _is.getType<_ibz1p89x.SecretRecord>,
+          _is.getType<_i3ntsck3.SimulatedLabel>,
           _is.getType<_ieclo1rh.SimulatedLink>,
           _is.getType<_izi5l5xj.SimulationError>,
           _is.getType<_iy99nx4o.StoredEnrichmentError>,
@@ -175,6 +178,7 @@ class Protocol extends _is.DatabaseSerializationManager
           _is.getType<_i2oitrdy.RuleSimulationResult?>,
           _is.getType<_ingcfw9t.RuleTrace?>,
           _is.getType<_ibz1p89x.SecretRecord?>,
+          _is.getType<_i3ntsck3.SimulatedLabel?>,
           _is.getType<_ieclo1rh.SimulatedLink?>,
           _is.getType<_izi5l5xj.SimulationError?>,
           _is.getType<_iy99nx4o.StoredEnrichmentError?>,
@@ -185,10 +189,10 @@ class Protocol extends _is.DatabaseSerializationManager
           _is.getType<List<_i20s3xik.MappingPreviewEvent>>,
           _is.getType<List<_ibaui0zg.MappingPreviewDiagnostic>>,
           _is.getType<List<_ingcfw9t.RuleTrace>>,
-          _is.getType<Map<String, String>>,
+          _is.getType<List<_i3ntsck3.SimulatedLabel>>,
           _is.getType<List<_ieclo1rh.SimulatedLink>>,
           _is.getType<List<String>>,
-          _is.getType<Map<String, String>?>,
+          _is.getType<List<_i3ntsck3.SimulatedLabel>?>,
           _is.getType<List<_iy99nx4o.StoredEnrichmentError>>,
           _is.getType<List<_iy99nx4o.StoredEnrichmentError>?>,
           _is.getType<List<_i0ehnxud.ConditionTrace>>,
@@ -230,6 +234,7 @@ class Protocol extends _is.DatabaseSerializationManager
           'RuleSimulationResult',
           'RuleTrace',
           'SecretRecord',
+          'SimulatedLabel',
           'SimulatedLink',
           'SimulationError',
           'StoredEnrichmentError',
@@ -1662,6 +1667,9 @@ class Protocol extends _is.DatabaseSerializationManager
     if (t == _ibz1p89x.SecretRecord) {
       return _ibz1p89x.SecretRecord.fromJson(data) as T;
     }
+    if (t == _i3ntsck3.SimulatedLabel) {
+      return _i3ntsck3.SimulatedLabel.fromJson(data) as T;
+    }
     if (t == _ieclo1rh.SimulatedLink) {
       return _ieclo1rh.SimulatedLink.fromJson(data) as T;
     }
@@ -1838,6 +1846,10 @@ class Protocol extends _is.DatabaseSerializationManager
     if (t == _is.getType<_ibz1p89x.SecretRecord?>()) {
       return (data != null ? _ibz1p89x.SecretRecord.fromJson(data) : null) as T;
     }
+    if (t == _is.getType<_i3ntsck3.SimulatedLabel?>()) {
+      return (data != null ? _i3ntsck3.SimulatedLabel.fromJson(data) : null)
+          as T;
+    }
     if (t == _is.getType<_ieclo1rh.SimulatedLink?>()) {
       return (data != null ? _ieclo1rh.SimulatedLink.fromJson(data) : null)
           as T;
@@ -1891,10 +1903,10 @@ class Protocol extends _is.DatabaseSerializationManager
               .toList()
           as T;
     }
-    if (t == Map<String, String>) {
-      return (data as Map).map(
-            (k, v) => MapEntry(deserialize<String>(k), deserialize<String>(v)),
-          )
+    if (t == List<_i3ntsck3.SimulatedLabel>) {
+      return (data as List)
+              .map((e) => deserialize<_i3ntsck3.SimulatedLabel>(e))
+              .toList()
           as T;
     }
     if (t == List<_ieclo1rh.SimulatedLink>) {
@@ -1906,12 +1918,11 @@ class Protocol extends _is.DatabaseSerializationManager
     if (t == List<String>) {
       return (data as List).map((e) => deserialize<String>(e)).toList() as T;
     }
-    if (t == _is.getType<Map<String, String>?>()) {
+    if (t == _is.getType<List<_i3ntsck3.SimulatedLabel>?>()) {
       return (data != null
-              ? (data as Map).map(
-                  (k, v) =>
-                      MapEntry(deserialize<String>(k), deserialize<String>(v)),
-                )
+              ? (data as List)
+                    .map((e) => deserialize<_i3ntsck3.SimulatedLabel>(e))
+                    .toList()
               : null)
           as T;
     }
@@ -1991,6 +2002,7 @@ class Protocol extends _is.DatabaseSerializationManager
       _i2oitrdy.RuleSimulationResult => 'RuleSimulationResult',
       _ingcfw9t.RuleTrace => 'RuleTrace',
       _ibz1p89x.SecretRecord => 'SecretRecord',
+      _i3ntsck3.SimulatedLabel => 'SimulatedLabel',
       _ieclo1rh.SimulatedLink => 'SimulatedLink',
       _izi5l5xj.SimulationError => 'SimulationError',
       _iy99nx4o.StoredEnrichmentError => 'StoredEnrichmentError',
@@ -2077,6 +2089,8 @@ class Protocol extends _is.DatabaseSerializationManager
         return 'RuleTrace';
       case _ibz1p89x.SecretRecord():
         return 'SecretRecord';
+      case _i3ntsck3.SimulatedLabel():
+        return 'SimulatedLabel';
       case _ieclo1rh.SimulatedLink():
         return 'SimulatedLink';
       case _izi5l5xj.SimulationError():
@@ -2200,6 +2214,9 @@ class Protocol extends _is.DatabaseSerializationManager
     }
     if (dataClassName == 'SecretRecord') {
       return deserialize<_ibz1p89x.SecretRecord>(data['data']);
+    }
+    if (dataClassName == 'SimulatedLabel') {
+      return deserialize<_i3ntsck3.SimulatedLabel>(data['data']);
     }
     if (dataClassName == 'SimulatedLink') {
       return deserialize<_ieclo1rh.SimulatedLink>(data['data']);
