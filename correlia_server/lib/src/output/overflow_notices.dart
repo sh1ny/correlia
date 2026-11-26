@@ -125,8 +125,15 @@ final class OverflowNotices {
         timeoutInSeconds: 5,
       );
       await lockOutputCommitments(session, tx, pin, fitting.map((d) => d.id));
+      final created =
+          (await session.db.unsafeQuery(
+                'SELECT clock_timestamp()',
+                transaction: tx,
+                timeoutInSeconds: 5,
+              )).single[0]!
+              as DateTime;
       for (final destination in fitting) {
-        await insertQueueIntent(session, tx, pin, occurred, (
+        await insertQueueIntent(session, tx, pin, created, (
           observed: occurred,
           event: event.eventId,
           disposition: 'ready',

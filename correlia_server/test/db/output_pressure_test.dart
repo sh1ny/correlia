@@ -645,6 +645,66 @@ void main() {
       );
 
       test(
+        'capacity_lock_statement_timeout_keeps_processing_allowance',
+        () async {
+          await _publish(session, 1, outputs: [_first]);
+          await _send(session, ['valid-during-capacity-contention']);
+          final pinner = _worker(session);
+          expect(await pinner.pinOne(), isTrue);
+          await session.db.unsafeExecute(
+            'UPDATE raw_inbox SET attempt_count=4',
+          );
+          final locker = builder.build();
+          final locked = Completer<void>();
+          final gate = ContentionGate();
+          final holding = gate.run(
+            () => locker.db.transaction((tx) async {
+              await locker.db.unsafeQuery('''
+              SELECT 1 FROM pipeline_output_capacity WHERE output_id='$_first' FOR UPDATE
+            ''', transaction: tx);
+              locked.complete();
+              await gate.future;
+            }),
+          );
+          try {
+            await Future.any([
+              locked.future,
+              holding.then<void>((_) => fail('Capacity lock was not held')),
+            ]);
+            final contender = PipelineRepository(
+              session,
+              clock: () => raw.now,
+              elapsedForTest: () => Duration.zero,
+              beforeCapacityLockForTest: (tx) => session.db.unsafeSimpleExecute(
+                "SET LOCAL statement_timeout='50ms'; SET LOCAL lock_timeout=0",
+                transaction: tx,
+              ),
+            );
+            expect(await contender.processOne(), isTrue);
+            final row = (await session.db.unsafeQuery(
+              'SELECT status,attempt_count,next_attempt_at FROM raw_inbox',
+            )).single;
+            expect(row.toList(), [
+              'pending',
+              4,
+              raw.now.add(const Duration(seconds: 1)),
+            ]);
+            expect(await raw.count(session, 'events'), 0);
+            expect(await raw.count(session, 'pipeline_failures'), 0);
+            await gate.join();
+            await holding;
+            await session.db.unsafeExecute(
+              'UPDATE raw_inbox SET next_attempt_at=NULL',
+            );
+            expect(await pinner.processOne(), isTrue);
+            expect(await _intents(session), {_first: 1});
+          } finally {
+            await gate.join();
+          }
+        },
+      );
+
+      test(
         'deferral_deadline_leaves_the_processing_allowance_intact',
         () async {
           final snapshot = await _publish(
@@ -1195,6 +1255,8 @@ void main() {
     testGroupTagsOverride: ['db'],
   );
 
+  final historicalCluster = LockWitnessCluster();
+  tearDownAll(historicalCluster.close);
   withServerpod(
     'overflow routes into a pre-existing heap',
     (builder, _) {
@@ -1248,7 +1310,27 @@ void main() {
             },
           );
           await _process(session, ['legacy-child-overflow']);
+          final before =
+              (await session.db.unsafeQuery(
+                    'SELECT clock_timestamp()',
+                  )).single[0]!
+                  as DateTime;
           expect(await OverflowNotices(session).routeOne(), isTrue);
+          final after =
+              (await session.db.unsafeQuery(
+                    'SELECT clock_timestamp()',
+                  )).single[0]!
+                  as DateTime;
+          final intent = (await session.db.unsafeQuery('''
+            SELECT o.created_at,o.tableoid::regclass::text,r.child_name
+            FROM outbox o JOIN pipeline_partition_range r ON r.parent_name='outbox'
+              AND r.first_day <= (o.created_at AT TIME ZONE 'UTC')::date
+              AND r.end_day > (o.created_at AT TIME ZONE 'UTC')::date
+            WHERE o.output_id='$_second'
+          ''')).single;
+          final created = intent[0]! as DateTime;
+          expect(created.isBefore(before) || created.isAfter(after), isFalse);
+          expect(intent[1], intent[2]);
           final result = (await session.db.unsafeQuery('''
         SELECT e.tableoid::regclass::text,e.raw_observed_at,e.raw_id,e.system_activity_id,
           n.evidence,payload
@@ -1286,6 +1368,8 @@ void main() {
       );
     },
     rollbackDatabase: RollbackDatabase.disabled,
+    ephemeralDatabase: false,
+    configOverride: historicalCluster.override,
     testGroupTagsOverride: ['db'],
   );
 }

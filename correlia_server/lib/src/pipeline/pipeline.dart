@@ -237,6 +237,12 @@ final class _OutputDeferral implements Exception {
   final Map<String, ({int rows, int bytes})> demands;
 }
 
+// The row deadline can expire before PostgreSQL's lock timeout when an
+// accepted row waits on output capacity. That is contention, not bad work.
+final class _OutputCapacityWait implements Exception {
+  const _OutputCapacityWait();
+}
+
 Future<void> _writeIntents(
   Session session,
   Transaction tx,
@@ -245,15 +251,27 @@ Future<void> _writeIntents(
   List<QueueIntent> intents,
   Iterable<String> destinations,
   DateTime created,
+  Future<void> Function(Transaction)? beforeCapacityLockForTest,
 ) async {
   if (intents.isEmpty) return;
-  // Relay finalization holds the outbox relation before releasing capacity.
-  await session.db.unsafeExecute(
-    'LOCK TABLE ONLY outbox IN ROW EXCLUSIVE MODE',
-    transaction: tx,
-    timeoutInSeconds: 5,
-  );
-  final caps = await lockOutputCapacity(session, tx, destinations);
+  final Map<String, OutputCapacity> caps;
+  try {
+    // Relay finalization holds the outbox relation before releasing capacity.
+    await session.db.unsafeExecute(
+      'LOCK TABLE ONLY outbox IN ROW EXCLUSIVE MODE',
+      transaction: tx,
+      timeoutInSeconds: 5,
+    );
+    if (beforeCapacityLockForTest != null) {
+      await beforeCapacityLockForTest(tx);
+    }
+    caps = await lockOutputCapacity(session, tx, destinations);
+  } on DatabaseQueryException catch (error) {
+    if (error.code != '57014') rethrow;
+    throw const _OutputCapacityWait();
+  } on TimeoutException {
+    throw const _OutputCapacityWait();
+  }
   final demands = <String, ({int rows, int bytes})>{};
   for (final intent in intents) {
     final id = intent.destination.id;
@@ -369,6 +387,7 @@ final class PipelineRepository {
     this.afterKeyReservationForTest,
     this.elapsedForTest,
     this.afterOutputRefusalForTest,
+    this.beforeCapacityLockForTest,
     Map<String, int>? retryCounts,
     this.retryDelay,
     PipelineCounters? counters,
@@ -401,6 +420,9 @@ final class PipelineRepository {
 
   /// Lets a fixture exhaust the remaining row deadline after a refusal.
   final void Function()? afterOutputRefusalForTest;
+
+  /// Lets a fixture hold a capacity lock past the remaining SQL deadline.
+  final Future<void> Function(Transaction)? beforeCapacityLockForTest;
   final Map<String, int> _retryCounts;
   final Duration Function(int)? retryDelay;
   final PipelineCounters counters;
@@ -963,6 +985,7 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
             intents,
             registry.keys,
             clock().toUtc(),
+            beforeCapacityLockForTest,
           );
           // If no intent was emitted, pin release still takes output locks
           // before the sync-progress and pending-count fences.
@@ -1265,6 +1288,7 @@ FROM failure''',
   Future<void> _recordError(_Raw raw, Object error) async {
     final code = error is DatabaseQueryException ? error.code : null;
     final transient =
+        error is _OutputCapacityWait ||
         code == '40001' ||
         code == '40P01' ||
         code == '55P03' ||

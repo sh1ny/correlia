@@ -477,8 +477,9 @@ void main() {
           log: (_) {},
           interval: interval,
           beforeCommitForTest: (lane) async {
-            if (failExpiry && lane == 'expiry')
+            if (failExpiry && lane == 'expiry') {
               throw StateError('test rollback');
+            }
           },
         );
         try {
