@@ -212,6 +212,11 @@ and initialize metadata. Existing delivered and dead entries without a matching 
 receive the cutover time, not their original creation time. A plugin intent rejected as oversized
 before a new attempt gets the cutover time even if it previously retried.
 
+The partition script has a one-hour execution timeout. Set
+`CORRELIA_PARTITION_CUTOVER_TIMEOUT_SECONDS` to a larger positive integer on the upgraded process if
+the database needs a longer maintenance window. This changes only the partition script's client
+deadline. The 30-second PostgreSQL lock timeout and other startup query deadlines are unchanged.
+
 Wait for startup before restarting writers. If the schema step fails, its table changes and
 version record roll back together. Clear the blocking transaction or fix the cause and restart the
 new binary. A successful forward cutover can be undone only by restoring the pre-upgrade backup.

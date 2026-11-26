@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:correlia_server/src/generated/protocol.dart';
@@ -427,6 +428,51 @@ void main() {
         );
         expect((await _evidence(session))['raw_inbox'], hasLength(3));
       });
+    },
+    rollbackDatabase: RollbackDatabase.disabled,
+    testGroupTagsOverride: ['db'],
+  );
+
+  withServerpod(
+    'pipeline partition deadline defaults',
+    (builder, _) {
+      test(
+        'production_cutover_has_a_separate_client_deadline',
+        () async {
+          final session = builder.build();
+          await _predecessor(session);
+          await _seed(session);
+          var cutoverStarted = false;
+          final deadlines = <Duration>[];
+          Future<void> observe(Transaction tx, SchemaStep step) async {
+            expect(step.version, _cutoverVersion);
+            expect(
+              (await session.db.unsafeQuery(
+                "SELECT current_setting('lock_timeout')",
+                transaction: tx,
+              )).single[0],
+              '30s',
+            );
+            cutoverStarted = true;
+          }
+
+          await runZoned(
+            () => applySchemaSteps(
+              session,
+              [schemaSteps.singleWhere((s) => s.version == _cutoverVersion)],
+              beforeStepForTest: observe,
+            ),
+            zoneSpecification: ZoneSpecification(
+              createTimer: (self, parent, zone, delay, callback) {
+                if (cutoverStarted) deadlines.add(delay);
+                return parent.createTimer(zone, delay, callback);
+              },
+            ),
+          );
+          expect(deadlines, contains(const Duration(hours: 1)));
+          expect(await _partitionedParents(session), _parents);
+        },
+      );
     },
     rollbackDatabase: RollbackDatabase.disabled,
     testGroupTagsOverride: ['db'],

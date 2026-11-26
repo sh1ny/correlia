@@ -38,6 +38,8 @@ Keep transport keys through their retry window and until no eligible receipt can
 
 Stop every old process before cutover. Attach each populated heap through the UTC day containing its highest stored key; do not drain accepted work or copy its payloads to move it. Future work normally goes to daily UTC partitions. The default partitions accept valid timestamps outside prepared ranges. Parent composite identities and the admission cutoff still apply. An event carries exactly one origin: both raw-key parts, or a system activity ID. Either form works in the attached historical child.
 
+The offline partition script has its own client deadline. `CORRELIA_PARTITION_CUTOVER_TIMEOUT_SECONDS` defaults to 3600 and can be increased for a longer maintenance window. It does not change the 30-second SQL lock timeout or the atomic version record.
+
 Each preparation attempt uses a bounded transaction for one empty day. If validation times out, leave default routing in place and record a durable retry. An outcome from an older attempt cannot replace newer success. There is no automatic preparation deadline when defaults remain populated. Offline repair requires stopped writers, range validation and the maintenance lock; do not detach default or move protected rows to make an attach succeed.
 
 ## Consequences

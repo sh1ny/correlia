@@ -109,6 +109,12 @@ Attempt to attach one empty UTC day per bounded transaction. The window includes
 
 Rejected: extend the online DDL lock window until validation can finish. This could pause unrelated admission and processing under load. Reversal cost: medium. Important: yes, availability and operational fallback. Chosen by: user.
 
+### D14: Set the offline partition execution deadline separately
+
+Set `CORRELIA_PARTITION_CUTOVER_TIMEOUT_SECONDS` to a positive integer in seconds, default 3600. Apply it only to the offline partition script. Keep the 30-second lock timeout and commit the script and its version record together.
+
+Rejected: fix the timeout at one hour. A large installation that hits the limit would still need a rebuilt binary. Reversal cost: medium. Important: yes, operator configuration. Chosen by: user (item 88).
+
 ### Decision summary
 
 | # | Decision | Choice | Rejected | Reversal cost | Important | Chosen by |
@@ -129,6 +135,7 @@ Rejected: extend the online DDL lock window until validation can finish. This co
 | D11 | Bounded lookups | Transactional counts, indexed failures and bounded candidates | Scan payload queues | high | yes | user |
 | D12 | Historical secrets | Indexed references, unchanged verification | Defer all validation to relay | medium | yes | user |
 | D13 | Default validation | Bounded attempt, durable retry and documented offline repair | Longer online DDL lock | medium | yes | user |
+| D14 | Offline cutover execution deadline | Partition-only setting, default one hour | Fixed one-hour client deadline | medium | yes | user |
 
 ## Assumptions
 

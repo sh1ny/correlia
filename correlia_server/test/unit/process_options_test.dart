@@ -26,6 +26,38 @@ ProcessOptionsError _rejected(List<String> args) {
 }
 
 void main() {
+  group('offline partition cutover timeout', () {
+    const setting = 'CORRELIA_PARTITION_CUTOVER_TIMEOUT_SECONDS';
+
+    test('defaults to one hour and accepts an operator override', () {
+      expect(_parsed([]).partitionCutoverTimeoutSeconds, 3600);
+      expect(
+        _parsed([], env: {setting: '7200'}).partitionCutoverTimeoutSeconds,
+        7200,
+      );
+    });
+
+    test('invalid timeouts reject startup without echoing the value', () {
+      for (final value in [
+        '',
+        '0',
+        '-1',
+        '1.5',
+        '0xff',
+        '9223372036854775807',
+      ]) {
+        final result = ProcessOptions.parse([], environment: {setting: value});
+        expect(result, isA<ProcessOptionsError>());
+        final error = result as ProcessOptionsError;
+        expect(error.exitCode, 2);
+        expect(
+          error.message,
+          '$setting must be a positive integer number of seconds.',
+        );
+      }
+    });
+  });
+
   group('--process-role', () {
     test('defaults to all', () {
       expect(_parsed([]).role, ProcessRole.all);
