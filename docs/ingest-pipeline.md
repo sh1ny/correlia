@@ -419,7 +419,9 @@ The result carries:
   `site=eu1 (overwritten later in its rule), environment=prod`. A write in a later rule is a separate patch, so both rules' writes are applied. A `map_severity`
   whose target equals the event's current severity is `skipped: severity already <value>`.
 - The final labels, label origins, links, severity and `eventKind`, plus `noiseClassHint` when a rule classified
-  the event.
+  the event. `finalLabelOrigins` gives every label its effective origin: a label with no recorded origin, as
+  Alertmanager leaves its source labels, shows `source`. `storedLabelOrigins` is the stored map as it is, so it
+  can leave such labels out.
 - `baselineRoutes` (the source's routes in the active snapshot) and `addedRoutes` from `route` actions. Added
   routes are hypothetical: delivery eligibility is not evaluated. `sourceAbsent` is true when the event's source
   is not in the active snapshot.

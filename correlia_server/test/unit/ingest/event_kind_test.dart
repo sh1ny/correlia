@@ -182,6 +182,19 @@ void main() {
       _streamKind(soft, StreamStateTypePolicy.softAndHard),
       EventKind.alert,
     );
+    // A SOFT recovery is still a resolved alert under hard_only.
+    final recovery =
+        jsonDecode(jsonEncode(state('service recovery')))
+            as Map<String, Object?>;
+    final check = recovery['check_result']! as Map<String, Object?>;
+    (check['vars_after']! as Map<String, Object?>)['state_type'] = 0;
+    recovery['state_type'] = 0;
+    expect(
+      _stream(recovery, StreamStateTypePolicy.hardOnly),
+      isA<IcingaStreamEvent>()
+          .having((e) => e.event.kind, 'kind', EventKind.alert)
+          .having((e) => e.event.status, 'status', EventStatus.resolved),
+    );
   });
 
   test('a_label_named_kind_does_not_change_kind', () async {
