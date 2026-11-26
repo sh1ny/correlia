@@ -187,6 +187,8 @@ run in every role unless they are switched off:
   - `pipeline_queue_policy`, `pipeline_pending`, `pipeline_disk_sample`, `pipeline_output_capacity`,
     `pipeline_output_commitment` and `pipeline_event_reference`: committed queue policy, pending
     reservations, sampled storage, output counts and historical references (ADR 0034).
+  - `pipeline_overflow_notice`: durable overflow routing claims and sanitized evidence for
+    Correlia-origin canonical alerts. No notice can bypass a destination's queue budget.
 
   `alerts` is a Serverpod-managed table with a unique tenant/fingerprint index.
 

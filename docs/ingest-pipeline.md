@@ -254,6 +254,23 @@ Disk pressure uses `pg_database_size(current_database())` with a shared one-seco
 causes `/readyz` to return `503` on `api` and `all`; `/livez` and `/startupz` do not depend on the
 watermark. This is a database budget, not a free-space check for the host or its WAL volume.
 
+Queued, delivering and dead intents consume one slot and the length of the exact stored
+CloudEvent. Successful delivery or dead-letter expiry frees that capacity. A budget reduction
+does not purge existing work: the output may remain over budget until enough intents leave.
+
+`discard_new` drops only new intents that do not fit and increments the output's durable
+discard count. Other outputs still receive their intents. `block_ingest` defers an already
+accepted raw row if the full set of its intents for that output cannot fit. The row retains
+its configuration pin and retry allowance. No partial state, event or delivery effects
+commit; the worker tries the row again when it becomes eligible.
+
+An output opens one overflow episode per period of saturation or refusal. The activity
+ledger records the episode before the worker tries to route a sanitized Correlia alert to
+the other active outputs. Each destination must have room. The notice does not alter alert
+state, does not generate another notice and carries only a reference and hash of its stored
+ledger evidence, not sender data. The ledger still shows the episode when none of the
+other outputs can take the alert.
+
 ## Repair migrations
 
 Serverpod's repair diff may propose dropping SQL-owned objects it does not recognize. Review the

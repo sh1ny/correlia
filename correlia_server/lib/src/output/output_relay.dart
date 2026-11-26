@@ -501,6 +501,33 @@ final class OutputRelayRepository {
     try {
       return await session.db.transaction((tx) async {
         await _timeout(tx, batch.deadline);
+        final locked = await session.db.unsafeQuery(
+          '''WITH held AS MATERIALIZED (
+            SELECT o.output_id,o.event_observed_at,o.event_id,o.event_disposition
+            FROM outbox o JOIN ($input) x ON (o.created_at,o.delivery_id)=(x.created,x.id)
+            WHERE o.status='delivering' AND o.claim_id=@claim::uuid
+              AND o.lease_until>clock_timestamp() AND o.attempt_count=x.number
+            ORDER BY o.created_at,o.delivery_id FOR UPDATE OF o
+          ), lanes AS MATERIALIZED (
+            SELECT c.output_id FROM pipeline_output_capacity c
+            WHERE c.output_id IN (SELECT output_id FROM held)
+            ORDER BY c.output_id FOR UPDATE
+          ), refs AS MATERIALIZED (
+            SELECT r.event_id FROM (
+              SELECT DISTINCT event_observed_at,event_id,event_disposition FROM held
+            ) h JOIN pipeline_event_reference r
+              ON (h.event_observed_at,h.event_id,h.event_disposition)=
+                 (r.observed_at,r.event_id,r.disposition)
+            WHERE (SELECT count(*) FROM lanes)>0
+            ORDER BY r.observed_at,r.event_id,r.disposition FOR UPDATE OF r
+          )
+          SELECT (SELECT count(*) FROM held),(SELECT count(*) FROM refs)''',
+          parameters: params,
+          transaction: tx,
+          timeoutInSeconds: 5,
+        );
+        if (locked.single[0] != batch.claims.length) throw _RollbackCompletion();
+        await _timeout(tx, batch.deadline);
         final attempts = await session.db.unsafeExecute(
           '''UPDATE delivery_attempts a SET "finishedAt"=clock_timestamp(),outcome=x.outcome,"errorClass"=x.error
           FROM ($input) x, outbox o WHERE a."outboxCreatedAt"=x.created AND a."deliveryId"=x.id

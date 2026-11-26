@@ -24,6 +24,7 @@ import '../ingest/source_decoder.dart';
 import '../matcher/matcher_document.dart';
 import '../matcher/matcher_evaluation.dart';
 import '../matcher/matcher_regex_worker.dart';
+import '../output/queue_intents.dart';
 import '../runtime/process_options.dart';
 import '../runtime/subsystem.dart';
 import '../state/alert_state_service.dart';
@@ -224,19 +225,71 @@ final class _Raw {
   final String pin;
 }
 
-sealed class _Output {
-  const _Output(this.id);
-  final String id;
+final class _OutputDeferral implements Exception {
+  const _OutputDeferral(this.demands);
+
+  final Map<String, ({int rows, int bytes})> demands;
 }
 
-final class _WebhookOutput extends _Output {
-  const _WebhookOutput(super.id, this.url, this.ref, this.commitment);
-  final String url, ref, commitment;
-}
+Future<void> _writeIntents(
+  Session session,
+  Transaction tx,
+  _Deadline deadline,
+  _Raw raw,
+  List<QueueIntent> intents,
+  Iterable<String> destinations,
+  DateTime created,
+) async {
+  if (intents.isEmpty) return;
+  final caps = await lockOutputCapacity(session, tx, destinations);
+  final demands = <String, ({int rows, int bytes})>{};
+  for (final intent in intents) {
+    final id = intent.destination.id;
+    final old = demands[id] ?? (rows: 0, bytes: 0);
+    demands[id] = (
+      rows: old.rows + 1,
+      bytes: old.bytes + intent.payload.length,
+    );
+  }
+  final blocked = <String, ({int rows, int bytes})>{
+    for (final MapEntry(key: id, value: demand) in demands.entries)
+      if (caps[id]!.blocking && !caps[id]!.fits(demand.rows, demand.bytes))
+        id: demand,
+  };
+  if (blocked.isNotEmpty) throw _OutputDeferral(blocked);
 
-final class _PluginOutput extends _Output {
-  const _PluginOutput(super.id, this.digest);
-  final String digest;
+  await lockOutputCommitments(session, tx, raw.pin, destinations);
+  final ignored = <String, ({int rows, int bytes})>{};
+  for (final intent in intents) {
+    deadline.check();
+    final id = intent.destination.id;
+    final bytes = intent.payload.length;
+    if (caps[id]!.take(bytes)) {
+      await insertQueueIntent(session, tx, raw.pin, created, intent);
+    } else {
+      final old = ignored[id] ?? (rows: 0, bytes: 0);
+      ignored[id] = (
+        rows: old.rows + 1,
+        bytes: old.bytes > bytes ? old.bytes : bytes,
+      );
+    }
+  }
+  for (final id in demands.keys) {
+    final cap = caps[id]!;
+    final discarded = ignored[id];
+    if (discarded != null || cap.rows == 0 || cap.bytes == 0) {
+      await recordOutputOverflow(
+        session,
+        tx,
+        id,
+        created,
+        reason: discarded == null ? 'saturated' : 'discard_new',
+        discarded: discarded?.rows ?? 0,
+        rows: 1,
+        bytes: discarded?.bytes ?? 1,
+      );
+    }
+  }
 }
 
 final class _Prepared {
@@ -478,23 +531,11 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
                 {for (final output in outputRows) output['id'] as String},
               )
             : MatcherDocument.empty;
-        final registry = <String, _Output>{
+        final registry = <String, QueueDestination>{
           for (final output in outputRows)
             if (outputIds.contains(output['id']) ||
                 matcher.outputIds.contains(output['id']))
-              output['id'] as String: switch (output['kind']) {
-                'webhook' => _WebhookOutput(
-                  output['id'] as String,
-                  output['url'] as String,
-                  output['signing_key_ref'] as String,
-                  output['signing_key_commitment'] as String,
-                ),
-                'plugin' => _PluginOutput(
-                  output['id'] as String,
-                  sha256Digest(output),
-                ),
-                _ => throw StateError('Invalid pinned output kind'),
-              },
+              output['id'] as String: QueueDestination.fromSnapshot(output),
         };
         final outputs = [for (final id in outputIds) registry[id]!];
         final mapping = inputs.mapping;
@@ -795,7 +836,7 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
                   (fanoutLimitForTest ?? pipelineFanoutLimit) - aggregate,
             );
           }
-          await _lockRawPin(tx, deadline, raw);
+          final intents = <QueueIntent>[];
           for (final effect in retained) {
             deadline.check();
             final (
@@ -845,51 +886,69 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
             if (outputs.isEmpty && addedRoutes.isEmpty) {
               unrouted++;
             }
-            final created = clock().toUtc();
+            if (outputs.isEmpty && addedRoutes.isEmpty) continue;
             final destinations = addedRoutes.isEmpty
                 ? outputs
                 : [...outputs, for (final id in addedRoutes) registry[id]!];
             for (final output in destinations) {
-              await _limits(tx, deadline);
-              await session.db.unsafeExecute(
-                '''INSERT INTO outbox
-(created_at,delivery_id,event_observed_at,event_id,event_disposition,output_id,config_snapshot_id,output_kind,definition_digest,target_url,signing_key_ref,signing_key_commitment,payload)
-VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposition,CAST(@output AS uuid),@pin,@kind,@digest,@url,@ref,@commitment,@payload)''',
-                parameters: QueryParameters.named({
-                  'created': created,
-                  'delivery': const Uuid().v4(),
-                  'observed': observed,
-                  'event': event.eventId,
-                  'disposition': disposition,
-                  'output': output.id,
-                  'pin': raw.pin,
-                  'kind': switch (output) {
-                    _WebhookOutput() => 'webhook',
-                    _PluginOutput() => 'plugin',
-                  },
-                  'digest': switch (output) {
-                    _WebhookOutput() => null,
-                    _PluginOutput(:final digest) => digest,
-                  },
-                  'url': switch (output) {
-                    _WebhookOutput(:final url) => url,
-                    _PluginOutput() => null,
-                  },
-                  'ref': switch (output) {
-                    _WebhookOutput(:final ref) => ref,
-                    _PluginOutput() => null,
-                  },
-                  'commitment': switch (output) {
-                    _WebhookOutput(:final commitment) => commitment,
-                    _PluginOutput() => null,
-                  },
-                  'payload': payload,
-                }),
-                transaction: tx,
-                timeoutInSeconds: 5,
+              intents.add((
+                observed: observed,
+                event: event.eventId,
+                disposition: disposition,
+                destination: output,
+                payload: payload,
+              ));
+            }
+          }
+          await _limits(tx, deadline);
+          await _writeIntents(
+            session,
+            tx,
+            deadline,
+            raw,
+            intents,
+            registry.keys,
+            clock().toUtc(),
+          );
+          // If no intent was emitted, pin release still takes output locks
+          // before the sync-progress and pending-count fences.
+          if (intents.isEmpty) await _lockRawPin(tx, deadline, raw);
+        } on _OutputDeferral catch (error) {
+          await savepoint.rollback();
+          await _limits(tx, deadline);
+          final caps = await lockOutputCapacity(
+            session,
+            tx,
+            error.demands.keys,
+          );
+          final now = clock().toUtc();
+          for (final MapEntry(key: id, value: demand)
+              in error.demands.entries) {
+            if (caps[id]!.blocking &&
+                !caps[id]!.fits(demand.rows, demand.bytes)) {
+              await recordOutputOverflow(
+                session,
+                tx,
+                id,
+                now,
+                reason: 'block_ingest',
+                rows: demand.rows,
+                bytes: demand.bytes,
               );
             }
           }
+          await _limits(tx, deadline);
+          await session.db.unsafeExecute(
+            'UPDATE raw_inbox SET next_attempt_at=@next WHERE observed_at=@observed AND raw_id=@id::uuid',
+            parameters: QueryParameters.named({
+              'next': now.add(const Duration(seconds: 1)),
+              'observed': raw.observed,
+              'id': raw.id,
+            }),
+            transaction: tx,
+            timeoutInSeconds: 5,
+          );
+          return true;
         } on EventValidationError catch (error) {
           await savepoint.rollback();
           await _fail(

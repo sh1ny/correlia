@@ -448,9 +448,11 @@ DECLARE
   intent outbox;
   c record;
 BEGIN
-  IF used_delta=0 AND live_delta=0 THEN RETURN NULL; END IF;
+  IF used_delta=0 AND live_delta=0 AND NOT old_used THEN RETURN NULL; END IF;
+  byte_delta := CASE WHEN new_used THEN octet_length(NEW.payload)::bigint ELSE 0 END
+              - CASE WHEN old_used THEN octet_length(OLD.payload)::bigint ELSE 0 END;
+  IF used_delta=0 AND live_delta=0 AND byte_delta=0 THEN RETURN NULL; END IF;
   intent := CASE WHEN TG_OP='DELETE' THEN OLD ELSE NEW END;
-  byte_delta := used_delta::bigint*octet_length(intent.payload);
   IF TG_OP='INSERT' THEN
     INSERT INTO pipeline_output_capacity (output_id) VALUES (intent.output_id) ON CONFLICT DO NOTHING;
   END IF;
@@ -552,3 +554,68 @@ BEGIN
   RETURN NULL;
 END;
 $$;
+
+ALTER TABLE pipeline_output_capacity
+  ADD COLUMN discarded_count bigint NOT NULL DEFAULT 0,
+  ADD COLUMN overflow_activity_id bigint;
+CREATE INDEX pipeline_active_output_idx ON pipeline_output_capacity (output_id) WHERE active;
+
+CREATE TABLE pipeline_overflow_notice (
+  activity_id bigint PRIMARY KEY,
+  output_id uuid NOT NULL,
+  occurred_at timestamptz NOT NULL,
+  reason text NOT NULL,
+  evidence text NOT NULL,
+  handled boolean NOT NULL DEFAULT false
+);
+CREATE INDEX pipeline_overflow_pending_idx ON pipeline_overflow_notice (activity_id) WHERE NOT handled;
+
+CREATE FUNCTION correlia_mark_overflow(
+  p_output uuid, p_reason text, p_discarded integer, p_rows integer, p_bytes bigint,
+  p_now timestamptz
+) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE
+  episode bigint;
+BEGIN
+  UPDATE pipeline_output_capacity SET
+    discarded_count=discarded_count+p_discarded,
+    demand_rows=greatest(demand_rows,p_rows),
+    demand_bytes=greatest(demand_bytes,p_bytes)
+  WHERE output_id=p_output RETURNING overflow_activity_id INTO episode;
+  IF episode IS NOT NULL THEN RETURN; END IF;
+
+  INSERT INTO activity
+    (occurred_at,entity_kind,entity_id,entity_version,change_kind,actor_kind,actor_ref)
+  VALUES (p_now,'output_queue',0,0,'output_overflow','system',p_output::text)
+  RETURNING id INTO episode;
+  INSERT INTO pipeline_overflow_notice (activity_id,output_id,occurred_at,reason,evidence)
+  VALUES (episode,p_output,p_now,p_reason,
+    jsonb_build_object('activity_id',episode,'output_id',p_output,'reason',p_reason)::text);
+  UPDATE pipeline_output_capacity SET overflow_activity_id=episode WHERE output_id=p_output;
+END;
+$$;
+
+CREATE FUNCTION correlia_close_satisfied_overflow() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  -- Failed discard demand is not an ingress barrier. Preserve it until a
+  -- budget change or capacity release can fit that deficit.
+  IF NEW.overflow_policy<>'block_ingest' AND OLD.overflow_policy='block_ingest' THEN
+    NEW.demand_rows := 0;
+    NEW.demand_bytes := 0;
+  END IF;
+  IF NEW.used_rows<NEW.max_rows AND NEW.used_bytes<NEW.max_payload_bytes
+    AND NEW.demand_rows<=NEW.max_rows-NEW.used_rows
+    AND NEW.demand_bytes<=NEW.max_payload_bytes-NEW.used_bytes
+  THEN
+    NEW.demand_rows := 0;
+    NEW.demand_bytes := 0;
+    NEW.overflow_activity_id := NULL;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+CREATE TRIGGER output_capacity_recovered BEFORE UPDATE OF
+  used_rows,used_bytes,max_rows,max_payload_bytes,overflow_policy ON pipeline_output_capacity
+  FOR EACH ROW WHEN (OLD.overflow_activity_id IS NOT NULL)
+  EXECUTE FUNCTION correlia_close_satisfied_overflow();

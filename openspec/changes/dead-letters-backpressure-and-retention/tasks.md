@@ -95,8 +95,8 @@ Test paths are relative to `correlia_server/`. Green rows carry existing behavio
 
 ## 3. Enforce output limits and publish overflow notices
 
-- [ ] 3.1 Write the failing output pressure and relay tests, including both relay/recovery acquisition orders, partial fit by count and bytes, policy lowering, rollback on blocking deferral, exact saturation, nonrecursive fanout, disjoint-registry contention and real overflow delivery into a historical event child. Check event evidence against the emitted reference and byte hash.
-- [ ] 3.2 Implement the budgeted output insert and finalization paths, capacity accounting and deferral, and the bounded maintenance claim for Correlia-origin notices. Run `test/db/output_pressure_test.dart` and `test/db/pipeline_routing_test.dart`. Document overflow defaults, notice delivery and the difference between deferring accepted work and dropping a new output intent by policy.
+- [x] 3.1 Write the failing output pressure and relay tests, including both relay/recovery acquisition orders, partial fit by count and bytes, policy lowering, rollback on blocking deferral, exact saturation, nonrecursive fanout, disjoint-registry contention and real overflow delivery into a historical event child. Check event evidence against the emitted reference and byte hash.
+- [x] 3.2 Implement the budgeted output insert and finalization paths, capacity accounting and deferral, and the bounded maintenance claim for Correlia-origin notices. Run `test/db/output_pressure_test.dart` and `test/db/pipeline_routing_test.dart`. Document overflow defaults, notice delivery and the difference between deferring accepted work and dropping a new output intent by policy.
 
 ## 4. Expire and reclaim work without losing replay evidence
 

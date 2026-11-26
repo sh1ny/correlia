@@ -5,6 +5,7 @@ import 'package:serverpod/serverpod.dart';
 import '../runtime/process_options.dart';
 import '../runtime/subsystem.dart';
 import 'output_relay.dart';
+import 'overflow_notices.dart';
 import 'plugin_output_router.dart';
 import 'relay_deadline.dart';
 import 'webhook_output.dart';
@@ -69,11 +70,18 @@ final class RelaySubsystem extends Subsystem {
         diagnostics: _diagnostics,
         onUnavailable: onUnavailable,
       );
+      final notices = OverflowNotices(session);
       while (!_stopped.isCompleted) {
         if (beforeAcquire != null) {
           await Future.any([beforeAcquire!(), _stopped.future]);
           if (_stopped.isCompleted) break;
         }
+        try {
+          await notices.routeOne();
+        } catch (_) {
+          // The durable occurrence remains pending for the next poll.
+        }
+        if (_stopped.isCompleted) break;
         try {
           await repository.recoverExpired();
           final available = await repository.discover(
