@@ -64,7 +64,7 @@ An authorized caller SHALL replay one named occurrence or one bounded batch by e
 
 ### Requirement: Current configuration for pipeline replay
 
-Replay SHALL clear the active failure and requeue eligible raw work under the snapshot active at replay commit. Automatic retries SHALL keep that pin. Replay SHALL preserve bytes, receipt, generation 0, origin and ordinary ordering, and require an enabled source with the original admission mode. It SHALL leave original sync progress unchanged and ledger any reconcile outcome that removes raw without storing an event. Errors from before replay SHALL NOT alter the replay's allowance or schedule.
+Only explicit replay of failed raw work SHALL replace a pin. Replay SHALL clear the failure and requeue under the snapshot active at commit. Automatic retries SHALL keep the pin. Replay SHALL keep bytes, receipt, generation 0, origin and ordering, and require an enabled source with the original admission mode. It SHALL leave sync progress intact and record reconcile outcomes that remove raw without an event in the ledger. Prior errors SHALL NOT change the replay's allowance or schedule.
 
 #### Scenario: DUR-13 a fixed mapping reaches its backlog
 - **WHEN** a broken generic mapping fails a row under snapshot A, snapshot B fixes the mapping, a replay commits, and snapshot C activates before a worker claims the row
