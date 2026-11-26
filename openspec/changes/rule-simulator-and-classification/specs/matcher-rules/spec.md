@@ -19,7 +19,7 @@ Matcher rules SHALL support a `classify` action that sets a noise class hint. It
 - **THEN** neither the hint nor the extracted label is applied, and the failure is counted once for that rule
 
 #### Scenario: Upgrade with a file that writes the reserved key
-- **WHEN** after the upgrade an operator publishes edited matcher content that writes `correlia.noise_class` with `set_label` or `extract`
+- **WHEN** after the upgrade an operator publishes edited matcher content that no stored snapshot has and that writes `correlia.noise_class` with `set_label` or `extract`
 - **THEN** publication fails with a field error naming the reserved key and the fix, and the active snapshot is unchanged
 
 #### Scenario: Exact restart with a pre-change file that writes the reserved key
