@@ -195,6 +195,8 @@ run in every role unless they are switched off:
     the active failure directory, bounded reclamation progress and daily partition state.
   - `pipeline_outbox_partition_count`: exact counts per outbox child and output. Retention uses these
     counts to prove a child is empty before dropping it without a payload heap scan.
+  - `pipeline_legacy_delivery_terminal`: terminal times for outbox intents that were already dead or
+    delivered at cutover. The upgrade records those times without rewriting the payload tuples.
 
   `alerts` is a Serverpod-managed table with a unique tenant/fingerprint index.
 

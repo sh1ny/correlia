@@ -871,6 +871,44 @@ void main() {
         expect(await _dropOldPartition(session, 'outbox'), isTrue);
       });
 
+      test('raw_child_truncate_preserves_queue_accounting', () async {
+        const child = 'raw_inbox_20260101';
+        await _prepareOldPartition(session, 'raw_inbox');
+        addTearDown(
+          () => session.db.unsafeSimpleExecute('''
+          TRUNCATE raw_inbox,pipeline_failures;
+          DROP TABLE IF EXISTS $child;
+          DELETE FROM pipeline_partition_range WHERE child_name='$child'
+        '''),
+        );
+        await _raw(session, 1, 'pending');
+        await _raw(session, 2, 'pending');
+        await _failure(session, 2);
+        await expectLater(
+          session.db.unsafeExecute('TRUNCATE $child'),
+          throwsA(
+            isA<DatabaseQueryException>().having(
+              (error) => error.code,
+              'SQLSTATE',
+              '0A000',
+            ),
+          ),
+        );
+        expect(await _count(session, child), 2);
+        expect(await _count(session, 'pipeline_dead_letter'), 1);
+        Future<Object?> pending() async => (await session.db.unsafeQuery(
+          'SELECT pending_rows FROM pipeline_pending',
+        )).single[0];
+        expect(await pending(), 1);
+        await session.db.unsafeSimpleExecute(
+          'TRUNCATE raw_inbox,pipeline_failures',
+        );
+        expect(await _count(session, child), 0);
+        expect(await _count(session, 'pipeline_dead_letter'), 0);
+        expect(await pending(), 0);
+        expect(await _dropOldPartition(session, 'raw_inbox'), isTrue);
+      });
+
       test('drop_requires_read_committed', () async {
         await prepareOldOutbox();
         await expectLater(

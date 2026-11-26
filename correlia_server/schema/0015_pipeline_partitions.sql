@@ -24,7 +24,6 @@ ALTER TABLE legacy_raw_inbox
   ADD COLUMN queued_at timestamptz,
   ADD COLUMN processing_epoch bigint NOT NULL DEFAULT 0,
   ADD COLUMN legacy_failure boolean NOT NULL DEFAULT false;
-UPDATE legacy_raw_inbox SET legacy_failure=true WHERE status='failed';
 
 -- Index the receipt on the small provenance table, not the raw body heap.
 -- An unmatched pre-cutover origin does not belong to any partition.
@@ -46,10 +45,18 @@ ALTER TABLE legacy_outbox
   ADD COLUMN terminal_at timestamptz,
   ADD COLUMN retry_base integer NOT NULL DEFAULT 0;
 
--- Use a terminal attempt, not just the last retry. A plugin can reject an
--- oversized intent before starting another attempt. Give those rows and any
--- other terminal rows without matching evidence the full window at cutover.
-UPDATE legacy_outbox o SET terminal_at = COALESCE((
+-- Preserve terminal time without writing a new tuple into the payload heap.
+-- Oversized plugins can fail without a new attempt. Give those rows and
+-- terminal rows without matching evidence the full window at cutover.
+CREATE TABLE pipeline_legacy_delivery_terminal (
+  created_at timestamptz NOT NULL,
+  delivery_id uuid NOT NULL,
+  delivered boolean NOT NULL,
+  terminal_at timestamptz NOT NULL,
+  PRIMARY KEY (created_at,delivery_id)
+);
+INSERT INTO pipeline_legacy_delivery_terminal (created_at,delivery_id,delivered,terminal_at)
+SELECT o.created_at,o.delivery_id,o.status='delivered',COALESCE((
   SELECT a."finishedAt" AT TIME ZONE 'UTC' FROM delivery_attempts a
   WHERE a."outboxCreatedAt" = o.created_at AT TIME ZONE 'UTC'
     AND a."deliveryId" = o.delivery_id AND a."finishedAt" IS NOT NULL
@@ -60,7 +67,9 @@ UPDATE legacy_outbox o SET terminal_at = COALESCE((
         AND (a.outcome = 'permanent'
           OR (o.attempt_count >= 20 AND a.outcome IN ('retryable', 'interrupted')))))
 ), transaction_timestamp())
-WHERE o.status IN ('dead', 'delivered');
+FROM legacy_outbox o WHERE o.status IN ('dead', 'delivered');
+CREATE INDEX pipeline_legacy_delivered_age ON pipeline_legacy_delivery_terminal
+  (terminal_at,created_at,delivery_id) WHERE delivered;
 
 CREATE TABLE pipeline_icinga2_replay_floor (
   singleton integer PRIMARY KEY CHECK (singleton = 1),
@@ -552,23 +561,44 @@ CREATE TRIGGER outbox_partition_output_guard BEFORE UPDATE OF output_id ON outbo
 CREATE TRIGGER outbox_row_inventory AFTER INSERT OR DELETE ON outbox
   FOR EACH ROW EXECUTE FUNCTION correlia_account_outbox_partition();
 
-CREATE FUNCTION correlia_install_outbox_truncate_guard(p_child text)
-RETURNS void LANGUAGE plpgsql AS $$
+CREATE FUNCTION correlia_guard_raw_truncate() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  EXECUTE format('CREATE TRIGGER outbox_child_truncate_guard AFTER TRUNCATE ON %I
-    FOR EACH STATEMENT EXECUTE FUNCTION correlia_account_outbox_partition()',p_child);
+  -- PostgreSQL runs the parent's BEFORE trigger before its children and
+  -- runs every BEFORE trigger before clearing the parent marker afterward.
+  IF TG_TABLE_NAME='raw_inbox' THEN
+    PERFORM set_config('correlia.raw_parent_truncate','on',true);
+  ELSIF current_setting('correlia.raw_parent_truncate',true) IS DISTINCT FROM 'on' THEN
+    RAISE EXCEPTION USING ERRCODE='0A000', MESSAGE='cannot truncate an individual raw child';
+  END IF;
+  RETURN NULL;
 END;
 $$;
-DO $outbox_truncate_triggers$
-DECLARE
-  child text;
+CREATE TRIGGER raw_truncate_guard BEFORE TRUNCATE ON raw_inbox
+  FOR EACH STATEMENT EXECUTE FUNCTION correlia_guard_raw_truncate();
+
+CREATE FUNCTION correlia_install_partition_truncate_guard(p_parent text,p_child text)
+RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
-  FOR child IN SELECT c.relname FROM pg_inherits h JOIN pg_class c ON c.oid=h.inhrelid
-    WHERE h.inhparent='outbox'::regclass
+  IF p_parent='outbox' THEN
+    EXECUTE format('CREATE TRIGGER outbox_child_truncate_guard AFTER TRUNCATE ON %I
+      FOR EACH STATEMENT EXECUTE FUNCTION correlia_account_outbox_partition()',p_child);
+  ELSIF p_parent='raw_inbox' THEN
+    EXECUTE format('CREATE TRIGGER raw_child_truncate_guard BEFORE TRUNCATE ON %I
+      FOR EACH STATEMENT EXECUTE FUNCTION correlia_guard_raw_truncate()',p_child);
+  END IF;
+END;
+$$;
+DO $partition_truncate_guards$
+DECLARE
+  part record;
+BEGIN
+  FOR part IN SELECT p.relname AS parent,c.relname AS child FROM pg_inherits h
+    JOIN pg_class c ON c.oid=h.inhrelid JOIN pg_class p ON p.oid=h.inhparent
+    WHERE h.inhparent IN ('outbox'::regclass,'raw_inbox'::regclass)
   LOOP
-    PERFORM correlia_install_outbox_truncate_guard(child);
+    PERFORM correlia_install_partition_truncate_guard(part.parent,part.child);
   END LOOP;
-END $outbox_truncate_triggers$;
+END $partition_truncate_guards$;
 
 CREATE FUNCTION correlia_account_outbox() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
@@ -629,11 +659,12 @@ BEGIN
     WHERE pinned_rows<>0 OR demand_rows<>0 OR demand_bytes<>0;
     UPDATE pipeline_output_commitment SET pinned_count=0 WHERE pinned_count<>0;
     UPDATE pipeline_pending SET pending_rows=0 WHERE singleton=1;
+    PERFORM set_config('correlia.raw_parent_truncate','off',true);
   ELSE
     UPDATE pipeline_output_capacity SET used_rows=0,used_bytes=0,live_rows=0
     WHERE used_rows<>0 OR live_rows<>0;
     UPDATE pipeline_output_commitment SET live_count=0 WHERE live_count<>0;
-    TRUNCATE pipeline_event_reference,pipeline_outbox_partition_count;
+    TRUNCATE pipeline_event_reference,pipeline_outbox_partition_count,pipeline_legacy_delivery_terminal;
   END IF;
   DELETE FROM pipeline_output_commitment WHERE pinned_count=0 AND live_count=0;
   RETURN NULL;
@@ -860,6 +891,7 @@ CREATE TABLE pipeline_dead_letter (
   work_id uuid NOT NULL,
   snapshot_id text,
   field_path text,
+  legacy_raw_failure boolean NOT NULL DEFAULT false,
   UNIQUE (kind,work_at,work_id)
 );
 CREATE INDEX pipeline_dead_letter_time_idx ON pipeline_dead_letter (failed_at,occurrence_id);
@@ -873,7 +905,7 @@ CREATE INDEX pipeline_failure_work_idx ON pipeline_failures ("rawObservedAt","ra
 CREATE INDEX raw_terminal_age_idx ON raw_inbox (observed_at,raw_id) WHERE status IN ('done','discarded');
 CREATE INDEX raw_drop_protected_idx ON raw_inbox (observed_at) WHERE status NOT IN ('done','discarded');
 CREATE INDEX outbox_terminal_age_idx ON outbox (terminal_at,created_at,delivery_id)
-  WHERE status IN ('delivered','discarded');
+  WHERE status IN ('delivered','discarded') AND terminal_at IS NOT NULL;
 CREATE INDEX raw_replayable_age_idx ON raw_inbox (observed_at) WHERE status IN ('pending','failed');
 CREATE INDEX events_observation_key_idx ON events (event_id);
 CREATE INDEX transport_expiry_idx ON transport_keys ("expiresAt",id);
@@ -892,17 +924,19 @@ RETURNS text LANGUAGE sql IMMUTABLE AS $$
   END
 $$;
 
-INSERT INTO pipeline_dead_letter (kind,scope_id,failed_at,error_class,work_at,work_id,snapshot_id,field_path)
+INSERT INTO pipeline_dead_letter (kind,scope_id,failed_at,error_class,work_at,work_id,
+  snapshot_id,field_path,legacy_raw_failure)
 SELECT 'raw',r.source_id,coalesce(f."createdAt" AT TIME ZONE 'UTC',transaction_timestamp()),
-  coalesce(f."errorClass",'processing_failed'),r.observed_at,r.raw_id,r.config_snapshot_id,f."fieldPath"
+  coalesce(f."errorClass",'processing_failed'),r.observed_at,r.raw_id,r.config_snapshot_id,f."fieldPath",true
 FROM raw_inbox r LEFT JOIN LATERAL (
   SELECT "createdAt","errorClass","fieldPath" FROM pipeline_failures
   WHERE ("rawObservedAt","rawId")=(r.observed_at AT TIME ZONE 'UTC',r.raw_id)
   ORDER BY "createdAt" DESC,id DESC LIMIT 1
 ) f ON true WHERE r.status='failed';
 INSERT INTO pipeline_dead_letter (kind,scope_id,failed_at,error_class,work_at,work_id,snapshot_id)
-SELECT 'delivery',output_id,terminal_at,correlia_public_delivery_error(output_kind,dead_reason),
-  created_at,delivery_id,config_snapshot_id FROM outbox WHERE status='dead';
+SELECT 'delivery',o.output_id,t.terminal_at,correlia_public_delivery_error(o.output_kind,o.dead_reason),
+  o.created_at,o.delivery_id,o.config_snapshot_id FROM pipeline_legacy_delivery_terminal t
+JOIN outbox o USING (created_at,delivery_id) WHERE NOT t.delivered;
 
 CREATE FUNCTION correlia_record_raw_failure(
   observed timestamptz, raw_id uuid, source_id uuid, snapshot text, error text, path text, failed timestamptz
@@ -921,7 +955,7 @@ BEGIN
     IF NEW.terminal_at IS NULL OR NEW.terminal_at IS NOT DISTINCT FROM OLD.terminal_at THEN
       NEW.terminal_at := clock_timestamp();
     END IF;
-  ELSE
+  ELSIF TG_OP='INSERT' THEN
     NEW.terminal_at := coalesce(NEW.terminal_at,clock_timestamp());
   END IF;
   RETURN NEW;
@@ -932,6 +966,11 @@ CREATE TRIGGER outbox_terminal_timestamp BEFORE INSERT OR UPDATE OF status ON ou
 
 CREATE FUNCTION correlia_track_dead_delivery() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
+  IF TG_OP<>'INSERT' AND OLD.terminal_at IS NULL AND OLD.status IN ('dead','delivered')
+    AND (TG_OP='DELETE' OR NEW.status<>OLD.status OR NEW.terminal_at IS NOT NULL) THEN
+    DELETE FROM pipeline_legacy_delivery_terminal
+    WHERE (created_at,delivery_id)=(OLD.created_at,OLD.delivery_id);
+  END IF;
   IF TG_OP <> 'INSERT' AND OLD.status='dead' AND (TG_OP='DELETE' OR NEW.status<>'dead') THEN
     DELETE FROM pipeline_dead_letter WHERE (kind,work_at,work_id)=('delivery',OLD.created_at,OLD.delivery_id);
   ELSIF TG_OP <> 'DELETE' AND NEW.status='dead' AND (TG_OP='INSERT' OR OLD.status<>'dead') THEN
@@ -943,7 +982,7 @@ BEGIN
   RETURN NULL;
 END;
 $$;
-CREATE TRIGGER outbox_dead_directory AFTER INSERT OR UPDATE OF status OR DELETE ON outbox
+CREATE TRIGGER outbox_dead_directory AFTER INSERT OR UPDATE OF status,terminal_at OR DELETE ON outbox
   FOR EACH ROW EXECUTE FUNCTION correlia_track_dead_delivery();
 
 CREATE FUNCTION correlia_remove_raw_failure() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -1059,7 +1098,7 @@ BEGIN
   -- PostgreSQL still validates the default range under the bounded DDL lock.
   EXECUTE format('CREATE TABLE %I PARTITION OF %I FOR VALUES FROM (%L) TO (%L)',
     child,p_parent,p_day::timestamp AT TIME ZONE 'UTC',(p_day+1)::timestamp AT TIME ZONE 'UTC');
-  IF p_parent='outbox' THEN PERFORM correlia_install_outbox_truncate_guard(child); END IF;
+  PERFORM correlia_install_partition_truncate_guard(p_parent,child);
   INSERT INTO pipeline_partition_range (parent_name,child_name,first_day,end_day)
   VALUES (p_parent,child,p_day,p_day+1);
   DELETE FROM pipeline_partition_retry WHERE (parent_name,day)=(p_parent,p_day);
@@ -1370,18 +1409,27 @@ BEGIN
     RETURN correlia_reclaim_events(p_now-make_interval(days=>policy.event_retention_days),p_cap);
   ELSIF p_lane='outbox' THEN
     WITH page AS MATERIALIZED (
-      SELECT terminal_at,created_at,delivery_id FROM outbox
-      WHERE status IN ('delivered','discarded')
-        AND terminal_at<p_now-make_interval(days=>policy.outbox_retention_days)
-        AND (terminal_at,created_at,delivery_id)>(coalesce(cursor_row.last_time,'-infinity'),
-          coalesce(cursor_row.last_created_at,'-infinity'),
-          coalesce(cursor_row.last_id,'00000000-0000-0000-0000-000000000000'))
+      (SELECT terminal_at,created_at,delivery_id FROM outbox
+       WHERE status IN ('delivered','discarded')
+         AND terminal_at<p_now-make_interval(days=>policy.outbox_retention_days)
+         AND (terminal_at,created_at,delivery_id)>(coalesce(cursor_row.last_time,'-infinity'),
+           coalesce(cursor_row.last_created_at,'-infinity'),
+           coalesce(cursor_row.last_id,'00000000-0000-0000-0000-000000000000'))
+       ORDER BY terminal_at,created_at,delivery_id LIMIT p_cap)
+      UNION ALL
+      (SELECT terminal_at,created_at,delivery_id FROM pipeline_legacy_delivery_terminal
+       WHERE delivered AND terminal_at<p_now-make_interval(days=>policy.outbox_retention_days)
+         AND (terminal_at,created_at,delivery_id)>(coalesce(cursor_row.last_time,'-infinity'),
+           coalesce(cursor_row.last_created_at,'-infinity'),
+           coalesce(cursor_row.last_id,'00000000-0000-0000-0000-000000000000'))
+       ORDER BY terminal_at,created_at,delivery_id LIMIT p_cap)
       ORDER BY terminal_at,created_at,delivery_id LIMIT p_cap
     ), held AS MATERIALIZED (
       SELECT o.created_at,o.delivery_id,o.output_id,c.relname::text AS child_name
       FROM outbox o JOIN page p USING (created_at,delivery_id) JOIN pg_class c ON c.oid=o.tableoid
+      LEFT JOIN pipeline_legacy_delivery_terminal t ON (t.created_at,t.delivery_id)=(o.created_at,o.delivery_id)
       WHERE o.status IN ('delivered','discarded')
-        AND o.terminal_at<p_now-make_interval(days=>policy.outbox_retention_days)
+        AND coalesce(o.terminal_at,t.terminal_at)<p_now-make_interval(days=>policy.outbox_retention_days)
       ORDER BY o.created_at,o.delivery_id FOR UPDATE OF o SKIP LOCKED
     ), locked_counts AS MATERIALIZED (
       -- A cross-output batch must not wait on a second stripe already in use

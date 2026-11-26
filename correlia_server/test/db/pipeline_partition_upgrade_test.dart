@@ -71,17 +71,20 @@ Future<Map<String, List<List<Object?>>>> _evidence(Session session) async => {
   for (final (table, sql) in [
     (
       'raw_inbox',
-      'SELECT tableoid::bigint,observed_at,raw_id::text,source_id::text,'
+      'SELECT tableoid::bigint,ctid::text,xmin::text,pg_relation_filenode(tableoid)::bigint,'
+          'observed_at,raw_id::text,source_id::text,'
           'encode(body,\'hex\'),status,config_snapshot_id FROM raw_inbox ORDER BY raw_id',
     ),
     (
       'events',
-      'SELECT tableoid::bigint,observed_at,event_id::text,disposition,'
+      'SELECT tableoid::bigint,ctid::text,xmin::text,pg_relation_filenode(tableoid)::bigint,'
+          'observed_at,event_id::text,disposition,'
           'raw_observed_at,raw_id::text,encode(payload,\'hex\'),state_outcome FROM events',
     ),
     (
       'outbox',
-      'SELECT tableoid::bigint,created_at,delivery_id::text,event_id::text,'
+      'SELECT tableoid::bigint,ctid::text,xmin::text,pg_relation_filenode(tableoid)::bigint,'
+          'created_at,delivery_id::text,event_id::text,'
           'encode(payload,\'hex\'),status,config_snapshot_id FROM outbox ORDER BY delivery_id',
     ),
   ])
@@ -170,10 +173,12 @@ void main() {
           )).single[0],
           DateTime.utc(2020),
         );
-        final legacyFlags = await session.db.unsafeQuery('''
-          SELECT legacy_failure FROM raw_inbox ORDER BY status
-        ''');
-        expect(legacyFlags.map((row) => row[0]), [false, true, false]);
+        expect(
+          (await session.db.unsafeQuery('''
+            SELECT work_id::text FROM pipeline_dead_letter WHERE kind='raw'
+          ''')).single[0],
+          'a0000000-0000-4000-8000-000000000011',
+        );
         final active = cfg.input(2);
         await IngestConfigRepository(
           session,
@@ -262,6 +267,16 @@ void main() {
           },
         );
         final id = await seedIcinga2(session, document, observed);
+        final legacy = await seedIcinga2(
+          session,
+          icinga.delivery(set: {...document, 'host': 'pre-cutover-failure'}),
+          observed,
+        );
+        await session.db.unsafeSimpleExecute('''
+          UPDATE raw_inbox SET status='failed' WHERE raw_id='$legacy';
+          INSERT INTO pipeline_failures ("rawObservedAt","rawId","errorClass","createdAt")
+          VALUES ('${observed.toIso8601String()}','$legacy','validation','${observed.toIso8601String()}')
+        ''');
         await session.db.unsafeQuery(
           'UPDATE raw_admission_cutoff SET cutoff=@cutoff',
           parameters: QueryParameters.named({
@@ -287,10 +302,14 @@ void main() {
           clock: () => now,
           secretStore: testSecretStore,
         );
-        final failure = (await operations.list(
+        final failures = (await operations.list(
           QueueFailureFilter(kind: QueueFailureKind.raw),
-        )).failures.single;
-        expect(failure.workId, id);
+        )).failures;
+        expect(
+          failures.map((entry) => entry.workId),
+          unorderedEquals([id, legacy]),
+        );
+        final failure = failures.singleWhere((entry) => entry.workId == id);
         expect(
           (await operations.replayOne(
             QueueFailureKind.raw,
@@ -310,6 +329,26 @@ void main() {
         final outcome = await outcomeOf(session, id);
         expect(outcome['late'], 0);
         expect(outcome['committed'], 1);
+        expect(await countRows(session, 'outbox'), 2);
+        expect(
+          (await operations.replayOne(
+            QueueFailureKind.raw,
+            failures.singleWhere((entry) => entry.workId == legacy).occurrence,
+            'operator',
+          )).queued,
+          1,
+        );
+        expect(
+          await PipelineRepository(
+            session,
+            clock: () => now,
+            elapsedForTest: () => Duration.zero,
+          ).processOne(),
+          isTrue,
+        );
+        final replayedLegacy = await outcomeOf(session, legacy);
+        expect(replayedLegacy['late'], 1);
+        expect(replayedLegacy['committed'], 0);
         expect(await countRows(session, 'outbox'), 2);
       });
     },
@@ -336,11 +375,22 @@ void main() {
           SELECT created_at,delivery_id,1,gen_random_uuid(),'2020-01-03 UTC','2020-01-03 UTC',
             CASE WHEN output_kind='plugin' THEN 'retryable' ELSE 'permanent' END,
             CASE WHEN output_kind='plugin' THEN 'plugin_connection_lost' ELSE 'http_permanent' END
-          FROM outbox
+          FROM outbox;
+          INSERT INTO outbox (created_at,delivery_id,event_observed_at,event_id,event_disposition,
+            output_id,config_snapshot_id,target_url,signing_key_ref,signing_key_commitment,payload,status,attempt_count)
+          SELECT created_at,gen_random_uuid(),event_observed_at,event_id,event_disposition,
+            output_id,config_snapshot_id,target_url,signing_key_ref,signing_key_commitment,payload,'delivered',1
+          FROM outbox WHERE output_kind='webhook';
+          INSERT INTO delivery_attempts ("outboxCreatedAt","deliveryId","attemptNumber","claimId",
+            "startedAt","finishedAt",outcome)
+          SELECT created_at,delivery_id,1,gen_random_uuid(),'2020-01-03 UTC','2020-01-03 UTC','acknowledged'
+          FROM outbox WHERE status='delivered';
         ''');
         await applySchemaSteps(session, schemaSteps);
         final times = await session.db.unsafeQuery('''
-          SELECT output_kind,terminal_at FROM outbox ORDER BY output_kind
+          SELECT o.output_kind,f.failed_at FROM outbox o
+          JOIN pipeline_dead_letter f ON (f.work_at,f.work_id)=(o.created_at,o.delivery_id)
+          WHERE f.kind='delivery' ORDER BY o.output_kind
         ''');
         expect(
           (times.last[0], times.last[1]),
@@ -348,6 +398,18 @@ void main() {
         );
         expect(times.first[0], 'plugin');
         expect(times.first[1], isNot(DateTime.utc(2020, 1, 3)));
+        expect(
+          (await session.db.unsafeQuery(
+            "SELECT correlia_maintain('outbox','2020-01-10 UTC',100)",
+          )).single[0],
+          0,
+        );
+        expect(
+          (await session.db.unsafeQuery(
+            "SELECT correlia_maintain('outbox','2020-01-10 00:00:00.000001 UTC',100)",
+          )).single[0],
+          1,
+        );
         await session.db.unsafeQuery(
           "SELECT correlia_maintain('expiry',clock_timestamp(),100)",
         );

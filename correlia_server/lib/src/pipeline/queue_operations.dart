@@ -365,7 +365,7 @@ final class QueueOperations {
         // row or intent may have completed a replay/failure cycle since selection.
         final lockedIds = jsonEncode([for (final row in locked) row[0]]);
         final fields = raw
-            ? "w.source_id::text, EXISTS (SELECT 1 FROM icinga2_raw_origin o WHERE o.raw_id=w.raw_id)"
+            ? "w.source_id::text, EXISTS (SELECT 1 FROM icinga2_raw_origin o WHERE o.raw_id=w.raw_id), f.legacy_raw_failure"
             : 'w.output_id::text,w.output_kind,w.config_snapshot_id,w.signing_key_ref,w.signing_key_commitment';
         final rows = await tx.query(
           '''
@@ -521,6 +521,7 @@ final class QueueOperations {
       await tx.execute(
         '''
         UPDATE raw_inbox SET status='pending',config_snapshot_id=@pin,queued_at=@now,
+          legacy_failure=legacy_failure OR @legacy,
           attempt_count=0,next_attempt_at=NULL,outcome_json=NULL,processing_epoch=processing_epoch+1
         WHERE observed_at=@at AND raw_id=@id::uuid
       ''',
@@ -529,6 +530,7 @@ final class QueueOperations {
           'id': row[2],
           'pin': pin,
           'now': enqueuedAt,
+          'legacy': row[6],
         }),
       );
       outcomes[occurrence] = 'queued';

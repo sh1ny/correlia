@@ -206,11 +206,11 @@ binary after the cutover.
 
 The startup schema step attaches each populated heap to a new parent under the original name. It
 includes timestamps through the last populated UTC day, then uses daily UTC partitions and a
-default partition for timestamps outside prepared ranges. It does not copy payloads between
-tables. Allow offline time to validate the three attachments, backfill old terminal delivery times
-and initialize metadata. Existing delivered and dead entries without a matching terminal attempt
-receive the cutover time, not their original creation time. A plugin intent rejected as oversized
-before a new attempt gets the cutover time even if it previously retried.
+default partition for timestamps outside prepared ranges. It does not rewrite existing payload tuples.
+Allow offline time to validate the attachments and backfill metadata. Existing delivered and dead
+entries without a matching terminal attempt receive the cutover time, not their original creation
+time. A plugin intent rejected as oversized before a new attempt gets the cutover time even if
+it previously retried.
 
 The partition script has a one-hour execution timeout. Set
 `CORRELIA_PARTITION_CUTOVER_TIMEOUT_SECONDS` to a larger positive integer on the upgraded process if
@@ -230,8 +230,8 @@ A closed child whose drop times out waits for its scheduled retry. Other eligibl
 can be dropped during that wait. A drop still rechecks retention and protection under
 the DDL locks. Outbox drops check exact counts per child and output without scanning
 the payload heap. A writer can delay cleanup of its own count without holding up another output.
-Do not truncate individual nonempty outbox children. The database rejects this operation because
-it would leave queue usage, failure entries and references behind.
+Do not truncate individual raw children or nonempty outbox children. The database rejects those
+operations because they would leave queue usage, failure entries or references behind.
 
 For offline repair, stop all writers first. In one transaction use the maintenance advisory
 lock `1129271900` and the `correlia_reserve_partition` and `correlia_attach_partition` SQL
