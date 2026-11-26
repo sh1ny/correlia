@@ -644,65 +644,70 @@ void main() {
         },
       );
 
-      test(
-        'capacity_lock_statement_timeout_keeps_processing_allowance',
-        () async {
-          await _publish(session, 1, outputs: [_first]);
-          await _send(session, ['valid-during-capacity-contention']);
-          final pinner = _worker(session);
-          expect(await pinner.pinOne(), isTrue);
-          await session.db.unsafeExecute(
-            'UPDATE raw_inbox SET attempt_count=4',
-          );
-          final locker = builder.build();
-          final locked = Completer<void>();
-          final gate = ContentionGate();
-          final holding = gate.run(
-            () => locker.db.transaction((tx) async {
-              await locker.db.unsafeQuery('''
-              SELECT 1 FROM pipeline_output_capacity WHERE output_id='$_first' FOR UPDATE
-            ''', transaction: tx);
-              locked.complete();
-              await gate.future;
-            }),
-          );
-          try {
-            await Future.any([
-              locked.future,
-              holding.then<void>((_) => fail('Capacity lock was not held')),
-            ]);
-            final contender = PipelineRepository(
-              session,
-              clock: () => raw.now,
-              elapsedForTest: () => Duration.zero,
-              beforeCapacityLockForTest: (tx) => session.db.unsafeSimpleExecute(
-                "SET LOCAL statement_timeout='50ms'; SET LOCAL lock_timeout=0",
-                transaction: tx,
-              ),
-            );
-            expect(await contender.processOne(), isTrue);
-            final row = (await session.db.unsafeQuery(
-              'SELECT status,attempt_count,next_attempt_at FROM raw_inbox',
-            )).single;
-            expect(row.toList(), [
-              'pending',
-              4,
-              raw.now.add(const Duration(seconds: 1)),
-            ]);
-            expect(await raw.count(session, 'events'), 0);
-            expect(await raw.count(session, 'pipeline_failures'), 0);
-            await gate.join();
-            await holding;
+      for (final duplicate in [false, true]) {
+        test(
+          'capacity_lock_statement_timeout_keeps_processing_allowance duplicate=$duplicate',
+          () async {
+            await _publish(session, 1, outputs: [_first]);
+            const alert = ['valid-during-capacity-contention'];
+            if (duplicate) await _process(session, alert);
+            await _send(session, alert);
+            final pinner = _worker(session);
+            expect(await pinner.pinOne(), isTrue);
             await session.db.unsafeExecute(
-              'UPDATE raw_inbox SET next_attempt_at=NULL',
+              "UPDATE raw_inbox SET attempt_count=4 WHERE status='pending'",
             );
-            expect(await pinner.processOne(), isTrue);
-            expect(await _intents(session), {_first: 1});
-          } finally {
-            await gate.join();
-          }
-        },
-      );
+            final locker = builder.build();
+            final locked = Completer<void>();
+            final gate = ContentionGate();
+            final holding = gate.run(
+              () => locker.db.transaction((tx) async {
+                await locker.db.unsafeQuery('''
+                SELECT 1 FROM pipeline_output_capacity WHERE output_id='$_first' FOR UPDATE
+              ''', transaction: tx);
+                locked.complete();
+                await gate.future;
+              }),
+            );
+            try {
+              await Future.any([
+                locked.future,
+                holding.then<void>((_) => fail('Capacity lock was not held')),
+              ]);
+              final contender = PipelineRepository(
+                session,
+                clock: () => raw.now,
+                elapsedForTest: () => Duration.zero,
+                beforeCapacityLockForTest: (tx) => session.db.unsafeSimpleExecute(
+                  "SET LOCAL statement_timeout='50ms'; SET LOCAL lock_timeout=0",
+                  transaction: tx,
+                ),
+              );
+              expect(await contender.processOne(), isTrue);
+              final row = (await session.db.unsafeQuery(
+                "SELECT status,attempt_count,next_attempt_at FROM raw_inbox WHERE status='pending'",
+              )).single;
+              expect(row.toList(), [
+                'pending',
+                4,
+                raw.now.add(const Duration(seconds: 1)),
+              ]);
+              expect(await raw.count(session, 'events'), duplicate ? 1 : 0);
+              expect(await raw.count(session, 'pipeline_failures'), 0);
+              await gate.join();
+              await holding;
+              await session.db.unsafeExecute(
+                'UPDATE raw_inbox SET next_attempt_at=NULL',
+              );
+              expect(await pinner.processOne(), isTrue);
+              expect(await _intents(session), {_first: 1});
+              expect(await raw.count(session, 'events'), 1);
+            } finally {
+              await gate.join();
+            }
+          },
+        );
+      }
 
       test(
         'deferral_deadline_leaves_the_processing_allowance_intact',
@@ -714,8 +719,14 @@ void main() {
               _first: {'max_rows': 1000, 'overflow_policy': 'block_ingest'},
             },
           );
-          await _oldIntents(session, snapshot, _first, 1000);
-          await _send(session, ['defer-after-capacity-check']);
+          await _oldIntents(session, snapshot, _first, 999);
+          await _send(session, [
+            'defer-after-capacity-check-a',
+            'defer-after-capacity-check-b',
+          ]);
+          await session.db.unsafeExecute(
+            'UPDATE raw_inbox SET queued_at=clock_timestamp()',
+          );
           var forceExpiry = false;
           var refusals = 0;
           var now = raw.now;
@@ -735,6 +746,12 @@ void main() {
           expect(await worker.pinOne(), isTrue);
           for (var attempt = 0; attempt < 6; attempt++) {
             expect(await worker.processOne(), isTrue);
+            expect(
+              (await session.db.unsafeQuery(
+                'SELECT correlia_reserve_raw(1)',
+              )).single[0],
+              'output',
+            );
             final row = (await session.db.unsafeQuery('''
             SELECT status,attempt_count,next_attempt_at FROM raw_inbox
           ''')).single;
@@ -749,7 +766,13 @@ void main() {
           expect(refusals, 6);
           expect(await raw.count(session, 'pipeline_failures'), 0);
           expect(await raw.count(session, 'events'), 0);
-          expect(await _intents(session), {_first: 1000});
+          expect(await _intents(session), {_first: 999});
+          await session.db.unsafeExecute('''
+            UPDATE outbox SET status='delivered' WHERE (created_at,delivery_id) IN (
+              SELECT created_at,delivery_id FROM outbox ORDER BY created_at,delivery_id LIMIT 2)
+          ''');
+          expect(await worker.processOne(), isTrue);
+          expect(await raw.count(session, 'events'), 2);
         },
       );
 

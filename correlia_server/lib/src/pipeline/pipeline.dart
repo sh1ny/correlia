@@ -241,6 +241,14 @@ final class _OutputDeferral implements Exception {
 // accepted row waits on output capacity. That is contention, not bad work.
 final class _OutputCapacityWait implements Exception {
   const _OutputCapacityWait();
+
+  static Never throwFor(Object error, StackTrace stack) {
+    if (error is TimeoutException ||
+        (error is DatabaseQueryException && error.code == '57014')) {
+      throw const _OutputCapacityWait();
+    }
+    Error.throwWithStackTrace(error, stack);
+  }
 }
 
 Future<void> _writeIntents(
@@ -266,11 +274,8 @@ Future<void> _writeIntents(
       await beforeCapacityLockForTest(tx);
     }
     caps = await lockOutputCapacity(session, tx, destinations);
-  } on DatabaseQueryException catch (error) {
-    if (error.code != '57014') rethrow;
-    throw const _OutputCapacityWait();
-  } on TimeoutException {
-    throw const _OutputCapacityWait();
+  } catch (error, stack) {
+    _OutputCapacityWait.throwFor(error, stack);
   }
   final demands = <String, ({int rows, int bytes})>{};
   for (final intent in intents) {
@@ -288,7 +293,11 @@ Future<void> _writeIntents(
   };
   if (blocked.isNotEmpty) throw _OutputDeferral(blocked);
 
-  await lockOutputCommitments(session, tx, raw.pin, destinations);
+  try {
+    await lockOutputCommitments(session, tx, raw.pin, destinations);
+  } catch (error, stack) {
+    _OutputCapacityWait.throwFor(error, stack);
+  }
   final ignored = <String, int>{};
   for (final intent in intents) {
     deadline.check();
@@ -464,12 +473,22 @@ final class PipelineRepository {
 
   Future<void> _lockRawPin(Transaction tx, _Deadline deadline, _Raw raw) async {
     await _limits(tx, deadline);
-    await session.db.unsafeQuery(
-      'SELECT correlia_lock_raw_pin(@pin,@source::uuid)',
-      parameters: QueryParameters.named({'pin': raw.pin, 'source': raw.source}),
-      transaction: tx,
-      timeoutInSeconds: 5,
-    );
+    try {
+      if (beforeCapacityLockForTest case final beforeCapacityLock?) {
+        await beforeCapacityLock(tx);
+      }
+      await session.db.unsafeQuery(
+        'SELECT correlia_lock_raw_pin(@pin,@source::uuid)',
+        parameters: QueryParameters.named({
+          'pin': raw.pin,
+          'source': raw.source,
+        }),
+        transaction: tx,
+        timeoutInSeconds: 5,
+      );
+    } catch (error, stack) {
+      _OutputCapacityWait.throwFor(error, stack);
+    }
   }
 
   /// Commits one unpinned row's active snapshot before decoding or returning.
@@ -515,7 +534,7 @@ WHERE observed_at=@observed AND raw_id=CAST(@id AS uuid)''',
   /// Processes one pinned eligible row, or returns false when none is eligible.
   Future<bool> processOne() async {
     _Raw? claimed;
-    var outputDeferred = false;
+    _OutputDeferral? outputDeferral;
     DecodedBatch? completedBatch;
     final deadline = _Deadline(elapsedForTest);
     MatcherRegexWorker? ownedRegex;
@@ -991,27 +1010,10 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
           // before the sync-progress and pending-count fences.
           if (intents.isEmpty) await _lockRawPin(tx, deadline, raw);
         } on _OutputDeferral catch (error) {
-          outputDeferred = true;
+          outputDeferral = error;
           await savepoint.rollback();
           afterOutputRefusalForTest?.call();
-          await _limits(tx, deadline);
-          await session.db.unsafeQuery(
-            'SELECT correlia_set_raw_output_demands(@observed,@id::uuid,@demands::jsonb,@now)',
-            parameters: QueryParameters.named({
-              'observed': raw.observed,
-              'id': raw.id,
-              'demands': jsonEncode({
-                for (final MapEntry(key: id, value: demand)
-                    in error.demands.entries)
-                  id: [demand.rows, demand.bytes],
-              }),
-              'now': clock().toUtc(),
-            }),
-            transaction: tx,
-            timeoutInSeconds: 5,
-          );
-          await _limits(tx, deadline);
-          await _scheduleDeferred(tx, raw);
+          await _deferOutput(tx, deadline, raw, error);
           return true;
         } on EventValidationError catch (error) {
           await savepoint.rollback();
@@ -1169,14 +1171,13 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
       return processed;
     } catch (error) {
       if (claimed == null) rethrow;
-      if (outputDeferred) {
-        // The refusal happened before the bookkeeping failed. Keep it out
-        // of the error budget even if setting demand consumed the deadline.
+      if (outputDeferral case final refusal?) {
+        // The original transaction rolled back. Recheck the demand under the
+        // current budgets without charging the processing allowance.
         final retryDeadline = _Deadline(elapsedForTest);
-        await session.db.transaction((tx) async {
-          await _limits(tx, retryDeadline);
-          await _scheduleDeferred(tx, claimed!);
-        });
+        await session.db.transaction(
+          (tx) => _deferOutput(tx, retryDeadline, claimed!, refusal),
+        );
         return true;
       }
       await beforeRecordErrorForTest?.call();
@@ -1187,8 +1188,16 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
     }
   }
 
-  Future<void> _scheduleDeferred(Transaction tx, _Raw raw) async {
-    await session.db.unsafeExecute(
+  Future<void> _deferOutput(
+    Transaction tx,
+    _Deadline deadline,
+    _Raw raw,
+    _OutputDeferral refusal,
+  ) async {
+    await _limits(tx, deadline);
+    // Take the row lock and fence this before touching any demand. Another
+    // worker may have finished the row or replayed it after our rollback.
+    final scheduled = await session.db.unsafeExecute(
       '''
       UPDATE raw_inbox SET next_attempt_at=greatest(next_attempt_at,@next::timestamptz)
       WHERE observed_at=@observed AND raw_id=@id::uuid AND status='pending'
@@ -1200,6 +1209,23 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
         'id': raw.id,
         'pin': raw.pin,
         'epoch': raw.epoch,
+      }),
+      transaction: tx,
+      timeoutInSeconds: 5,
+    );
+    if (scheduled == 0) return;
+    await _limits(tx, deadline);
+    await session.db.unsafeQuery(
+      'SELECT correlia_set_raw_output_demands(@observed,@id::uuid,@demands::jsonb,@now)',
+      parameters: QueryParameters.named({
+        'observed': raw.observed,
+        'id': raw.id,
+        'demands': jsonEncode({
+          for (final MapEntry(key: id, value: demand)
+              in refusal.demands.entries)
+            id: [demand.rows, demand.bytes],
+        }),
+        'now': clock().toUtc(),
       }),
       transaction: tx,
       timeoutInSeconds: 5,
