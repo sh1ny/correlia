@@ -505,6 +505,12 @@ void main() {
     expect(result.trace[0].outcome, 'matched');
     final cut = result.trace[1];
     expect((cut.outcome, cut.failureCode), ('failed', 'matcher_cutoff'));
+    // The regex stopped at the simulation's deadline, not its own, so the
+    // leaf carries the rule's code.
+    expect(
+      cut.conditions.map((c) => (c.field, c.outcome, c.failureCode)),
+      [('summary', 'failed', 'matcher_cutoff')],
+    );
     expect(cut.actions, isEmpty);
     for (final trace in result.trace.skip(2)) {
       expect(trace.outcome, 'not attempted');

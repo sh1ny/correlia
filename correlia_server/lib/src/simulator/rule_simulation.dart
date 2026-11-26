@@ -358,6 +358,7 @@ Future<RuleSimulationResult> simulateRules({
         failureCode: failure,
         conditions: _flatten(
           explanation?.trace ?? rule.condition.unevaluated(),
+          cutoff: stopped ? failure : null,
         ),
         actions: [
           if (conditionMatched)
@@ -521,7 +522,10 @@ ActionTrace _actionTrace(
 }
 
 /// Flattens [root] into a pre-order list whose entries name their parent.
-List<wire.ConditionTrace> _flatten(ConditionTrace root) {
+///
+/// When the simulation's deadline stopped the rule, [cutoff] is its code: the
+/// failed leaf carries it, since the leaf's own regex still had time.
+List<wire.ConditionTrace> _flatten(ConditionTrace root, {String? cutoff}) {
   final nodes = <wire.ConditionTrace>[];
   void visit(ConditionTrace node, int? parent) {
     final index = nodes.length;
@@ -537,7 +541,9 @@ List<wire.ConditionTrace> _flatten(ConditionTrace root) {
               LeafOutcome.valueFails => '${outcome.label} $operator',
               _ => outcome.label,
             },
-            failureCode: node.failureCode,
+            failureCode: node.failureCode == null
+                ? null
+                : cutoff ?? node.failureCode,
           ),
         );
       case CompositeTrace():
