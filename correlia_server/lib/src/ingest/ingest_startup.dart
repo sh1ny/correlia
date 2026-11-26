@@ -49,7 +49,11 @@ final class IngestStartup extends Subsystem {
     ready = false;
     final keyPath = environment['CORRELIA_SECRET_KEY_FILE'];
     final configured = environment['CORRELIA_INGEST_CONFIG'] != null;
-    final store = configured
+    final operatorStore =
+        role == ProcessRole.api &&
+        keyPath != null &&
+        environment['CORRELIA_DEAD_LETTER_CREDENTIALS_FILE'] != null;
+    final store = configured || operatorStore
         ? SecretStore(
             await loadSecretKey(
               keyPath ??
@@ -80,10 +84,10 @@ final class IngestStartup extends Subsystem {
       if (input == null && role != ProcessRole.api) {
         await repository.validateWithoutBootstrap();
       }
-      resolver = store == null
+      resolver = input == null
           ? null
           : SecretResolver(
-              store: store,
+              store: store!,
               openSession: () => pod.createSession(enableLogging: false),
               log: log,
               gate: lookupGate,

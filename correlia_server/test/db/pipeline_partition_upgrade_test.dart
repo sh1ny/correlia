@@ -240,6 +240,52 @@ void main() {
   );
 
   withServerpod(
+    'terminal delivery times at cutover',
+    (builder, _) {
+      test('oversized_plugin_does_not_inherit_an_old_retry_time', () async {
+        final session = builder.build();
+        await _predecessor(session);
+        await _seed(session, placeholderLiveWork: false);
+        await session.db.unsafeSimpleExecute('''
+          UPDATE outbox SET output_kind='plugin',definition_digest=repeat('a',64),
+            target_url=NULL,signing_key_ref=NULL,signing_key_commitment=NULL,
+            attempt_count=1,dead_reason='payload_too_large'
+          WHERE status='dead';
+          UPDATE outbox SET attempt_count=1,status='dead',dead_reason='http_permanent'
+          WHERE status='delivered';
+          INSERT INTO delivery_attempts ("outboxCreatedAt","deliveryId","attemptNumber","claimId",
+            "startedAt","finishedAt",outcome,"errorClass")
+          SELECT created_at,delivery_id,1,gen_random_uuid(),'2020-01-03 UTC','2020-01-03 UTC',
+            CASE WHEN output_kind='plugin' THEN 'retryable' ELSE 'permanent' END,
+            CASE WHEN output_kind='plugin' THEN 'plugin_connection_lost' ELSE 'http_permanent' END
+          FROM outbox
+        ''');
+        await applySchemaSteps(session, schemaSteps);
+        final times = await session.db.unsafeQuery('''
+          SELECT output_kind,terminal_at FROM outbox ORDER BY output_kind
+        ''');
+        expect(
+          (times.last[0], times.last[1]),
+          ('webhook', DateTime.utc(2020, 1, 3)),
+        );
+        expect(times.first[0], 'plugin');
+        expect(times.first[1], isNot(DateTime.utc(2020, 1, 3)));
+        await session.db.unsafeQuery(
+          "SELECT correlia_maintain('expiry',clock_timestamp(),100)",
+        );
+        expect(
+          (await session.db.unsafeQuery('''
+          SELECT status FROM outbox ORDER BY output_kind
+        ''')).map((row) => row[0]),
+          ['dead', 'discarded'],
+        );
+      });
+    },
+    rollbackDatabase: RollbackDatabase.disabled,
+    testGroupTagsOverride: ['db'],
+  );
+
+  withServerpod(
     'pipeline partition catalog',
     (builder, _) {
       test('parent_indexes_helper_and_cross_child_cutoff', () async {

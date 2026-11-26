@@ -291,10 +291,17 @@ Future<void> _writeIntents(
 }
 
 final class _Prepared {
-  const _Prepared(this.event, this.disposition, this.payload, this.position);
+  const _Prepared(
+    this.event,
+    this.disposition,
+    this.payload,
+    this.legacyLate,
+    this.position,
+  );
   final CanonicalEvent event;
   final EvidenceDisposition disposition;
   final Uint8List payload;
+  final bool legacyLate;
 
   /// The event's position in its decoded batch.
   final int position;
@@ -596,17 +603,21 @@ FOR UPDATE SKIP LOCKED LIMIT 1''',
             var disposition = classifyEvidence(source, receipt);
             // A legacy batch can span the old fence. Compare each item's
             // effective time, keeping the normal future quarantine intact.
-            if (floorMicros != null &&
-                disposition == EvidenceDisposition.ready &&
+            final legacyLate =
+                floorMicros != null &&
+                disposition != EvidenceDisposition.futureDated &&
                 (source.seconds * 1000000 + source.nanos ~/ 1000 <
                         floorMicros ||
                     receipt.microsecondsSinceEpoch +
                             stateSkewAllowance.inMicroseconds <
-                        floorMicros)) {
+                        floorMicros);
+            if (legacyLate) {
               disposition = EvidenceDisposition.late;
             }
             final data = CloudEvent(event: event).toJsonBytes();
-            prepared.add(_Prepared(event, disposition, data, prepared.length));
+            prepared.add(
+              _Prepared(event, disposition, data, legacyLate, prepared.length),
+            );
           }
         } on EventValidationError catch (error) {
           await _fail(
@@ -679,6 +690,7 @@ FOR UPDATE SKIP LOCKED LIMIT 1''',
               continue;
             }
             if (!seen.add(event.eventId)) {
+              if (item.legacyLate) late++;
               if (item.disposition == EvidenceDisposition.futureDated) {
                 duplicateQuarantine++;
               } else {
@@ -715,6 +727,7 @@ ON CONFLICT ("eventId") DO NOTHING RETURNING "eventId"''',
               );
               if (key.isEmpty) {
                 duplicates++;
+                if (item.legacyLate) late++;
                 // Late evidence cannot refresh an alert, regardless of the
                 // original key's disposition or whether retention removed it.
                 if (item.disposition != EvidenceDisposition.ready) continue;

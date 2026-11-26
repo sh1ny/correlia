@@ -119,6 +119,69 @@ void main() {
     });
   }, timeout: timeout);
 
+  test('fileless_api_replays_with_the_configured_encryption_key', () async {
+    await withOutputProcess((db, env, _, children) async {
+      final publisher = await ChildServer.startOnSharedCluster(
+        serverDir: Directory.current,
+        database: db,
+        args: ['--mode', 'test', '--apply-migrations', '--process-role', 'api'],
+        environment: env,
+      );
+      children.add(publisher);
+      await publisher.waitForReadyEvent();
+      final pg = await outputConnection(db);
+      try {
+        await pg.execute('''
+          INSERT INTO outbox (created_at,delivery_id,event_observed_at,event_id,event_disposition,output_id,
+            config_snapshot_id,target_url,signing_key_ref,signing_key_commitment,payload,status,dead_reason)
+          SELECT now(),gen_random_uuid(),now(),gen_random_uuid(),'ready','$outputId',
+            a."snapshotId",o->>'url',o->>'signing_key_ref',o->>'signing_key_commitment',
+            convert_to('{}','UTF8'),'dead','network'
+          FROM ingest_active_config a JOIN ingest_config_snapshot s USING ("snapshotId")
+          CROSS JOIN LATERAL jsonb_array_elements(s."publicJson"::jsonb->'outputs') o
+        ''');
+        final file = await operatorCredentials(env['TEST_GATE_PATH']!);
+        final child = await ChildServer.startOnSharedCluster(
+          serverDir: Directory.current,
+          database: db,
+          args: [
+            '--mode',
+            'test',
+            '--apply-migrations',
+            '--process-role',
+            'api',
+          ],
+          environment: {
+            'CORRELIA_DEAD_LETTER_CREDENTIALS_FILE': file.path,
+            'CORRELIA_SECRET_KEY_FILE': db.secretKeyFile,
+          },
+        );
+        children.add(child);
+        await child.waitForReadyEvent();
+        final client = operatorClient(child);
+        try {
+          final page = await client.deadLetter.list(
+            QueueFailureFilter(kind: QueueFailureKind.delivery),
+            limit: 10,
+          );
+          final result = await client.deadLetter.replay(
+            QueueFailureKind.delivery,
+            page.failures.single.occurrence,
+          );
+          expect(result.items.single.outcome, 'queued');
+          expect(
+            (await pg.execute('SELECT status FROM outbox')).single[0],
+            'queued',
+          );
+        } finally {
+          client.close();
+        }
+      } finally {
+        await pg.close();
+      }
+    });
+  }, timeout: timeout);
+
   test('operator_denies_disabled_wrong_scope_and_worker', () async {
     await withOutputProcess((db, env, _, children) async {
       final file = await operatorCredentials(env['TEST_GATE_PATH']!);

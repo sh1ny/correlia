@@ -57,6 +57,14 @@ void main() {
       );
     });
 
+    test('rejects a FIFO without waiting for a writer', () async {
+      expect((await Process.run('mkfifo', [file.path])).exitCode, 0);
+      await expectLater(
+        loadSecretKey(file.path),
+        throwsA(rejects('regular_file', file.path)),
+      );
+    });
+
     test('file owned by a different UID', () async {
       await writeKey(key);
       final uid = await Process.run('/usr/bin/id', ['-u']);

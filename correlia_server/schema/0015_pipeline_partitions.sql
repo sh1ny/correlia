@@ -35,15 +35,19 @@ ALTER TABLE legacy_outbox
   ADD COLUMN terminal_at timestamptz,
   ADD COLUMN retry_base integer NOT NULL DEFAULT 0;
 
--- Do not expire older failures based on when the intent was created. In the
--- absence of matching attempt evidence, give the row the full new window.
+-- Use a terminal attempt, not just the last retry. A plugin can reject an
+-- oversized intent before starting another attempt. Give those rows and any
+-- other terminal rows without matching evidence the full window at cutover.
 UPDATE legacy_outbox o SET terminal_at = COALESCE((
   SELECT a."finishedAt" AT TIME ZONE 'UTC' FROM delivery_attempts a
   WHERE a."outboxCreatedAt" = o.created_at AT TIME ZONE 'UTC'
     AND a."deliveryId" = o.delivery_id AND a."finishedAt" IS NOT NULL
+    AND a."attemptNumber" = o.attempt_count
     AND ((o.status = 'delivered' AND a.outcome = 'acknowledged')
-      OR (o.status = 'dead' AND a.outcome IN ('permanent', 'retryable', 'interrupted')))
-  ORDER BY a."attemptNumber" DESC LIMIT 1
+      OR (o.status = 'dead' AND o.dead_reason IS DISTINCT FROM 'payload_too_large'
+        AND a."errorClass" IS NOT DISTINCT FROM o.dead_reason
+        AND (a.outcome = 'permanent'
+          OR (o.attempt_count >= 20 AND a.outcome IN ('retryable', 'interrupted')))))
 ), transaction_timestamp())
 WHERE o.status IN ('dead', 'delivered');
 

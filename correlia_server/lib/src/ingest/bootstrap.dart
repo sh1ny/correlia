@@ -1,8 +1,10 @@
 import 'dart:convert';
+import 'dart:ffi';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
+import 'package:ffi/ffi.dart';
 import 'package:yaml/yaml.dart';
 
 import '../event/canonical_event.dart';
@@ -12,6 +14,7 @@ import '../matcher/matcher_document.dart';
 
 part 'generic_mapping.dart';
 part 'pipeline_policy.dart';
+part 'private_bootstrap_file.dart';
 part 'source_config.dart';
 
 /// A sanitized bootstrap rejection without operator-controlled values.
@@ -670,6 +673,8 @@ Future<Uint8List> readBootstrapFile(
   int? effectiveUid,
 }) async {
   try {
+    if (private)
+      return _readPrivateBootstrapFile(path, kind, cap, effectiveUid);
     if (await FileSystemEntity.type(path, followLinks: false) !=
         FileSystemEntityType.file) {
       _bad(kind, r'$', 'regular_file');
@@ -677,27 +682,6 @@ Future<Uint8List> readBootstrapFile(
     final file = File(path);
     final stat = await file.stat();
     if (stat.size > cap) _bad(kind, r'$', 'bound');
-    if (private) {
-      if ((stat.mode & 0x7f) != 0) _bad(kind, r'$', 'permissions');
-      final owner = await Process.run('/usr/bin/stat', [
-        '-c',
-        '%u',
-        '--',
-        path,
-      ]);
-      final int uid;
-      if (effectiveUid != null) {
-        uid = effectiveUid;
-      } else {
-        final user = await Process.run('/usr/bin/id', ['-u']);
-        if (user.exitCode != 0) _bad(kind, r'$', 'owner');
-        uid = int.parse((user.stdout as String).trim());
-      }
-      if (owner.exitCode != 0 ||
-          int.tryParse((owner.stdout as String).trim()) != uid) {
-        _bad(kind, r'$', 'owner');
-      }
-    }
     final bytes = BytesBuilder(copy: false);
     await for (final chunk in file.openRead()) {
       if (bytes.length + chunk.length > cap) _bad(kind, r'$', 'bound');

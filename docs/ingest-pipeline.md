@@ -208,8 +208,9 @@ The startup schema step attaches each populated heap to a new parent under the o
 includes timestamps through the last populated UTC day, then uses daily UTC partitions and a
 default partition for timestamps outside prepared ranges. It does not copy payloads between
 tables. Allow offline time to validate the three attachments, backfill old terminal delivery times
-and initialize metadata. Existing delivered and dead entries without a matching attempt receive
-the cutover time, not their original creation time.
+and initialize metadata. Existing delivered and dead entries without a matching terminal attempt
+receive the cutover time, not their original creation time. A plugin intent rejected as oversized
+before a new attempt gets the cutover time even if it previously retried.
 
 Wait for startup before restarting writers. If the schema step fails, its table changes and
 version record roll back together. Clear the blocking transaction or fix the cause and restart the
@@ -1200,6 +1201,10 @@ Delivery replay keeps the original payload, event ID, delivery ID, destination, 
 commitment. It requires the original webhook signing material and room in the live output
 inventory if it adds a lane. It starts a fresh 20-attempt allowance; attempt numbers keep
 increasing and prior history remains. Replay does not run the pipeline or alter alert state.
+
+An `api` replica can replay webhook deliveries without `CORRELIA_INGEST_CONFIG`. Set
+`CORRELIA_SECRET_KEY_FILE` on that replica to the same database encryption key used by the
+publisher. The replica does not need the configuration or secret import files.
 
 Change 9's demo uses this API to find and replay a dead delivery and show pressure clearing.
 The DUR-4 console check stays with M4: the dead-letter view must identify the failed output,

@@ -14,6 +14,7 @@ import 'package:test/test.dart';
 import '../integration/test_tools/serverpod_test_tools.dart';
 import '../support/generic_pipeline_fixture.dart';
 import '../support/generic_webhook_fixture.dart';
+import '../support/icinga2_delivery.dart' as icinga;
 import '../support/icinga2_pipeline.dart';
 import '../support/icinga2_stream_fixture.dart';
 import '../support/icinga2_stream_pipeline.dart';
@@ -474,6 +475,41 @@ void main() {
           )).single[0],
           old.workAt,
         );
+      });
+
+      test('preupgrade_icinga2_webhook_duplicate_still_counts_as_late', () async {
+        await publishIcinga2Config(session);
+        final pin =
+            (await session.db.unsafeQuery(
+                  'SELECT "snapshotId" FROM ingest_active_config WHERE singleton=1',
+                )).single[0]!
+                as String;
+        final document = icinga.delivery(
+          set: {
+            'last_state_change': timeText(now),
+            'notification_time': timeText(now),
+          },
+        );
+        await seedIcinga2(session, document, now);
+        expect(await worker().pinOne(), isTrue);
+        expect(await worker().processOne(), isTrue);
+        final id = await seedIcinga2(session, document, now);
+        await markFailure(id, pin);
+        await session.db.unsafeExecute(
+          'UPDATE pipeline_icinga2_replay_floor SET effective_floor=@floor',
+          parameters: QueryParameters.named({
+            'floor': now.add(const Duration(seconds: 1)),
+          }),
+        );
+        await session.db.unsafeExecute('DELETE FROM alerts');
+        expect((await replay((await failure()).occurrence)).queued, 1);
+        expect(await worker().processOne(), isTrue);
+        final outcome = await outcomeOf(session, id);
+        expect(outcome['late'], 1);
+        expect(outcome['duplicate_observation'], 1);
+        expect(outcome['committed'], 0);
+        expect(await countRows(session, 'alerts'), 0);
+        expect(await countRows(session, 'events'), 1);
       });
     },
     rollbackDatabase: RollbackDatabase.disabled,
