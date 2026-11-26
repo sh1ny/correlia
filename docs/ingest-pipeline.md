@@ -196,7 +196,7 @@ row even though the worker is gone. The query reports `stale` without rewriting 
 
 Serverpod's repair diff sees SQL-owned tables as extraneous and may propose destructive changes. Before applying any generated repair, inspect its entire SQL against the current schema and **remove all operations that drop or alter** `raw_inbox`, `events`, `outbox`, `activity`, `correlia_schema_versions`, `matcher_content_digest` (primary key `digest`), `matcher_content_digest_fill` (primary key `singleton`), their indexes, constraints and time-qualified references. Review related cascades as well. Preserve data and the version table; never force a destructive repair merely to silence drift. Inspect any other unmanaged exceptions individually. If the desired SQL-owned schema itself needs correction, write a new forward schema step, not an edit to an applied step or a generated definition. Review the resulting repair and schema step together on a populated copy before production use.
 
-`matcher_content_digest` has the foreign key `matcher_content_digest_first_snapshot_fk` from `first_snapshot_id` to `ingest_config_snapshot."snapshotId"`, and `raw_inbox` has one from `admission_snapshot_id`. A repair that drops or recreates `ingest_config_snapshot` must keep both constraints or recreate them, with their data intact. Correlia never deletes a snapshot. To delete one by hand, first delete the `matcher_content_digest` rows that name it and set `filled_through` in `matcher_content_digest_fill` to 0; the next start then records again any content that another snapshot still holds.
+`matcher_content_digest` has the foreign key `matcher_content_digest_first_snapshot_fk` from `first_snapshot_id` to `ingest_config_snapshot."snapshotId"`, and `icinga2_raw_origin` has one from `admission_snapshot_id`. A repair that drops or recreates `ingest_config_snapshot` must keep both constraints or recreate them, with their data intact. Correlia never deletes a snapshot. To delete one by hand, first delete the `matcher_content_digest` rows that name it and set `filled_through` in `matcher_content_digest_fill` to 0; the next start then records again any content that another snapshot still holds.
 
 ## Identity evidence
 
@@ -445,6 +445,7 @@ RPC error.
 |---|---|---|
 | `invalid_input` | `eventJson`, `eventId`, `observedAt` or `disposition` | Both or neither way of naming the event, a partial or malformed key, an unknown disposition, or an `observedAt` that is not an RFC 3339 timestamp with an offset |
 | `too_large` | `eventJson` or `draftMatcher` | Pasted event text over the wire bound of 256 KiB, or a draft over 64 KiB. Text within the bound whose canonical form is over it gets the event's own `event_too_large` error on `event` |
+| `invalid_unicode` | `eventJson` | The pasted event text holds a UTF-16 surrogate that is not part of a pair. It is refused before the text is encoded, so the value is never replaced with U+FFFD |
 | `invalid_json` | `draftMatcher` | The draft is not JSON |
 | an event validation code | the event field path | The pasted event fails validation |
 | a matcher validation code | the matcher field path | The draft fails the checks of publication, such as `reserved_key:correlia.noise_class;use_classify_or_rename_the_label` |

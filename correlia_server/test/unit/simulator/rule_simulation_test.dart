@@ -223,6 +223,33 @@ void main() {
     expect(notJson.field, isNotNull);
   });
 
+  test('a_pasted_event_with_an_unpaired_surrogate', () {
+    // UTF-8 encoding would turn the lone surrogate into U+FFFD and simulate
+    // a different value; the input is refused before it is encoded.
+    // The raw code unit goes into the text itself, as an RPC string can hold
+    // it; `jsonEncode` would have escaped it.
+    final text = _envelope(
+      (e) =>
+          (e['data']! as Map<String, Object?>)['summary'] = 'beforeMARKafter',
+    );
+    for (final unit in [0xd800, 0xdc00]) {
+      final error = _rejected(
+        validateSimulationInput(
+          eventJson: text.replaceFirst('MARK', String.fromCharCode(unit)),
+        ),
+      );
+      expect((error.code, error.field), ('invalid_unicode', 'eventJson'));
+    }
+    // A pair is one scalar and stays valid.
+    final paired = validateSimulationInput(
+      eventJson: _envelope(
+        (e) => (e['data']! as Map<String, Object?>)['summary'] =
+            'ok ${String.fromCharCode(0x1f600)}',
+      ),
+    );
+    expect(paired, isA<AcceptedSimulationInput>());
+  });
+
   test('oversized_pasted_event', () {
     final huge = _rejected(
       validateSimulationInput(

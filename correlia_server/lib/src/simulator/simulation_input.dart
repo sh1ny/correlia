@@ -133,7 +133,28 @@ SimulationInputCheck validateSimulationInput({
   );
 }
 
+/// Whether [text] holds a UTF-16 surrogate that is not part of a pair.
+bool _hasUnpairedSurrogate(String text) {
+  for (var i = 0; i < text.length; i++) {
+    final unit = text.codeUnitAt(i);
+    if (unit >= 0xdc00 && unit <= 0xdfff) return true;
+    if (unit >= 0xd800 && unit <= 0xdbff) {
+      if (++i >= text.length) return true;
+      final low = text.codeUnitAt(i);
+      if (low < 0xdc00 || low > 0xdfff) return true;
+    }
+  }
+  return false;
+}
+
 SimulationInputCheck _pasted(String eventJson) {
+  // The UTF-8 encoder would replace an unpaired surrogate with U+FFFD and
+  // simulate a different value, so malformed text is refused first.
+  if (_hasUnpairedSurrogate(eventJson)) {
+    return RejectedSimulationInput(
+      SimulationError(code: 'invalid_unicode', field: 'eventJson'),
+    );
+  }
   final bytes = Uint8List.fromList(utf8.encode(eventJson));
   // Only text over the wire bound is `too_large`. Text within it that decodes
   // to an event whose canonical form is over the bound keeps the event's own

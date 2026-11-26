@@ -2,6 +2,7 @@
 library;
 
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:correlia_client/correlia_client.dart' as rpc;
 import 'package:correlia_server/src/feed/feed_runtime.dart';
@@ -153,6 +154,37 @@ void main() {
         );
         expect(allowed.error, isNull);
         expect(allowed.trace.single.ruleId, 'active');
+      });
+
+      test('an_unpaired_surrogate_in_the_rpc_input_is_refused', () async {
+        // The Dart client cannot send a lone surrogate, but any HTTP client
+        // can: the escape below decodes to one in the `eventJson` argument.
+        final fixture = eventFixture();
+        (fixture['data']! as Map<String, Object?>)['summary'] = 'beforeMARK';
+        final body = jsonEncode({
+          'eventJson': jsonEncode(fixture),
+        }).replaceFirst('MARK', r'\ud800');
+        expect(body, contains(r'\ud800'));
+        final http = HttpClient();
+        addTearDown(http.close);
+        final request = await http.postUrl(
+          Uri.parse(
+            'http://127.0.0.1:${session.serverpod.server.port}/ruleSimulator/simulate',
+          ),
+        );
+        request.headers.contentType = ContentType.json;
+        request.write(body);
+        final response = await request.close();
+        expect(response.statusCode, 200);
+        final result =
+            jsonDecode(await utf8.decodeStream(response))
+                as Map<String, Object?>;
+        expect(result['error'], {
+          ...?result['error'] as Map<String, Object?>?,
+          'code': 'invalid_unicode',
+          'field': 'eventJson',
+        });
+        expect(result['trace'], isEmpty);
       });
 
       test('the_endpoint_writes_no_session_log', () async {
