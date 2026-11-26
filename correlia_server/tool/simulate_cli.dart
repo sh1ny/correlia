@@ -57,6 +57,24 @@ String serverOption(List<String> args) {
   }
 }
 
+/// The most bytes of a `--event` file the CLI sends: the server's CloudEvent
+/// envelope bound. A larger file fails locally with `too_large`.
+const eventFileLimit = 262144;
+
+/// The most bytes of a `--draft` file the CLI sends: the server's draft bound.
+const draftFileLimit = 64 * 1024;
+
+/// Reads at most [maxBytes] plus one byte of [path], so a file over a limit is
+/// known to be too large without reading all of it.
+List<int> _readBounded(String path, int maxBytes) {
+  final file = File(path).openSync();
+  try {
+    return file.readSync(maxBytes + 1);
+  } finally {
+    file.closeSync();
+  }
+}
+
 /// Whether [server] is an absolute `http` or `https` URL with a host, the only
 /// form the generated client accepts.
 bool isServerUrl(String server) => switch (Uri.tryParse(server)) {
@@ -67,7 +85,10 @@ bool isServerUrl(String server) => switch (Uri.tryParse(server)) {
 /// Runs the simulator command line and returns its exit code.
 ///
 /// Reads the pasted event and draft files through [readFile] (default: the
-/// file system), calls [simulate], and writes the trace to [out] or, with
+/// file system), at most their limit plus one byte each; a file over
+/// [eventFileLimit] or [draftFileLimit] fails locally with `too_large` on
+/// `eventJson` or `draftMatcher`, as the server would. It then calls
+/// [simulate], and writes the trace to [out] or, with
 /// `--json`, the result document. Errors go to [err]: `error: <code>` and
 /// `field: <field>`, exit [simulationFailedExit]; a usage error prints the
 /// usage and exits [usageExit]. The operator's text, `observed_at` included,
@@ -77,7 +98,7 @@ Future<int> runSimulate(
   SimulateCall simulate,
   StringSink out,
   StringSink err, {
-  String Function(String path)? readFile,
+  List<int> Function(String path, int maxBytes)? readFile,
 }) async {
   final parser = _parser();
   int usage(String message) {
@@ -122,15 +143,36 @@ Future<int> runSimulate(
   if (eventFile != null && results.option('disposition') != null) {
     return usage('--disposition belongs to --event-id.');
   }
-  final read = readFile ?? (path) => File(path).readAsStringSync();
+  final read = readFile ?? _readBounded;
+  final draftFile = results.option('draft');
   final String? eventJson;
   final String? draft;
+  String? tooLarge;
+  String? load(String? path, String field, int limit) {
+    if (path == null || tooLarge != null) return null;
+    final bytes = read(path, limit);
+    if (bytes.length > limit) {
+      tooLarge = field;
+      return null;
+    }
+    try {
+      return utf8.decode(bytes);
+    } on FormatException {
+      throw FileSystemException('not UTF-8 text', path);
+    }
+  }
+
   try {
-    eventJson = eventFile == null ? null : read(eventFile);
-    final draftFile = results.option('draft');
-    draft = draftFile == null ? null : read(draftFile);
+    eventJson = load(eventFile, 'eventJson', eventFileLimit);
+    draft = load(draftFile, 'draftMatcher', draftFileLimit);
   } on FileSystemException catch (e) {
     return usage('Cannot read ${e.path ?? 'a file'}: ${e.message}');
+  }
+  if (tooLarge case final field?) {
+    err
+      ..writeln('error: too_large')
+      ..writeln('field: $field');
+    return simulationFailedExit;
   }
 
   final RuleSimulationResult result;

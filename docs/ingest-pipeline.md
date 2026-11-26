@@ -508,12 +508,13 @@ expect:
 ```
 
 **Labels.** `set_label` writes a fixed value. `extract` copies a capture group of a regular expression applied to
-a field; the first match is used, and the pattern dialect has no anchors.
+a field; the first match is used, and the pattern dialect has no anchors. Here the pattern matches both `api-12`
+and `pod-7`, and `node` takes the first.
 
 ```yaml rul1-example
 name: labels
 event:
-  labels: {alertname: HighLatency, instance: "api-12.example.org:9100"}
+  labels: {alertname: HighLatency, instance: "api-12.pod-7.example.org:9100"}
 matcher:
   language: matcher
   version: 1
@@ -528,19 +529,20 @@ expect:
     - tag-and-extract: matched
   labels:
     alertname: HighLatency
-    instance: "api-12.example.org:9100"
+    instance: "api-12.pod-7.example.org:9100"
     tier: frontend
     node: api-12
 ```
 
 **Topology.** A `location` action looks up the value of a field in an ordered table and sets `site` and
 `environment` from the first entry that matches by `hostname` or `cidr`. When no entry matches, the rule still
-matches and the labels stay as they were.
+matches and the labels stay as they were. Here both the `10.20.0.0/24` entry and the `10.0.0.0/8` entry
+below it match, and the first sets the labels.
 
 ```yaml rul1-example
 name: topology
 event:
-  labels: {alertname: HostDown, hostname: db-2.example.org}
+  labels: {alertname: HostDown, hostname: 10.20.0.2}
 matcher:
   language: matcher
   version: 1
@@ -551,15 +553,15 @@ matcher:
         - type: location
           field: labels.hostname
           entries:
-            - {hostname: db-1.example.org, site: fra1, environment: production}
-            - {hostname: db-2.example.org, site: ams2, environment: production}
-            - {hostname: lab-1.example.org, site: ams2, environment: staging}
+            - {hostname: 10.20.0.1, site: fra1, environment: production}
+            - {cidr: 10.20.0.0/24, site: ams2, environment: production}
+            - {cidr: 10.0.0.0/8, site: lab1, environment: staging}
 expect:
   rules:
     - site-of-host: matched
   labels:
     alertname: HostDown
-    hostname: db-2.example.org
+    hostname: 10.20.0.2
     site: ams2
     environment: production
 ```

@@ -84,8 +84,13 @@ This change advances two M2 exit criteria:
 - Configuration: the ingest file gains one matcher action. Existing files stay valid. New matcher
   content that writes the reserved `correlia.noise_class` label with `set_label` or `extract` is
   rejected; an exact restart or a rollback to earlier content still works.
-- Database: schema step `0015` adds `matcher_content_digest`, a SQL-owned table of the digests of
-  published matcher content, filled at publication and once at upgrade. Upgrade is offline (ADR 0033); a previous binary cannot read a snapshot whose matcher uses `classify`.
+- Database: schema step `0015` adds two SQL-owned tables: `matcher_content_digest`, the digests of
+  published matcher content, and `matcher_content_digest_fill`, the fill's one row. Step `0016` adds
+  `filled_through` to that row, the last snapshot table ID the fill read. Publication records each new
+  digest; the first start fills the digests of every stored snapshot, and each later start and publication
+  fills those after the watermark, such as a snapshot the previous binary published during an offline
+  downgrade. Upgrade is offline (ADR 0033); a previous binary cannot read a snapshot whose matcher uses
+  `classify`.
 - Event contract: unchanged (`correlia.event.v1` 1.0).
 - Tests: fast tests for the trace and classification; `db` tests for the simulator over stored events
   and the reserved-label lookup.

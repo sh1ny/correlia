@@ -2,6 +2,10 @@ import 'dart:convert';
 import 'dart:io' show FileSystemException, Platform, Process;
 
 import 'package:correlia_client/correlia_client.dart' as rpc;
+import 'package:correlia_server/src/event/cloud_event.dart'
+    show cloudEventEnvelopeLimit;
+import 'package:correlia_server/src/simulator/rule_simulator.dart'
+    show simulationDraftLimit;
 import 'package:test/test.dart';
 
 import '../../../tool/simulate_cli.dart';
@@ -117,8 +121,15 @@ class _Harness {
         },
         out,
         err,
-        readFile: (path) =>
+        readFile: (path, maxBytes) {
+          final bytes = utf8.encode(
             files[path] ?? (throw FileSystemException('no such file', path)),
+          );
+          // Like the real reader: at most one byte past the limit.
+          return bytes.length > maxBytes + 1
+              ? bytes.sublist(0, maxBytes + 1)
+              : bytes;
+        },
       );
 }
 
@@ -275,6 +286,42 @@ void main() {
       expect(h.err.toString(), contains('missing.json'));
       expect(h.calls, isEmpty);
     });
+  });
+
+  group('file bounds', () {
+    test('the limits are the server\'s', () {
+      expect(eventFileLimit, cloudEventEnvelopeLimit);
+      expect(draftFileLimit, simulationDraftLimit);
+    });
+
+    for (final (option, field, limit) in [
+      ('--event', 'eventJson', eventFileLimit),
+      ('--draft', 'draftMatcher', draftFileLimit),
+    ]) {
+      test('a $option file over its limit fails locally', () async {
+        final h = _Harness(_result());
+        final args = [
+          if (option == '--draft') ...['--event-id', _id, '--observed-at', 'T'],
+          option,
+          'big.json',
+        ];
+        final code = await h.run(args, files: {'big.json': 'x' * (limit + 1)});
+        expect(code, simulationFailedExit);
+        expect(h.err.toString(), 'error: too_large\nfield: $field\n');
+        expect(h.calls, isEmpty);
+      });
+
+      test('a $option file at its limit is sent', () async {
+        final h = _Harness(_result());
+        final args = [
+          if (option == '--draft') ...['--event-id', _id, '--observed-at', 'T'],
+          option,
+          'big.json',
+        ];
+        expect(await h.run(args, files: {'big.json': 'x' * limit}), 0);
+        expect(h.calls, hasLength(1));
+      });
+    }
   });
 
   test('malformed_timestamp', () async {

@@ -25,6 +25,10 @@ const _typeSuffix = '.v1';
 /// The maximum size of a serialized structured envelope.
 const _maxEnvelopeBytes = 262144;
 
+/// The maximum size, in bytes, of a structured envelope [CloudEvent.decode]
+/// accepts.
+const cloudEventEnvelopeLimit = _maxEnvelopeBytes;
+
 /// The maximum container nesting depth of a decoded envelope.
 const _maxJsonDepth = 16;
 

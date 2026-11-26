@@ -45,8 +45,9 @@ final class RuleSimulator {
   ///
   /// The input is exactly one of [eventJson] or [eventId] with [observedAt] and
   /// an optional [disposition]; [draftMatcher] is an optional matcher section
-  /// as JSON text. Every failure is a [SimulationError] in the result, never a
-  /// thrown error.
+  /// as JSON text. An input or lookup failure is a [SimulationError] in the
+  /// result. A database failure, such as a failed transaction or query, is
+  /// thrown, and the endpoint returns it as an RPC error.
   Future<RuleSimulationResult> simulate(
     Session session, {
     String? eventJson,
