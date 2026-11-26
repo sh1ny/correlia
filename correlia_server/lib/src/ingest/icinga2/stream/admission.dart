@@ -193,9 +193,11 @@ final class ConsumerAdmission {
         final cap = snapshot.single[1]! as int;
         final retainedRows = await _retained(tx, lease.sourceId, cap + 1);
         if (retainedRows + batch.rows.length > cap) {
-          return await _isCommitted(tx, batchKey)
-              ? StreamAdmissionResult.committed
-              : StreamAdmissionResult.atCapacity;
+          if (await _isCommitted(tx, batchKey)) {
+            return StreamAdmissionResult.committed;
+          }
+          await _checkRefusedReceipt(tx, batch);
+          return StreamAdmissionResult.atCapacity;
         }
         if (batch.rows.isEmpty ||
             (batch.origin == IcingaStreamOrigin.sync) !=
@@ -233,6 +235,7 @@ final class ConsumerAdmission {
           parameters: {'count': batch.rows.length},
         )).single[0];
         if (pressure != null) {
+          await _checkRefusedReceipt(tx, batch);
           await tx.execute(
             pg.Sql.named(
               '''DELETE FROM icinga2_admitted_batch
@@ -276,6 +279,25 @@ final class ConsumerAdmission {
       }
       rethrow;
     }
+  }
+
+  static Future<void> _checkRefusedReceipt(
+    pg.TxSession tx,
+    StreamRawBatch batch,
+  ) async {
+    DateTime? earliest;
+    for (final row in batch.rows) {
+      for (final item in row) {
+        if (earliest == null || item.received.isBefore(earliest)) {
+          earliest = item.received;
+        }
+      }
+    }
+    if (earliest == null) return;
+    await tx.execute(
+      pg.Sql.named('SELECT correlia_check_refused_raw_receipt(@receipt)'),
+      parameters: {'receipt': earliest.toUtc()},
+    );
   }
 
   static Future<bool> _isCommitted(

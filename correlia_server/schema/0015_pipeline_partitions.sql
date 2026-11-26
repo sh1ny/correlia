@@ -632,6 +632,17 @@ BEGIN
 END;
 $$;
 
+-- Refusals do not reach the insert trigger. Re-read the published cutoff
+-- after any wait, without taking the cutoff lock on the refusal path.
+CREATE FUNCTION correlia_check_refused_raw_receipt(p_receipt timestamptz)
+RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  IF p_receipt < (SELECT cutoff FROM raw_admission_cutoff WHERE singleton=1) THEN
+    RAISE EXCEPTION USING ERRCODE='CR001', MESSAGE='raw admission receipt is before the cutoff';
+  END IF;
+END;
+$$;
+
 ALTER TABLE pipeline_output_capacity
   ADD COLUMN discarded_count bigint NOT NULL DEFAULT 0,
   ADD COLUMN overflow_activity_id bigint;

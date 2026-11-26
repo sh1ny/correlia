@@ -205,6 +205,12 @@ WHERE "sourceId"=CAST(@source AS uuid) AND "key"=@key FOR UPDATE''',
         timeoutInSeconds: beforeCapacityLock == null ? 5 : 300,
       )).single[0];
       if (pressure != null) {
+        await session.db.unsafeQuery(
+          'SELECT correlia_check_refused_raw_receipt(@receipt)',
+          parameters: QueryParameters.named({'receipt': observedAt}),
+          transaction: tx,
+          timeoutInSeconds: 5,
+        );
         // Only the receipt inserted by this transaction can be removed.
         // Leave any expired winner and the shared disk sample intact.
         if (inserted) {

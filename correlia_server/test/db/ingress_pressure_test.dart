@@ -389,6 +389,112 @@ void main() {
         expect(await _count(session, 'raw_inbox'), 1);
       });
 
+      test('webhook_cutoff_takes_precedence_over_inbox_pressure', () async {
+        expect(
+          await webhook(first, 'known', 'body'),
+          AdmissionOutcome.accepted,
+        );
+        expect(
+          await webhook(second, 'new', 'body'),
+          AdmissionOutcome.inboxPressure,
+        );
+        await session.db.unsafeExecute(
+          'UPDATE raw_admission_cutoff SET cutoff=@cutoff',
+          parameters: QueryParameters.named({
+            'cutoff': receipt.add(const Duration(seconds: 1)),
+          }),
+        );
+        await expectLater(
+          webhook(second, 'new', 'body'),
+          throwsA(
+            isA<DatabaseQueryException>().having(
+              (error) => error.code,
+              'SQLSTATE',
+              'CR001',
+            ),
+          ),
+        );
+        expect(
+          await webhook(second, 'known', 'body'),
+          AdmissionOutcome.duplicate,
+        );
+        expect(await _count(session, 'raw_inbox'), 1);
+        expect(await _count(session, 'transport_keys'), 1);
+      });
+
+      test('pull_detects_cutoff_advanced_while_waiting_for_capacity', () async {
+        expect(
+          await webhook(first, 'fills', 'body'),
+          AdmissionOutcome.accepted,
+        );
+        final pendingBatch = batch();
+        expect(await admit(pendingBatch), StreamAdmissionResult.atCapacity);
+        final witness = await PostgresLockWitness.start(session);
+        addTearDown(witness.close);
+        final endpoint = await StreamDatabaseEndpoint.resolve(
+          session.serverpod,
+        );
+        final pullConnection = await endpoint.open(
+          queryTimeout: const Duration(minutes: 5),
+        );
+        addTearDown(pullConnection.close);
+        final gate = ContentionGate();
+        final locking = builder.build();
+        final held = Completer<LockActor>();
+        final waiting = Completer<LockActor>();
+        final holding = gate.run(
+          () => locking.db.transaction((tx) async {
+            final actor = await pooledLockActor(locking, tx);
+            await locking.db.unsafeQuery(
+              'SELECT 1 FROM pipeline_pending FOR UPDATE',
+              transaction: tx,
+            );
+            held.complete(actor);
+            await gate.future;
+          }),
+        );
+        try {
+          final holder = await Future.any([
+            held.future,
+            holding.then<LockActor>((_) => fail('Counter was not held')),
+          ]);
+          final admission = gate.run(
+            () => admit(
+              pendingBatch,
+              repo: ConsumerAdmission(
+                pullConnection,
+                beforeCapacityLockForTest: (tx) async => waiting.complete(
+                  await lockActor(tx, waiter: SqlTimeouts.streamWrite),
+                ),
+              ),
+            ),
+          );
+          final waiter = await Future.any([
+            waiting.future,
+            admission.then<LockActor>((_) => fail('Batch did not wait')),
+          ]);
+          await witness.blockedBy(
+            waiter,
+            holder,
+            admission,
+            statement: 'correlia_reserve_raw',
+          );
+          await session.db.unsafeExecute(
+            'UPDATE raw_admission_cutoff SET cutoff=@cutoff',
+            parameters: QueryParameters.named({
+              'cutoff': receipt.add(const Duration(seconds: 1)),
+            }),
+          );
+          await gate.join();
+          expect(await admission, StreamAdmissionResult.receiptBehindCutoff);
+          expect(await _count(session, 'raw_inbox'), 1);
+          expect(await _count(session, 'icinga2_admitted_batch'), 0);
+          expect(await _count(session, 'icinga2_raw_origin'), 0);
+        } finally {
+          await gate.join();
+        }
+      });
+
       test('committed_webhook_and_pull_retries_beat_pressure', () async {
         await publish(2, 2);
         final pullBatch = batch();
