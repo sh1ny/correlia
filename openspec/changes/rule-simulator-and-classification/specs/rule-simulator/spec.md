@@ -52,8 +52,12 @@ The system SHALL offer a read-only simulation on the local console API. Its inpu
 - **THEN** the simulation fails with `invalid_input` naming the field, before any lookup
 
 #### Scenario: Invalid pasted event
-- **WHEN** the pasted JSON is not a valid canonical CloudEvent, or exceeds the event wire bound
+- **WHEN** the pasted JSON is not a valid canonical CloudEvent
 - **THEN** the simulation fails with the event validation field path and error code and returns no trace
+
+#### Scenario: Oversized pasted event
+- **WHEN** the pasted JSON exceeds the event wire bound
+- **THEN** the simulation fails with `too_large` on the field `eventJson` and returns no trace
 
 #### Scenario: Invalid draft
 - **WHEN** the draft matcher section uses an unknown field, an unsupported language or version, an unknown output or a reserved label write in new content

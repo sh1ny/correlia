@@ -25,6 +25,7 @@
 | event-classification → Decoder-owned event kind | Icinga2 Event Streams kinds under each state policy | `correlia_server/test/unit/ingest/event_kind_test.dart` | `icinga2_event_streams_kinds_under_each_state_policy` | green |
 | event-classification → Decoder-owned event kind | A label named kind does not change kind | `correlia_server/test/unit/ingest/event_kind_test.dart` | `a_label_named_kind_does_not_change_kind` | green |
 | event-classification → Noise class hints | Classify a watchdog alert | `correlia_server/test/unit/matcher/classify_test.dart` | `classify_a_watchdog_alert` | green |
+| event-classification → Noise class hints | Classify a watchdog alert | `correlia_server/test/db/matcher_reserved_label_test.dart` | `a_classified_watchdog_keeps_its_live_alert_state` | green |
 | event-classification → Noise class hints | Later classify wins | `correlia_server/test/unit/matcher/classify_test.dart` | `later_classify_wins` | green |
 | event-classification → Noise class hints | Value outside the vocabulary | `correlia_server/test/unit/matcher/classify_test.dart` | `value_outside_the_vocabulary` | green |
 | event-classification → Noise class hints | Other actions cannot write the reserved key | `correlia_server/test/db/matcher_reserved_label_test.dart` | `other_actions_cannot_write_the_reserved_key` | green |
@@ -51,6 +52,7 @@
 | rule-simulator → Simulate one event against active or draft rules | Both or neither input given | `correlia_server/test/unit/simulator/rule_simulation_test.dart` | `both_or_neither_input_given` | green |
 | rule-simulator → Simulate one event against active or draft rules | Partial or orphaned key fields | `correlia_server/test/unit/simulator/rule_simulation_test.dart` | `partial_or_orphaned_key_fields` | green |
 | rule-simulator → Simulate one event against active or draft rules | Invalid pasted event | `correlia_server/test/unit/simulator/rule_simulation_test.dart` | `invalid_pasted_event` | green |
+| rule-simulator → Simulate one event against active or draft rules | Oversized pasted event | `correlia_server/test/unit/simulator/rule_simulation_test.dart` | `oversized_pasted_event` | green |
 | rule-simulator → Simulate one event against active or draft rules | Invalid draft | `correlia_server/test/db/rule_simulator_test.dart` | `invalid_draft` | green |
 | rule-simulator → Simulate one event against active or draft rules | A draft equal to earlier content is still new | `correlia_server/test/db/rule_simulator_test.dart` | `a_draft_equal_to_earlier_content_is_still_new` | green |
 | rule-simulator → Simulate one event against active or draft rules | No active matcher configuration | `correlia_server/test/db/rule_simulator_test.dart` | `no_active_matcher_configuration` | green |
