@@ -709,6 +709,66 @@ void main() {
         );
       }
 
+      test('event_partition_lock_timeout_keeps_processing_allowance', () async {
+        await _publish(session, 1, outputs: [_first]);
+        await _send(session, ['valid-during-event-partition-ddl']);
+        final pinner = _worker(session);
+        expect(await pinner.pinOne(), isTrue);
+        await session.db.unsafeExecute(
+          'UPDATE raw_inbox SET attempt_count=4',
+        );
+        final locker = builder.build();
+        final locked = Completer<void>();
+        final gate = ContentionGate();
+        final holding = gate.run(
+          () => locker.db.transaction((tx) async {
+            await locker.db.unsafeExecute(
+              'LOCK TABLE ONLY events IN ACCESS EXCLUSIVE MODE',
+              transaction: tx,
+            );
+            locked.complete();
+            await gate.future;
+          }),
+        );
+        try {
+          await Future.any([
+            locked.future,
+            holding.then<void>((_) => fail('Partition lock was not held')),
+          ]);
+          final contender = PipelineRepository(
+            session,
+            clock: () => raw.now,
+            elapsedForTest: () => Duration.zero,
+            beforeEventWriteForTest: (tx) => session.db.unsafeSimpleExecute(
+              "SET LOCAL statement_timeout='50ms'; SET LOCAL lock_timeout=0",
+              transaction: tx,
+            ),
+          );
+          expect(await contender.processOne(), isTrue);
+          final row = (await session.db.unsafeQuery(
+            'SELECT status,attempt_count,next_attempt_at FROM raw_inbox',
+          )).single;
+          expect(row.toList(), [
+            'pending',
+            4,
+            raw.now.add(const Duration(seconds: 1)),
+          ]);
+          expect(await raw.count(session, 'pipeline_failures'), 0);
+          expect(await raw.count(session, 'observation_keys'), 0);
+          expect(await raw.count(session, 'alerts'), 0);
+          await gate.join();
+          await holding;
+          await session.db.unsafeExecute(
+            'UPDATE raw_inbox SET next_attempt_at=NULL',
+          );
+          expect(await pinner.processOne(), isTrue);
+          expect(await _intents(session), {_first: 1});
+          expect(await raw.count(session, 'events'), 1);
+        } finally {
+          await gate.join();
+        }
+      });
+
       test(
         'deferral_deadline_leaves_the_processing_allowance_intact',
         () async {

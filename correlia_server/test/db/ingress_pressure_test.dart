@@ -541,7 +541,8 @@ void main() {
           END;
           $$;
           CREATE TRIGGER test_count_sample_write BEFORE UPDATE OF database_bytes ON pipeline_disk_sample
-            FOR EACH ROW EXECUTE FUNCTION test_count_sample_write()
+            FOR EACH ROW WHEN (NEW.sampled_at > OLD.sampled_at)
+            EXECUTE FUNCTION test_count_sample_write()
         ''');
         addTearDown(
           () => session.db.unsafeSimpleExecute('''
@@ -551,11 +552,24 @@ void main() {
         '''),
         );
         Future<void> stale() => session.db.unsafeExecute(
-          "UPDATE pipeline_disk_sample SET sampled_at='-infinity'",
+          "UPDATE pipeline_disk_sample SET sampled_at='-infinity', database_bytes=0",
         );
         Future<List<Object?>> count() async => (await session.db.unsafeQuery(
           'SELECT last_value,is_called FROM test_sample_writes',
         )).single.toList();
+        final observer = builder.build();
+        Future<void> expectCommittedSample() async {
+          final row = (await observer.db.unsafeQuery('''
+            SELECT isfinite(sampled_at), database_bytes FROM pipeline_disk_sample
+          ''')).single;
+          expect(row[0], isTrue);
+          expect(row[1], greaterThan(1));
+          expect(await _count(observer, 'transport_keys'), 1);
+          expect(await _count(observer, 'icinga2_admitted_batch'), 1);
+          expect(await _count(observer, 'icinga2_raw_origin'), 1);
+          expect(await _count(observer, 'raw_inbox'), 2);
+        }
+
         await stale();
         expect(
           await webhook(second, 'known', 'original'),
@@ -568,12 +582,11 @@ void main() {
           AdmissionOutcome.storagePressure,
         );
         expect(await count(), [1, true]);
+        await expectCommittedSample();
         await stale();
         expect(await admit(batch()), StreamAdmissionResult.atCapacity);
         expect(await count(), [2, true]);
-        expect(await _count(session, 'transport_keys'), 1);
-        expect(await _count(session, 'icinga2_admitted_batch'), 1);
-        expect(await _count(session, 'raw_inbox'), 2);
+        await expectCommittedSample();
       });
 
       test('conflicting_live_key_beats_pressure', () async {

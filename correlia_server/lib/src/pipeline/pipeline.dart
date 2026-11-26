@@ -237,15 +237,15 @@ final class _OutputDeferral implements Exception {
   final Map<String, ({int rows, int bytes})> demands;
 }
 
-// The row deadline can expire before PostgreSQL's lock timeout when an
-// accepted row waits on output capacity. That is contention, not bad work.
-final class _OutputCapacityWait implements Exception {
-  const _OutputCapacityWait();
+// A statement can time out before PostgreSQL's lock timeout. A timeout
+// while acquiring a lock is contention, not a failed processing attempt.
+final class _PipelineLockWait implements Exception {
+  const _PipelineLockWait();
 
   static Never throwFor(Object error, StackTrace stack) {
     if (error is TimeoutException ||
         (error is DatabaseQueryException && error.code == '57014')) {
-      throw const _OutputCapacityWait();
+      throw const _PipelineLockWait();
     }
     Error.throwWithStackTrace(error, stack);
   }
@@ -275,7 +275,7 @@ Future<void> _writeIntents(
     }
     caps = await lockOutputCapacity(session, tx, destinations);
   } catch (error, stack) {
-    _OutputCapacityWait.throwFor(error, stack);
+    _PipelineLockWait.throwFor(error, stack);
   }
   final demands = <String, ({int rows, int bytes})>{};
   for (final intent in intents) {
@@ -296,7 +296,7 @@ Future<void> _writeIntents(
   try {
     await lockOutputCommitments(session, tx, raw.pin, destinations);
   } catch (error, stack) {
-    _OutputCapacityWait.throwFor(error, stack);
+    _PipelineLockWait.throwFor(error, stack);
   }
   final ignored = <String, int>{};
   for (final intent in intents) {
@@ -397,6 +397,7 @@ final class PipelineRepository {
     this.elapsedForTest,
     this.afterOutputRefusalForTest,
     this.beforeCapacityLockForTest,
+    this.beforeEventWriteForTest,
     Map<String, int>? retryCounts,
     this.retryDelay,
     PipelineCounters? counters,
@@ -432,6 +433,9 @@ final class PipelineRepository {
 
   /// Lets a fixture hold a capacity lock past the remaining SQL deadline.
   final Future<void> Function(Transaction)? beforeCapacityLockForTest;
+
+  /// Lets a fixture expire a statement while the events parent is locked.
+  final Future<void> Function(Transaction)? beforeEventWriteForTest;
   final Map<String, int> _retryCounts;
   final Duration Function(int)? retryDelay;
   final PipelineCounters counters;
@@ -487,7 +491,7 @@ final class PipelineRepository {
         timeoutInSeconds: 5,
       );
     } catch (error, stack) {
-      _OutputCapacityWait.throwFor(error, stack);
+      _PipelineLockWait.throwFor(error, stack);
     }
   }
 
@@ -835,8 +839,25 @@ ON CONFLICT ("eventId") DO NOTHING RETURNING "eventId"''',
             }
           }
 
+          var eventsLocked = false;
           Future<bool> insertEvent(_Retained retained, Uint8List bytes) async {
             final event = retained.item.event;
+            if (!eventsLocked) {
+              await _limits(tx, deadline);
+              try {
+                if (beforeEventWriteForTest case final beforeEventWrite?) {
+                  await beforeEventWrite(tx);
+                }
+                await session.db.unsafeExecute(
+                  'LOCK TABLE ONLY events IN ROW EXCLUSIVE MODE',
+                  transaction: tx,
+                  timeoutInSeconds: 5,
+                );
+              } catch (error, stack) {
+                _PipelineLockWait.throwFor(error, stack);
+              }
+              eventsLocked = true;
+            }
             await _limits(tx, deadline);
             final rows = await session.db.unsafeQuery(
               '''INSERT INTO events
@@ -1314,7 +1335,7 @@ FROM failure''',
   Future<void> _recordError(_Raw raw, Object error) async {
     final code = error is DatabaseQueryException ? error.code : null;
     final transient =
-        error is _OutputCapacityWait ||
+        error is _PipelineLockWait ||
         code == '40001' ||
         code == '40P01' ||
         code == '55P03' ||
