@@ -26,7 +26,11 @@ import '../support/stream_reader_clock.dart';
 
 const _timeout = Timeout(Duration(minutes: 5));
 
-Future<(int, String?)> _post(ChildServer child, String key) async {
+Future<(int, String?)> _post(
+  ChildServer child,
+  String key, {
+  DateTime? startsAt,
+}) async {
   final client = HttpClient();
   try {
     final request = await client.postUrl(
@@ -46,7 +50,7 @@ Future<(int, String?)> _post(ChildServer child, String key) async {
             'status': 'firing',
             'labels': {'alertname': key},
             'annotations': <String, String>{},
-            'startsAt': DateTime.now().toUtc().toIso8601String(),
+            'startsAt': (startsAt ?? DateTime.now()).toUtc().toIso8601String(),
           },
         ],
       }),
@@ -286,6 +290,64 @@ void main() {
       }
     });
   }, timeout: _timeout);
+
+  test(
+    'blocking_output_refuses_webhook_until_a_delivery_frees_space',
+    () async {
+      await _withServers((database, directory, start) async {
+        final db = await outputConnection(database);
+        try {
+          final cfg = await _bootstrap(directory, 1, {
+            'output_budgets': {
+              outputId: {'max_rows': 1000, 'overflow_policy': 'block_ingest'},
+            },
+          }, receiver: 1);
+          final api = await start('api', cfg);
+          await db.execute('''
+          INSERT INTO outbox(created_at,delivery_id,event_observed_at,event_id,event_disposition,
+            output_id,config_snapshot_id,target_url,signing_key_ref,signing_key_commitment,payload)
+          SELECT now(),gen_random_uuid(),now(),gen_random_uuid(),'ready','$outputId',
+            'fixture','http://127.0.0.1:1/events','key','commitment',decode('ff','hex')
+          FROM generate_series(1,1000)
+        ''');
+          final startsAt = DateTime.now().toUtc();
+          const key = 'retry-after-output-recovery';
+          final refused = await _post(api, key, startsAt: startsAt);
+          expect(refused.$1, 503);
+          expect(int.tryParse(refused.$2 ?? ''), greaterThan(0));
+          expect(await api.statusOf('/readyz'), 200);
+          expect(
+            (await db.execute('SELECT count(*) FROM raw_inbox')).single[0],
+            0,
+          );
+          expect(
+            (await db.execute('SELECT count(*) FROM transport_keys')).single[0],
+            0,
+          );
+
+          await db.execute('''
+          UPDATE outbox SET status='delivered',terminal_at=clock_timestamp()
+          WHERE (created_at,delivery_id)=(SELECT created_at,delivery_id FROM outbox LIMIT 1)
+        ''');
+          expect(await _post(api, key, startsAt: startsAt), (202, null));
+          expect(
+            (await db.execute('SELECT count(*) FROM raw_inbox')).single[0],
+            1,
+          );
+          expect(
+            (await db.execute('''
+              SELECT count(*) FROM transport_keys k JOIN raw_inbox r
+              ON (k."rawObservedAt",k."rawId")=(r.observed_at,r.raw_id)
+            ''')).single[0],
+            1,
+          );
+        } finally {
+          await db.close();
+        }
+      });
+    },
+    timeout: _timeout,
+  );
 
   test('oversize_database_pushes_back_and_degrades_readiness', () async {
     await _withServers((database, directory, start) async {

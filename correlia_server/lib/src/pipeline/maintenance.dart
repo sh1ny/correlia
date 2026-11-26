@@ -16,6 +16,7 @@ const _lanes = [
   'observation',
 ];
 const _parents = ['raw_inbox', 'events', 'outbox'];
+const _candidateCap = 500;
 
 /// Bounded retention and partition preparation, owned by worker roles.
 final class PipelineMaintenance extends Subsystem {
@@ -54,12 +55,14 @@ final class PipelineMaintenance extends Subsystem {
       session,
       beforeCommitForTest: beforeCommitForTest,
     );
+    final turnCount = _lanes.length + _parents.length + 1;
     var step = 0;
+    var filledPage = false;
     try {
       while (!_stopping.isCompleted) {
         try {
           if (step < _lanes.length) {
-            await maintenance.sweep(_lanes[step]);
+            filledPage = await maintenance.sweep(_lanes[step]) || filledPage;
           } else if (step < _lanes.length + _parents.length) {
             await maintenance.dropOld(_parents[step - _lanes.length]);
           } else {
@@ -68,10 +71,17 @@ final class PipelineMaintenance extends Subsystem {
         } catch (_) {
           log('pipeline-maintenance: outcome unavailable');
         }
-        step = (step + 1) % (_lanes.length + _parents.length + 1);
+        step = (step + 1) % turnCount;
         if (_stopping.isCompleted) break;
+        // Give every lane a turn before retrying a full page. Keep the old
+        // idle cadence without throttling the rate at which a backlog drains.
+        if (step != 0) continue;
+        if (filledPage) {
+          filledPage = false;
+          continue;
+        }
         final wake = _wake = Completer<void>();
-        _timer = Timer(interval, wake.complete);
+        _timer = Timer(interval * turnCount, wake.complete);
         await wake.future;
         _wake = null;
         _timer = null;
@@ -162,39 +172,34 @@ final class MaintenanceRepository {
     }
   }
 
-  Future<void> _batch(
-    String lane,
-    Future<int> Function(Transaction) execute,
-  ) async {
+  /// Runs one lane on up to 500 candidates. Returns whether a committed batch
+  /// reclaimed a full page, so the worker can make another pass without delay.
+  Future<bool> sweep(String lane) async {
     try {
-      await session.db.transaction((tx) async {
+      return await session.db.transaction((tx) async {
         await _limits(tx);
         final held = await session.db.unsafeQuery(
           'SELECT pg_try_advisory_xact_lock(1129271901)',
           transaction: tx,
         );
-        if (held.single[0] != true) return;
-        final count = await execute(tx);
+        if (held.single[0] != true) return false;
+        final count =
+            (await session.db.unsafeQuery(
+                  'SELECT correlia_maintain(@lane,clock_timestamp(),$_candidateCap)',
+                  parameters: QueryParameters.named({'lane': lane}),
+                  transaction: tx,
+                  timeoutInSeconds: 4,
+                )).single[0]!
+                as int;
         await beforeCommitForTest?.call(lane);
         await _outcome(tx, lane, 'ok', count);
+        return count == _candidateCap;
       });
     } catch (error) {
       await _recordFailure(lane, error);
+      return false;
     }
   }
-
-  /// Runs one lane on up to 500 candidates.
-  Future<void> sweep(String lane) => _batch(
-    lane,
-    (tx) async =>
-        (await session.db.unsafeQuery(
-              'SELECT correlia_maintain(@lane,clock_timestamp())',
-              parameters: QueryParameters.named({'lane': lane}),
-              transaction: tx,
-              timeoutInSeconds: 4,
-            )).single[0]!
-            as int,
-  );
 
   /// Drops at most one eligible closed child, after its final safety check.
   Future<void> dropOld(String parent, {DateTime? nowForTest}) async {

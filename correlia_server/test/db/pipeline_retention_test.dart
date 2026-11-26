@@ -408,6 +408,50 @@ void main() {
         });
       }
 
+      test('full_sweep_revisits_retention_lanes_before_idling', () async {
+        await session.db.unsafeSimpleExecute('''
+          INSERT INTO outbox(created_at,delivery_id,event_observed_at,event_id,event_disposition,
+            output_id,config_snapshot_id,target_url,signing_key_ref,signing_key_commitment,
+            payload,status,terminal_at)
+          SELECT now()-interval '15 days',gen_random_uuid(),now(),gen_random_uuid(),'ready',
+            '$_output','fixture','https://test.invalid','key','commitment',
+            decode('ff','hex'),'delivered',now()-interval '15 days'
+          FROM generate_series(1,501);
+          INSERT INTO delivery_attempts ("outboxCreatedAt","deliveryId","attemptNumber","claimId","startedAt",outcome)
+          SELECT created_at,delivery_id,1,gen_random_uuid(),created_at,'success' FROM outbox;
+        ''');
+        const interval = Duration(days: 1);
+        final idle = Completer<void>();
+        final order = <String>[];
+        final worker = PipelineMaintenance(
+          openSession: () async => builder.build(),
+          log: (_) {},
+          interval: interval,
+          beforeCommitForTest: (lane) async => order.add(lane),
+        );
+        try {
+          await runZoned(
+            worker.start,
+            zoneSpecification: ZoneSpecification(
+              createTimer: (self, parent, zone, delay, callback) {
+                if (delay >= interval && !idle.isCompleted) idle.complete();
+                return parent.createTimer(zone, delay, callback);
+              },
+            ),
+          );
+          await idle.future;
+          expect(await _count(session, 'outbox'), 0);
+          expect(await _count(session, 'delivery_attempts'), 0);
+          expect(await _count(session, 'pipeline_retired_delivery'), 0);
+          expect(
+            order.where({'outbox', 'attempts'}.contains),
+            ['outbox', 'attempts', 'outbox', 'attempts'],
+          );
+        } finally {
+          await worker.stop();
+        }
+      });
+
       test('failed_batch_reports_no_uncommitted_counts', () async {
         await _raw(session, 1, 'pending');
         await _failure(session, 1);

@@ -66,6 +66,7 @@ Test paths are relative to `correlia_server/`. Green rows carry existing behavio
 | durable-pipeline → Retention preserves retry and ordering evidence | Evidence still needed by old accepted work | `test/db/icinga2_tombstone_test.dart` | `replayable_failure_keeps_tombstone_until_expiry` | green |
 | durable-pipeline → Retention preserves retry and ordering evidence | Replayed pre-upgrade evidence predates reclaimed fences | `test/db/raw_replay_test.dart` | `preupgrade_icinga2_floor_keeps_older_evidence_late` | red |
 | source-ingress → Shared inbox and storage pressure | DUR-9 inbox limits and recovery | `test/e2e/ingress_pressure_e2e_test.dart` | `dur_9_webhook_and_pull_pause_and_recover` | red |
+| source-ingress → Shared inbox and storage pressure | Blocking output refuses the webhook until a delivery frees space | `test/e2e/ingress_pressure_e2e_test.dart` | `blocking_output_refuses_webhook_until_a_delivery_frees_space` | green |
 | source-ingress → Shared inbox and storage pressure | Concurrent admission at the last slot | `test/db/ingress_pressure_test.dart` | `two_apis_and_pull_contend_for_last_slot` | red |
 | source-ingress → Shared inbox and storage pressure | Pending work ages while admission waits for capacity | `test/db/ingress_pressure_test.dart` | `pending_age_is_sampled_after_waiting_for_capacity` | red |
 | source-ingress → Shared inbox and storage pressure | Sync admission contends with sync completion | `test/db/ingress_pressure_test.dart` | `sync_admission_orders_progress_before_count success`, `sync_admission_orders_progress_before_count failure` | red |
@@ -100,6 +101,7 @@ Test paths are relative to `correlia_server/`. Green rows carry existing behavio
 | output-delivery → Retention of terminal delivery evidence | Retention reclaims delivered intents and attempts | `test/db/pipeline_retention_test.dart` | `delivered_retention_reclaims_only_matching_attempts` | red |
 | output-delivery → Retention of terminal delivery evidence | Old creation time with recent completion | `test/db/pipeline_retention_test.dart` | `new_terminal_time_overrides_old_creation_age` | red |
 | output-delivery → Retention of terminal delivery evidence | A discarded intent has more attempts than one batch | `test/db/pipeline_retention_test.dart` | `retired_intent_attempts_reclaim_across_batches` | red |
+| output-delivery → Retention of terminal delivery evidence | A full retention page does not wait for the idle timer | `test/db/pipeline_retention_test.dart` | `full_sweep_revisits_retention_lanes_before_idling` | red |
 | output-delivery → Retention of terminal delivery evidence | Discard starts a new retention window after expiry | `test/db/pipeline_retention_test.dart` | `discard_starts_its_own_terminal_retention` | red |
 | output-delivery → Retention of terminal delivery evidence | Retention reclaims delivered intents and attempts | `test/db/pipeline_retention_test.dart` | `retired_attempt_batch_advances_across_delivery_keys` | red |
 
