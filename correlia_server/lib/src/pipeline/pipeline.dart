@@ -251,80 +251,6 @@ final class _PipelineLockWait implements Exception {
   }
 }
 
-Future<void> _writeIntents(
-  Session session,
-  Transaction tx,
-  _Deadline deadline,
-  _Raw raw,
-  List<QueueIntent> intents,
-  Iterable<String> destinations,
-  DateTime created,
-  Future<void> Function(Transaction)? beforeCapacityLockForTest,
-) async {
-  if (intents.isEmpty) return;
-  final Map<String, OutputCapacity> caps;
-  try {
-    // Relay finalization holds the outbox relation before releasing capacity.
-    await session.db.unsafeExecute(
-      'LOCK TABLE ONLY outbox IN ROW EXCLUSIVE MODE',
-      transaction: tx,
-      timeoutInSeconds: 5,
-    );
-    if (beforeCapacityLockForTest != null) {
-      await beforeCapacityLockForTest(tx);
-    }
-    caps = await lockOutputCapacity(session, tx, destinations);
-  } catch (error, stack) {
-    _PipelineLockWait.throwFor(error, stack);
-  }
-  final demands = <String, ({int rows, int bytes})>{};
-  for (final intent in intents) {
-    final id = intent.destination.id;
-    final old = demands[id] ?? (rows: 0, bytes: 0);
-    demands[id] = (
-      rows: old.rows + 1,
-      bytes: old.bytes + intent.payload.length,
-    );
-  }
-  final blocked = <String, ({int rows, int bytes})>{
-    for (final MapEntry(key: id, value: demand) in demands.entries)
-      if (caps[id]!.blocking && !caps[id]!.fits(demand.rows, demand.bytes))
-        id: demand,
-  };
-  if (blocked.isNotEmpty) throw _OutputDeferral(blocked);
-
-  try {
-    await lockOutputCommitments(session, tx, raw.pin, destinations);
-  } catch (error, stack) {
-    _PipelineLockWait.throwFor(error, stack);
-  }
-  final ignored = <String, int>{};
-  for (final intent in intents) {
-    deadline.check();
-    final id = intent.destination.id;
-    final bytes = intent.payload.length;
-    if (caps[id]!.take(bytes)) {
-      await insertQueueIntent(session, tx, raw.pin, created, intent);
-    } else {
-      ignored[id] = (ignored[id] ?? 0) + 1;
-    }
-  }
-  for (final id in demands.keys) {
-    final cap = caps[id]!;
-    final discarded = ignored[id];
-    if (discarded != null || cap.rows == 0 || cap.bytes == 0) {
-      await recordOutputOverflow(
-        session,
-        tx,
-        id,
-        created,
-        reason: discarded == null ? 'saturated' : 'discard_new',
-        discarded: discarded ?? 0,
-      );
-    }
-  }
-}
-
 final class _Prepared {
   const _Prepared(
     this.event,
@@ -464,15 +390,104 @@ final class PipelineRepository {
   final int? fanoutLimitForTest;
 
   Future<void> _limits(Transaction tx, _Deadline deadline) async {
-    await session.db.unsafeQuery(
-      "SELECT set_config('statement_timeout', @timeout, true), set_config('lock_timeout', '5s', true)",
-      parameters: QueryParameters.named({
-        'timeout': '${deadline.remainingMillis}ms',
-      }),
-      transaction: tx,
-      timeoutInSeconds: 5,
-    );
+    await _setLimits(tx, deadline.remainingMillis);
     deadline.check();
+  }
+
+  Future<void> _setLimits(
+    Transaction tx,
+    int remainingMillis,
+  ) => session.db.unsafeQuery(
+    "SELECT set_config('statement_timeout', @timeout, true), set_config('lock_timeout', '5s', true)",
+    parameters: QueryParameters.named({'timeout': '${remainingMillis}ms'}),
+    transaction: tx,
+    timeoutInSeconds: 5,
+  );
+
+  Future<void> _writeIntents(
+    Transaction tx,
+    _Deadline deadline,
+    _Raw raw,
+    List<QueueIntent> intents,
+    Iterable<String> destinations,
+    DateTime created,
+  ) async {
+    if (intents.isEmpty) return;
+    var appliedMillis = 0;
+    Future<void>? refresh() {
+      final remaining = deadline.remainingMillis;
+      // Before the last five seconds the statement cap is unchanged.
+      if (remaining == appliedMillis) return null;
+      appliedMillis = remaining;
+      return _setLimits(tx, remaining);
+    }
+
+    final Map<String, OutputCapacity> caps;
+    try {
+      if (refresh() case final setting?) await setting;
+      // Relay finalization holds the outbox relation before releasing capacity.
+      await session.db.unsafeExecute(
+        'LOCK TABLE ONLY outbox IN ROW EXCLUSIVE MODE',
+        transaction: tx,
+        timeoutInSeconds: 5,
+      );
+      if (refresh() case final setting?) await setting;
+      if (beforeCapacityLockForTest case final beforeCapacityLock?) {
+        await beforeCapacityLock(tx);
+        appliedMillis = 0;
+      }
+      caps = await lockOutputCapacity(session, tx, destinations);
+    } catch (error, stack) {
+      _PipelineLockWait.throwFor(error, stack);
+    }
+    final demands = <String, ({int rows, int bytes})>{};
+    for (final intent in intents) {
+      final id = intent.destination.id;
+      final old = demands[id] ?? (rows: 0, bytes: 0);
+      demands[id] = (
+        rows: old.rows + 1,
+        bytes: old.bytes + intent.payload.length,
+      );
+    }
+    final blocked = <String, ({int rows, int bytes})>{
+      for (final MapEntry(key: id, value: demand) in demands.entries)
+        if (caps[id]!.blocking && !caps[id]!.fits(demand.rows, demand.bytes))
+          id: demand,
+    };
+    if (blocked.isNotEmpty) throw _OutputDeferral(blocked);
+
+    try {
+      if (refresh() case final setting?) await setting;
+      await lockOutputCommitments(session, tx, raw.pin, destinations);
+    } catch (error, stack) {
+      _PipelineLockWait.throwFor(error, stack);
+    }
+    final ignored = <String, int>{};
+    for (final intent in intents) {
+      final id = intent.destination.id;
+      final bytes = intent.payload.length;
+      if (caps[id]!.take(bytes)) {
+        if (refresh() case final setting?) await setting;
+        await insertQueueIntent(session, tx, raw.pin, created, intent);
+      } else {
+        ignored[id] = (ignored[id] ?? 0) + 1;
+      }
+    }
+    for (final id in demands.keys) {
+      final cap = caps[id]!;
+      final discarded = ignored[id];
+      if (discarded != null || cap.rows == 0 || cap.bytes == 0) {
+        if (refresh() case final setting?) await setting;
+        await recordOutputOverflow(
+          session,
+          tx,
+          id,
+          created,
+          reason: discarded == null ? 'saturated' : 'discard_new',
+          discarded: discarded ?? 0,
+        );
+      }
+    }
   }
 
   Future<void> _lockRawPin(Transaction tx, _Deadline deadline, _Raw raw) async {
@@ -1013,16 +1028,13 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
               ));
             }
           }
-          await _limits(tx, deadline);
           await _writeIntents(
-            session,
             tx,
             deadline,
             raw,
             intents,
             registry.keys,
             clock().toUtc(),
-            beforeCapacityLockForTest,
           );
           // If no intent was emitted, pin release still takes output locks
           // before the sync-progress and pending-count fences.

@@ -709,6 +709,49 @@ void main() {
         );
       }
 
+      test('output_write_refreshes_remaining_deadline', () async {
+        await _publish(session, 1, outputs: [_first]);
+        await _send(session, ['bounded-output-insert']);
+        await session.db.unsafeSimpleExecute(r'''
+          CREATE FUNCTION test_output_write_deadline() RETURNS trigger
+          LANGUAGE plpgsql AS $$
+          BEGIN
+            IF current_setting('statement_timeout')::interval > interval '4 seconds'
+            THEN
+              RAISE EXCEPTION 'output insert exceeds the remaining row deadline';
+            END IF;
+            RETURN NEW;
+          END;
+          $$;
+          CREATE TRIGGER test_output_write_deadline BEFORE INSERT ON outbox
+            FOR EACH ROW EXECUTE FUNCTION test_output_write_deadline()
+        ''');
+        addTearDown(
+          () => session.db.unsafeSimpleExecute('''
+            DROP TRIGGER test_output_write_deadline ON outbox;
+            DROP FUNCTION test_output_write_deadline()
+          '''),
+        );
+        var elapsed = Duration.zero;
+        final worker = PipelineRepository(
+          session,
+          clock: () => raw.now,
+          elapsedForTest: () => elapsed,
+          beforeCapacityLockForTest: (_) async {
+            elapsed = const Duration(seconds: 6);
+          },
+        );
+        expect(await worker.pinOne(), isTrue);
+        expect(await worker.processOne(), isTrue);
+        expect(await _intents(session), {_first: 1});
+        expect(
+          (await session.db.unsafeQuery(
+            'SELECT status FROM raw_inbox',
+          )).single[0],
+          'done',
+        );
+      });
+
       test('event_partition_lock_timeout_keeps_processing_allowance', () async {
         await _publish(session, 1, outputs: [_first]);
         await _send(session, ['valid-during-event-partition-ddl']);
