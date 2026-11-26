@@ -666,7 +666,10 @@ void main() {
         await _oldIntents(session, snapshot, _second, 1);
         await _process(session, ['full-notice']);
         expect(await notices(), 1);
-        expect(await OverflowNotices(session).routeOne(), isTrue);
+        final router = OverflowNotices(session);
+        expect(await router.routeOne(), isTrue);
+        expect(await notices(), 1);
+        expect(await router.routeOne(), isFalse);
         expect(await _intents(session), {_first: 1, _second: 1});
       });
 

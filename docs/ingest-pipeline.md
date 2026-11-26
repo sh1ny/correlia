@@ -221,6 +221,10 @@ a delayed error from an earlier attempt cannot overwrite a successful attachment
 tries unprepared days with no previous attempt first, then retries the least recently attempted
 range. Preparation has no deadline when PostgreSQL must validate a large default child.
 
+A closed child whose drop times out waits for its scheduled retry. Other eligible children
+can be dropped during that wait. A drop still rechecks retention and protection under
+the DDL locks.
+
 For offline repair, stop all writers first. In one transaction use the maintenance advisory
 lock `1129271900` and the `correlia_reserve_partition` and `correlia_attach_partition` SQL
 functions with one parent and one UTC date. The second function checks both the recorded range
@@ -295,6 +299,7 @@ durable cursor let it pass protected pages without scanning or locking the whole
 Attempt cleanup follows the exact retired intent key and can span several batches.
 
 Transport keys remain until the retry window and raw admission cutoff have both passed.
+Worker maintenance advances that cutoff even if no Icinga 2 target can load.
 Observation keys and silent Icinga 2 tombstones also respect the oldest pending or failed
 receipt. A maintenance failure rolls back the whole batch; its recorded outcome has no
 discarded or reclaimed count from that batch.

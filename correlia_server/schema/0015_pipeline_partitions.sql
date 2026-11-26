@@ -88,6 +88,8 @@ CREATE TABLE pipeline_partition_range (
   first_day date NOT NULL,
   end_day date NOT NULL,
   checked_at timestamptz,
+  drop_attempt_id bigint,
+  drop_retry_at timestamptz NOT NULL DEFAULT '-infinity',
   UNIQUE (parent_name,end_day)
 );
 
@@ -934,7 +936,39 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION correlia_drop_old_partition(p_parent text,p_now timestamptz)
+CREATE FUNCTION correlia_reserve_drop(p_parent text,p_now timestamptz)
+RETURNS TABLE (child_name text,attempt_id bigint) LANGUAGE plpgsql AS $$
+BEGIN
+  IF p_parent NOT IN ('raw_inbox','events','outbox')
+    OR NOT pg_try_advisory_xact_lock(1129271900) THEN RETURN; END IF;
+  RETURN QUERY WITH candidate AS MATERIALIZED (
+    SELECT r.child_name FROM pipeline_partition_range r JOIN pg_inherits h
+      ON h.inhrelid=to_regclass(r.child_name) AND h.inhparent=to_regclass(r.parent_name)
+    CROSS JOIN pipeline_queue_policy q
+    WHERE q.singleton=1 AND r.parent_name=p_parent AND r.drop_retry_at<=p_now
+      AND r.end_day::timestamp AT TIME ZONE 'UTC' <= p_now-make_interval(days=>
+        CASE p_parent WHEN 'events' THEN q.event_retention_days
+          WHEN 'outbox' THEN q.outbox_retention_days ELSE q.raw_retention_days END)
+    ORDER BY r.checked_at NULLS FIRST,r.end_day LIMIT 1
+  )
+  UPDATE pipeline_partition_range r SET checked_at=p_now,
+    drop_attempt_id=nextval('pipeline_partition_attempt_id'),drop_retry_at=p_now+interval '30 seconds'
+  FROM candidate c WHERE r.child_name=c.child_name
+  RETURNING r.child_name,r.drop_attempt_id;
+END;
+$$;
+
+CREATE FUNCTION correlia_partition_drop_failed(p_child text,p_attempt bigint,p_now timestamptz)
+RETURNS boolean LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM pg_advisory_xact_lock(1129271900);
+  UPDATE pipeline_partition_range SET drop_retry_at=p_now+interval '30 seconds'
+  WHERE child_name=p_child AND drop_attempt_id=p_attempt;
+  RETURN FOUND;
+END;
+$$;
+
+CREATE FUNCTION correlia_drop_old_partition(p_parent text,p_child text,p_attempt bigint,p_now timestamptz)
 RETURNS boolean LANGUAGE plpgsql AS $$
 DECLARE
   part pipeline_partition_range;
@@ -942,15 +976,10 @@ DECLARE
   blocked boolean;
 BEGIN
   IF p_parent NOT IN ('raw_inbox','events','outbox')
-    OR NOT pg_try_advisory_xact_lock(1129271900) THEN RETURN false; END IF;
-  SELECT CASE p_parent WHEN 'events' THEN event_retention_days
-    WHEN 'outbox' THEN outbox_retention_days ELSE raw_retention_days END INTO days
-  FROM pipeline_queue_policy WHERE singleton=1;
-  SELECT r.* INTO part FROM pipeline_partition_range r JOIN pg_inherits h
-    ON h.inhrelid=to_regclass(r.child_name) AND h.inhparent=to_regclass(r.parent_name)
-  WHERE r.parent_name=p_parent AND r.end_day::timestamp AT TIME ZONE 'UTC' <= p_now-make_interval(days=>days)
-  ORDER BY r.checked_at NULLS FIRST,r.end_day LIMIT 1;
-  IF NOT FOUND THEN RETURN false; END IF;
+    OR NOT pg_try_advisory_xact_lock(1129271900) THEN RETURN NULL; END IF;
+  SELECT * INTO part FROM pipeline_partition_range
+  WHERE parent_name=p_parent AND child_name=p_child AND drop_attempt_id=p_attempt;
+  IF NOT FOUND THEN RETURN NULL; END IF;
   EXECUTE format('LOCK TABLE ONLY %I, ONLY %I IN ACCESS EXCLUSIVE MODE',p_parent,part.child_name);
   -- Publication may extend the window while DDL is blocked. Share-lock
   -- the current policy now, without waiting on a publisher holding it.
@@ -971,10 +1000,7 @@ BEGIN
   ELSE
     EXECUTE format('SELECT EXISTS (SELECT 1 FROM %I)',part.child_name) INTO blocked;
   END IF;
-  IF blocked THEN
-    UPDATE pipeline_partition_range SET checked_at=p_now WHERE child_name=part.child_name;
-    RETURN false;
-  END IF;
+  IF blocked THEN RETURN false; END IF;
   EXECUTE format('DROP TABLE %I',part.child_name);
   DELETE FROM pipeline_partition_range WHERE child_name=part.child_name;
   RETURN true;
@@ -1090,6 +1116,14 @@ BEGIN
   SELECT count(*) INTO deleted FROM removed;
   RETURN deleted;
 END;
+$$;
+
+-- Cutoff advancement also runs without an Icinga2 connection or credentials.
+CREATE FUNCTION correlia_advance_raw_cutoff(p_now timestamptz)
+RETURNS TABLE (cursor_seconds bigint,cursor_nanos bigint,cursor_id bigint)
+LANGUAGE sql VOLATILE AS $$
+  UPDATE raw_admission_cutoff c SET cutoff=greatest(cutoff,p_now-interval '1 hour')
+  WHERE singleton=1 RETURNING c.cursor_seconds,c.cursor_nanos,c.cursor_id
 $$;
 
 CREATE FUNCTION correlia_reclaim_observation_keys(p_now timestamptz,p_cap integer)
@@ -1251,6 +1285,9 @@ BEGIN
     SELECT count(*) INTO affected FROM removed;
   ELSIF p_lane='observation' THEN
     RETURN correlia_reclaim_observation_keys(p_now,p_cap);
+  ELSIF p_lane='cutoff' THEN
+    PERFORM correlia_advance_raw_cutoff(p_now);
+    RETURN 0;
   ELSE
     RAISE EXCEPTION 'unknown maintenance lane';
   END IF;

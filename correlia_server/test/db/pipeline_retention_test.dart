@@ -55,11 +55,27 @@ Future<void> _prepareOldPartition(Session session, String parent) async {
   );
 }
 
-Future<Object?> _dropOldPartition(Session session, String parent) async =>
-    (await session.db.unsafeQuery(
-      'SELECT correlia_drop_old_partition(@parent,@now)',
-      parameters: QueryParameters.named({'parent': parent, 'now': _now}),
-    )).single[0];
+Future<Object?> _dropOldPartition(
+  Session session,
+  String parent, [
+  int pass = 0,
+]) async {
+  final now = _now.add(Duration(minutes: pass));
+  final reservation = (await session.db.unsafeQuery(
+    'SELECT child_name,attempt_id FROM correlia_reserve_drop(@parent,@now)',
+    parameters: QueryParameters.named({'parent': parent, 'now': now}),
+  )).single;
+  return (await session.db.unsafeQuery(
+    'SELECT correlia_drop_old_partition(@parent,@child,@attempt,@now)',
+    parameters: QueryParameters.named({
+      'parent': parent,
+      'now': now,
+      'child': reservation[0],
+      'attempt': reservation[1],
+    }),
+  )).single[0];
+}
+
 Future<void> _raw(Session session, int id, String status) async {
   await session.db.unsafeSimpleExecute('''
     INSERT INTO raw_inbox(observed_at,raw_id,source_id,body,body_sha256,content_type,status)
@@ -167,7 +183,7 @@ void main() {
         expect(await worker.processOne(), isTrue);
         expect(await _count(session, 'events'), 1);
         expect(
-          await _dropOldPartition(session, 'raw_inbox'),
+          await _dropOldPartition(session, 'raw_inbox', 1),
           isFalse,
           reason: 'failed work alone protects the child',
         );
@@ -197,7 +213,7 @@ void main() {
           ['done', 'done'],
         );
         expect((await ops.list(filter)).failures, isEmpty);
-        expect(await _dropOldPartition(session, 'raw_inbox'), isTrue);
+        expect(await _dropOldPartition(session, 'raw_inbox', 2), isTrue);
       });
 
       test('unfinished_outbox_keys_protect_old_events', () async {
@@ -221,7 +237,7 @@ void main() {
           "UPDATE outbox SET status='delivered' WHERE status='delivering'",
         );
         expect(
-          await _dropOldPartition(session, 'events'),
+          await _dropOldPartition(session, 'events', 1),
           isFalse,
           reason: 'the dead delivery alone protects the child',
         );
@@ -232,7 +248,7 @@ void main() {
         await session.db.unsafeExecute(
           "UPDATE outbox SET status='delivered' WHERE status='dead'",
         );
-        expect(await _dropOldPartition(session, 'events'), isTrue);
+        expect(await _dropOldPartition(session, 'events', 2), isTrue);
       });
 
       test('dur_12_expiry_discards_and_ledgers_atomically', () async {
@@ -546,6 +562,21 @@ void main() {
           'still-live',
         ]);
         await session.db.unsafeExecute("UPDATE raw_inbox SET status='done'");
+        expect(await _maintain(session, 'observation'), 1);
+      });
+
+      test('queue_maintenance_advances_dedup_cutoff_without_icinga2', () async {
+        await _raw(session, 1, 'done');
+        await session.db.unsafeSimpleExecute('''
+          INSERT INTO observation_keys ("eventId",fingerprint,"sourceTime","firstSeenAt",disposition)
+          VALUES ('${_id(7)}','fp','$_old','$_old','ready');
+          INSERT INTO transport_keys ("sourceId",key,"bodySha256","firstSeenAt","expiresAt","rawObservedAt","rawId")
+          VALUES ('$_source','expired','digest','$_old','2026-01-02','$_old','${_id(1)}');
+        ''');
+        expect(await _maintain(session, 'transport'), 0);
+        expect(await _maintain(session, 'observation'), 0);
+        await _maintain(session, 'cutoff');
+        expect(await _maintain(session, 'transport'), 1);
         expect(await _maintain(session, 'observation'), 1);
       });
     },

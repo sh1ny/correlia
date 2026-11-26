@@ -254,12 +254,9 @@ void main() {
           isTrue,
         );
         expect(await _write(session, day), 'raw_inbox_20200401');
-        expect(
-          (await session.db.unsafeQuery(
-            "SELECT correlia_drop_old_partition('raw_inbox','2020-10-01')",
-          )).single[0],
-          isTrue,
-        );
+        await MaintenanceRepository(
+          session,
+        ).dropOld('raw_inbox', nowForTest: DateTime.utc(2020, 10, 1));
         expect(
           (await session.db.unsafeQuery(
             "SELECT to_regclass('raw_inbox_20200401')::text",
@@ -272,6 +269,65 @@ void main() {
           )).single[0],
           'raw_inbox_default',
         );
+      });
+
+      test('locked_oldest_child_does_not_starve_later_drops', () async {
+        final session = builder.build();
+        await initializeIngestSchema(session);
+        for (final day in ['1999-01-01', '1999-01-02']) {
+          expect(
+            await _attach(
+              session,
+              day,
+              (await _reserve(session, day, DateTime.utc(1999)))!,
+            ),
+            isTrue,
+          );
+        }
+        final gate = ContentionGate();
+        final held = Completer<void>();
+        final blocker = builder.build();
+        final locked = gate.run(
+          () => blocker.db.transaction((tx) async {
+            await blocker.db.unsafeExecute(
+              'LOCK TABLE ONLY raw_inbox_19990101 IN ACCESS SHARE MODE',
+              transaction: tx,
+            );
+            held.complete();
+            await gate.future;
+          }),
+        );
+        await Future.any([
+          held.future,
+          locked.then<void>((_) => fail('Child lock not acquired')),
+        ]);
+        final first = MaintenanceRepository(session);
+        final now = DateTime.utc(1999, 10, 1);
+        Future<List<Object?>> children() async => [
+          for (final row in await session.db.unsafeQuery('''
+            SELECT child_name FROM pipeline_partition_range WHERE parent_name='raw_inbox'
+              AND first_day IN ('1999-01-01','1999-01-02') ORDER BY first_day
+          '''))
+            row[0],
+        ];
+        try {
+          await first.dropOld('raw_inbox', nowForTest: now);
+          final status = (await QueueOperations(session).status()).maintenance!;
+          expect(
+            (status.lane, status.outcome, status.affected),
+            ('drop_partition', 'lock_timeout', 0),
+          );
+          final restarted = MaintenanceRepository(builder.build());
+          await restarted.dropOld('raw_inbox', nowForTest: now);
+          expect(await children(), ['raw_inbox_19990101']);
+        } finally {
+          await gate.join();
+        }
+        await MaintenanceRepository(session).dropOld(
+          'raw_inbox',
+          nowForTest: now.add(const Duration(seconds: 30)),
+        );
+        expect(await children(), isEmpty);
       });
 
       test('partition_drop_rechecks_policy_after_ddl_lock', () async {
@@ -303,6 +359,9 @@ void main() {
           }),
         );
         await held.future;
+        final reservation = (await session.db.unsafeQuery(
+          "SELECT attempt_id FROM correlia_reserve_drop('raw_inbox','2000-04-01 UTC')",
+        )).single[0];
         final waiter = Completer<int>();
         final drop = gate.run(
           () => worker.db.transaction((tx) async {
@@ -314,7 +373,8 @@ void main() {
                   as int,
             );
             return (await worker.db.unsafeQuery(
-              "SELECT correlia_drop_old_partition('raw_inbox','2000-04-01 UTC')",
+              "SELECT correlia_drop_old_partition('raw_inbox','raw_inbox_20000101',@attempt,'2000-04-01 UTC')",
+              parameters: QueryParameters.named({'attempt': reservation}),
               transaction: tx,
               timeoutInSeconds: 60,
             )).single[0];

@@ -435,7 +435,7 @@ void main() {
             sweepActor,
             writerActor,
             waiting,
-            statement: 'SET cutoff=GREATEST',
+            statement: 'correlia_advance_raw_cutoff',
           );
         } finally {
           await release.join();
@@ -490,7 +490,7 @@ void main() {
             sweepActor,
             cutoffGate,
             reclaiming,
-            statement: 'SET cutoff=GREATEST',
+            statement: 'correlia_advance_raw_cutoff',
             advisory: true,
           );
           final admissionEntered = Completer<LockActor>();

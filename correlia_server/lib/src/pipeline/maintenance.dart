@@ -11,6 +11,7 @@ const _lanes = [
   'events',
   'outbox',
   'attempts',
+  'cutoff',
   'transport',
   'observation',
 ];
@@ -178,19 +179,58 @@ final class MaintenanceRepository {
   );
 
   /// Drops at most one eligible closed child, after its final safety check.
-  Future<void> dropOld(String parent) => _batch(
-    'drop_partition',
-    (tx) async =>
-        (await session.db.unsafeQuery(
-              'SELECT correlia_drop_old_partition(@parent,clock_timestamp())',
-              parameters: QueryParameters.named({'parent': parent}),
-              transaction: tx,
-              timeoutInSeconds: 4,
-            )).single[0] ==
-            true
-        ? 1
-        : 0,
-  );
+  Future<void> dropOld(String parent, {DateTime? nowForTest}) async {
+    final args = QueryParameters.named({'parent': parent, 'now': nowForTest});
+    const now = 'coalesce(@now::timestamptz,clock_timestamp())';
+    final reservation = await session.db.transaction((tx) async {
+      await _limits(tx, ddl: true);
+      return (await session.db.unsafeQuery(
+        'SELECT child_name,attempt_id FROM correlia_reserve_drop(@parent,$now)',
+        parameters: args,
+        transaction: tx,
+        timeoutInSeconds: 4,
+      )).singleOrNull;
+    });
+    if (reservation == null) return;
+    final child = reservation[0];
+    final attempt = reservation[1];
+    try {
+      await session.db.transaction((tx) async {
+        await _limits(tx, ddl: true);
+        final result =
+            (await session.db.unsafeQuery(
+                  'SELECT correlia_drop_old_partition(@parent,@child,@attempt,$now)',
+                  parameters: QueryParameters.named({
+                    'parent': parent,
+                    'child': child,
+                    'attempt': attempt,
+                    'now': nowForTest,
+                  }),
+                  transaction: tx,
+                  timeoutInSeconds: 4,
+                )).single[0]
+                as bool?;
+        if (result != null)
+          await _outcome(tx, 'drop_partition', 'ok', result ? 1 : 0);
+      });
+    } catch (error) {
+      await session.db.transaction((tx) async {
+        await _limits(tx, ddl: true);
+        final recorded = (await session.db.unsafeQuery(
+          'SELECT correlia_partition_drop_failed(@child,@attempt,$now)',
+          parameters: QueryParameters.named({
+            'child': child,
+            'attempt': attempt,
+            'now': nowForTest,
+          }),
+          transaction: tx,
+          timeoutInSeconds: 4,
+        )).single[0];
+        if (recorded == true)
+          await _outcome(tx, 'drop_partition', _problem(error), 0);
+      });
+    }
+  }
 
   /// Prepares one uncovered UTC day, or records a retry after DDL rollback.
   Future<void> prepareOne({DateTime? nowForTest}) async {

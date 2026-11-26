@@ -57,9 +57,7 @@ final class TombstoneSweep {
         await bound();
         final state = (await tx.execute(
           pg.Sql.named('''
-          UPDATE raw_admission_cutoff
-          SET cutoff=GREATEST(cutoff, COALESCE(CAST(@now AS timestamptz),clock_timestamp()) - interval '1 hour')
-          WHERE singleton=1 RETURNING cursor_seconds,cursor_nanos,cursor_id
+          SELECT * FROM correlia_advance_raw_cutoff(COALESCE(CAST(@now AS timestamptz),clock_timestamp()))
         '''),
           parameters: {'now': clock?.call()},
           timeout: remaining(),
