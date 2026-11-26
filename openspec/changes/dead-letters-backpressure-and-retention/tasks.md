@@ -110,8 +110,8 @@ Test paths are relative to `correlia_server/`. Green rows carry existing behavio
 
 ## 6. Verify the combined change
 
-- [ ] 6.1 Write and run `test/e2e/dead_letter_recovery_e2e_test.dart` for the combined DUR-4 recovery and status flows. Exercise the normal delivery relay before and after replay, prove identical bytes and IDs, and show pressure clearing via the same authenticated API Change 9 will call.
-- [ ] 6.2 Rerun the two mapped existing crash cases in `test/e2e/nats_burst_e2e_test.dart` and run strict OpenSpec validation. Before heavy local verification check the owner gaming guard and record any equivalent checks deferred to CI. Publish the ingest runbook changes and changelog updates from their owning task groups.
+- [x] 6.1 Write and run `test/e2e/dead_letter_recovery_e2e_test.dart` for the combined DUR-4 recovery and status flows. Exercise the normal delivery relay before and after replay, prove identical bytes and IDs, and show pressure clearing via the same authenticated API Change 9 will call.
+- [x] 6.2 Rerun the two mapped existing crash cases in `test/e2e/nats_burst_e2e_test.dart` and run strict OpenSpec validation. Before heavy local verification check the owner gaming guard and record any equivalent checks deferred to CI. Publish the ingest runbook changes and changelog updates from their owning task groups.
 
 ## Workflow follow-up
 
