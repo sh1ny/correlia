@@ -674,14 +674,15 @@ void main() {
       });
 
       test('notice_at_exact_cap_blocks_ingress_without_recurse', () async {
+        const budgets = {
+          _first: {'max_rows': 1},
+          _second: {'max_rows': 1000, 'overflow_policy': 'block_ingest'},
+        };
         final snapshot = await _publish(
           session,
           1,
           routes: [_first],
-          budgets: {
-            _first: {'max_rows': 1},
-            _second: {'max_rows': 1000, 'overflow_policy': 'block_ingest'},
-          },
+          budgets: budgets,
         );
         await _oldIntents(session, snapshot, _second, 999);
         await _process(session, ['fills-other']);
@@ -697,6 +698,9 @@ void main() {
           'output',
         );
         expect(await notices(), 1);
+        await _publish(session, 2, routes: [_first], budgets: budgets);
+        expect(await notices(), 1);
+        expect(await router.routeOne(), isFalse);
       });
 
       test('notice_registry_race_keeps_live_lane_limit', () async {

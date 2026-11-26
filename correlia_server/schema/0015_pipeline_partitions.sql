@@ -288,6 +288,7 @@ DECLARE
   lane record;
   budget jsonb;
   capacity pipeline_output_capacity;
+  was_blocking boolean;
 BEGIN
   UPDATE pipeline_queue_policy SET
     pending_max_rows=coalesce((policy->>'pending_max_rows')::int,50000),
@@ -308,6 +309,10 @@ BEGIN
   LOOP
     IF lane.enabled THEN
       budget := policy->'output_budgets'->(lane.id::text);
+      SELECT overflow_policy='block_ingest' AND (
+        used_rows>=max_rows OR used_bytes>=max_payload_bytes
+        OR demand_rows>max_rows-used_rows OR demand_bytes>max_payload_bytes-used_bytes
+      ) INTO was_blocking FROM pipeline_output_capacity WHERE output_id=lane.id FOR UPDATE;
       INSERT INTO pipeline_output_capacity
         (output_id,active,max_rows,max_payload_bytes,overflow_policy)
       VALUES (lane.id,true,coalesce((budget->>'max_rows')::int,500000),
@@ -317,6 +322,7 @@ BEGIN
         max_rows=excluded.max_rows,max_payload_bytes=excluded.max_payload_bytes,
         overflow_policy=excluded.overflow_policy RETURNING * INTO capacity;
       IF capacity.overflow_policy='block_ingest' AND capacity.overflow_activity_id IS NULL
+        AND was_blocking IS DISTINCT FROM true
         AND (capacity.used_rows>=capacity.max_rows OR capacity.used_bytes>=capacity.max_payload_bytes)
       THEN
         PERFORM correlia_mark_overflow(lane.id,'saturated',0,clock_timestamp());

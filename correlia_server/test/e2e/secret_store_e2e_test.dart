@@ -380,6 +380,78 @@ void main() {
   );
 
   test(
+    'worker_startup_preserves_live_intent_when_historical_key_is_missing',
+    () async {
+      await withOutputProcess((database, env, _, children) async {
+        final original = await startOutputChild(
+          database,
+          env,
+          children,
+          gated: true,
+        );
+        final db = await outputConnection(database);
+        try {
+          await db.execute(r'''
+            CREATE FUNCTION test_historical_startup_notify() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN PERFORM pg_notify('test_historical_startup','committed'); RETURN NEW; END $$;
+          ''');
+          await db.execute('''
+            CREATE TRIGGER test_historical_startup_notify AFTER INSERT ON outbox FOR EACH ROW
+            EXECUTE FUNCTION test_historical_startup_notify()
+          ''');
+          await db.execute('LISTEN test_historical_startup');
+          final committed = db.channels.all.firstWhere(
+            (event) => event.channel == 'test_historical_startup',
+          );
+          await postOutputAlert(original);
+          await committed.timeout(const Duration(minutes: 2));
+          expect(await original.closeStdin(), 0);
+          final active = await _activeJson(db);
+          const intent = 'SELECT row_to_json(o)::text FROM outbox o';
+          final retained = (await db.execute(intent)).single[0];
+          expect(
+            (await db.execute('SELECT status FROM outbox')).single[0],
+            'queued',
+          );
+          expect(
+            (await db.execute('''
+            SELECT r.config_snapshot_id=o.config_snapshot_id FROM raw_inbox r CROSS JOIN outbox o
+            WHERE r.status='done'
+          ''')).single[0],
+            isTrue,
+          );
+          await db.execute("DELETE FROM secret_record WHERE reference='key'");
+          final config = File(env['CORRELIA_INGEST_CONFIG']!);
+          await config.writeAsString(jsonEncode(_config(2)));
+          final failing = await ChildServer.startOnSharedCluster(
+            serverDir: Directory.current,
+            database: database,
+            args: [
+              '--mode',
+              'test',
+              '--apply-migrations',
+              '--process-role',
+              'worker',
+            ],
+            environment: {'CORRELIA_INGEST_CONFIG': config.path},
+          );
+          children.add(failing);
+          await failing.waitForOutput(
+            RegExp('historical_key_unavailable'),
+            timeout: const Duration(minutes: 2),
+          );
+          expect(await failing.exitCode, isNot(0));
+          expect(await _activeJson(db), active);
+          expect((await db.execute(intent)).single[0], retained);
+        } finally {
+          await db.close();
+        }
+      });
+    },
+    timeout: _timeout,
+  );
+
+  test(
     'secret_file_not_needed_after_import',
     () => _withFixture((fixture, db) async {
       final imported = await fixture.start();

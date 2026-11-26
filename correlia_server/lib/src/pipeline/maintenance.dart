@@ -141,6 +141,27 @@ final class MaintenanceRepository {
     _ => 'failed',
   };
 
+  Future<void> _recordFailure(String lane, Object error) =>
+      session.db.transaction((tx) async {
+        await _limits(tx);
+        await _outcome(tx, lane, _problem(error), 0);
+      });
+
+  Future<DatabaseResultRow?> _reservePartition(
+    String lane,
+    Future<DatabaseResultRow?> Function(Transaction) reserve,
+  ) async {
+    try {
+      return await session.db.transaction((tx) async {
+        await _limits(tx, ddl: true);
+        return reserve(tx);
+      });
+    } catch (error) {
+      await _recordFailure(lane, error);
+      return null;
+    }
+  }
+
   Future<void> _batch(
     String lane,
     Future<int> Function(Transaction) execute,
@@ -158,10 +179,7 @@ final class MaintenanceRepository {
         await _outcome(tx, lane, 'ok', count);
       });
     } catch (error) {
-      await session.db.transaction((tx) async {
-        await _limits(tx);
-        await _outcome(tx, lane, _problem(error), 0);
-      });
+      await _recordFailure(lane, error);
     }
   }
 
@@ -182,8 +200,7 @@ final class MaintenanceRepository {
   Future<void> dropOld(String parent, {DateTime? nowForTest}) async {
     final args = QueryParameters.named({'parent': parent, 'now': nowForTest});
     const now = 'coalesce(@now::timestamptz,clock_timestamp())';
-    final reservation = await session.db.transaction((tx) async {
-      await _limits(tx, ddl: true);
+    final reservation = await _reservePartition('drop_partition', (tx) async {
       return (await session.db.unsafeQuery(
         'SELECT child_name,attempt_id FROM correlia_reserve_drop(@parent,$now)',
         parameters: args,
@@ -237,8 +254,7 @@ final class MaintenanceRepository {
   /// Prepares one uncovered UTC day, or records a retry after DDL rollback.
   Future<void> prepareOne({DateTime? nowForTest}) async {
     final clock = QueryParameters.named({'now': nowForTest});
-    final next = await session.db.transaction((tx) async {
-      await _limits(tx, ddl: true);
+    final next = await _reservePartition('prepare_partition', (tx) async {
       await session.db.unsafeExecute(
         '''
         DELETE FROM pipeline_partition_retry WHERE (parent_name,day) IN (

@@ -68,6 +68,67 @@ void main() {
   withServerpod(
     'daily partition preparation',
     (builder, _) {
+      test('failed_partition_reservations_replace_stale_status', () async {
+        final session = builder.build();
+        await initializeIngestSchema(session);
+        final now = DateTime.utc(2026, 2, 1);
+        const day = '2025-09-01';
+        expect(
+          await _attach(session, day, (await _reserve(session, day, now))!),
+          isTrue,
+        );
+        final maintenance = MaintenanceRepository(session);
+        final blocker = builder.build();
+        for (final (lane, table, run) in [
+          (
+            'prepare_partition',
+            'pipeline_partition_retry',
+            () => maintenance.prepareOne(nowForTest: now),
+          ),
+          (
+            'drop_partition',
+            'pipeline_partition_range',
+            () => maintenance.dropOld('raw_inbox', nowForTest: now),
+          ),
+        ]) {
+          await maintenance.sweep('events');
+          final hold = ContentionGate();
+          final held = Completer<void>();
+          final locked = hold.run(
+            () => blocker.db.transaction((tx) async {
+              await blocker.db.unsafeExecute(
+                'LOCK TABLE ONLY "$table" IN SHARE MODE',
+                transaction: tx,
+              );
+              held.complete();
+              await hold.future;
+            }),
+          );
+          try {
+            await Future.any([
+              held.future,
+              locked.then<void>((_) => fail('Reservation lock not acquired')),
+            ]);
+            await run();
+            final status = (await QueueOperations(
+              session,
+            ).status()).maintenance!;
+            expect(
+              (status.lane, status.outcome, status.affected),
+              (lane, 'lock_timeout', 0),
+            );
+          } finally {
+            await hold.join();
+          }
+        }
+        expect(
+          (await session.db.unsafeQuery(
+            "SELECT to_regclass('raw_inbox_20250901')::text",
+          )).single[0],
+          'raw_inbox_20250901',
+        );
+      });
+
       test(
         'default_validation_timeout_records_retry_without_blocking_writes',
         () async {
