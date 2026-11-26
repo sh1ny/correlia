@@ -16,11 +16,13 @@ import '../support/generic_webhook_fixture.dart';
 import '../support/icinga2_pipeline.dart';
 import '../support/icinga2_stream_fixture.dart';
 import '../support/icinga2_stream_pipeline.dart';
-import '../support/postgres_lock_witness.dart' show ContentionGate;
+import '../support/postgres_lock_witness.dart';
 import '../support/secret_fixture.dart';
 import 'ingest_config_test.dart' as cfg;
 
 void main() {
+  final cluster = LockWitnessCluster();
+  tearDownAll(cluster.close);
   withServerpod(
     'raw replay uses the operator-time pin',
     (builder, _) {
@@ -183,8 +185,8 @@ void main() {
         );
         final observed = DateTime.now().toUtc();
         now = observed;
-        Future<AdmissionOutcome> admit(Session s, String key) =>
-            IngestAdmission(s).admit(
+        Future<AdmissionOutcome> admit(IngestAdmission admission, String key) =>
+            admission.admit(
               sourceId: cfg.sourceId,
               kind: 'alertmanager',
               credential: active.sources.single.credentials.single,
@@ -194,16 +196,75 @@ void main() {
               observedAt: observed,
               idempotencyKey: key,
             );
-        expect(await admit(session, 'fails-first'), AdmissionOutcome.accepted);
+        expect(
+          await admit(IngestAdmission(session), 'fails-first'),
+          AdmissionOutcome.accepted,
+        );
         expect(await worker().pinOne(), isTrue);
         expect(await worker().processOne(), isTrue);
         final old = await failure();
-        final recording = replay(old.occurrence);
-        final sender = await admit(builder.build(), 'racer');
-        final result = await recording;
+        final winner = builder.build();
+        final competitor = builder.build();
+        final witness = await PostgresLockWitness.start(session);
+        addTearDown(witness.close);
+        final gate = ContentionGate();
+        final locked = Completer<LockActor>();
+        final waiting = Completer<LockActor>();
+        final sender = gate.run(
+          () => admit(
+            IngestAdmission(
+              winner,
+              beforeRawInsertForTest: (tx) async {
+                locked.complete(await pooledLockActor(winner, tx));
+                await gate.future;
+              },
+            ),
+            'last-slot',
+          ),
+        );
+        final holder = await Future.any([
+          locked.future,
+          sender.then<LockActor>(
+            (_) => fail('Webhook did not reserve its slot'),
+          ),
+        ]);
+        final replaying = gate.run(
+          () => QueueOperations(
+            competitor,
+            clock: () => now,
+            elapsedForTest: () => Duration.zero,
+            beforePendingLockForTest: (tx) async {
+              final actor = await pooledLockActor(competitor, tx);
+              await competitor.db.unsafeSimpleExecute(
+                "SET LOCAL log_lock_waits=on; SET LOCAL deadlock_timeout='1ms'",
+                transaction: tx,
+              );
+              waiting.complete(actor);
+            },
+          ).replayOne(QueueFailureKind.raw, old.occurrence, 'racer'),
+        );
+        final waiter = await Future.any([
+          waiting.future,
+          replaying.then<LockActor>(
+            (_) => fail('Replay did not try to reserve a slot'),
+          ),
+        ]);
+        await witness.blockedBy(
+          waiter,
+          holder,
+          replaying,
+          statement: 'FOR UPDATE OF q',
+        );
+        await gate.join();
+        expect(await sender, AdmissionOutcome.accepted);
+        final result = await replaying;
+        expect(result.items.single.outcome, 'inbox_capacity');
+        expect((await failure()).occurrence, old.occurrence);
         expect(
-          result.queued + (sender == AdmissionOutcome.accepted ? 1 : 0),
-          1,
+          (await session.db.unsafeQuery(
+            'SELECT count(*) FROM transport_keys',
+          )).single[0],
+          2,
         );
         expect(
           (await session.db.unsafeQuery(
@@ -211,10 +272,37 @@ void main() {
           )).single[0],
           1,
         );
-        if (result.refused == 1) {
-          expect(result.items.single.outcome, 'inbox_capacity');
-          expect((await failure()).occurrence, old.occurrence);
-        }
+        expect(
+          (await session.db.unsafeQuery(
+            "SELECT count(*) FROM activity WHERE change_kind='dead_letter_replayed'",
+          )).single[0],
+          0,
+        );
+        await session.db.unsafeExecute(
+          "UPDATE raw_inbox SET status='done' WHERE status='pending'",
+        );
+        final started = now;
+        final queued = QueueOperations(
+          session,
+          clock: () => now,
+          beforeConfigLockForTest: () async {
+            now = started.add(const Duration(seconds: 2));
+          },
+        );
+        expect(
+          (await queued.replayOne(
+            QueueFailureKind.raw,
+            old.occurrence,
+            'racer',
+          )).queued,
+          1,
+        );
+        expect(
+          (await session.db.unsafeQuery(
+            "SELECT observed_at,queued_at FROM raw_inbox WHERE status='pending'",
+          )).single.toList(),
+          [started, now],
+        );
       });
 
       test('reconcile_replay_preserves_finished_and_pruned_runs', () async {
@@ -375,6 +463,8 @@ void main() {
       });
     },
     rollbackDatabase: RollbackDatabase.disabled,
+    ephemeralDatabase: false,
+    configOverride: cluster.override,
     testGroupTagsOverride: ['db'],
   );
 }

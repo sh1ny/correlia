@@ -44,8 +44,10 @@ final class _QueueTransaction {
   Future<DatabaseResult> query(
     String sql, {
     QueryParameters? parameters,
+    Future<void> Function(Transaction)? beforeQueryForTest,
   }) async {
     await beforeStatement();
+    await beforeQueryForTest?.call(tx);
     return _session.db.unsafeQuery(
       sql,
       parameters: parameters,
@@ -75,6 +77,7 @@ final class QueueOperations {
     this.beforeConfigLockForTest,
     this.elapsedForTest,
     this.beforeCommitForTest,
+    this.beforePendingLockForTest,
   });
 
   final Session session;
@@ -92,6 +95,9 @@ final class QueueOperations {
 
   /// Observes staged work and audit rows before the deadline check at commit.
   final Future<void> Function(Transaction)? beforeCommitForTest;
+
+  /// Observes the replay transaction immediately before reserving pending rows.
+  final Future<void> Function(Transaction)? beforePendingLockForTest;
 
   Future<DateTime> _now(_QueueTransaction tx) async =>
       clock?.call().toUtc() ??
@@ -384,7 +390,7 @@ final class QueueOperations {
                 parameters: QueryParameters.named({'pin': lockedSnapshot[0]}),
               )).single;
         if (raw) {
-          await _replayRaw(tx, ready, page, active, outcomes, now);
+          await _replayRaw(tx, ready, page, active, outcomes);
         } else {
           await _replayDelivery(tx, ready, page, active, outcomes);
         }
@@ -435,7 +441,6 @@ final class QueueOperations {
     List<QueueFailure> plan,
     DatabaseResultRow? active,
     Map<int, String> outcomes,
-    DateTime now,
   ) async {
     final sources = <String, String>{};
     if (active != null) {
@@ -475,8 +480,10 @@ final class QueueOperations {
       SELECT greatest(0,p.pending_max_rows-q.pending_rows) FROM pipeline_pending q
       CROSS JOIN pipeline_queue_policy p WHERE q.singleton=1 AND p.singleton=1 FOR UPDATE OF q
     ''',
+              beforeQueryForTest: beforePendingLockForTest,
             )).single[0]!
             as int;
+    final enqueuedAt = available > 0 ? await _now(tx) : null;
     for (final (index, row) in candidates.indexed) {
       final occurrence = row[0]! as int;
       if (index >= available) {
@@ -493,7 +500,7 @@ final class QueueOperations {
           'at': row[1],
           'id': row[2],
           'pin': pin,
-          'now': now,
+          'now': enqueuedAt,
         }),
       );
       outcomes[occurrence] = 'queued';
@@ -630,35 +637,38 @@ final class QueueOperations {
 
   /// Reports bounded operational metadata and the same pressure as admission.
   Future<QueueStatus> status() => _transaction((tx) async {
-    final row = (await tx.query(
+    final rows = await tx.query(
       '''
-      SELECT p.pending_max_rows,p.pending_max_age_seconds,p.disk_budget_bytes,p.disk_watermark_percent,
-        q.pending_rows,correlia_queue_pressure(q.pending_rows,1),
-        (SELECT greatest(0,extract(epoch FROM clock_timestamp()-coalesce(queued_at,observed_at)))::bigint
-          FROM raw_inbox WHERE status='pending' ORDER BY coalesce(queued_at,observed_at) LIMIT 1),
-        EXISTS(SELECT 1 FROM pipeline_partition_retry r WHERE problem IS NOT NULL
-          AND day>=(clock_timestamp() AT TIME ZONE 'UTC')::date
-          AND NOT correlia_partition_covered(r.parent_name,r.day))
-      FROM pipeline_queue_policy p CROSS JOIN pipeline_pending q WHERE p.singleton=1 AND q.singleton=1
+      WITH lanes AS MATERIALIZED (
+        SELECT output_id,max_rows,max_payload_bytes,overflow_policy,used_rows,used_bytes,
+          discarded_count,overflow_activity_id,
+          overflow_policy='block_ingest' AND (used_rows>=max_rows OR used_bytes>=max_payload_bytes
+            OR demand_rows>max_rows-used_rows OR demand_bytes>max_payload_bytes-used_bytes) AS blocks
+        FROM pipeline_output_capacity WHERE active OR used_rows>0 OR pinned_rows>0 OR overflow_activity_id IS NOT NULL
+          OR overflow_policy='block_ingest'
+        ORDER BY blocks DESC,output_id LIMIT 65
+      ), summary AS MATERIALIZED (
+        SELECT p.pending_max_rows,p.pending_max_age_seconds,p.disk_budget_bytes,p.disk_watermark_percent,
+          q.pending_rows,correlia_queue_pressure(q.pending_rows,1,EXISTS(SELECT 1 FROM lanes WHERE blocks)),
+          (SELECT greatest(0,extract(epoch FROM clock_timestamp()-coalesce(queued_at,observed_at)))::bigint
+            FROM raw_inbox WHERE status='pending' ORDER BY coalesce(queued_at,observed_at) LIMIT 1),
+          EXISTS(SELECT 1 FROM pipeline_partition_retry r WHERE problem IS NOT NULL
+            AND day>=(clock_timestamp() AT TIME ZONE 'UTC')::date
+            AND NOT correlia_partition_covered(r.parent_name,r.day))
+        FROM pipeline_queue_policy p CROSS JOIN pipeline_pending q WHERE p.singleton=1 AND q.singleton=1
+      )
+      SELECT s.*,l.output_id::text,l.max_rows,l.max_payload_bytes,l.overflow_policy,l.used_rows,l.used_bytes,
+        l.discarded_count,l.overflow_activity_id,l.blocks
+      FROM summary s LEFT JOIN lanes l ON true ORDER BY l.blocks DESC,l.output_id
     ''',
-    )).single;
+    );
+    final row = rows.first;
     final sample = row[2] == null
         ? null
         : (await tx.query(
                 'SELECT database_bytes FROM pipeline_disk_sample WHERE singleton=1',
               )).single[0]
               as int?;
-    final lanes = await tx.query(
-      '''
-      SELECT output_id::text,max_rows,max_payload_bytes,overflow_policy,used_rows,used_bytes,
-        discarded_count,overflow_activity_id,
-        overflow_policy='block_ingest' AND (used_rows>=max_rows OR used_bytes>=max_payload_bytes
-          OR demand_rows>max_rows-used_rows OR demand_bytes>max_payload_bytes-used_bytes) AS blocks
-      FROM pipeline_output_capacity WHERE active OR used_rows>0 OR pinned_rows>0 OR overflow_activity_id IS NOT NULL
-        OR overflow_policy='block_ingest'
-      ORDER BY blocks DESC,output_id LIMIT 65
-    ''',
-    );
     final maintenance = (await tx.query('''
       SELECT lane,outcome,finished_at,affected FROM pipeline_maintenance_outcome WHERE singleton=1
     ''')).singleOrNull;
@@ -672,20 +682,21 @@ final class QueueOperations {
       oldestPendingAgeSeconds: row[6] as int?,
       partitionDegraded: row[7]! as bool,
       databaseBytes: sample,
-      outputsTruncated: lanes.length > 64,
+      outputsTruncated: rows.length > 64,
       outputs: [
-        for (final lane in lanes.take(64))
-          QueueOutputStatus(
-            outputId: lane[0]! as String,
-            maxRows: lane[1]! as int,
-            maxPayloadBytes: lane[2]! as int,
-            overflowPolicy: lane[3]! as String,
-            usedRows: lane[4]! as int,
-            usedBytes: lane[5]! as int,
-            discardedCount: lane[6]! as int,
-            overflowActivityId: lane[7] as int?,
-            blocksIngress: lane[8]! as bool,
-          ),
+        if (row[8] != null)
+          for (final lane in rows.take(64))
+            QueueOutputStatus(
+              outputId: lane[8]! as String,
+              maxRows: lane[9]! as int,
+              maxPayloadBytes: lane[10]! as int,
+              overflowPolicy: lane[11]! as String,
+              usedRows: lane[12]! as int,
+              usedBytes: lane[13]! as int,
+              discardedCount: lane[14]! as int,
+              overflowActivityId: lane[15] as int?,
+              blocksIngress: lane[16]! as bool,
+            ),
       ],
       maintenance: maintenance == null
           ? null

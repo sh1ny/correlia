@@ -291,7 +291,23 @@ void main() {
     await _withServers((database, directory, start) async {
       final db = await outputConnection(database);
       try {
-        final small = await _bootstrap(directory, 1, {'disk_budget_bytes': 1});
+        final original =
+            (await db.execute(
+                  'SELECT pg_database_size(current_database())',
+                )).single[0]!
+                as int;
+        final budget = original + 16 * 1024 * 1024;
+        await db.execute('CREATE TABLE test_disk_padding (payload text)');
+        await db.execute(
+          'ALTER TABLE test_disk_padding ALTER COLUMN payload SET STORAGE PLAIN',
+        );
+        await db.execute(
+          "INSERT INTO test_disk_padding SELECT repeat('x',4096) FROM generate_series(1,4096)",
+        );
+        final small = await _bootstrap(directory, 1, {
+          'disk_budget_bytes': budget,
+          'disk_watermark_percent': 100,
+        });
         final api = await start('api', small);
         final refused = await _post(api, 'disk-too-small');
         expect(refused.$1, 503);
@@ -302,12 +318,34 @@ void main() {
           (await db.execute('SELECT count(*) FROM transport_keys')).single[0],
           0,
         );
-        final larger = await _bootstrap(directory, 2, {
-          'disk_budget_bytes': 1073741824,
-        });
-        final recovered = await start('api', larger);
-        expect(await recovered.statusOf('/readyz'), 200);
-        expect((await _post(recovered, 'disk-too-small')).$1, 202);
+        final before =
+            (await db.execute(
+                  'SELECT database_bytes FROM pipeline_disk_sample',
+                )).single[0]!
+                as int;
+        expect(before, greaterThan(budget));
+        await db.execute('DROP TABLE test_disk_padding');
+        expect(
+          (await db.execute(
+            'SELECT pg_database_size(current_database())',
+          )).single[0],
+          lessThan(budget),
+        );
+        // Age the cache entry without changing its measured size or waiting.
+        await db.execute(
+          "UPDATE pipeline_disk_sample SET sampled_at='-infinity'",
+        );
+        expect((await _post(api, 'disk-too-small')).$1, 202);
+        expect(
+          (await db.execute(
+            'SELECT database_bytes FROM pipeline_disk_sample',
+          )).single[0],
+          lessThan(budget),
+        );
+        // Readiness has its own probe cache. Wait for the recovered observation.
+        await Stream<void>.periodic(const Duration(milliseconds: 200), (_) {})
+            .asyncMap((_) => api.statusOf('/readyz'))
+            .firstWhere((status) => status == 200);
       } finally {
         await db.close();
       }

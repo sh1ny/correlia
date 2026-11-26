@@ -1,8 +1,19 @@
+import 'dart:convert';
+
+import 'package:correlia_server/src/ingest/admission.dart';
+import 'package:correlia_server/src/ingest/bootstrap.dart';
+import 'package:correlia_server/src/ingest/config_repository.dart';
+import 'package:correlia_server/src/output/output_relay.dart';
+import 'package:correlia_server/src/pipeline/pipeline.dart';
 import 'package:correlia_server/src/schema/schema_steps.dart';
 import 'package:serverpod/serverpod.dart';
 import 'package:test/test.dart';
 
 import '../integration/test_tools/serverpod_test_tools.dart';
+import '../support/secret_fixture.dart';
+import '../unit/ingest/alertmanager_decoder_test.dart' as payload;
+import 'ingest_config_test.dart' as cfg;
+import 'pipeline_test.dart' as fixture;
 
 const _parents = ['events', 'outbox', 'raw_inbox'];
 const _predecessorVersion = 14;
@@ -22,7 +33,7 @@ Future<void> _predecessor(Session session) => applySchemaSteps(session, [
     if (step.version <= _predecessorVersion) step,
 ]);
 
-Future<void> _seed(Session session) async {
+Future<void> _seed(Session session, {bool placeholderLiveWork = true}) async {
   await session.db.unsafeSimpleExecute('''
     INSERT INTO raw_inbox (observed_at,raw_id,source_id,body,body_sha256,content_type,status,config_snapshot_id)
     SELECT '2020-01-01 UTC',id::uuid,'a0000000-0000-4000-8000-000000000001',
@@ -30,7 +41,8 @@ Future<void> _seed(Session session) async {
     FROM (VALUES
       ('a0000000-0000-4000-8000-000000000010','pending'),
       ('a0000000-0000-4000-8000-000000000011','failed'),
-      ('a0000000-0000-4000-8000-000000000012','done')) AS r(id,status);
+      ('a0000000-0000-4000-8000-000000000012','done')) AS r(id,status)
+    ${placeholderLiveWork ? '' : "WHERE status<>'pending'"};
     INSERT INTO events (observed_at,event_id,disposition,raw_observed_at,raw_id,source_id,
       config_snapshot_id,source_time,payload,state_outcome)
     VALUES ('2020-01-01 UTC','a0000000-0000-4000-8000-000000000020','ready',
@@ -42,7 +54,7 @@ Future<void> _seed(Session session) async {
     SELECT '2020-01-02 UTC',gen_random_uuid(),observed_at,event_id,disposition,
       'a0000000-0000-4000-8000-000000000002',config_snapshot_id,'https://example.com/events',
       'historical-key','historical-commitment',payload,state
-    FROM events CROSS JOIN unnest(ARRAY['queued','dead','delivered']) state;
+    FROM events CROSS JOIN unnest(ARRAY[${placeholderLiveWork ? "'queued'," : ''}'dead','delivered']) state;
     INSERT INTO pipeline_failures
       ("rawObservedAt","rawId","configSnapshotId","errorClass","createdAt")
     SELECT observed_at,raw_id,config_snapshot_id,'invalid_json',clock_timestamp()
@@ -78,7 +90,68 @@ void main() {
       test('partition_cutover_fresh_and_populated', () async {
         final session = builder.build();
         await _predecessor(session);
-        await _seed(session);
+        await _seed(session, placeholderLiveWork: false);
+        final first = cfg.input(1);
+        final destination = first.outputs.single as WebhookIngestOutput;
+        final oldReceipt = DateTime.utc(2020, 1, 1);
+        await seedSigningSecret(
+          session,
+          destination.signingKeyRef,
+          base64Url.decode(base64Url.normalize(cfg.token(2))),
+        );
+        // Step 14 has these tables, but not the new publication queue helper.
+        await session.db.transaction((tx) async {
+          await session.db.unsafeSimpleExecute(
+            "SET LOCAL correlia.publisher_version='2'",
+            transaction: tx,
+          );
+          await session.db.unsafeExecute(
+            '''
+            INSERT INTO ingest_config_snapshot ("snapshotId",revision,"publicJson") VALUES (@pin,1,@json)
+          ''',
+            parameters: QueryParameters.named({
+              'pin': first.snapshotId,
+              'json': first.publicJson,
+            }),
+            transaction: tx,
+          );
+          await session.db.unsafeExecute(
+            '''
+            INSERT INTO ingest_active_config(singleton,"snapshotId") VALUES (1,@pin)
+          ''',
+            parameters: QueryParameters.named({'pin': first.snapshotId}),
+            transaction: tx,
+          );
+        });
+        await fixture.seed(session, [
+          payload.alert(
+            startsAt: oldReceipt.toIso8601String(),
+            labels: {'alertname': 'pre-cutover'},
+          ),
+        ], observed: oldReceipt);
+        final migratedRaw =
+            (await session.db.unsafeQuery(
+                  '''
+          UPDATE raw_inbox SET config_snapshot_id=@pin WHERE status='pending' RETURNING raw_id::text
+        ''',
+                  parameters: QueryParameters.named({'pin': first.snapshotId}),
+                )).single[0]!
+                as String;
+        final legacyDelivery = (await session.db.unsafeQuery(
+          '''
+          INSERT INTO outbox(created_at,delivery_id,event_observed_at,event_id,event_disposition,
+            output_id,config_snapshot_id,target_url,signing_key_ref,signing_key_commitment,payload)
+          SELECT '2020-01-02 UTC',gen_random_uuid(),observed_at,event_id,disposition,
+            @output::uuid,@pin,'http://127.0.0.1:9099/events',@ref,@commitment,payload
+          FROM events RETURNING delivery_id::text,payload
+        ''',
+          parameters: QueryParameters.named({
+            'pin': first.snapshotId,
+            'output': cfg.outputId,
+            'ref': destination.signingKeyRef,
+            'commitment': destination.signingKeyCommitment,
+          }),
+        )).single;
         await session.db.unsafeExecute(
           "UPDATE raw_admission_cutoff SET cutoff='2020-01-08 00:00 UTC' WHERE singleton=1",
         );
@@ -92,12 +165,74 @@ void main() {
           )).single[0],
           DateTime.utc(2020),
         );
-        final inserted = await session.db.unsafeQuery('''
-          INSERT INTO raw_inbox (observed_at,raw_id,source_id,body,body_sha256,content_type)
-          VALUES (clock_timestamp(),gen_random_uuid(),gen_random_uuid(),decode('aa','hex'),
-            'digest','application/json') RETURNING tableoid::bigint
-        ''');
-        expect(inserted.single[0], isNot(before['raw_inbox']!.first[0]));
+        final active = cfg.input(2);
+        await IngestConfigRepository(
+          session,
+          secretStore: testSecretStore,
+        ).publish(active);
+        final receipt = DateTime.utc(2020, 1, 9);
+        final worker = PipelineRepository(
+          session,
+          clock: () => receipt,
+          elapsedForTest: () => Duration.zero,
+        );
+        final relay = OutputRelayRepository(
+          session,
+          testSecretResolver(session).resolve,
+        );
+        final oldClaim = (await relay.claim(cfg.outputId))!.claims.single;
+        expect(oldClaim.deliveryId, legacyDelivery[0]);
+        expect(oldClaim.payload, legacyDelivery[1]);
+        expect(
+          await relay.complete(oldClaim, const DeliveryAcknowledged()),
+          isTrue,
+        );
+        expect(await worker.processOne(), isTrue);
+        final newBody = utf8.encode(
+          jsonEncode(
+            payload.groupOf([
+              payload.alert(
+                startsAt: receipt.toIso8601String(),
+                labels: {'alertname': 'post-cutover'},
+              ),
+            ]),
+          ),
+        );
+        expect(
+          await IngestAdmission(session).admit(
+            sourceId: cfg.sourceId,
+            kind: 'alertmanager',
+            credential: active.sources.single.credentials.single,
+            pathToken: false,
+            body: newBody,
+            contentType: 'application/json',
+            observedAt: receipt,
+          ),
+          AdmissionOutcome.accepted,
+        );
+        expect(await worker.pinOne(), isTrue);
+        expect(await worker.processOne(), isTrue);
+        final finished = await session.db.unsafeQuery('''
+          SELECT raw_id::text,tableoid::bigint,config_snapshot_id,status FROM raw_inbox
+          WHERE source_id=@source::uuid ORDER BY observed_at
+        ''', parameters: QueryParameters.named({'source': cfg.sourceId}));
+        expect(finished, hasLength(2));
+        expect(finished.first.toList(), [
+          migratedRaw,
+          before['raw_inbox']!.first[0],
+          first.snapshotId,
+          'done',
+        ]);
+        expect(finished.last[1], isNot(finished.first[1]));
+        expect(finished.last.toList().skip(2), [active.snapshotId, 'done']);
+        final saved = await session.db.unsafeQuery('''
+          SELECT raw_id::text,config_snapshot_id,disposition FROM events
+          WHERE source_id=@source::uuid ORDER BY observed_at
+        ''', parameters: QueryParameters.named({'source': cfg.sourceId}));
+        expect(saved.map((row) => row.toList()), [
+          [migratedRaw, first.snapshotId, 'ready'],
+          [finished.last[0], active.snapshotId, 'ready'],
+        ]);
       });
     },
     rollbackDatabase: RollbackDatabase.disabled,

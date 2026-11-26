@@ -546,17 +546,17 @@ $$;
 
 -- Hold this lock until the actual INSERT; row triggers account only committed
 -- work. Replay skips age, disk and output pressure but shares the row cap.
-CREATE FUNCTION correlia_queue_pressure(pending bigint,incoming integer)
+CREATE FUNCTION correlia_queue_pressure(pending bigint,incoming integer,p_output_blocked boolean DEFAULT NULL)
 RETURNS text LANGUAGE plpgsql AS $$
 DECLARE
   policy pipeline_queue_policy;
 BEGIN
   SELECT * INTO policy FROM pipeline_queue_policy WHERE singleton=1;
   IF correlia_disk_pressure() THEN RETURN 'storage'; END IF;
-  IF EXISTS (SELECT 1 FROM pipeline_output_capacity WHERE overflow_policy='block_ingest' AND (
+  IF coalesce(p_output_blocked,EXISTS (SELECT 1 FROM pipeline_output_capacity WHERE overflow_policy='block_ingest' AND (
       used_rows >= max_rows OR used_bytes >= max_payload_bytes
       OR demand_rows > max_rows - used_rows OR demand_bytes > max_payload_bytes - used_bytes
-  )) THEN RETURN 'output'; END IF;
+  ))) THEN RETURN 'output'; END IF;
   IF EXISTS (SELECT 1 FROM raw_inbox WHERE status='pending'
     AND coalesce(queued_at,observed_at) <= statement_timestamp()
       - make_interval(secs=>policy.pending_max_age_seconds)

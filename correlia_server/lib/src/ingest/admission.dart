@@ -35,6 +35,7 @@ final class IngestAdmission {
     this.session, {
     this.window = const Duration(minutes: 10),
     this.afterReservationConflictForTest,
+    this.beforeRawInsertForTest,
   });
 
   /// The session used for database operations.
@@ -45,6 +46,9 @@ final class IngestAdmission {
 
   /// Pauses after an existing transport reservation wins the insert.
   final Future<void> Function()? afterReservationConflictForTest;
+
+  /// Observes accepted admission while its pending-count reservation is held.
+  final Future<void> Function(Transaction)? beforeRawInsertForTest;
 
   /// Stores a delivery or returns its existing reservation's outcome.
   Future<AdmissionOutcome> admit({
@@ -187,6 +191,7 @@ WHERE "sourceId"=CAST(@source AS uuid) AND "key"=@key''',
           timeoutInSeconds: 5,
         );
       }
+      await beforeRawInsertForTest?.call(tx);
       await IngestRecords(session).insertRaw(
         RawInboxRecord(
           identity: RawIdentity(observedAt, rawId),
