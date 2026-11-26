@@ -661,6 +661,30 @@ void main() {
     ]);
   });
 
+  test('an_overwritten_key_past_the_limit_fails_its_last_writer', () async {
+    final result = await _simulate(
+      _event(labels: {for (var i = 0; i < 128; i++) 'k$i': 'v'}),
+      _document([
+        _rule(
+          'labels',
+          [
+            // Both write the one new key, which is over the limit of 128;
+            // the first write is overwritten, so the second one fails.
+            _label('over', 'x'),
+            _label('over', 'y'),
+          ],
+          when: _leaf('labels.k1', 'equals', 'v'),
+        ),
+      ]),
+    );
+    final rule = result.trace.single;
+    expect((rule.outcome, rule.failureCode), ('failed', 'invalid_count'));
+    expect(rule.actions.map((a) => a.effect), [
+      'skipped: overwritten later in its rule',
+      'failed: invalid_count',
+    ]);
+  });
+
   test('failed_extraction_is_reported_as_failed', () async {
     final result = await _simulate(
       _event(),

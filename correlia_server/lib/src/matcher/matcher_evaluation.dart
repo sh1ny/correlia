@@ -97,17 +97,18 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
   // Each label a `location` action staged, as its key and `key=value` text,
   // so a partly overwritten lookup can mark the labels that did not survive.
   final staged = onAction == null ? null : <int, List<(String, String)>>{};
-  // The action behind each label key the event did not have, in the order the
-  // keys were added, and behind each added link, so a count over the event's
-  // limit is reported against the action that went past it.
-  final newKeyWriters = onAction == null ? null : <int>[];
+  // Each label key the event did not have, in the order the keys were added,
+  // and the action behind each added link, so a count over the event's limit
+  // is reported against the action that went past it: for a key, its last
+  // writer, since an earlier write of the key was overwritten.
+  final newKeys = onAction == null ? null : <String>[];
   final linkWriters = onAction == null ? null : <int>[];
   void put(int index, String key, String value) {
     // The pipeline passes no observer and skips the lookups.
-    if (newKeyWriters != null &&
+    if (newKeys != null &&
         !labels.containsKey(key) &&
         !current.labels.containsKey(key)) {
-      newKeyWriters.add(index);
+      newKeys.add(key);
     }
     labels[key] = value;
   }
@@ -304,10 +305,13 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
         : null;
     // A count over a limit is the action whose label or link went past it.
     final failed = switch (error.path) {
-      'labels' => newKeyWriters?.elementAtOrNull(
+      'labels' => switch (newKeys?.elementAtOrNull(
         CanonicalEventBounds.CanonicalEventLabelsLength.max! -
             current.labels.length,
-      ),
+      )) {
+        final key? => lastWriter?[key],
+        null => null,
+      },
       'links' => linkWriters?.elementAtOrNull(
         CanonicalEventBounds.CanonicalEventLinksLength.max! -
             current.links.length,

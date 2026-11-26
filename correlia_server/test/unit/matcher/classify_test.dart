@@ -221,7 +221,9 @@ void main() {
 
   test('a_failing_action_discards_the_hint', () async {
     final data = eventFixture()['data']! as Map<String, Object?>;
-    data['description'] = 'x' * 2048;
+    // The capture would fit as a label, so only the regex timeout can make
+    // the extract action fail.
+    data['description'] = 'x' * 16;
     data['labels'] = {'alertname': 'Watchdog'};
     final event = CanonicalEvent.fromJson(data);
     final document = MatcherDocument.parse(
@@ -267,7 +269,15 @@ void main() {
     expect(out.labels, isNot(contains('extracted')));
     expect(out.labelsOrigin, isNot(contains(_key)));
     expect(batch.failures, {'failing': 1});
-    expect(out.pipeline.enrichmentErrors.single.message, 'failing');
+    final error = out.pipeline.enrichmentErrors.single;
+    expect(
+      (error.stage, error.code, error.message),
+      (
+        'matcher',
+        'regex_timeout',
+        'failing',
+      ),
+    );
   });
 
   test('malformed_classify_action', () {
