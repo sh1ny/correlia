@@ -183,17 +183,11 @@ Future<List<int>> _versions(Connection connection) async => [
 
 final _currentVersions = [for (final step in schemaSteps) step.version];
 
-/// Checks the reported SQLSTATE-derived class and the step that attempted the
-/// lock. The conflicting lock stays held until the child exits.
+/// The conflicting lock stays held until the child reports SQLSTATE 55P03.
+/// Each database fixture checks the timeout inside the lock-taking statement.
 Future<void> _expectLockTimeout(ChildServer child, int step) async {
   final code = await child.exitCode.timeout(_exitWithin);
   expect(code, isNot(0), reason: child.output);
-  expect(
-    child.output,
-    contains(
-      'Schema transaction $step PostgreSQL lock_timeout=${_shortLockTimeoutMs}ms',
-    ),
-  );
   expect(
     child.output,
     contains('Schema step $step failed: lock_timeout'),
@@ -207,6 +201,21 @@ void main() {
       final upgrade = await _Upgrade.create();
       try {
         final connection = await upgrade.prepareAt(3);
+        await connection.execute(
+          '''
+          CREATE FUNCTION check_schema_lock_timeout() RETURNS event_trigger
+          LANGUAGE plpgsql AS \$\$
+          BEGIN
+            IF current_setting('lock_timeout') <> '${_shortLockTimeoutMs}ms' THEN
+              RAISE EXCEPTION 'Unexpected lock_timeout at ALTER TABLE';
+            END IF;
+          END
+          \$\$;
+          CREATE EVENT TRIGGER check_schema_lock_timeout ON ddl_command_start
+            WHEN TAG IN ('ALTER TABLE') EXECUTE FUNCTION check_schema_lock_timeout();
+          ''',
+          queryMode: QueryMode.simple,
+        );
         final blocker = await upgrade.connect();
         await blocker.execute('BEGIN');
         await blocker.execute('LOCK TABLE events IN ACCESS SHARE MODE');
@@ -216,6 +225,9 @@ void main() {
         await _expectLockTimeout(blocked, 4);
         expect(await _versions(connection), [1, 2, 3]);
         await blocker.execute('ROLLBACK');
+        await connection.execute(
+          'DROP EVENT TRIGGER check_schema_lock_timeout',
+        );
         final restarted = await upgrade.start();
         await restarted.waitUntilReady();
         expect(await _versions(connection), _currentVersions);
@@ -232,10 +244,23 @@ void main() {
       final upgrade = await _Upgrade.create();
       try {
         final connection = await upgrade.prepareAt(3);
+        // The runner passes an integer literal. Verify the GUC immediately
+        // before handing that lock to PostgreSQL's bigint overload.
+        await connection.execute('''
+          CREATE FUNCTION pg_advisory_xact_lock(integer) RETURNS void
+          LANGUAGE plpgsql AS \$\$
+          BEGIN
+            IF current_setting('lock_timeout') <> '${_shortLockTimeoutMs}ms' THEN
+              RAISE EXCEPTION 'Unexpected lock_timeout at advisory lock';
+            END IF;
+            PERFORM pg_catalog.pg_advisory_xact_lock(\$1::bigint);
+          END
+          \$\$
+          ''');
         final other = await upgrade.connect();
         await other.execute('BEGIN');
         await other.execute(
-          'SELECT pg_advisory_xact_lock($_schemaAdvisoryLock)',
+          'SELECT pg_catalog.pg_advisory_xact_lock($_schemaAdvisoryLock::bigint)',
         );
         final blocked = await upgrade.start({
           'CORRELIA_TEST_SCHEMA_LOCK_TIMEOUT_MS': _shortLockTimeoutMs,
@@ -244,6 +269,9 @@ void main() {
         await _expectLockTimeout(blocked, 0);
         expect(await _versions(connection), [1, 2, 3]);
         await other.execute('ROLLBACK');
+        await connection.execute(
+          'DROP FUNCTION pg_advisory_xact_lock(integer)',
+        );
         final restarted = await upgrade.start();
         await restarted.waitUntilReady();
         expect(await _versions(connection), _currentVersions);

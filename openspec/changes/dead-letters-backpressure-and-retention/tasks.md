@@ -36,8 +36,8 @@ Test paths are relative to `correlia_server/`. Green rows carry existing behavio
 | durable-pipeline → Rows decode by their source's kind | Two kinds in one batch | `test/db/decoder_dispatch_test.dart` | `two_kinds_in_one_batch` | green |
 | durable-pipeline → Rows decode by their source's kind | Existing rows after the upgrade | `test/db/decoder_dispatch_test.dart` | `existing_rows_after_the_upgrade` | green |
 | durable-pipeline → Rows decode by their source's kind | Row pinned to a format version 1 snapshot | `test/db/decoder_dispatch_test.dart` | `row_pinned_to_a_format_version_1_snapshot` | green |
-| durable-pipeline → Rows decode by their source's kind | Schema step 4 under lock contention | `test/e2e/icinga2_upgrade_e2e_test.dart` | `schema_step_4_under_lock_contention` | green |
-| durable-pipeline → Rows decode by their source's kind | Schema runner waits behind another starter | `test/e2e/icinga2_upgrade_e2e_test.dart` | `schema_runner_waits_behind_another_starter` | green |
+| durable-pipeline → Rows decode by their source's kind | Schema step 4 under lock contention; the `ALTER TABLE` sees the injected timeout | `test/e2e/icinga2_upgrade_e2e_test.dart` | `schema_step_4_under_lock_contention` | green |
+| durable-pipeline → Rows decode by their source's kind | Schema runner waits behind another starter; the advisory lock call sees the injected timeout | `test/e2e/icinga2_upgrade_e2e_test.dart` | `schema_runner_waits_behind_another_starter` | green |
 | durable-pipeline → Rows decode by their source's kind | Missing kind in a version 2 snapshot | `test/db/decoder_dispatch_test.dart` | `missing_kind_in_a_version_2_snapshot` | green |
 | durable-pipeline → Rows decode by their source's kind | Offline upgrade with pending work | `test/e2e/icinga2_upgrade_e2e_test.dart` | `offline_upgrade_with_pending_work` | green |
 | durable-pipeline → Rows decode by their source's kind | Body of another kind | `test/db/decoder_dispatch_test.dart` | `body_of_another_kind` | green |

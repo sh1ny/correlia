@@ -11,7 +11,6 @@ final class ServerpodAdapter implements ServerpodPort {
     this.pod, {
     this.schemaLockTimeout = defaultSchemaLockTimeout,
     this.partitionCutoverTimeoutSeconds = defaultPartitionCutoverTimeoutSeconds,
-    this.observeSchemaLockTimeoutForTest,
   });
 
   /// The wrapped server.
@@ -22,9 +21,6 @@ final class ServerpodAdapter implements ServerpodPort {
 
   /// Maximum client wait in seconds for the offline partition script.
   final int partitionCutoverTimeoutSeconds;
-
-  /// Test-only sink for the effective PostgreSQL lock timeout.
-  final void Function(int, String)? observeSchemaLockTimeoutForTest;
 
   static int _taskCounter = 0;
 
@@ -50,7 +46,6 @@ final class ServerpodAdapter implements ServerpodPort {
         session,
         lockTimeout: schemaLockTimeout,
         partitionCutoverTimeoutSeconds: partitionCutoverTimeoutSeconds,
-        observeLockTimeoutForTest: observeSchemaLockTimeoutForTest,
       );
     } finally {
       await session.close();

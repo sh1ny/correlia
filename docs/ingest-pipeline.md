@@ -268,9 +268,10 @@ already-pinned work. Retiring an output keeps its last budget while it still has
 A new webhook gets `429` when inbox count or oldest pending age reaches its limit, or `503` at a
 configured disk watermark or blocking output. Both include `Retry-After` in whole seconds.
 Refused requests leave neither a raw row nor a transport reservation. A known exact retry keeps
-its prior acknowledgement, and a changed live idempotency key still returns `409`. Leased pulls
-pause on the same shared limits and retain their batch for retry. Queue limits complement the
-per-process request-rate limiter; they do not replace it.
+its prior acknowledgement. Reusing the same live idempotency key with different request bytes
+returns `409`; a different key is subject to admission pressure. Leased pulls pause on the same
+shared limits and retain their batch for retry. Queue limits complement the per-process
+request-rate limiter; they do not replace it.
 
 Disk pressure uses `pg_database_size(current_database())` with a shared one-second sample.
 A request refused for disk pressure keeps the fresh measurement but no receipt. Disk pressure also

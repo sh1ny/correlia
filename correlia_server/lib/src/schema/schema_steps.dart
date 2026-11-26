@@ -69,21 +69,10 @@ Future<void> _setLockTimeout(
   Session session,
   Transaction transaction,
   Duration lockTimeout,
-  int step,
-  void Function(int, String)? observe,
-) async {
-  await session.db.unsafeSimpleExecute(
-    "SET LOCAL lock_timeout = '${lockTimeout.inMilliseconds}ms'",
-    transaction: transaction,
-  );
-  if (observe != null) {
-    final rows = await session.db.unsafeQuery(
-      "SELECT current_setting('lock_timeout')",
-      transaction: transaction,
-    );
-    observe(step, rows.single[0]! as String);
-  }
-}
+) => session.db.unsafeSimpleExecute(
+  "SET LOCAL lock_timeout = '${lockTimeout.inMilliseconds}ms'",
+  transaction: transaction,
+);
 
 /// The ordered schema scripts shipped with the server package.
 List<SchemaStep> get schemaSteps => [
@@ -152,18 +141,11 @@ Future<void> applySchemaSteps(
   Duration lockTimeout = defaultSchemaLockTimeout,
   int partitionCutoverTimeoutSeconds = defaultPartitionCutoverTimeoutSeconds,
   Future<void> Function(Transaction, SchemaStep)? beforeStepForTest,
-  void Function(int, String)? observeLockTimeoutForTest,
   int? stepTimeoutInSecondsForTest,
 }) async {
   try {
     await session.db.transaction((transaction) async {
-      await _setLockTimeout(
-        session,
-        transaction,
-        lockTimeout,
-        0,
-        observeLockTimeoutForTest,
-      );
+      await _setLockTimeout(session, transaction, lockTimeout);
       await session.db.unsafeQuery(
         'SELECT pg_advisory_xact_lock(1129271885)',
         transaction: transaction,
@@ -184,13 +166,7 @@ Future<void> applySchemaSteps(
     previous = step.version;
     try {
       await session.db.transaction((transaction) async {
-        await _setLockTimeout(
-          session,
-          transaction,
-          lockTimeout,
-          step.version,
-          observeLockTimeoutForTest,
-        );
+        await _setLockTimeout(session, transaction, lockTimeout);
         await session.db.unsafeQuery(
           'SELECT pg_advisory_xact_lock(1129271885)',
           transaction: transaction,
@@ -246,7 +222,6 @@ Future<void> initializeSchema(
   Future<void> Function(int inserted)? afterFillInsertForTest,
   Future<void> Function()? beforeFillCompletionForTest,
   int partitionCutoverTimeoutSeconds = defaultPartitionCutoverTimeoutSeconds,
-  void Function(int, String)? observeLockTimeoutForTest,
   Future<void> Function(Transaction, bool)? beforeBackfillWriteForTest,
   int? backfillWriteTimeoutInSecondsForTest,
 }) async {
@@ -261,7 +236,6 @@ Future<void> initializeSchema(
     steps,
     lockTimeout: lockTimeout,
     partitionCutoverTimeoutSeconds: partitionCutoverTimeoutSeconds,
-    observeLockTimeoutForTest: observeLockTimeoutForTest,
   );
   await backfillSecretReuse(
     session,

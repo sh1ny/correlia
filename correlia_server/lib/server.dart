@@ -98,11 +98,6 @@ Future<void> run(List<String> args) async {
       pod,
       schemaLockTimeout: switches.schemaLockTimeout ?? defaultSchemaLockTimeout,
       partitionCutoverTimeoutSeconds: options.partitionCutoverTimeoutSeconds,
-      observeSchemaLockTimeoutForTest: switches.schemaLockTimeout == null
-          ? null
-          : (step, timeout) => log(
-              'Schema transaction $step PostgreSQL lock_timeout=$timeout',
-            ),
     ),
     startup: startup,
     log: log,
