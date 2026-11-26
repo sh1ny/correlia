@@ -45,3 +45,9 @@ CHANGES_APPLIED: yes
 ## Rebuttals
 
 - **Accepted by reviewer in round 4.** Supported publication rejects kind or mode changes for an existing source UUID and preserves both fields on removal. A same-UUID stream-to-webhook fixture falls outside the supported contract. Missing, disabled and restored bindings are reachable and covered by replay scenarios.
+
+## Round 5: Cutoff amendment and offline deadline
+
+Codex accepted the source-ingress amendment. The cutoff still fences every new raw insert. Only an authorized replay of an eligible retained failure can requeue the existing row below the cutoff; it keeps the raw ID and receipt without inserting a transport reservation. This implements the behavior the owner approved in D2 and D7.
+
+The reviewer required D14's scenario in the durable-pipeline delta and evidence from PostgreSQL for a nondefault timeout. The recheck accepted both. The default fixture observes the one-hour client deadline. The rollback-and-retry fixture observes the two-hour override and reads `lock_timeout` as `30s` in the cutover transaction. It finds no version record after failure and the expected version after retry.

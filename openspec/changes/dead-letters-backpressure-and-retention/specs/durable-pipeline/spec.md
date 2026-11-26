@@ -67,6 +67,10 @@ A kind or format with no decoder SHALL fail the row with a bounded error, never 
 
 Correlia SHALL partition raw inbox and events by UTC receipt date, and outbox by UTC creation date. Fresh installs and offline upgrades SHALL preserve sender data and accept valid writes through the default child if daily attachment fails. Repair SHALL preserve accepted work there without moving protected rows to make attachment pass. Upgrade SHALL NOT require draining unfinished or failed work. Only worker and all roles SHALL run periodic maintenance.
 
+#### Scenario: Offline execution has its own deadline without changing lock waits
+- **WHEN** an operator starts the offline upgrade with `CORRELIA_PARTITION_CUTOVER_TIMEOUT_SECONDS` unset or set to a positive integer
+- **THEN** only the partition SQL uses that client deadline, defaulting to 3,600 seconds; the 30-second lock timeout and atomic script and version record are unchanged
+
 #### Scenario: Populated upgrade and fresh installation
 - **WHEN** a database populated at the immediate predecessor of the partition cutover upgrades offline and an empty database starts on the same version
 - **THEN** both have the same partitioned parents, the populated database retains its original bytes, identity tuples, pins and outcomes, and workers can process pre-upgrade work and new work

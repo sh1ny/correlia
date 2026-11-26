@@ -512,7 +512,39 @@ void main() {
           SELECT version FROM correlia_schema_versions WHERE version=$_cutoverVersion
         ''');
         expect(failed, isEmpty);
-        await applySchemaSteps(session, schemaSteps);
+        final deadlines = <Duration>[];
+        var scriptsStarted = false;
+        await runZoned(
+          () => applySchemaSteps(
+            session,
+            schemaSteps,
+            partitionCutoverTimeoutSeconds: 7200,
+            beforeStepForTest: (tx, step) async {
+              expect(step.version, _cutoverVersion);
+              expect(
+                (await session.db.unsafeQuery(
+                  "SELECT current_setting('lock_timeout')",
+                  transaction: tx,
+                )).single[0],
+                '30s',
+              );
+              scriptsStarted = true;
+            },
+          ),
+          zoneSpecification: ZoneSpecification(
+            createTimer: (self, parent, zone, delay, callback) {
+              if (scriptsStarted) deadlines.add(delay);
+              return parent.createTimer(zone, delay, callback);
+            },
+          ),
+        );
+        expect(deadlines, contains(const Duration(hours: 2)));
+        expect(
+          (await session.db.unsafeQuery('''
+            SELECT version FROM correlia_schema_versions WHERE version=$_cutoverVersion
+          ''')).single[0],
+          _cutoverVersion,
+        );
         expect(await _partitionedParents(session), _parents);
         expect(await _evidence(session), before);
       });

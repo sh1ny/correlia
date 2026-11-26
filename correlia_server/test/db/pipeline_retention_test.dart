@@ -193,6 +193,14 @@ void main() {
           secretStore: testSecretStore,
         );
         final filter = QueueFailureFilter(kind: QueueFailureKind.raw);
+        await _maintain(session, 'cutoff');
+        final cutoff =
+            (await session.db.unsafeQuery(
+                  'SELECT cutoff FROM raw_admission_cutoff WHERE singleton=1',
+                )).single[0]!
+                as DateTime;
+        expect(cutoff.isAfter(received), isTrue);
+        final receipts = await _count(session, 'transport_keys');
         final failure = (await ops.list(filter)).failures.single;
         expect(failure.workId, failed);
         expect(
@@ -203,6 +211,12 @@ void main() {
           )).queued,
           1,
         );
+        final replayed = (await session.db.unsafeQuery('''
+          SELECT raw_id::text,observed_at FROM raw_inbox WHERE status='pending'
+        ''')).single;
+        expect(replayed.toList(), [failed, received]);
+        expect(await _count(session, 'raw_inbox'), 2);
+        expect(await _count(session, 'transport_keys'), receipts);
         expect(await worker.processOne(), isTrue);
         expect(await _count(session, 'events'), 2);
         expect(
