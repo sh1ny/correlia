@@ -1057,14 +1057,7 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
                 parameters: QueryParameters.named({
                   'now': clock().toUtc(),
                   'raw': raw.id,
-                  'count':
-                      confirmed +
-                      tombstoned +
-                      duplicates +
-                      stale +
-                      diverged +
-                      late +
-                      quarantines,
+                  'count': batch.events.length + batch.softInfo,
                 }),
                 transaction: tx,
                 timeoutInSeconds: 5,

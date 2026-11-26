@@ -102,10 +102,20 @@ void main() {
           await relay.complete(first, const DeliveryRetryable('network')),
           isTrue,
         );
-        expect(
-          (await session.db.unsafeQuery('SELECT status FROM outbox')).single[0],
-          'queued',
-        );
+        Future<void> expectBackoff(int number, int seconds) async {
+          final result = (await session.db.unsafeQuery('''
+            SELECT o.status,extract(epoch FROM (o.next_attempt_at -
+              (a."finishedAt" AT TIME ZONE 'UTC'))) AS seconds
+            FROM outbox o JOIN delivery_attempts a
+              ON (a."outboxCreatedAt",a."deliveryId",a."attemptNumber")=
+                 (o.created_at AT TIME ZONE 'UTC',o.delivery_id,o.attempt_count)
+            WHERE a."attemptNumber"=@number
+          ''', parameters: QueryParameters.named({'number': number}))).single;
+          expect(result[0], 'queued');
+          expect(double.parse(result[1].toString()), seconds.toDouble());
+        }
+
+        await expectBackoff(21, 1);
         Future<void> eligible() => session.db.unsafeExecute(
           "UPDATE outbox SET next_attempt_at='-infinity'",
         );
@@ -116,10 +126,7 @@ void main() {
           "UPDATE outbox SET lease_until='-infinity'",
         );
         expect(await relay.recoverExpired(), isTrue);
-        expect(
-          (await session.db.unsafeQuery('SELECT status FROM outbox')).single[0],
-          'queued',
-        );
+        await expectBackoff(22, 2);
         expect(
           await relay.complete(second, const DeliveryAcknowledged()),
           isFalse,

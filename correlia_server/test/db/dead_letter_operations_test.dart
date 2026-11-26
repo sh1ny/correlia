@@ -166,7 +166,12 @@ void main() {
           beforeWorkLockForTest: () async {
             elapsed = const Duration(seconds: 4);
           },
-          beforeConfigLockForTest: () async {
+          beforeCommitForTest: (tx) async {
+            final staged = (await session.db.unsafeQuery('''
+              SELECT pending_rows,(SELECT count(*) FROM activity WHERE change_kind='dead_letter_replayed')
+              FROM pipeline_pending
+            ''', transaction: tx)).single;
+            expect(staged.toList(), [2, 1]);
             elapsed += const Duration(seconds: 1);
           },
         );

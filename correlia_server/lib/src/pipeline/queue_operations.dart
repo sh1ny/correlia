@@ -74,6 +74,7 @@ final class QueueOperations {
     this.beforeWorkLockForTest,
     this.beforeConfigLockForTest,
     this.elapsedForTest,
+    this.beforeCommitForTest,
   });
 
   final Session session;
@@ -88,6 +89,9 @@ final class QueueOperations {
 
   /// Supplies fixture elapsed time instead of a stopwatch.
   final Duration Function()? elapsedForTest;
+
+  /// Observes staged work and audit rows before the deadline check at commit.
+  final Future<void> Function(Transaction)? beforeCommitForTest;
 
   Future<DateTime> _now(_QueueTransaction tx) async =>
       clock?.call().toUtc() ??
@@ -106,6 +110,7 @@ final class QueueOperations {
         timeoutInSeconds: 5,
       );
       final result = await body(operation);
+      await beforeCommitForTest?.call(tx);
       operation.remaining();
       return result;
     });

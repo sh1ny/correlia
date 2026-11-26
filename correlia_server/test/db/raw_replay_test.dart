@@ -266,7 +266,7 @@ void main() {
       });
 
       test('ineligible_reconcile_replay_audits_without_retaining_raw', () async {
-        final pin = await publishStreamDb(session);
+        final pin = await publishStreamDb(session, policy: 'hard_only');
         final row = await seedStreamDb(session, pin, [
           streamDbCheck(now.subtract(const Duration(days: 8)), sync: true),
           streamDbCheck(
@@ -274,6 +274,7 @@ void main() {
             sync: true,
             host: 'future',
           ),
+          streamDbCheck(now, stateType: 0, sync: true, host: 'soft'),
         ], sync: true);
         await markFailure(row, pin);
         expect((await replay((await failure()).occurrence)).queued, 1);
@@ -282,9 +283,22 @@ void main() {
         expect(await countRows(session, 'raw_inbox'), 0);
         expect(await countRows(session, 'icinga2_raw_origin'), 0);
         final audit = (await session.db.unsafeQuery(
-          "SELECT cause_raw_id::text FROM activity WHERE change_kind='replayed_reconcile_no_event'",
+          "SELECT cause_raw_id::text,entity_version FROM activity WHERE change_kind='replayed_reconcile_no_event'",
         )).single;
-        expect(audit[0], row);
+        expect(audit.toList(), [row, 3]);
+        final softOnly = await seedStreamDb(session, pin, [
+          streamDbCheck(now, stateType: 0, sync: true, host: 'soft-only'),
+        ], sync: true);
+        await markFailure(softOnly, pin);
+        expect((await replay((await failure()).occurrence)).queued, 1);
+        expect(await worker().processOne(), isTrue);
+        expect(await countRows(session, 'raw_inbox'), 0);
+        expect(
+          (await session.db.unsafeQuery(
+            "SELECT entity_version FROM activity WHERE change_kind='replayed_reconcile_no_event' AND cause_raw_id='$softOnly'",
+          )).single[0],
+          1,
+        );
       });
 
       test('restored_source_replays_with_admission_origin_policy', () async {

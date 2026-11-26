@@ -122,6 +122,7 @@ final class OutputRelayRepository {
     this.beforeClaimCommit,
     this.afterCompletionAttempts,
     this.afterCompletionOutbox,
+    this.beforeCompletionLockForTest,
     Map<String, DateTime>? diagnostics,
   }) : _lastDiagnostic = diagnostics ?? {};
   final Session session;
@@ -138,6 +139,9 @@ final class OutputRelayRepository {
 
   /// Optional test barrier after the completion outbox update.
   final Future<void> Function()? afterCompletionOutbox;
+
+  /// Observes the exact completion transaction before it locks the intent.
+  final Future<void> Function(Transaction)? beforeCompletionLockForTest;
   final Map<String, DateTime> _lastDiagnostic;
 
   void _unavailable(String id, String reference) {
@@ -491,8 +495,9 @@ final class OutputRelayRepository {
         'delay': math.min(300, 1 << math.min(19, attemptsThisCycle - 1)),
       });
     }
+    final encoded = jsonEncode(values);
     final params = QueryParameters.named({
-      'values': jsonEncode(values),
+      'values': encoded,
       'claim': batch.claimId,
     });
     const input = '''SELECT * FROM unnest(
@@ -507,6 +512,7 @@ final class OutputRelayRepository {
     try {
       return await session.db.transaction((tx) async {
         await _timeout(tx, batch.deadline);
+        await beforeCompletionLockForTest?.call(tx);
         final locked = await session.db.unsafeQuery(
           '''WITH held AS MATERIALIZED (
             SELECT o.output_id,o.event_observed_at,o.event_id,o.event_disposition
@@ -527,7 +533,7 @@ final class OutputRelayRepository {
             WHERE (SELECT count(*) FROM lanes)>0
             ORDER BY r.observed_at,r.event_id,r.disposition FOR UPDATE OF r
           )
-          SELECT (SELECT count(*) FROM held),(SELECT count(*) FROM refs)''',
+          SELECT (SELECT count(*) FROM held),(SELECT count(*) FROM refs),clock_timestamp()''',
           parameters: params,
           transaction: tx,
           timeoutInSeconds: 5,
@@ -535,14 +541,19 @@ final class OutputRelayRepository {
         if (locked.single[0] != batch.claims.length) {
           throw _RollbackCompletion();
         }
+        final finished = QueryParameters.named({
+          'values': encoded,
+          'claim': batch.claimId,
+          'finished': locked.single[2],
+        });
         await _timeout(tx, batch.deadline);
         final attempts = await session.db.unsafeExecute(
-          '''UPDATE delivery_attempts a SET "finishedAt"=clock_timestamp(),outcome=x.outcome,"errorClass"=x.error
+          '''UPDATE delivery_attempts a SET "finishedAt"=@finished::timestamptz AT TIME ZONE 'UTC',outcome=x.outcome,"errorClass"=x.error
           FROM ($input) x, outbox o WHERE a."outboxCreatedAt"=x.created AND a."deliveryId"=x.id
           AND a."attemptNumber"=x.number AND a."claimId"=CAST(@claim AS uuid) AND a.outcome='started'
           AND o.created_at=x.created AND o.delivery_id=x.id AND o.status='delivering'
           AND o.claim_id=CAST(@claim AS uuid) AND o.lease_until>clock_timestamp()''',
-          parameters: params,
+          parameters: finished,
           transaction: tx,
           timeoutInSeconds: 5,
         );
@@ -551,12 +562,12 @@ final class OutputRelayRepository {
         await _timeout(tx, batch.deadline);
         final updated = await session.db.unsafeExecute(
           '''UPDATE outbox o SET status=x.status,claim_id=NULL,lease_until=NULL,
-          next_attempt_at=CASE WHEN x.status='queued' THEN clock_timestamp()+x.delay*interval '1 second' ELSE NULL END,
+          next_attempt_at=CASE WHEN x.status='queued' THEN @finished::timestamptz+x.delay*interval '1 second' ELSE NULL END,
           dead_reason=CASE WHEN x.status='dead' THEN x.error ELSE NULL END
           FROM ($input) x WHERE o.created_at=x.created AND o.delivery_id=x.id
           AND o.status='delivering' AND o.claim_id=CAST(@claim AS uuid)
           AND o.lease_until>clock_timestamp()''',
-          parameters: params,
+          parameters: finished,
           transaction: tx,
           timeoutInSeconds: 5,
         );
@@ -571,35 +582,42 @@ final class OutputRelayRepository {
   }
 
   /// Recovers one expired started attempt, preserving its consumed budget.
-  Future<bool> recoverExpired() async {
+  Future<bool> recoverExpired({
+    DateTime? nowForTest,
+    Future<void> Function(Transaction)? afterLockForTest,
+  }) async {
     return session.db.transaction((tx) async {
       final rows = await session.db.unsafeQuery(
-        '''SELECT created_at,delivery_id::text,claim_id::text,attempt_count,retry_base FROM outbox
-        WHERE status='delivering' AND lease_until<=clock_timestamp() ORDER BY lease_until FOR UPDATE SKIP LOCKED LIMIT 1''',
+        '''SELECT created_at,delivery_id::text,claim_id::text,attempt_count,retry_base,clock_timestamp() FROM outbox
+        WHERE status='delivering' AND lease_until<=coalesce(@now::timestamptz,clock_timestamp())
+        ORDER BY lease_until FOR UPDATE SKIP LOCKED LIMIT 1''',
+        parameters: QueryParameters.named({'now': nowForTest}),
         transaction: tx,
         timeoutInSeconds: 5,
       );
       if (rows.isEmpty) return false;
+      await afterLockForTest?.call(tx);
       final row = rows.single;
       final number = row[3] as int;
       final attemptsThisCycle = number - (row[4] as int);
       final status = attemptsThisCycle >= 20 ? 'dead' : 'queued';
       final delay = math.min(300, 1 << math.min(19, attemptsThisCycle - 1));
       await session.db.unsafeExecute(
-        '''UPDATE delivery_attempts SET "finishedAt"=clock_timestamp(),outcome='interrupted',"errorClass"='interrupted'
+        '''UPDATE delivery_attempts SET "finishedAt"=@finished::timestamptz AT TIME ZONE 'UTC',outcome='interrupted',"errorClass"='interrupted'
         WHERE "outboxCreatedAt"=@created AND "deliveryId"=CAST(@id AS uuid) AND "claimId"=CAST(@claim AS uuid) AND "attemptNumber"=@number AND outcome='started' ''',
         parameters: QueryParameters.named({
           'created': row[0],
           'id': row[1],
           'claim': row[2],
           'number': number,
+          'finished': row[5],
         }),
         transaction: tx,
         timeoutInSeconds: 5,
       );
       await session.db.unsafeExecute(
         '''UPDATE outbox SET status=@status,claim_id=NULL,lease_until=NULL,
-        next_attempt_at=CASE WHEN @status='queued' THEN clock_timestamp()+@delay*interval '1 second' ELSE NULL END,
+        next_attempt_at=CASE WHEN @status='queued' THEN @finished::timestamptz+@delay*interval '1 second' ELSE NULL END,
         dead_reason=CASE WHEN @status='dead' THEN 'interrupted' ELSE NULL END
         WHERE created_at=@created AND delivery_id=CAST(@id AS uuid) AND claim_id=CAST(@claim AS uuid)''',
         parameters: QueryParameters.named({
@@ -608,6 +626,7 @@ final class OutputRelayRepository {
           'claim': row[2],
           'status': status,
           'delay': delay,
+          'finished': row[5],
         }),
         transaction: tx,
         timeoutInSeconds: 5,

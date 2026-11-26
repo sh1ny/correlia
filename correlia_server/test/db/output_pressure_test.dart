@@ -16,7 +16,7 @@ import 'package:test/test.dart';
 
 import '../integration/test_tools/serverpod_test_tools.dart';
 import '../support/icinga2_pipeline.dart' show clearPipelineTables;
-import '../support/postgres_lock_witness.dart' show ContentionGate;
+import '../support/postgres_lock_witness.dart';
 import '../support/secret_fixture.dart';
 import '../unit/ingest/alertmanager_decoder_test.dart' as payload;
 import 'ingest_config_test.dart' as config;
@@ -128,6 +128,8 @@ Future<Map<Object?, Object?>> _intents(Session session) async => {
 };
 
 void main() {
+  final cluster = LockWitnessCluster();
+  tearDownAll(cluster.close);
   withServerpod(
     'output pressure and durable routing',
     (builder, _) {
@@ -576,67 +578,121 @@ void main() {
         expect(await _intents(session), isEmpty);
       });
 
-      test('completion_and_recovery_order_one_capacity_delta', () async {
-        final snapshot = await _publish(session, 1);
-        await _oldIntents(session, snapshot, _first, 1);
-        final signal = Completer<void>();
-        final gate = ContentionGate();
-        final complete = OutputRelayRepository(
-          session,
-          testSecretResolver(session).resolve,
-          afterCompletionAttempts: () async {
-            signal.complete();
-            await gate.future;
+      for (final completionFirst in [true, false]) {
+        test(
+          'completion_and_recovery_order_one_capacity_delta ${completionFirst ? 'completion first' : 'recovery first'}',
+          () async {
+            final snapshot = await _publish(session, 1);
+            await _oldIntents(session, snapshot, _first, 1);
+            final witness = await PostgresLockWitness.start(session);
+            addTearDown(witness.close);
+            final gate = ContentionGate();
+            final completing = builder.build();
+            final recovering = builder.build();
+            final held = Completer<void>();
+            final recoveryActor = Completer<LockActor>();
+            final completionActor = Completer<LockActor>();
+            final completion = OutputRelayRepository(
+              completing,
+              testSecretResolver(completing).resolve,
+              afterCompletionOutbox: completionFirst
+                  ? () async {
+                      held.complete();
+                      await gate.future;
+                    }
+                  : null,
+              beforeCompletionLockForTest: completionFirst
+                  ? null
+                  : (tx) async {
+                      final actor = await pooledLockActor(completing, tx);
+                      await completing.db.unsafeSimpleExecute(
+                        "SET LOCAL log_lock_waits=on; SET LOCAL deadlock_timeout='1ms'",
+                        transaction: tx,
+                      );
+                      completionActor.complete(actor);
+                    },
+            );
+            final recovery = OutputRelayRepository(
+              recovering,
+              testSecretResolver(recovering).resolve,
+            );
+            final claim = (await completion.claim(_first))!.claims.single;
+            // Give recovery a later eligibility sample while completion uses
+            // the valid lease it saw before the cutoff.
+            final leaseEnd = DateTime.utc(2099);
+            await session.db.unsafeExecute(
+              'UPDATE outbox SET lease_until=@at',
+              parameters: QueryParameters.named({'at': leaseEnd}),
+            );
+            final recoveryTime = leaseEnd.add(const Duration(microseconds: 1));
+            if (completionFirst) {
+              final result = gate.run(
+                () => completion.complete(claim, const DeliveryAcknowledged()),
+              );
+              await Future.any([
+                held.future,
+                result.then(
+                  (_) => fail('Completion did not acquire the intent'),
+                ),
+              ]);
+              expect(
+                await recovery.recoverExpired(nowForTest: recoveryTime),
+                isFalse,
+              );
+              await gate.join();
+              expect(await result, isTrue);
+            } else {
+              final recovered = gate.run(
+                () => recovery.recoverExpired(
+                  nowForTest: recoveryTime,
+                  afterLockForTest: (tx) async {
+                    recoveryActor.complete(
+                      await pooledLockActor(recovering, tx),
+                    );
+                    await gate.future;
+                  },
+                ),
+              );
+              final blocker = await Future.any([
+                recoveryActor.future,
+                recovered.then<LockActor>(
+                  (_) => fail('Recovery did not acquire the intent'),
+                ),
+              ]);
+              final stale = gate.run(
+                () => completion.complete(claim, const DeliveryAcknowledged()),
+              );
+              final waiter = await Future.any([
+                completionActor.future,
+                stale.then<LockActor>(
+                  (_) => fail('Completion did not try to lock the intent'),
+                ),
+              ]);
+              await witness.blockedBy(
+                waiter,
+                blocker,
+                stale,
+                statement: 'WITH held AS MATERIALIZED',
+              );
+              await gate.join();
+              expect(await recovered, isTrue);
+              expect(await stale, isFalse);
+            }
+            expect(
+              await _usage(session, _first),
+              completionFirst ? [0, 0, 0] : [1, 1, 0],
+            );
+            final outcome = (await session.db.unsafeQuery(
+              'SELECT outcome FROM delivery_attempts',
+            )).single[0];
+            expect(outcome, completionFirst ? 'acknowledged' : 'interrupted');
           },
         );
-        final observer = builder.build();
-        final other = OutputRelayRepository(
-          observer,
-          testSecretResolver(observer).resolve,
-        );
-        final claimed = (await complete.claim(_first))!.claims.single;
-        await session.db.unsafeExecute(
-          "UPDATE outbox SET lease_until='infinity'",
-        );
-        final finishing = gate.run(
-          () => complete.complete(claimed, const DeliveryAcknowledged()),
-        );
-        await signal.future;
-        await expectLater(
-          observer.db.unsafeQuery(
-            'SELECT delivery_id FROM outbox FOR UPDATE NOWAIT',
-          ),
-          throwsA(
-            isA<DatabaseQueryException>().having(
-              (e) => e.code,
-              'code',
-              '55P03',
-            ),
-          ),
-        );
-        expect(await other.recoverExpired(), isFalse);
-        await gate.join();
-        expect(await finishing, isTrue);
-        expect(await _usage(session, _first), [0, 0, 0]);
-
-        await _oldIntents(session, snapshot, _first, 1);
-        final expired = (await other.claim(_first))!.claims.single;
-        await session.db.unsafeExecute(
-          "UPDATE outbox SET lease_until='-infinity' WHERE status='delivering'",
-        );
-        expect(await other.recoverExpired(), isTrue);
-        expect(
-          await other.complete(expired, const DeliveryAcknowledged()),
-          isFalse,
-        );
-        expect(await _usage(session, _first), [1, 1, 0]);
-        final outcomes = await session.db.unsafeQuery(
-          'SELECT outcome FROM delivery_attempts ORDER BY id',
-        );
-        expect(outcomes.map((row) => row[0]), ['acknowledged', 'interrupted']);
-      });
+      }
     },
     rollbackDatabase: RollbackDatabase.disabled,
+    ephemeralDatabase: false,
+    configOverride: cluster.override,
     testGroupTagsOverride: ['db'],
   );
 

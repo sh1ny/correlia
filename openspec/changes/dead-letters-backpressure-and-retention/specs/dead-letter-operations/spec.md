@@ -72,7 +72,7 @@ Replay SHALL clear the active failure and requeue eligible raw work under the sn
 
 #### Scenario: Replaying a row from a finished or absent sync run
 - **WHEN** a failed Icinga2 reconcile row is replayed after its sync run finished or was pruned
-- **THEN** it retains reconcile semantics and leaves the original sync run unchanged or absent; if it confirms without storing an event, the raw row is removed and the ledger records the outcome
+- **THEN** it retains reconcile semantics and leaves the original sync run unchanged or absent; if it stores no event, the worker removes the raw row and the ledger counts each decoded or policy-filtered item once
 
 #### Scenario: Replay source missing or disabled
 - **WHEN** the active snapshot has no compatible enabled binding for a failed row and an operator asks to replay it
