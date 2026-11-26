@@ -66,6 +66,7 @@ Test paths are relative to `correlia_server/`. Green rows carry existing behavio
 | durable-pipeline → Retention preserves retry and ordering evidence | Replayed pre-upgrade evidence predates reclaimed fences | `test/db/raw_replay_test.dart` | `preupgrade_icinga2_floor_keeps_older_evidence_late` | red |
 | source-ingress → Shared inbox and storage pressure | DUR-9 inbox limits and recovery | `test/e2e/ingress_pressure_e2e_test.dart` | `dur_9_webhook_and_pull_pause_and_recover` | red |
 | source-ingress → Shared inbox and storage pressure | Concurrent admission at the last slot | `test/db/ingress_pressure_test.dart` | `two_apis_and_pull_contend_for_last_slot` | red |
+| source-ingress → Shared inbox and storage pressure | Pending work ages while admission waits for capacity | `test/db/ingress_pressure_test.dart` | `pending_age_is_sampled_after_waiting_for_capacity` | red |
 | source-ingress → Shared inbox and storage pressure | Sync admission contends with sync completion | `test/db/ingress_pressure_test.dart` | `sync_admission_orders_progress_before_count success`, `sync_admission_orders_progress_before_count failure` | red |
 | source-ingress → Shared inbox and storage pressure | Database pressure degrades readiness | `test/e2e/ingress_pressure_e2e_test.dart` | `oversize_database_pushes_back_and_degrades_readiness` | red |
 | source-ingress → Shared inbox and storage pressure | Refused work keeps a refreshed disk sample | `test/db/ingress_pressure_test.dart` | `refused_admission_persists_one_disk_measurement` | red |
@@ -88,6 +89,7 @@ Test paths are relative to `correlia_server/`. Green rows carry existing behavio
 | output-delivery → Blocking-output policy protects accepted work | Discard-only demand does not block after a policy change | `test/db/output_pressure_test.dart` | `switch_to_blocking_ignores_discard_only_demand` | red |
 | output-delivery → Output overflow notice does not recurse | Alert reaches a healthy output | `test/db/output_pressure_test.dart` | `notice_reaches_healthy_output_with_ledger_evidence` | red |
 | output-delivery → Output overflow notice does not recurse | A lower cap opens an episode with no raw work | `test/db/output_pressure_test.dart` | `lower_blocking_cap_opens_an_episode_with_empty_inbox` | red |
+| output-delivery → Output overflow notice does not recurse | Oversized discard does not keep an episode open | `test/db/output_pressure_test.dart` | `oversized_discard_does_not_keep_episode_open_after_recovery` | red |
 | output-delivery → Output overflow notice does not recurse | All other outputs are full | `test/db/output_pressure_test.dart` | `full_notice_destinations_do_not_enqueue_or_recurse` | red |
 | output-delivery → Output overflow notice does not recurse | Notice uses a blocking output's last slot | `test/db/output_pressure_test.dart` | `notice_at_exact_cap_blocks_ingress_without_recurse` | red |
 | output-delivery → Output overflow notice does not recurse | Notice selection races registry publication | `test/db/output_pressure_test.dart` | `notice_registry_race_keeps_live_lane_limit` | red |

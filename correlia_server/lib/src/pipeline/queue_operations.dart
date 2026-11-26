@@ -78,6 +78,7 @@ final class QueueOperations {
     this.elapsedForTest,
     this.beforeCommitForTest,
     this.beforePendingLockForTest,
+    this.observePageQueryForTest,
   });
 
   final Session session;
@@ -98,6 +99,10 @@ final class QueueOperations {
 
   /// Observes the replay transaction immediately before reserving pending rows.
   final Future<void> Function(Transaction)? beforePendingLockForTest;
+
+  /// Inspects the same bound query and parameters that select a failure page.
+  final Future<void> Function(Transaction, String, QueryParameters)?
+  observePageQueryForTest;
 
   Future<DateTime> _now(_QueueTransaction tx) async =>
       clock?.call().toUtc() ??
@@ -240,8 +245,8 @@ final class QueueOperations {
         _invalid('invalid_continuation');
       }
     }
-    final rows = await tx.query(
-      '''
+    final sql =
+        '''
       SELECT $_failureColumns FROM pipeline_dead_letter
       WHERE kind=@kind AND failed_at<=@high
         ${scope == null ? '' : 'AND scope_id=@scope::uuid'}
@@ -249,18 +254,19 @@ final class QueueOperations {
         ${lower == null ? '' : 'AND failed_at>=@lower'}
         ${after == null ? '' : 'AND (failed_at,occurrence_id)>(@after,@occurrence)'}
       ORDER BY failed_at,occurrence_id LIMIT @limit
-    ''',
-      parameters: QueryParameters.named({
-        'kind': filter.kind.name,
-        'high': high,
-        'limit': limit + 1,
-        'scope': ?scope,
-        'error': ?error,
-        'lower': ?lower,
-        'after': ?after,
-        'occurrence': ?occurrence,
-      }),
-    );
+    ''';
+    final parameters = QueryParameters.named({
+      'kind': filter.kind.name,
+      'high': high,
+      'limit': limit + 1,
+      'scope': ?scope,
+      'error': ?error,
+      'lower': ?lower,
+      'after': ?after,
+      'occurrence': ?occurrence,
+    });
+    await observePageQueryForTest?.call(tx.tx, sql, parameters);
+    final rows = await tx.query(sql, parameters: parameters);
     final page = [
       for (final row in rows.take(limit)) _failure(row, filter.kind, now),
     ];

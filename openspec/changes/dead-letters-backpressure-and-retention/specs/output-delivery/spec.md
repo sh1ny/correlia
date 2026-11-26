@@ -88,6 +88,10 @@ Each overflow episode SHALL raise one durable Correlia alert and attempt to rout
 - **WHEN** publication lowers a blocking output's budget to its retained usage or below while the inbox is empty
 - **THEN** the new policy, overflow ledger entry and pending notice commit together, and repeating the publication does not open another episode
 
+#### Scenario: Oversized discard does not keep an episode open
+- **WHEN** `discard_new` rejects a payload larger than an empty queue can hold and the output next processes a fitting delivery
+- **THEN** recovery closes the episode when usage is below both limits, and a later refusal can open another episode
+
 #### Scenario: All other outputs are full
 - **WHEN** no other active output has room for an overflow notice
 - **THEN** the episode remains visible in operator status and the ledger, no extra intents are enqueued, and no recursive overflow notices appear

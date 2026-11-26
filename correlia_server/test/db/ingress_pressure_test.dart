@@ -161,6 +161,69 @@ void main() {
         );
       });
 
+      test('pending_age_is_sampled_after_waiting_for_capacity', () async {
+        await publish(2, 3);
+        expect(await webhook(first, 'old', 'body'), AdmissionOutcome.accepted);
+        final witness = await PostgresLockWitness.start(session);
+        addTearDown(witness.close);
+        final gate = ContentionGate();
+        final blocker = builder.build();
+        final waiting = builder.build();
+        final held = Completer<LockActor>();
+        final started = Completer<LockActor>();
+        final holding = gate.run(
+          () => blocker.db.transaction((tx) async {
+            final actor = await pooledLockActor(blocker, tx);
+            await blocker.db.unsafeQuery(
+              'SELECT 1 FROM pipeline_pending FOR UPDATE',
+              transaction: tx,
+            );
+            held.complete(actor);
+            await gate.future;
+          }),
+        );
+        final holder = await Future.any([
+          held.future,
+          holding.then<LockActor>((_) => fail('Counter lock was not held')),
+        ]);
+        final reservation = gate.run(
+          () => waiting.db.transaction((tx) async {
+            final actor = await pooledLockActor(
+              waiting,
+              tx,
+              waiter: SqlTimeouts.poolDefault,
+            );
+            started.complete(actor);
+            return (await waiting.db.unsafeQuery(
+              'SELECT correlia_reserve_raw(1)',
+              transaction: tx,
+            )).single[0];
+          }),
+        );
+        final waiter = await Future.any([
+          started.future,
+          reservation.then<LockActor>((_) => fail('Reservation did not start')),
+        ]);
+        await witness.blockedBy(
+          waiter,
+          holder,
+          reservation,
+          statement: 'correlia_reserve_raw(1)',
+        );
+        // Move the row's age boundary between the blocked statement's start
+        // and this observation. No wall-clock sleep is needed to cross it.
+        await session.db.unsafeExecute('''
+          UPDATE raw_inbox SET queued_at=(
+            SELECT query_start+(clock_timestamp()-query_start)/2-interval '1 hour'
+            FROM pg_stat_activity WHERE pid=@pid
+          ) WHERE status='pending'
+        ''', parameters: QueryParameters.named({'pid': waiter.pid}));
+        await gate.join();
+        await holding;
+        expect(await reservation, 'inbox');
+        expect(await _count(session, 'raw_inbox'), 1);
+      });
+
       test('committed_webhook_and_pull_retries_beat_pressure', () async {
         await publish(2, 2);
         final pullBatch = batch();

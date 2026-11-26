@@ -14,6 +14,10 @@ New webhook and pull writes SHALL honor shared versioned bounds for pending inbo
 - **WHEN** authenticated requests on separate API instances and a pull batch compete for the final available inbox row
 - **THEN** transactions can commit only work that fits, and the rejected requests or batches leave no dedup reservations
 
+#### Scenario: Pending work ages while admission waits for capacity
+- **WHEN** the oldest pending row crosses the age limit while a new reservation waits for the counter lock
+- **THEN** admission uses the time after acquiring that lock and refuses new work even if the count has room
+
 #### Scenario: Sync admission contends with sync completion
 - **WHEN** a pull transaction admits work for a sync run while another worker completes or fails an earlier row of the same sync run
 - **THEN** both resolve without relying on a lock timeout, the run accounts for each row once, and pending capacity reflects only committed rows

@@ -282,7 +282,7 @@ Compare count and age under the admission counter lock. Read a bounded committed
 
 Before writing intents, stage the bounded routed work in pipeline order. Lock affected capacity rows in output UUID order, then reserve counts and bytes against the current policy and insert only fitting intents. For any `block_ingest` deficit, roll back the effects savepoint. Reacquire only the affected budget rows in the same order, recompute pressure against committed usage, record demand and set a short durable next-attempt time on the still-locked raw row. Keep its attempt count and pin. Record each output's maximum deferred count and byte demand until remaining space can satisfy both; lowering or raising the policy re-evaluates against actual retained usage. Reset demand once it fits or the policy stops blocking. `discard_new` records counts grouped by output within the raw transaction, not one ledger row per discarded intent.
 
-Changing an overflow policy clears demand recorded by the previous policy. Current usage still blocks at saturation. A discarded intent is not deferred work and cannot keep new ingestion blocked.
+Only `block_ingest` records deferred demand. A policy switch clears that demand without changing retained usage. Under `discard_new`, the first capacity update that puts usage below both caps closes the episode even if an earlier payload was too large for an empty queue.
 
 A publication that lowers a blocking quota to current usage or below opens the overflow episode in that transaction. It needs no pending raw row. Repeating publication while the episode remains open does not enqueue another notice.
 

@@ -179,6 +179,43 @@ void main() {
         );
       });
 
+      test(
+        'oversized_discard_does_not_keep_episode_open_after_recovery',
+        () async {
+          await _publish(session, 1, outputs: [_first]);
+          await _process(session, ['calibration']);
+          final used = (await _usage(session, _first))[1]! as int;
+          await session.db.unsafeExecute(
+            "UPDATE outbox SET status='delivered'",
+          );
+          await _publish(
+            session,
+            2,
+            outputs: [_first],
+            budgets: {
+              _first: {'max_payload_bytes': used + 100},
+            },
+          );
+          final ops = QueueOperations(session);
+          Future<int?> episode() async =>
+              (await ops.status()).outputs.single.overflowActivityId;
+          await _process(session, ['large-a-${'a' * 500}']);
+          final initial = await episode();
+          expect(initial, isNotNull);
+          await _process(session, ['small-again']);
+          expect(await _intents(session), {_first: 1});
+          await session.db.unsafeExecute(
+            "UPDATE outbox SET status='delivered' WHERE status='queued'",
+          );
+          expect(await episode(), isNull);
+          await _process(session, ['large-b-${'b' * 500}']);
+          final next = await episode();
+          expect(next, isNotNull);
+          expect(next, isNot(initial));
+          expect(await _usage(session, _first), [0, 0, 2]);
+        },
+      );
+
       test('switch_to_blocking_ignores_discard_only_demand', () async {
         const budget = 16 * 1024 * 1024;
         final old = await _publish(

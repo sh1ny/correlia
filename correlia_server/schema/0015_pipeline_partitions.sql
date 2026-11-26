@@ -550,6 +550,7 @@ CREATE FUNCTION correlia_queue_pressure(pending bigint,incoming integer,p_output
 RETURNS text LANGUAGE plpgsql AS $$
 DECLARE
   policy pipeline_queue_policy;
+  age_cutoff timestamptz;
 BEGIN
   SELECT * INTO policy FROM pipeline_queue_policy WHERE singleton=1;
   IF correlia_disk_pressure() THEN RETURN 'storage'; END IF;
@@ -557,11 +558,11 @@ BEGIN
       used_rows >= max_rows OR used_bytes >= max_payload_bytes
       OR demand_rows > max_rows - used_rows OR demand_bytes > max_payload_bytes - used_bytes
   ))) THEN RETURN 'output'; END IF;
-  IF EXISTS (SELECT 1 FROM raw_inbox WHERE status='pending'
-    AND coalesce(queued_at,observed_at) <= statement_timestamp()
-      - make_interval(secs=>policy.pending_max_age_seconds)
-  ) THEN RETURN 'inbox'; END IF;
   IF pending > policy.pending_max_rows - incoming THEN RETURN 'inbox'; END IF;
+  age_cutoff := clock_timestamp()-make_interval(secs=>policy.pending_max_age_seconds);
+  IF EXISTS (SELECT 1 FROM raw_inbox WHERE status='pending'
+    AND coalesce(queued_at,observed_at)<=age_cutoff
+  ) THEN RETURN 'inbox'; END IF;
   RETURN NULL;
 END;
 $$;
@@ -600,8 +601,8 @@ DECLARE
 BEGIN
   UPDATE pipeline_output_capacity SET
     discarded_count=discarded_count+p_discarded,
-    demand_rows=greatest(demand_rows,p_rows),
-    demand_bytes=greatest(demand_bytes,p_bytes)
+    demand_rows=CASE WHEN overflow_policy='block_ingest' THEN greatest(demand_rows,p_rows) ELSE 0 END,
+    demand_bytes=CASE WHEN overflow_policy='block_ingest' THEN greatest(demand_bytes,p_bytes) ELSE 0 END
   WHERE output_id=p_output RETURNING overflow_activity_id INTO episode;
   IF episode IS NULL THEN
     INSERT INTO activity

@@ -95,11 +95,24 @@ void main() {
         await _seed(session, fixture.sourceId, 500, code: 'body_bound');
         await _seed(session, fixture.sourceId, 3);
         await session.db.unsafeExecute('ANALYZE pipeline_dead_letter');
-        final page = await operations.list(
+        final plans = <String>[];
+        final listing = QueueOperations(
+          session,
+          clock: () => _now,
+          observePageQueryForTest: (tx, sql, parameters) async {
+            final rows = await session.db.unsafeQuery(
+              'EXPLAIN (COSTS OFF) $sql',
+              transaction: tx,
+              parameters: parameters,
+            );
+            plans.add(rows.map((row) => row[0]).join('\n'));
+          },
+        );
+        final page = await listing.list(
           filter(error: 'invalid_json'),
           limit: 2,
         );
-        final last = await operations.list(
+        final last = await listing.list(
           filter(error: 'invalid_json'),
           limit: 2,
           cursor: page.continuation,
@@ -107,15 +120,13 @@ void main() {
         expect(page.failures, hasLength(2));
         expect(last.failures, hasLength(1));
         expect(last.continuation, isNull);
-        final plan = await session.db.unsafeQuery('''EXPLAIN
-        SELECT occurrence_id FROM pipeline_dead_letter
-        WHERE kind='raw' AND scope_id='${fixture.sourceId}' AND error_class='invalid_json'
-        ORDER BY failed_at,occurrence_id LIMIT 3
-      ''');
-        expect(
-          plan.map((row) => row[0]).join('\n'),
-          contains('pipeline_dead_letter_scope_class_idx'),
-        );
+        expect(plans, hasLength(2));
+        for (final plan in plans) {
+          expect(plan, contains('pipeline_dead_letter_scope_class_idx'));
+          expect(plan, contains('Index Cond:'));
+          expect(plan, isNot(contains('Filter:')));
+        }
+        expect(plans.last, contains('ROW(failed_at, occurrence_id) >'));
       });
 
       test('filtered_replay_batches_report_and_audit', () async {
