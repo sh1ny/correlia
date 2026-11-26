@@ -1,0 +1,41 @@
+name: New source or output
+description: Ask for Correlia to ingest from, or publish to, another system.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks. Only the first two boxes are required.
+        Sample payloads often hold host names, internal URLs and tokens. Replace them with placeholders before you paste.
+  - type: dropdown
+    id: direction
+    attributes:
+      label: Direction
+      options:
+        - Source (Correlia reads alerts from it)
+        - Output (Correlia publishes events to it)
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: Which system, and what you'd use the integration for.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version and environment
+      description: Optional. The system's version.
+  - type: textarea
+    id: delivery
+    attributes:
+      label: How it delivers or receives data
+      description: Optional. Webhook, API polling, message queue, file, other. Link its docs if you can.
+  - type: textarea
+    id: sample
+    attributes:
+      label: Sample payload
+      description: Optional, redacted. One real alert or event as the system sends or expects it.
+      render: json

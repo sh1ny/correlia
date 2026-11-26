@@ -30,3 +30,9 @@ see the [NATS output runbook](docs/runbooks/output-nats.md).
 
 `mise run test` runs fast tests; `mise run check` is the project gate and `mise run test:all` includes
 the non-load database, process and plugin tiers. Tests use only their own embedded PostgreSQL.
+
+## License
+
+Correlia is licensed under the [Elastic License 2.0](LICENSE). Contributions require the [contributor licence agreement](CLA.md).
+
+Third-party files with their own licence notices keep those licences.
