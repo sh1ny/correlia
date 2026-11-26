@@ -210,8 +210,9 @@ final class MaintenanceRepository {
                   timeoutInSeconds: 4,
                 )).single[0]
                 as bool?;
-        if (result != null)
+        if (result != null) {
           await _outcome(tx, 'drop_partition', 'ok', result ? 1 : 0);
+        }
       });
     } catch (error) {
       await session.db.transaction((tx) async {
@@ -226,8 +227,9 @@ final class MaintenanceRepository {
           transaction: tx,
           timeoutInSeconds: 4,
         )).single[0];
-        if (recorded == true)
+        if (recorded == true) {
           await _outcome(tx, 'drop_partition', _problem(error), 0);
+        }
       });
     }
   }
