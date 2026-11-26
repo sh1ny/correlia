@@ -263,7 +263,7 @@ Future<void> _writeIntents(
   if (blocked.isNotEmpty) throw _OutputDeferral(blocked);
 
   await lockOutputCommitments(session, tx, raw.pin, destinations);
-  final ignored = <String, ({int rows, int bytes})>{};
+  final ignored = <String, int>{};
   for (final intent in intents) {
     deadline.check();
     final id = intent.destination.id;
@@ -271,11 +271,7 @@ Future<void> _writeIntents(
     if (caps[id]!.take(bytes)) {
       await insertQueueIntent(session, tx, raw.pin, created, intent);
     } else {
-      final old = ignored[id] ?? (rows: 0, bytes: 0);
-      ignored[id] = (
-        rows: old.rows + 1,
-        bytes: old.bytes > bytes ? old.bytes : bytes,
-      );
+      ignored[id] = (ignored[id] ?? 0) + 1;
     }
   }
   for (final id in demands.keys) {
@@ -288,9 +284,7 @@ Future<void> _writeIntents(
         id,
         created,
         reason: discarded == null ? 'saturated' : 'discard_new',
-        discarded: discarded?.rows ?? 0,
-        rows: 1,
-        bytes: discarded?.bytes ?? 1,
+        discarded: discarded ?? 0,
       );
     }
   }
@@ -951,32 +945,26 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
         } on _OutputDeferral catch (error) {
           await savepoint.rollback();
           await _limits(tx, deadline);
-          final caps = await lockOutputCapacity(
-            session,
-            tx,
-            error.demands.keys,
+          await session.db.unsafeQuery(
+            'SELECT correlia_set_raw_output_demands(@observed,@id::uuid,@demands::jsonb,@now)',
+            parameters: QueryParameters.named({
+              'observed': raw.observed,
+              'id': raw.id,
+              'demands': jsonEncode({
+                for (final MapEntry(key: id, value: demand)
+                    in error.demands.entries)
+                  id: [demand.rows, demand.bytes],
+              }),
+              'now': clock().toUtc(),
+            }),
+            transaction: tx,
+            timeoutInSeconds: 5,
           );
-          final now = clock().toUtc();
-          for (final MapEntry(key: id, value: demand)
-              in error.demands.entries) {
-            if (caps[id]!.blocking &&
-                !caps[id]!.fits(demand.rows, demand.bytes)) {
-              await recordOutputOverflow(
-                session,
-                tx,
-                id,
-                now,
-                reason: 'block_ingest',
-                rows: demand.rows,
-                bytes: demand.bytes,
-              );
-            }
-          }
           await _limits(tx, deadline);
           await session.db.unsafeExecute(
             'UPDATE raw_inbox SET next_attempt_at=@next WHERE observed_at=@observed AND raw_id=@id::uuid',
             parameters: QueryParameters.named({
-              'next': now.add(const Duration(seconds: 1)),
+              'next': clock().toUtc().add(const Duration(seconds: 1)),
               'observed': raw.observed,
               'id': raw.id,
             }),

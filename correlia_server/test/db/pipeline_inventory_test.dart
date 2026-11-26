@@ -6,7 +6,7 @@ import 'package:test/test.dart';
 import '../integration/test_tools/serverpod_test_tools.dart';
 import '../support/icinga2_pipeline.dart' show clearPipelineTables;
 import '../support/secret_fixture.dart';
-import 'ingest_config_test.dart' show outputId, sourceId, token;
+import 'ingest_config_test.dart' show outputId, pluginInput, sourceId, token;
 
 Map<String, Object?> _config(int revision, [Map<String, Object?>? policy]) => {
   'format_version': 2,
@@ -61,6 +61,27 @@ Future<void> _outbox(
       'pin': snapshot.snapshotId,
       'reference': reference ?? output.signingKeyRef,
       'commitment': commitment ?? output.signingKeyCommitment,
+      'count': count,
+    }),
+  );
+}
+
+Future<void> _pluginIntents(
+  Session session,
+  IngestBootstrap snapshot,
+  int count,
+) async {
+  final output = snapshot.outputs.single as PluginIngestOutput;
+  await session.db.unsafeExecute(
+    '''INSERT INTO outbox (created_at,delivery_id,event_observed_at,event_id,event_disposition,
+      output_id,config_snapshot_id,output_kind,definition_digest,payload)
+    SELECT transaction_timestamp(),gen_random_uuid(),transaction_timestamp(),gen_random_uuid(),
+      'ready',@output::uuid,@pin,'plugin',@digest,decode('ffddee','hex')
+    FROM generate_series(1,@count)''',
+    parameters: QueryParameters.named({
+      'output': output.id,
+      'pin': snapshot.snapshotId,
+      'digest': output.definitionDigest,
       'count': count,
     }),
   );
@@ -196,6 +217,8 @@ void main() {
           _secrets(),
           runMode: 'test',
         );
+        final plugin = pluginInput(2);
+        await repository.publish(plugin);
         await session.db.unsafeSimpleExecute(r'''
           CREATE TABLE test_publication_reads (id bigserial, payload int, metadata int);
           CREATE FUNCTION test_capture_publication_reads() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -212,20 +235,32 @@ void main() {
           CREATE TRIGGER test_capture_publication_reads AFTER UPDATE ON pipeline_queue_policy
           FOR EACH STATEMENT EXECUTE FUNCTION test_capture_publication_reads()
         ''');
-        Future<IngestBootstrap> restoreHistorical(int revision, int key) =>
-            repository.publishConfig(
-              _config(revision)
-                ..['sources'] = <Object?>[]
-                ..['outputs'] = <Object?>[],
-              {'key-v1': token(key)},
-              runMode: 'test',
-            );
+        Future<IngestBootstrap> restoreHistorical(
+          int revision,
+          int key,
+          int pluginKey,
+        ) => repository.publishConfig(
+          _config(revision)
+            ..['sources'] = <Object?>[]
+            ..['outputs'] = <Object?>[],
+          {'key-v1': token(key), 'plugin-token': token(pluginKey)},
+          runMode: 'test',
+        );
         Future<List<Object?>> publish(int revision) async {
+          // Only the live plugin intents still vouch for this reference.
+          await session.db.unsafeSimpleExecute('''
+            DELETE FROM secret_record WHERE reference='plugin-token';
+            DELETE FROM ingest_secret_commitment WHERE reference='plugin-token';
+          ''');
           await expectLater(
-            restoreHistorical(revision, 3),
+            restoreHistorical(revision, 3, 7),
             throwsA(_error('reference_rebound')),
           );
-          expect((await restoreHistorical(revision, 2)).outputs, isEmpty);
+          await expectLater(
+            restoreHistorical(revision, 2, 8),
+            throwsA(_error('reference_rebound')),
+          );
+          expect((await restoreHistorical(revision, 2, 7)).outputs, isEmpty);
           return (await session.db.unsafeQuery(
             'SELECT payload,metadata FROM test_publication_reads ORDER BY id DESC LIMIT 1',
           )).single.toList();
@@ -236,11 +271,13 @@ void main() {
           (tx) => repository.validateLiveSecrets(transaction: tx),
         );
         await _outbox(session, snapshot, 10);
+        await _pluginIntents(session, plugin, 10);
         final shallow = await read();
-        final shallowImport = await publish(2);
+        final shallowImport = await publish(3);
         await _outbox(session, snapshot, 90);
+        await _pluginIntents(session, plugin, 90);
         final deep = await read();
-        final deepImport = await publish(3);
+        final deepImport = await publish(4);
         expect(
           shallowImport[0],
           0,

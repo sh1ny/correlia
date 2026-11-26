@@ -167,6 +167,7 @@ CREATE TABLE pipeline_output_capacity (
   used_bytes bigint NOT NULL DEFAULT 0 CHECK (used_bytes >= 0),
   live_rows bigint NOT NULL DEFAULT 0 CHECK (live_rows >= 0),
   pinned_rows bigint NOT NULL DEFAULT 0 CHECK (pinned_rows >= 0),
+  demand_epoch bigint NOT NULL DEFAULT 0,
   demand_rows integer NOT NULL DEFAULT 0,
   demand_bytes bigint NOT NULL DEFAULT 0
 );
@@ -177,6 +178,18 @@ CREATE INDEX pipeline_output_blocking_idx ON pipeline_output_capacity (output_id
     used_rows >= max_rows OR used_bytes >= max_payload_bytes
     OR demand_rows > max_rows - used_rows OR demand_bytes > max_payload_bytes - used_bytes
   );
+
+CREATE TABLE pipeline_output_demand (
+  observed_at timestamptz NOT NULL,
+  raw_id uuid NOT NULL,
+  output_id uuid NOT NULL,
+  epoch bigint NOT NULL,
+  needed_rows integer NOT NULL,
+  needed_bytes bigint NOT NULL,
+  PRIMARY KEY (observed_at,raw_id,output_id)
+);
+CREATE INDEX pipeline_output_demand_rows_idx ON pipeline_output_demand (output_id,epoch,needed_rows DESC);
+CREATE INDEX pipeline_output_demand_bytes_idx ON pipeline_output_demand (output_id,epoch,needed_bytes DESC);
 
 CREATE TABLE pipeline_event_reference (
   observed_at timestamptz NOT NULL,
@@ -289,7 +302,7 @@ BEGIN
       IF capacity.overflow_policy='block_ingest' AND capacity.overflow_activity_id IS NULL
         AND (capacity.used_rows>=capacity.max_rows OR capacity.used_bytes>=capacity.max_payload_bytes)
       THEN
-        PERFORM correlia_mark_overflow(lane.id,'saturated',0,0,0,clock_timestamp());
+        PERFORM correlia_mark_overflow(lane.id,'saturated',0,clock_timestamp());
       END IF;
     ELSE
       UPDATE pipeline_output_capacity SET active=false WHERE output_id=lane.id;
@@ -407,6 +420,7 @@ BEGIN
   IF old_pending AND (NOT new_pending OR OLD.config_snapshot_id IS DISTINCT FROM NEW.config_snapshot_id)
       AND OLD.config_snapshot_id IS NOT NULL THEN
     PERFORM correlia_adjust_raw_pin(OLD.config_snapshot_id,OLD.source_id,-1);
+    PERFORM correlia_set_raw_output_demands(OLD.observed_at,OLD.raw_id);
   END IF;
   IF new_pending AND (NOT old_pending OR OLD.config_snapshot_id IS DISTINCT FROM NEW.config_snapshot_id)
       AND NEW.config_snapshot_id IS NOT NULL THEN
@@ -507,7 +521,9 @@ CREATE TRIGGER outbox_queue_accounting AFTER INSERT OR UPDATE OR DELETE ON outbo
 CREATE FUNCTION correlia_reset_queue_accounting() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   IF TG_TABLE_NAME='raw_inbox' THEN
-    UPDATE pipeline_output_capacity SET pinned_rows=0 WHERE pinned_rows<>0;
+    TRUNCATE pipeline_output_demand;
+    UPDATE pipeline_output_capacity SET pinned_rows=0,demand_rows=0,demand_bytes=0
+    WHERE pinned_rows<>0 OR demand_rows<>0 OR demand_bytes<>0;
     UPDATE pipeline_output_commitment SET pinned_count=0 WHERE pinned_count<>0;
     UPDATE pipeline_pending SET pending_rows=0 WHERE singleton=1;
   ELSE
@@ -595,16 +611,13 @@ CREATE TABLE pipeline_overflow_notice (
 CREATE INDEX pipeline_overflow_pending_idx ON pipeline_overflow_notice (activity_id) WHERE NOT handled;
 
 CREATE FUNCTION correlia_mark_overflow(
-  p_output uuid, p_reason text, p_discarded integer, p_rows integer, p_bytes bigint,
+  p_output uuid, p_reason text, p_discarded integer,
   p_now timestamptz
 ) RETURNS void LANGUAGE plpgsql AS $$
 DECLARE
   episode bigint;
 BEGIN
-  UPDATE pipeline_output_capacity SET
-    discarded_count=discarded_count+p_discarded,
-    demand_rows=CASE WHEN overflow_policy='block_ingest' THEN greatest(demand_rows,p_rows) ELSE 0 END,
-    demand_bytes=CASE WHEN overflow_policy='block_ingest' THEN greatest(demand_bytes,p_bytes) ELSE 0 END
+  UPDATE pipeline_output_capacity SET discarded_count=discarded_count+p_discarded
   WHERE output_id=p_output RETURNING overflow_activity_id INTO episode;
   IF episode IS NULL THEN
     INSERT INTO activity
@@ -624,11 +637,55 @@ BEGIN
 END;
 $$;
 
+-- The raw-row lock owns its demand records. Capacity locks serialize changes
+-- to the cached maxima. Look up each maximum by index, independent of backlog.
+CREATE FUNCTION correlia_set_raw_output_demands(
+  p_at timestamptz, p_raw uuid, p_demands jsonb DEFAULT '{}'::jsonb, p_now timestamptz DEFAULT NULL
+) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE
+  lane record;
+  blocked boolean;
+BEGIN
+  FOR lane IN SELECT c.*,
+    (p_demands->c.output_id::text->>0)::int AS needed_rows,
+    (p_demands->c.output_id::text->>1)::bigint AS needed_bytes
+  FROM pipeline_output_capacity c
+  WHERE c.output_id IN (
+    SELECT k::uuid FROM jsonb_object_keys(p_demands) AS keys(k)
+    UNION SELECT output_id FROM pipeline_output_demand WHERE observed_at=p_at AND raw_id=p_raw
+  )
+  ORDER BY c.output_id FOR UPDATE OF c
+  LOOP
+    blocked := lane.overflow_policy='block_ingest' AND lane.needed_rows IS NOT NULL
+      AND (lane.needed_rows > lane.max_rows-lane.used_rows
+        OR lane.needed_bytes > lane.max_payload_bytes-lane.used_bytes);
+    IF blocked THEN
+      INSERT INTO pipeline_output_demand (observed_at,raw_id,output_id,epoch,needed_rows,needed_bytes)
+      VALUES (p_at,p_raw,lane.output_id,lane.demand_epoch,lane.needed_rows,lane.needed_bytes)
+      ON CONFLICT (observed_at,raw_id,output_id) DO UPDATE SET epoch=excluded.epoch,
+        needed_rows=excluded.needed_rows,needed_bytes=excluded.needed_bytes;
+    ELSE
+      DELETE FROM pipeline_output_demand WHERE observed_at=p_at AND raw_id=p_raw AND output_id=lane.output_id;
+    END IF;
+    UPDATE pipeline_output_capacity SET
+      demand_rows=coalesce((SELECT needed_rows FROM pipeline_output_demand
+        WHERE output_id=lane.output_id AND epoch=lane.demand_epoch ORDER BY needed_rows DESC LIMIT 1),0),
+      demand_bytes=coalesce((SELECT needed_bytes FROM pipeline_output_demand
+        WHERE output_id=lane.output_id AND epoch=lane.demand_epoch ORDER BY needed_bytes DESC LIMIT 1),0)
+    WHERE output_id=lane.output_id;
+    IF blocked AND lane.overflow_activity_id IS NULL THEN
+      PERFORM correlia_mark_overflow(lane.output_id,'block_ingest',0,p_now);
+    END IF;
+  END LOOP;
+END;
+$$;
+
 CREATE FUNCTION correlia_close_satisfied_overflow() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
   -- A change of policy invalidates the old deficit, but not actual usage.
   IF NEW.overflow_policy IS DISTINCT FROM OLD.overflow_policy THEN
+    NEW.demand_epoch := OLD.demand_epoch+1;
     NEW.demand_rows := 0;
     NEW.demand_bytes := 0;
   END IF;
@@ -636,6 +693,10 @@ BEGIN
     AND NEW.demand_rows<=NEW.max_rows-NEW.used_rows
     AND NEW.demand_bytes<=NEW.max_payload_bytes-NEW.used_bytes
   THEN
+    -- A satisfied episode cannot block again on stale demand from that episode.
+    IF NEW.demand_rows<>0 OR NEW.demand_bytes<>0 THEN
+      NEW.demand_epoch := OLD.demand_epoch+1;
+    END IF;
     NEW.demand_rows := 0;
     NEW.demand_bytes := 0;
     NEW.overflow_activity_id := NULL;
@@ -644,8 +705,8 @@ BEGIN
 END;
 $$;
 CREATE TRIGGER output_capacity_recovered BEFORE UPDATE OF
-  used_rows,used_bytes,max_rows,max_payload_bytes,overflow_policy ON pipeline_output_capacity
-  FOR EACH ROW WHEN (OLD.overflow_activity_id IS NOT NULL)
+  used_rows,used_bytes,max_rows,max_payload_bytes,overflow_policy,demand_rows,demand_bytes ON pipeline_output_capacity
+  FOR EACH ROW
   EXECUTE FUNCTION correlia_close_satisfied_overflow();
 
 SELECT correlia_publish_queue_policy(s."publicJson"::jsonb)

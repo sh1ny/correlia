@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:correlia_server/src/generated/protocol.dart';
@@ -97,6 +98,19 @@ void main() {
           mapping: checkMapping()..['identity'] = {'host': '/wrong'},
         );
         expect(third.snapshotId, isNot(second.snapshotId));
+        final interrupted = worker(
+          afterClaim: () async => throw const SocketException('fixture'),
+        );
+        expect(await interrupted.processOne(), isTrue);
+        expect(interrupted.counters.transientRetries, 1);
+        expect(await genericEvents(session), isEmpty);
+        expect(await worker().processOne(), isFalse);
+        final retry =
+            (await session.db.unsafeQuery(
+                  'SELECT next_attempt_at FROM raw_inbox WHERE status=\'pending\'',
+                )).single[0]!
+                as DateTime;
+        now = retry.toUtc();
         expect(await worker().processOne(), isTrue);
         final event = (await genericEvents(session)).single;
         expect(event.pipeline.version, second.snapshotId);

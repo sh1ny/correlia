@@ -515,6 +515,64 @@ void main() {
         expect(deferred.map((row) => row[0]), [0, 0]);
       });
 
+      test(
+        'completed_deferrals_release_only_their_own_output_demand',
+        () async {
+          const budgets = {
+            _first: {'max_rows': 1000, 'overflow_policy': 'block_ingest'},
+          };
+          final previous = await _publish(
+            session,
+            1,
+            routes: [_first],
+            budgets: budgets,
+          );
+          await _oldIntents(session, previous, _first, 999);
+          var now = raw.now;
+          final worker = PipelineRepository(
+            session,
+            clock: () => now,
+            elapsedForTest: () => Duration.zero,
+          );
+          Future<void> pin(List<String> names, int offset) async {
+            await raw.seed(session, [
+              for (final name in names)
+                payload.alert(
+                  startsAt: raw.now.toIso8601String(),
+                  labels: {'alertname': name},
+                ),
+            ], observed: raw.now.add(Duration(milliseconds: offset)));
+            expect(await worker.pinOne(), isTrue);
+          }
+
+          Future<Object?> pressure() async => (await session.db.unsafeQuery(
+            'SELECT correlia_reserve_raw(1)',
+          )).single[0];
+          final first = ['a', 'b'];
+          final second = ['c', 'd', 'e'];
+          await pin(first, 0);
+          await pin(second, 1);
+          await _publish(session, 2, routes: [_second], budgets: budgets);
+          await pin(first, 2);
+          await pin(second, 3);
+          for (var claim = 0; claim < 4; claim++) {
+            now = now.add(const Duration(seconds: 2));
+            expect(await worker.processOne(), isTrue);
+          }
+          expect(await _intents(session), {_first: 999, _second: 5});
+          expect(await pressure(), 'output');
+          expect(await worker.processOne(), isTrue);
+          expect(
+            await pressure(),
+            'output',
+            reason: 'the second deferred row is still pending',
+          );
+          expect(await worker.processOne(), isTrue);
+          expect(await pressure(), isNull);
+          expect(await _intents(session), {_first: 999, _second: 5});
+        },
+      );
+
       Future<int> notices() async =>
           (await session.db.unsafeQuery(
                 "SELECT count(*) FROM activity WHERE change_kind='output_overflow'",

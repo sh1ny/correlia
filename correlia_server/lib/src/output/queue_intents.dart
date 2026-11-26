@@ -140,17 +140,13 @@ Future<void> recordOutputOverflow(
   DateTime now, {
   required String reason,
   int discarded = 0,
-  int rows = 0,
-  int bytes = 0,
 }) async {
   await session.db.unsafeQuery(
-    'SELECT correlia_mark_overflow(@output::uuid,@reason,@discarded,@rows,@bytes,@now)',
+    'SELECT correlia_mark_overflow(@output::uuid,@reason,@discarded,@now)',
     parameters: QueryParameters.named({
       'output': output,
       'reason': reason,
       'discarded': discarded,
-      'rows': rows,
-      'bytes': bytes,
       'now': now,
     }),
     transaction: tx,
