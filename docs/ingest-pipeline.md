@@ -415,7 +415,8 @@ The result carries:
   `route` to an output that the baseline or an earlier route already has is `skipped: route already present`.
   A write that a later action of the same rule overwrites (a label key, or a second matching `map_severity`) is
   `skipped: overwritten later in its rule`; a `location` action counts as overwritten only when every label it
-  staged is. A write in a later rule is a separate patch, so both rules' writes are applied.
+  staged is. A write in a later rule is a separate patch, so both rules' writes are applied. A `map_severity`
+  whose target equals the event's current severity is `skipped: severity already <value>`.
 - The final labels, label origins, links, severity and `eventKind`, plus `noiseClassHint` when a rule classified
   the event.
 - `baselineRoutes` (the source's routes in the active snapshot) and `addedRoutes` from `route` actions. Added

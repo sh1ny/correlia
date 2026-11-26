@@ -227,6 +227,7 @@ Future<RuleSimulationResult> simulateRules({
     // Route actions whose output the baseline or an earlier route already has.
     final present = <int>{};
     final addedBefore = added.toList();
+    final severityBefore = current.severity;
     String? failure;
     try {
       final patch = await applyMatcherRule(
@@ -286,6 +287,13 @@ Future<RuleSimulationResult> simulateRules({
         if (!routed.add(outputId)) present.add(index);
       }
     }
+    // A severity mapped to the value the event already has changes nothing.
+    final sameSeverity = <int>{
+      for (final (index, action) in rule.actions.indexed)
+        if (action is MatcherSeverity &&
+            effects[index] == (MatcherActionEffect.staged, severityBefore.name))
+          index,
+    };
     if (failure != null) {
       // A failed action carries its rule's code, the cutoff included.
       for (final MapEntry(:key, :value) in effects.entries.toList()) {
@@ -332,10 +340,12 @@ Future<RuleSimulationResult> simulateRules({
                 action,
                 effects[index],
                 routePresent: present.contains(index),
+                severityUnchanged: sameSeverity.contains(index),
                 applied:
                     outcome == ruleOutcomeMatched &&
                     effects[index]?.$1 == MatcherActionEffect.staged &&
-                    !present.contains(index),
+                    !present.contains(index) &&
+                    !sameSeverity.contains(index),
               ),
         ],
       ),
@@ -407,6 +417,7 @@ ActionTrace _actionTrace(
   MatcherAction action,
   (MatcherActionEffect, String?)? effect, {
   required bool routePresent,
+  required bool severityUnchanged,
   required bool applied,
 }) {
   final (type, detail) = switch (action) {
@@ -455,6 +466,8 @@ ActionTrace _actionTrace(
     effect: switch (effect?.$1) {
       MatcherActionEffect.staged when routePresent =>
         'skipped: route already present',
+      MatcherActionEffect.staged when severityUnchanged =>
+        'skipped: severity already ${effect!.$2}',
       MatcherActionEffect.staged => 'staged',
       MatcherActionEffect.noInput => 'skipped: field missing',
       MatcherActionEffect.noCapture => 'skipped: nothing captured',

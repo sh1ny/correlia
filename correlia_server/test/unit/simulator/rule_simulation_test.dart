@@ -844,6 +844,25 @@ void main() {
     },
   );
 
+  test('a_severity_already_at_its_target_is_not_applied', () async {
+    final result = await _simulate(
+      _event(),
+      _document([
+        _rule('same', [
+          {
+            'type': 'map_severity',
+            'values': {'warning': 'warning'},
+          },
+        ]),
+      ]),
+    );
+    expect(result.trace.single.outcome, 'matched');
+    expect(result.trace.single.actions.map((a) => (a.effect, a.applied)), [
+      ('skipped: severity already warning', false),
+    ]);
+    expect(result.finalSeverity, 'warning');
+  });
+
   test('only_a_simulated_classify_sets_the_hint', () async {
     final result = await _simulate(
       _event(),

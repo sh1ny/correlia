@@ -1,6 +1,8 @@
 @Timeout(Duration(minutes: 5))
 library;
 
+import 'dart:io' show Platform, Process;
+
 import 'package:correlia_client/correlia_client.dart' as rpc;
 import 'package:correlia_server/src/feed/feed_runtime.dart';
 import 'package:correlia_server/src/ingest/config_repository.dart';
@@ -130,6 +132,43 @@ void main() {
         expect(text, contains('summary exists: matched'));
         expect(text, contains('action 0 label team = ops: staged (applied)'));
         expect(text, contains('team=ops (matcher)'));
+        expect(text, contains('stored snapshot:'));
+      });
+
+      test('the_executable_traces_a_stored_event', () async {
+        await support.seed(session, [
+          payload.alert(
+            startsAt: '2026-11-10T12:00:00Z',
+            labels: {'alertname': 'Example'},
+          ),
+        ]);
+        final worker = PipelineRepository(
+          session,
+          clock: () => support.now,
+          elapsedForTest: () => Duration.zero,
+        );
+        expect(await worker.pinOne(), isTrue);
+        expect(await worker.processOne(), isTrue);
+        final event = (await session.db.unsafeQuery(
+          'SELECT event_id::text, observed_at FROM events',
+        )).single;
+
+        // The real entry point, its --server option and its own client.
+        final run = await Process.run(Platform.resolvedExecutable, [
+          'run',
+          'tool/simulate.dart',
+          '--server',
+          'http://127.0.0.1:${session.serverpod.server.port}/',
+          '--event-id',
+          event[0]! as String,
+          '--observed-at',
+          (event[1]! as DateTime).toUtc().toIso8601String(),
+        ]);
+
+        expect(run.exitCode, 0, reason: '${run.stderr}');
+        final text = '${run.stdout}';
+        expect(text, contains('rule label-it: matched'));
+        expect(text, contains('action 0 label team = ops: staged (applied)'));
         expect(text, contains('stored snapshot:'));
       });
     },

@@ -258,6 +258,7 @@ void main() {
       ['--event-id', _id],
       ['--event', 'e.json', '--observed-at', 'T'],
       ['--event', 'e.json', '--bogus'],
+      ['--event', 'e.json', 'draft', 'd.json'],
     ]) {
       test('${args.join(' ')} exits 64 with usage on stderr', () async {
         final h = _Harness(_result());

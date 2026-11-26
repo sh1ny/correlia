@@ -39,8 +39,9 @@ enum MatcherActionEffect {
 }
 
 /// Receives each action's position, its effect and a value, if any: the
-/// captured text of an `extract`, the staged labels of a `location` lookup or
-/// the failure code of a failed action.
+/// captured text of an `extract`, the staged labels of a `location` lookup,
+/// the mapped severity of a `map_severity` or the failure code of a failed
+/// action.
 typedef MatcherActionObserver =
     void Function(int index, MatcherActionEffect effect, String? value);
 
@@ -128,7 +129,7 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
           mapped == null
               ? MatcherActionEffect.noMapping
               : MatcherActionEffect.staged,
-          null,
+          mapped?.name,
         );
       case MatcherLink(:final link):
         links.add(link);

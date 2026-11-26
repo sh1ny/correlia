@@ -101,6 +101,9 @@ Future<int> runSimulate(
       ..writeln(parser.usage);
     return 0;
   }
+  if (results.rest.isNotEmpty) {
+    return usage('Unexpected argument: ${results.rest.first}');
+  }
   if (!isServerUrl(results.option('server') ?? defaultServer)) {
     return usage('--server must be an http:// or https:// URL.');
   }
