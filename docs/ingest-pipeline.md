@@ -308,6 +308,7 @@ Notice routing and expired-lease recovery each run one transaction at a time. Ne
 delivery discovery. Lease recovery rotates between outputs, even when one attempt times out
 waiting for a lock. A change to either overflow policy's budget can open an episode even when
 the inbox is empty.
+Delivery attempts use UTC keys and timestamps even when the PostgreSQL session does not.
 
 ## Retention and expiry
 

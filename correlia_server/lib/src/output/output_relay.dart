@@ -407,7 +407,8 @@ final class OutputRelayRepository {
           await _timeout(tx, budget, claim: true);
           await session.db.unsafeExecute(
             '''INSERT INTO delivery_attempts ("outboxCreatedAt","deliveryId","attemptNumber","claimId","startedAt",outcome)
-            VALUES (@created,CAST(@id AS uuid),@number,CAST(@claim AS uuid),clock_timestamp(),'started')''',
+            VALUES (@created::timestamptz AT TIME ZONE 'UTC',@id::uuid,@number,@claim::uuid,
+              clock_timestamp() AT TIME ZONE 'UTC','started')''',
             parameters: QueryParameters.named({
               'created': created,
               'id': deliveryId,
@@ -550,7 +551,8 @@ final class OutputRelayRepository {
         await _timeout(tx, batch.deadline);
         final attempts = await session.db.unsafeExecute(
           '''UPDATE delivery_attempts a SET "finishedAt"=@finished::timestamptz AT TIME ZONE 'UTC',outcome=x.outcome,"errorClass"=x.error
-          FROM ($input) x, outbox o WHERE a."outboxCreatedAt"=x.created AND a."deliveryId"=x.id
+          FROM ($input) x, outbox o
+          WHERE a."outboxCreatedAt"=(x.created AT TIME ZONE 'UTC') AND a."deliveryId"=x.id
           AND a."attemptNumber"=x.number AND a."claimId"=CAST(@claim AS uuid) AND a.outcome='started'
           AND o.created_at=x.created AND o.delivery_id=x.id AND o.status='delivering'
           AND o.claim_id=CAST(@claim AS uuid) AND o.lease_until>clock_timestamp()''',
@@ -637,7 +639,8 @@ final class OutputRelayRepository {
         UPDATE delivery_attempts SET "finishedAt"=recovered.finished AT TIME ZONE 'UTC',
           outcome='interrupted',"errorClass"='interrupted'
         FROM recovered
-        WHERE "outboxCreatedAt"=@created AND "deliveryId"=@id::uuid AND "claimId"=@claim::uuid
+        WHERE "outboxCreatedAt"=(@created::timestamptz AT TIME ZONE 'UTC')
+          AND "deliveryId"=@id::uuid AND "claimId"=@claim::uuid
           AND "attemptNumber"=@number AND outcome='started' ''',
         parameters: QueryParameters.named({
           'created': row[0],

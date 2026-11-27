@@ -139,6 +139,7 @@ void main() {
           await repository.recoverExpired(
             nowForTest: DateTime.utc(2026, 1, 2),
             afterLockForTest: (tx) => session.db.unsafeSimpleExecute(r'''
+              SET LOCAL TIME ZONE 'America/New_York';
               CREATE SCHEMA test_relay_recovery_clock;
               CREATE FUNCTION test_relay_recovery_clock.clock_timestamp()
               RETURNS timestamptz LANGUAGE sql AS $$
@@ -165,6 +166,29 @@ void main() {
           'interrupted',
           transition,
         ]);
+      });
+      test('completion_matches_the_utc_attempt_key', () async {
+        final session = builder.build();
+        await seed(session);
+        final repository = OutputRelayRepository(
+          session,
+          testSecretResolver(session).resolve,
+          beforeCompletionLockForTest: (tx) => session.db.unsafeSimpleExecute(
+            "SET LOCAL TIME ZONE 'America/New_York'",
+            transaction: tx,
+          ),
+        );
+        final claim = (await repository.claim(output))!.claims.single;
+        expect(
+          await repository.complete(claim, const DeliveryAcknowledged()),
+          isTrue,
+        );
+        final row = (await session.db.unsafeQuery('''
+          SELECT o.status,a.outcome,a."finishedAt" IS NOT NULL
+          FROM outbox o JOIN delivery_attempts a
+            ON a."outboxCreatedAt"=(o.created_at AT TIME ZONE 'UTC') AND a."deliveryId"=o.delivery_id
+        ''')).single;
+        expect(row.toList(), ['delivered', 'acknowledged', true]);
       });
       test('concurrent_claims_for_one_output_are_isolated', () async {
         final session = builder.build();
