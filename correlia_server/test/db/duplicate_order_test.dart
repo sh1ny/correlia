@@ -1,4 +1,5 @@
 import 'package:correlia_server/src/ingest/config_repository.dart';
+import 'package:correlia_server/src/simulator/rule_simulator.dart';
 import 'package:test/test.dart';
 
 import '../integration/test_tools/serverpod_test_tools.dart';
@@ -88,7 +89,22 @@ void main() {
         final session = builder.build();
         await initializeIngestSchema(session);
         await clearPipelineTables(session);
-        final snapshot = await publishStreamDb(session);
+        final snapshot = await publishStreamDb(
+          session,
+          matcher: {
+            'language': 'matcher',
+            'version': 1,
+            'rules': [
+              {
+                'id': 'any',
+                'when': {'field': 'summary', 'op': 'exists'},
+                'actions': [
+                  {'type': 'set_label', 'key': 'hit', 'value': 'yes'},
+                ],
+              },
+            ],
+          },
+        );
         final now = streamDbNow;
         final check = streamDbCheck(now.add(const Duration(hours: 25)));
         final raw = await seedStreamDb(
@@ -121,6 +137,25 @@ void main() {
         expect(row['same_event'], isTrue);
         expect(DateTime.parse(row['stored']! as String), second);
         expect(row['delivered'], row['stored']);
+        // Both copies share the event ID and description and differ only in
+        // receipt time; the stored key's observed_at names the retained copy,
+        // so the simulator finds it rather than reporting it ambiguous.
+        final eventId =
+            (await queryRows(
+                  session,
+                  'SELECT event_id::text AS id FROM events',
+                )).single['id']!
+                as String;
+        final result = await RuleSimulator().simulate(
+          session,
+          eventId: eventId,
+          observedAt: second.toIso8601String(),
+        );
+        expect(result.error, isNull);
+        expect(result.trace.map((rule) => rule.outcome), ['matched']);
+        expect({
+          for (final label in result.storedLabels!) label.key: label.value,
+        }, containsPair('hit', 'yes'));
       });
     },
     rollbackDatabase: RollbackDatabase.disabled,

@@ -392,6 +392,34 @@ void main() {
         base.snapshotId,
       );
     }
+    // The publication error itself lists the allowed values, so an operator
+    // sees them without reading the parser's own error.
+    await expectLater(
+      _publish(
+        session,
+        revision++,
+        base.snapshotId,
+        _matcher([
+          {'type': 'classify', 'value': 'urgent'},
+        ]),
+      ),
+      throwsA(
+        isA<BootstrapError>().having(
+          (e) => e.code,
+          'code',
+          allOf([
+            for (final allowed in [
+              'heartbeat',
+              'informational',
+              'test',
+              'flapping',
+              'maintenance',
+            ])
+              contains(allowed),
+          ]),
+        ),
+      ),
+    );
     expect(await _count(session, 'ingest_config_snapshot'), 1);
   });
 

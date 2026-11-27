@@ -28,7 +28,7 @@
 | event-classification → Noise class hints | Classify a watchdog alert | `correlia_server/test/unit/matcher/classify_test.dart` | `classify_a_watchdog_alert` | green |
 | event-classification → Noise class hints | Classify a watchdog alert | `correlia_server/test/db/matcher_reserved_label_test.dart` | `a_classified_watchdog_keeps_its_live_alert_state` | green |
 | event-classification → Noise class hints | Later classify wins | `correlia_server/test/unit/matcher/classify_test.dart` | `later_classify_wins` | green |
-| event-classification → Noise class hints | Value outside the vocabulary | `correlia_server/test/unit/matcher/classify_test.dart` | `value_outside_the_vocabulary` | green |
+| event-classification → Noise class hints | Value outside the vocabulary | `correlia_server/test/unit/matcher/classify_test.dart`, `correlia_server/test/db/matcher_reserved_label_test.dart` | `value_outside_the_vocabulary`, `malformed_classify_is_rejected_at_publication` | green |
 | event-classification → Noise class hints | Other actions cannot write the reserved key | `correlia_server/test/db/matcher_reserved_label_test.dart` | `other_actions_cannot_write_the_reserved_key` | green |
 | event-classification → Noise class hints | A snapshot pinned before the change keeps running | `correlia_server/test/db/matcher_reserved_label_test.dart` | `a_snapshot_pinned_before_the_change_keeps_running` | green |
 | event-classification → Noise class hints | Source label with the reserved key | `correlia_server/test/unit/matcher/classify_test.dart` | `source_label_with_the_reserved_key` | green |
