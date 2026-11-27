@@ -51,9 +51,10 @@ Admission SHALL check a live transport or pull-batch receipt before rejecting ne
 ### Requirement: New raw admissions honor the reclamation cutoff
 
 The durable admission cutoff SHALL advance monotonically with reclamation and fence all new raw inserts.
-Receipts below it SHALL roll back admission. Consumer rows SHALL use their earliest item receipt. Exact
-webhook retries within their transport window and retained batch receipts SHALL return the committed
-result without inserting. A live explicit key with a different body SHALL still return 409.
+Receipts below it SHALL roll back admission. Consumer rows SHALL use their earliest item receipt.
+An exact webhook retry with a retained reservation and a receipt within its transport window SHALL
+return the committed result without inserting. A retained batch receipt SHALL also return the
+committed result without inserting. A live explicit key with a different body SHALL still return 409.
 Terminal rows below the cutoff SHALL NOT be requeued except through authorized replay of an eligible
 retained raw failure. Such replay SHALL keep the original receipt and SHALL NOT insert a new raw row
 or transport reservation. The dead-letter replay eligibility, capacity and ordering rules still apply.
@@ -71,8 +72,12 @@ or transport reservation. The dead-letter replay eligibility, capacity and order
 - **THEN** while its batch receipt is retained, it gets the committed result without inserting another raw row
 
 #### Scenario: Webhook reservation inside and outside the transport window
-- **WHEN** retries of an already committed webhook reach admission with receipts behind the cutoff, one inside the original deduplication window and one after it
+- **WHEN** a committed webhook's reservation is retained and two retries reach admission with receipts behind the cutoff, one inside the transport window and one after it
 - **THEN** the first returns the committed duplicate result and the second returns 503; neither creates a raw row or changes the original reservation
+
+#### Scenario: Retry after webhook reservation reclamation
+- **WHEN** an exact retry reaches admission after maintenance reclaims its reservation, and its receipt is inside the original transport window but behind the cutoff
+- **THEN** the retry returns 503 and creates neither a raw row nor a reservation
 
 #### Scenario: Conflicting live webhook key behind the cutoff
 - **WHEN** a delivery behind the cutoff reuses a still-live explicit key with a different body

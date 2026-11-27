@@ -172,9 +172,11 @@ leaves the lease to expire.
 The reclamation cutoff can pass the receipt time of a buffered batch. The
 consumer rejects it without a raw row or reservation, reconnects, and syncs
 current state. A webhook rejected at this boundary returns `503`; retry the
-delivery so it gets a fresh receipt. An already committed reservation still
-deduplicates within its retention window. Reclaiming a silent tombstone ends
-its unpublished lifecycle: a later problem can create a new alert.
+delivery so it gets a fresh receipt. A retained reservation still deduplicates
+an exact retry whose receipt falls inside the transport window. Once maintenance
+reclaims the reservation, any retry with a receipt behind the cutoff gets `503`.
+Reclaiming a silent tombstone ends its unpublished lifecycle: a later problem
+can create a new alert.
 
 ### Read Icinga 2 Event Streams status
 
