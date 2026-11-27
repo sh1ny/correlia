@@ -474,13 +474,14 @@ ActionTrace _actionTrace(
         ].join(', '),
       },
     ),
-    // The display text is JSON-quoted, so links that differ only in it, or
-    // text holding spaces or quotes, read apart.
+    // The URL and the display text are JSON-quoted, so each has a clear
+    // boundary: a URL may hold spaces and quotes, and links that differ only
+    // in their text read apart.
     MatcherLink(:final link) => (
       'link',
       [
         link.relation,
-        link.href,
+        jsonEncode(link.href),
         if (link.text case final text?) jsonEncode(text),
       ].join(' '),
     ),

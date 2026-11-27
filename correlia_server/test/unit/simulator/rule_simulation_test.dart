@@ -1128,11 +1128,41 @@ void main() {
       ]),
     );
     expect(result.trace.single.actions.map((a) => a.detail), [
-      'runbook https://example.com/runbook',
-      'runbook https://example.com/runbook "Runbook, \\"night\\""',
-      'runbook https://example.com/runbook "Day"',
+      'runbook "https://example.com/runbook"',
+      'runbook "https://example.com/runbook" "Runbook, \\"night\\""',
+      'runbook "https://example.com/runbook" "Day"',
     ]);
   });
+
+  test(
+    'a_link_url_ending_in_quoted_text_reads_apart_from_display_text',
+    () async {
+      final result = await _simulate(
+        _event(),
+        _document([
+          _rule('links', [
+            {
+              'type': 'link',
+              'href': 'https://example.com/a "Runbook"',
+              'relation': 'runbook',
+            },
+            {
+              'type': 'link',
+              'href': 'https://example.com/a',
+              'relation': 'runbook',
+              'text': 'Runbook',
+            },
+          ]),
+        ]),
+      );
+      final [first, second] = [
+        for (final action in result.trace.single.actions) action.detail,
+      ];
+      expect(first, isNot(second));
+      expect(first, r'runbook "https://example.com/a \"Runbook\""');
+      expect(second, 'runbook "https://example.com/a" "Runbook"');
+    },
+  );
 
   test('actions_record_their_effect_and_the_final_event', () async {
     final result = await _simulate(
