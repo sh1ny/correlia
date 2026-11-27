@@ -1,7 +1,15 @@
 ## Unreleased
 
-- Add versioned matcher rules for event enrichment and routing. Live upgrades are unsupported:
-  stop intake, drain pending inbox work and the outbox manually, then stop Correlia before upgrading.
+- Attach the inbox, event store and outbox as UTC range partitions during an offline upgrade.
+  Stop every old role before starting the new version; this cutover retains all pending work.
+- Share inbox and per-output capacity across processes. Report admission pressure with
+  `Retry-After`, send bounded overflow notices, and reclaim terminal work on worker roles.
+- Add an opt-in, machine-authenticated RPC to list and replay dead letters and inspect queue
+  pressure. Raw replay pins current configuration; delivery replay retains the original
+  bytes and destination. Both record the machine actor and queued count.
+- Add versioned matcher rules for event enrichment and routing. Before upgrading from a
+  release without matcher support, stop intake, drain pending inbox work and the outbox
+  manually, then stop Correlia. Live upgrades remain unsupported.
 - Add authenticated production output plugin connections with ephemeral in-memory identities,
   separated configuration secrets, bounded batch credits, per-event results and health deadlines.
 - Supervise pinned plugin definitions with verified launches, durable crash budgets, fair bounded
@@ -27,9 +35,9 @@
   outcomes, including quarantine, late, duplicate and explicitly unrouted evidence.
 - Deliver exact structured CloudEvents through independent signed webhook relays with fenced leases,
   durable attempts, finite retries/dead letters and at-least-once crash recovery.
-- Gate admission on startup, compose api/worker/all ownership and stop acquisition/HTTP before database
-  shutdown. Document 1 MiB ingress, 1,000-alert/16 MiB batch bounds and the lack of automatic
-  retention/replay in `docs/ingest-pipeline.md`.
+- Gate admission on startup, compose api/worker/all ownership and stop acquisition/HTTP before
+  database shutdown. Document the 1 MiB ingress and 1,000-alert/16 MiB batch bounds in
+  `docs/ingest-pipeline.md`.
 - Add deterministic v1 alert fingerprints, observation UUIDv5 and source-scoped transport keys.
   Preserve original nanosecond timestamp evidence, bound identity work, and publish independent
   vectors in `contracts/identity-vectors.json`. These pure helpers apply no durable dedup/state effects.

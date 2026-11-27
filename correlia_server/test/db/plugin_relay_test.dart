@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:correlia_server/src/generated/protocol.dart';
 import 'package:correlia_server/src/output/delivery_permit.dart';
 import 'package:correlia_server/src/output/output_relay.dart';
 import 'package:correlia_server/src/output/plugin_output_router.dart';
 import 'package:correlia_server/src/output/relay_deadline.dart';
+import 'package:correlia_server/src/pipeline/queue_operations.dart';
 import 'package:crypto/crypto.dart';
 import 'package:serverpod/serverpod.dart';
 import 'package:test/test.dart';
@@ -113,6 +115,40 @@ void main() {
         await session.db.unsafeSimpleExecute(
           'DELETE FROM delivery_attempts; DELETE FROM outbox; DELETE FROM secret_record',
         );
+      });
+
+      test('dead_letter_directory_does_not_expose_plugin_error_text', () async {
+        final session = builder.build();
+        await seedPlugin(session);
+        final repo = repository(session);
+        final permits = DeliveryPermitSource();
+        final batch = (await repo.claim(
+          output,
+          readyDigests: {digestA},
+          permit: permits.acquire()!,
+        ))!;
+        const canary = 'plugin_private_sender_label';
+        expect(
+          await repo.completeBatch(batch, [const DeliveryPermanent(canary)]),
+          isTrue,
+        );
+        final operations = QueueOperations(
+          session,
+          secretStore: testSecretStore,
+        );
+        Future<QueueFailurePage> list([String? error]) => operations.list(
+          QueueFailureFilter(
+            kind: QueueFailureKind.delivery,
+            errorClass: error,
+          ),
+        );
+        final failures = (await list()).failures;
+        expect(failures.single.errorClass, 'plugin_failure');
+        expect(
+          (await list('plugin_failure')).failures.single.occurrence,
+          failures.single.occurrence,
+        );
+        expect((await list(canary)).failures, isEmpty);
       });
 
       test('plugin_degraded_while_work_queued', () async {

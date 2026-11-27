@@ -38,6 +38,11 @@ void main() {
         final original = await publishGenericConfig(session, now: _now);
         final body = jsonEncode(genericAlert(_now));
         await admitGeneric(session, original, body, _now);
+        // Keep both rows pending across publication. Their synthetic receipt
+        // predates the database clock; this test does not advance queue age.
+        await session.db.unsafeExecute(
+          "UPDATE raw_inbox SET queued_at='infinity'",
+        );
         final later = _now.add(const Duration(seconds: 1));
         await admitGeneric(
           session,

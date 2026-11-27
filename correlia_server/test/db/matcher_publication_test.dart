@@ -21,6 +21,7 @@ import '../support/icinga2_pipeline.dart';
 import '../support/icinga2_stream_fixture.dart';
 import '../support/icinga2_stream_pipeline.dart';
 import '../support/ingest_schema.dart';
+import '../support/postgres_lock_witness.dart' show ContentionGate;
 import '../support/secret_fixture.dart';
 import '../unit/event/fixture.dart';
 import '../unit/ingest/alertmanager_decoder_test.dart' as payload;
@@ -400,6 +401,11 @@ VALUES ('2026-11-01T00:00:00Z', '$source', '$source', @body, @digest, 'applicati
         final replacement = _config(first + 1)
           ..['expected_active_snapshot'] = original.snapshotId
           ..['sources'] = sources;
+        Future<List<Object?>>
+        referenceCounts() async => (await session.db.unsafeQuery(
+          "SELECT pinned_count,live_count FROM pipeline_output_commitment WHERE reference='historical-key'",
+        )).single.toList();
+        expect(await referenceCounts(), [1, 0]);
         Future<IngestBootstrap> publish(int byte) => repository.publishConfig(
           replacement,
           <String, Object?>{'historical-key': secret(byte)},
@@ -422,14 +428,61 @@ VALUES ('2026-11-01T00:00:00Z', '$source', '$source', @body, @digest, 'applicati
         final replaced = await publish(2);
         expect(replaced.snapshotId, isNot(original.snapshotId));
         await refused();
-        expect(
-          await PipelineRepository(
-            session,
-            clock: () => DateTime.utc(2026, 11, 1),
-            elapsedForTest: () => Duration.zero,
-          ).processOne(),
-          isTrue,
+        await session.db.unsafeSimpleExecute('''
+          DELETE FROM secret_record WHERE reference='historical-key';
+          DELETE FROM ingest_secret_commitment WHERE reference='historical-key';
+        ''');
+        final gate = ContentionGate();
+        final atValidation = Completer<void>();
+        final publishingAcrossCommit = builder.build();
+        final concurrent = IngestConfigRepository(
+          publishingAcrossCommit,
+          secretStore: testSecretStore,
+          beforeInventoryForTest: (tx) async {
+            // This read witnesses the pending pin inside the same publication
+            // transaction before the worker commits the retained intent.
+            final rows = await publishingAcrossCommit.db.unsafeQuery(
+              "SELECT pinned_count,live_count FROM pipeline_output_commitment WHERE reference='historical-key'",
+              transaction: tx,
+            );
+            atValidation.complete();
+            expect(rows.single.toList(), [1, 0]);
+            await gate.future;
+          },
         );
+        final rejected = gate.run(
+          () => expectLater(
+            concurrent.publishConfig(
+              replacement,
+              {'historical-key': secret(3)},
+              runMode: 'test',
+            ),
+            throwsA(
+              isA<BootstrapError>().having(
+                (e) => e.code,
+                'code',
+                'reference_rebound',
+              ),
+            ),
+          ),
+        );
+        try {
+          await Future.any([atValidation.future, rejected]);
+          expect(atValidation.isCompleted, isTrue);
+          expect(
+            await PipelineRepository(
+              session,
+              clock: () => DateTime.utc(2026, 11, 1),
+              elapsedForTest: () => Duration.zero,
+            ).processOne(),
+            isTrue,
+          );
+          expect(await referenceCounts(), [0, 1]);
+        } finally {
+          await gate.join();
+        }
+        await rejected;
+        expect((await publish(2)).snapshotId, replaced.snapshotId);
         expect(
           (await session.db.unsafeSimpleQuery(
             "SELECT status, outcome_json FROM raw_inbox WHERE raw_id='$source'",
@@ -451,7 +504,19 @@ FROM outbox WHERE config_snapshot_id = '${original.snapshotId}'
             historicalOutput.signingKeyCommitment,
           ],
         );
+        expect(await referenceCounts(), [0, 1]);
         await refused();
+        await expectLater(
+          publish(3),
+          throwsA(
+            isA<BootstrapError>().having(
+              (e) => e.code,
+              'code',
+              'reference_rebound',
+            ),
+          ),
+        );
+        expect((await publish(2)).snapshotId, replaced.snapshotId);
         expect(
           (await repository.publishConfig(
             replacement,

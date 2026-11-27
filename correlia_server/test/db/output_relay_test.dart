@@ -123,6 +123,73 @@ void main() {
           20,
         );
       });
+      test('recovery_retry_delay_starts_at_the_transition', () async {
+        final session = builder.build();
+        await seed(session);
+        final repository = OutputRelayRepository(
+          session,
+          testSecretResolver(session).resolve,
+        );
+        expect(await repository.claim(output), isNotNull);
+        await session.db.unsafeSimpleExecute(
+          "UPDATE outbox SET lease_until='2026-01-01 UTC'",
+        );
+        final transition = DateTime.utc(2099, 1, 2);
+        expect(
+          await repository.recoverExpired(
+            nowForTest: DateTime.utc(2026, 1, 2),
+            afterLockForTest: (tx) => session.db.unsafeSimpleExecute(r'''
+              SET LOCAL TIME ZONE 'America/New_York';
+              CREATE SCHEMA test_relay_recovery_clock;
+              CREATE FUNCTION test_relay_recovery_clock.clock_timestamp()
+              RETURNS timestamptz LANGUAGE sql AS $$
+                SELECT '2099-01-02 UTC'::timestamptz
+              $$;
+              SET LOCAL search_path=test_relay_recovery_clock,pg_catalog,public
+            ''', transaction: tx),
+          ),
+          isTrue,
+        );
+        addTearDown(
+          () => session.db.unsafeSimpleExecute('''
+            DROP FUNCTION test_relay_recovery_clock.clock_timestamp();
+            DROP SCHEMA test_relay_recovery_clock
+          '''),
+        );
+        final row = (await session.db.unsafeQuery('''
+          SELECT o.status,o.next_attempt_at,a.outcome,a."finishedAt" AT TIME ZONE 'UTC'
+          FROM outbox o JOIN delivery_attempts a ON a."deliveryId"=o.delivery_id
+        ''')).single;
+        expect(row.toList(), [
+          'queued',
+          transition.add(const Duration(seconds: 1)),
+          'interrupted',
+          transition,
+        ]);
+      });
+      test('completion_matches_the_utc_attempt_key', () async {
+        final session = builder.build();
+        await seed(session);
+        final repository = OutputRelayRepository(
+          session,
+          testSecretResolver(session).resolve,
+          beforeCompletionLockForTest: (tx) => session.db.unsafeSimpleExecute(
+            "SET LOCAL TIME ZONE 'America/New_York'",
+            transaction: tx,
+          ),
+        );
+        final claim = (await repository.claim(output))!.claims.single;
+        expect(
+          await repository.complete(claim, const DeliveryAcknowledged()),
+          isTrue,
+        );
+        final row = (await session.db.unsafeQuery('''
+          SELECT o.status,a.outcome,a."finishedAt" IS NOT NULL
+          FROM outbox o JOIN delivery_attempts a
+            ON a."outboxCreatedAt"=(o.created_at AT TIME ZONE 'UTC') AND a."deliveryId"=o.delivery_id
+        ''')).single;
+        expect(row.toList(), ['delivered', 'acknowledged', true]);
+      });
       test('concurrent_claims_for_one_output_are_isolated', () async {
         final session = builder.build();
         await seed(session);

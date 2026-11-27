@@ -5,6 +5,7 @@ import 'package:serverpod/serverpod.dart';
 import '../runtime/process_options.dart';
 import '../runtime/subsystem.dart';
 import 'output_relay.dart';
+import 'overflow_notices.dart';
 import 'plugin_output_router.dart';
 import 'relay_deadline.dart';
 import 'webhook_output.dart';
@@ -18,7 +19,9 @@ final class RelaySubsystem extends Subsystem {
     required String runMode,
     this.beforeAcquire,
     this.beforeClaimCommit,
-    this.beforePluginComplete,
+    this.beforeAckCommit,
+    this.beforeNoticeRoutingForTest,
+    this.afterRecoveryLockForTest,
     this.onUnavailable,
     this.pluginRouter,
     this.pollInterval = const Duration(milliseconds: 250),
@@ -33,8 +36,14 @@ final class RelaySubsystem extends Subsystem {
   /// Optional test barrier immediately before a claim's commit-boundary check.
   final Future<void> Function()? beforeClaimCommit;
 
-  /// Optional test barrier after a plugin response and before its commit.
-  final Future<void> Function(int acknowledgedCount)? beforePluginComplete;
+  /// Optional test barrier after delivery and before acknowledging it locally.
+  final Future<void> Function(int acknowledgedCount)? beforeAckCommit;
+
+  /// Lets a fixture pause a claimed notice before it locks destinations.
+  final Future<void> Function(Transaction)? beforeNoticeRoutingForTest;
+
+  /// Lets a fixture pause an expired delivery after recovery locks it.
+  final Future<void> Function(Transaction)? afterRecoveryLockForTest;
 
   /// Receives fixed unavailable-key diagnostics without secret material.
   final void Function(String, String)? onUnavailable;
@@ -62,6 +71,10 @@ final class RelaySubsystem extends Subsystem {
 
   Future<void> _run() async {
     final session = await pod.createSession(enableLogging: false);
+    Session? noticeSession;
+    Session? recoverySession;
+    Future<void>? routing;
+    Future<void>? recovering;
     try {
       final repository = OutputRelayRepository(
         session,
@@ -69,13 +82,27 @@ final class RelaySubsystem extends Subsystem {
         diagnostics: _diagnostics,
         onUnavailable: onUnavailable,
       );
+      noticeSession = await pod.createSession(enableLogging: false);
+      final notices = OverflowNotices(
+        noticeSession,
+        beforeRelationLocksForTest: beforeNoticeRoutingForTest,
+      );
+      recoverySession = await pod.createSession(enableLogging: false);
+      final recovery = OutputRelayRepository(recoverySession, resolveKey);
       while (!_stopped.isCompleted) {
         if (beforeAcquire != null) {
           await Future.any([beforeAcquire!(), _stopped.future]);
           if (_stopped.isCompleted) break;
         }
+        // A contended notice or expired lease must not delay discovery.
+        // Each job owns a session and runs at most one transaction per poll.
+        routing ??= _routeNotice(notices).whenComplete(() {
+          routing = null;
+        });
+        recovering ??= _recoverExpired(recovery).whenComplete(() {
+          recovering = null;
+        });
         try {
-          await repository.recoverExpired();
           final available = await repository.discover(
             _busy,
             readyDefinitions: pluginRouter?.readyDefinitions ?? {},
@@ -104,7 +131,29 @@ final class RelaySubsystem extends Subsystem {
         _wake = null;
       }
     } finally {
+      await routing;
+      await recovering;
+      await recoverySession?.close();
+      await noticeSession?.close();
       await session.close();
+    }
+  }
+
+  Future<void> _routeNotice(OverflowNotices notices) async {
+    try {
+      await notices.routeOne();
+    } catch (_) {
+      // The durable occurrence remains pending for the next poll.
+    }
+  }
+
+  Future<void> _recoverExpired(OutputRelayRepository repository) async {
+    try {
+      await repository.recoverExpired(
+        afterLockForTest: afterRecoveryLockForTest,
+      );
+    } catch (_) {
+      // The lease remains recoverable on the next poll.
     }
   }
 
@@ -136,7 +185,7 @@ final class RelaySubsystem extends Subsystem {
           );
           if (batch == null || _stopped.isCompleted) return;
           final outcomes = await deliverPluginBatch(router, permit, batch);
-          final barrier = beforePluginComplete;
+          final barrier = beforeAckCommit;
           if (barrier != null) {
             await barrier(outcomes.whereType<DeliveryAcknowledged>().length);
           }
@@ -152,6 +201,10 @@ final class RelaySubsystem extends Subsystem {
         final outcome = await _webhook
             .send(claim.intent!, claim.key!)
             .timeout(deadline.deliveryBudget);
+        final barrier = beforeAckCommit;
+        if (barrier != null && outcome is DeliveryAcknowledged) {
+          await barrier(1);
+        }
         if (!_stopped.isCompleted) {
           await repository.complete(claim, outcome, deadline: deadline);
         }

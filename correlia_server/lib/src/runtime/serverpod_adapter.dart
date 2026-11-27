@@ -10,6 +10,7 @@ final class ServerpodAdapter implements ServerpodPort {
   ServerpodAdapter(
     this.pod, {
     this.schemaLockTimeout = defaultSchemaLockTimeout,
+    this.partitionCutoverTimeoutSeconds = defaultPartitionCutoverTimeoutSeconds,
   });
 
   /// The wrapped server.
@@ -17,6 +18,9 @@ final class ServerpodAdapter implements ServerpodPort {
 
   /// How long each schema transaction waits for a lock.
   final Duration schemaLockTimeout;
+
+  /// Maximum client wait in seconds for the offline partition script.
+  final int partitionCutoverTimeoutSeconds;
 
   static int _taskCounter = 0;
 
@@ -38,7 +42,11 @@ final class ServerpodAdapter implements ServerpodPort {
     await pod.start();
     final session = await pod.createSession(enableLogging: false);
     try {
-      await initializeSchema(session, lockTimeout: schemaLockTimeout);
+      await initializeSchema(
+        session,
+        lockTimeout: schemaLockTimeout,
+        partitionCutoverTimeoutSeconds: partitionCutoverTimeoutSeconds,
+      );
     } finally {
       await session.close();
     }

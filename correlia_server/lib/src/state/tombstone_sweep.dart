@@ -55,11 +55,15 @@ final class TombstoneSweep {
           fixtureOwnsTimeout = true;
         }
         await bound();
+        // Neither evidence probe may wait behind DDL with the cutoff held.
+        await tx.execute(
+          'LOCK TABLE ONLY raw_inbox, ONLY events IN ACCESS SHARE MODE',
+          timeout: remaining(),
+        );
+        await bound();
         final state = (await tx.execute(
           pg.Sql.named('''
-          UPDATE raw_admission_cutoff
-          SET cutoff=GREATEST(cutoff, COALESCE(CAST(@now AS timestamptz),clock_timestamp()) - interval '1 hour')
-          WHERE singleton=1 RETURNING cursor_seconds,cursor_nanos,cursor_id
+          SELECT * FROM correlia_advance_raw_cutoff(COALESCE(CAST(@now AS timestamptz),clock_timestamp()))
         '''),
           parameters: {'now': clock?.call()},
           timeout: remaining(),
@@ -69,8 +73,9 @@ final class TombstoneSweep {
         final candidates = await tx.execute(
           pg.Sql.named('''
           WITH horizon AS (
-            SELECT LEAST(cutoff,(SELECT min(observed_at) FROM raw_inbox WHERE status='pending'))
-              - interval '7 days' AS boundary FROM raw_admission_cutoff WHERE singleton=1
+            SELECT correlia_retention_cutoff(
+              LEAST(cutoff,(SELECT min(observed_at) FROM raw_inbox WHERE status IN ('pending','failed'))),7
+            ) AS boundary FROM raw_admission_cutoff WHERE singleton=1
           )
           SELECT a.id,a."fenceEffectiveSeconds",a."fenceEffectiveNanos"
           FROM alerts a CROSS JOIN horizon h WHERE a.silent_tombstone
@@ -108,8 +113,9 @@ final class TombstoneSweep {
             final removed = await tx.execute(
               pg.Sql.named('''
               WITH horizon AS (
-                SELECT LEAST(cutoff,(SELECT min(observed_at) FROM raw_inbox WHERE status='pending'))
-                  - interval '7 days' AS boundary FROM raw_admission_cutoff WHERE singleton=1
+                SELECT correlia_retention_cutoff(
+                  LEAST(cutoff,(SELECT min(observed_at) FROM raw_inbox WHERE status IN ('pending','failed'))),7
+                ) AS boundary FROM raw_admission_cutoff WHERE singleton=1
               )
               DELETE FROM alerts a USING horizon h
               WHERE a.id=ANY(CAST(@ids AS bigint[])) AND a.silent_tombstone

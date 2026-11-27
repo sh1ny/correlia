@@ -372,7 +372,7 @@ Future<void> _withFixture(Future<void> Function(_Fixture) run) async {
     await connection.execute(
       '''CREATE FUNCTION secret_test_notify() RETURNS trigger LANGUAGE plpgsql AS \$\$
       BEGIN
-        IF TG_TABLE_NAME = 'raw_inbox' AND TG_OP = 'INSERT' THEN
+        IF TG_ARGV[0] = 'raw' AND TG_OP = 'INSERT' THEN
           INSERT INTO secret_test_admission(body) VALUES (NEW.body);
         END IF;
         PERFORM pg_notify('secret_test_change', TG_TABLE_NAME);
@@ -380,7 +380,8 @@ Future<void> _withFixture(Future<void> Function(_Fixture) run) async {
       END \$\$''',
     );
     await connection.execute(
-      'CREATE TRIGGER secret_test_raw AFTER INSERT OR UPDATE OR DELETE ON raw_inbox FOR EACH ROW EXECUTE FUNCTION secret_test_notify()',
+      '''CREATE TRIGGER secret_test_raw AFTER INSERT OR UPDATE OR DELETE ON raw_inbox
+        FOR EACH ROW EXECUTE FUNCTION secret_test_notify('raw')''',
     );
     await connection.execute(
       'CREATE TRIGGER secret_test_sync AFTER INSERT OR UPDATE ON icinga2_sync_progress FOR EACH ROW EXECUTE FUNCTION secret_test_notify()',

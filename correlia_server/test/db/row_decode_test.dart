@@ -101,9 +101,10 @@ void main() {
         if (admission != null) {
           await session.db.unsafeExecute(
             '''INSERT INTO icinga2_raw_origin
-(raw_id,origin,sync_id,admission_snapshot_id)
-VALUES (CAST(@raw AS uuid),@origin,CAST(@sync AS uuid),@snapshot)''',
+(raw_observed_at,raw_id,origin,sync_id,admission_snapshot_id)
+VALUES (@observed,CAST(@raw AS uuid),@origin,CAST(@sync AS uuid),@snapshot)''',
             parameters: QueryParameters.named({
+              'observed': _observed,
               'raw': id,
               'origin': sync ? 'sync' : 'stream',
               'sync': sync ? streamDbSyncId : null,

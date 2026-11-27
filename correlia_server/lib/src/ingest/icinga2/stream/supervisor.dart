@@ -104,6 +104,7 @@ final class Icinga2StreamSupervisor {
     void Function(SyncStartDisposition)? onSyncDecisionForTest,
     ReaderScheduler? syncScheduleForTest,
     Duration? headerDeadlineForTest,
+    Future<void> Function(pg.TxSession)? beforeCapacityLockForTest,
     Future<void> Function(pg.TxSession, StreamRawBatch)? beforeRawWriteForTest,
     void Function(StreamRawBatch, pg.ServerException)? rawWriteErrorForTest,
   }) : _beforeAdmissionCommit = runMode == 'test'
@@ -129,6 +130,9 @@ final class Icinga2StreamSupervisor {
            ? afterAcquisitionScanForTest
            : null,
        _afterRevisionPass = runMode == 'test' ? afterRevisionPassForTest : null,
+       _beforeCapacityLock = runMode == 'test'
+           ? beforeCapacityLockForTest
+           : null,
        _beforeRawWrite = runMode == 'test' ? beforeRawWriteForTest : null,
        _rawWriteError = runMode == 'test' ? rawWriteErrorForTest : null,
        _headerDeadline =
@@ -141,6 +145,7 @@ final class Icinga2StreamSupervisor {
   final void Function(String) log;
   final Duration revisionInterval;
   final Future<void> Function(pg.TxSession)? _beforeAdmissionCommit;
+  final Future<void> Function(pg.TxSession)? _beforeCapacityLock;
   final Future<void> Function(pg.Connection)? _onConsumerConnection;
   final Future<void> Function(pg.TxSession)? _beforeSweepCommit;
   final Duration Function()? _readerClock;

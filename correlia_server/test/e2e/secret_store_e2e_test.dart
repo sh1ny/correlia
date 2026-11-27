@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:correlia_client/correlia_client.dart';
+import 'package:correlia_server/src/ingest/bootstrap.dart' show sha256Digest;
 import 'package:crypto/crypto.dart';
 import 'package:postgres/postgres.dart';
 import 'package:test/test.dart';
@@ -56,12 +57,19 @@ final class _Fixture {
   Future<ChildServer> start({
     bool configured = true,
     bool import = true,
+    String? role,
     Directory? plugins,
   }) async {
     final log = Directory('${files.path}/logs-${children.length}');
     final child = await ChildServer.startOnSharedCluster(
       serverDir: Directory.current,
       database: db,
+      args: [
+        '--mode',
+        'test',
+        '--apply-migrations',
+        if (role != null) ...['--process-role', role],
+      ],
       logs: log,
       environment: {
         if (configured) ...{
@@ -375,6 +383,142 @@ void main() {
       } finally {
         await receiver.close(force: true);
       }
+    }),
+    timeout: _timeout,
+  );
+
+  test(
+    'worker_startup_preserves_live_intent_when_historical_key_is_missing',
+    () async {
+      await withOutputProcess((database, env, _, children) async {
+        final original = await startOutputChild(
+          database,
+          env,
+          children,
+          gated: true,
+        );
+        final db = await outputConnection(database);
+        try {
+          await db.execute(r'''
+            CREATE FUNCTION test_historical_startup_notify() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN PERFORM pg_notify('test_historical_startup','committed'); RETURN NEW; END $$;
+          ''');
+          await db.execute('''
+            CREATE TRIGGER test_historical_startup_notify AFTER INSERT ON outbox FOR EACH ROW
+            EXECUTE FUNCTION test_historical_startup_notify()
+          ''');
+          await db.execute('LISTEN test_historical_startup');
+          final committed = db.channels.all.firstWhere(
+            (event) => event.channel == 'test_historical_startup',
+          );
+          await postOutputAlert(original);
+          await committed.timeout(const Duration(minutes: 2));
+          expect(await original.closeStdin(), 0);
+          final active = await _activeJson(db);
+          const intent = 'SELECT row_to_json(o)::text FROM outbox o';
+          final retained = (await db.execute(intent)).single[0];
+          expect(
+            (await db.execute('SELECT status FROM outbox')).single[0],
+            'queued',
+          );
+          expect(
+            (await db.execute('''
+            SELECT r.config_snapshot_id=o.config_snapshot_id FROM raw_inbox r CROSS JOIN outbox o
+            WHERE r.status='done'
+          ''')).single[0],
+            isTrue,
+          );
+          await db.execute("DELETE FROM secret_record WHERE reference='key'");
+          final config = File(env['CORRELIA_INGEST_CONFIG']!);
+          await config.writeAsString(jsonEncode(_config(2)));
+          final failing = await ChildServer.startOnSharedCluster(
+            serverDir: Directory.current,
+            database: database,
+            args: [
+              '--mode',
+              'test',
+              '--apply-migrations',
+              '--process-role',
+              'worker',
+            ],
+            environment: {'CORRELIA_INGEST_CONFIG': config.path},
+          );
+          children.add(failing);
+          await failing.waitForOutput(
+            RegExp('historical_key_unavailable'),
+            timeout: const Duration(minutes: 2),
+          );
+          expect(await failing.exitCode, isNot(0));
+          expect(await _activeJson(db), active);
+          expect((await db.execute(intent)).single[0], retained);
+        } finally {
+          await db.close();
+        }
+      });
+    },
+    timeout: _timeout,
+  );
+
+  test(
+    'worker_starts_with_live_historical_plugin_metadata',
+    () => _withFixture((fixture, db) async {
+      const pluginReference = 'historical-plugin-key';
+      await _private(
+        fixture.secrets,
+        jsonEncode({'token': outputToken, pluginReference: outputKey}),
+      );
+      await fixture.config.writeAsString(
+        jsonEncode(
+          _config(
+            1,
+            output: {
+              'id': outputId,
+              'kind': 'plugin',
+              'plugin': 'retained-output',
+              'sha256': 'a' * 64,
+              'config': {'opaque': '\u0000'},
+              'secret_refs': {'token': pluginReference},
+            },
+          ),
+        ),
+      );
+      final original = await fixture.start(role: 'api');
+      await original.waitForReadyEvent();
+      expect(await original.closeStdin(), 0);
+
+      final snapshotText = await _activeJson(db);
+      final historical = jsonDecode(snapshotText) as Map<String, Object?>;
+      final outputs = historical['outputs']! as List<Object?>;
+      final digest = sha256Digest(outputs.single);
+      await db.execute(
+        Sql.named('''
+          INSERT INTO outbox (created_at,delivery_id,event_observed_at,event_id,event_disposition,
+            output_id,config_snapshot_id,output_kind,definition_digest,payload,status,claim_id,lease_until)
+          SELECT now(),gen_random_uuid(),now(),gen_random_uuid(),'accepted',
+            '$outputId',a."snapshotId",'plugin',@digest,decode('7b7d','hex'),'delivering',
+            gen_random_uuid(),now()+interval '1 day'
+          FROM ingest_active_config a CROSS JOIN generate_series(1,90)
+        '''),
+        parameters: {'digest': digest},
+      );
+      expect(
+        (await db.execute('''
+          SELECT live_count FROM pipeline_output_commitment
+          WHERE reference='$pluginReference' AND kind='plugin'
+        ''')).single[0],
+        90,
+      );
+
+      await fixture.config.writeAsString(jsonEncode(_config(2)));
+      final worker = await fixture.start(import: false, role: 'worker');
+      await worker.waitForReadyEvent();
+      expect(
+        (await db.execute('''
+          SELECT count(*) FROM outbox
+          WHERE output_id='$outputId' AND output_kind='plugin' AND status='delivering'
+        ''')).single[0],
+        90,
+      );
     }),
     timeout: _timeout,
   );

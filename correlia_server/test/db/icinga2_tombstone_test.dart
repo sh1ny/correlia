@@ -131,6 +131,35 @@ void main() {
         expect(await sweep(), 1);
       });
 
+      test('replayable_failure_keeps_tombstone_until_expiry', () async {
+        await mark(1, fence.subtract(const Duration(seconds: 1)));
+        await rawAt(session, fence.add(const Duration(seconds: 1)));
+        await session.db.unsafeExecute(
+          '''UPDATE raw_admission_cutoff SET cutoff=@cutoff''',
+          parameters: QueryParameters.named({'cutoff': boundary}),
+        );
+        await session.db.unsafeQuery('''
+          WITH failed AS (
+            UPDATE raw_inbox SET status='failed' RETURNING observed_at,raw_id,source_id
+          )
+          SELECT correlia_record_raw_failure(observed_at,raw_id,source_id,NULL,'processing_exhausted',NULL,@now)
+          FROM failed
+        ''', parameters: QueryParameters.named({'now': boundary}));
+        expect(await sweep(), 0);
+        expect(await countRows(session, 'alerts'), 1);
+        expect(
+          (await session.db.unsafeQuery(
+            "SELECT correlia_maintain('expiry',@now,10)",
+            parameters: QueryParameters.named({
+              'now': boundary.add(const Duration(days: 15)),
+            }),
+          )).single[0],
+          1,
+        );
+        expect(await sweep(), 1);
+        expect(await countRows(session, 'alerts'), 0);
+      });
+
       Future<String> actualTombstone({bool shared = false}) async {
         final snapshot = await publishStreamDb(session, shared: shared);
         await session.db.unsafeExecute('''INSERT INTO icinga2_sync_progress
@@ -352,12 +381,98 @@ void main() {
           final plan = await session.db.unsafeQuery('''EXPLAIN
             SELECT 1 FROM events WHERE correlia_event_subject(payload)='${'a' * 64}' LIMIT 1
           ''', transaction: tx);
+          final indexes = await session.db.unsafeQuery('''
+            SELECT inhrelid::regclass::text FROM pg_inherits
+            WHERE inhparent='events_subject_idx'::regclass
+          ''', transaction: tx);
+          final explanation = plan.map((row) => row[0]).join(' ');
           expect(
-            plan.map((row) => row[0]).join(' '),
-            contains('events_subject_idx'),
+            indexes.any((row) => explanation.contains(row[0]! as String)),
+            isTrue,
           );
         });
       });
+
+      for (final (lane, parent) in [
+        for (final lane in ['observation', 'tombstone'])
+          for (final parent in ['raw_inbox', 'events']) (lane, parent),
+      ]) {
+        test('${lane}_reclaim_waits_on_${parent}_before_cutoff', () async {
+          final hasTombstone = lane == 'tombstone' && parent == 'events';
+          if (hasTombstone) {
+            await mark(1, fence.subtract(const Duration(seconds: 1)));
+          }
+          final witness = await PostgresLockWitness.start(session);
+          addTearDown(witness.close);
+          final gate = ContentionGate();
+          final ddl = builder.build();
+          final sweepSession = builder.build();
+          final ddlReady = Completer<LockActor>();
+          final sweepReady = Completer<LockActor>();
+          final holding = gate.run(
+            () => ddl.db.transaction((tx) async {
+              final actor = await pooledLockActor(ddl, tx);
+              await ddl.db.unsafeExecute(
+                'LOCK TABLE ONLY $parent IN ACCESS EXCLUSIVE MODE',
+                transaction: tx,
+              );
+              ddlReady.complete(actor);
+              await gate.future;
+              await ddl.db.unsafeQuery(
+                'SELECT 1 FROM raw_admission_cutoff FOR UPDATE NOWAIT',
+                transaction: tx,
+              );
+            }),
+          );
+          try {
+            final holder = await Future.any([
+              ddlReady.future,
+              holding.then<LockActor>((_) => fail('DDL did not hold $parent')),
+            ]);
+            const observation = "SELECT correlia_maintain('observation',now())";
+            final sweeping = gate.run(
+              lane == 'observation'
+                  ? () => sweepSession.db.transaction((tx) async {
+                      sweepReady.complete(
+                        await pooledLockActor(
+                          sweepSession,
+                          tx,
+                          waiter: SqlTimeouts.poolDefault,
+                        ),
+                      );
+                      return (await sweepSession.db.unsafeQuery(
+                            observation,
+                            transaction: tx,
+                          )).single[0]
+                          as int;
+                    })
+                  : TombstoneSweep(
+                      sweepConnection,
+                      clock: () => boundary.add(const Duration(hours: 1)),
+                      beforeCutoffLockForTest: (tx) async =>
+                          sweepReady.complete(
+                            await lockActor(tx, waiter: SqlTimeouts.sweep),
+                          ),
+                    ).runOnce,
+            );
+            final waiter = await Future.any([
+              sweepReady.future,
+              sweeping.then<LockActor>((_) => fail('Sweep did not wait')),
+            ]);
+            await witness.blockedBy(
+              waiter,
+              holder,
+              sweeping,
+              statement: lane == 'observation' ? observation : parent,
+            );
+            await gate.join();
+            await holding;
+            expect(await sweeping, hasTombstone ? 1 : 0);
+          } finally {
+            await gate.join();
+          }
+        });
+      }
 
       test('admission_and_reclamation_fence_both_orders', () async {
         final writer = builder.build();
@@ -401,7 +516,7 @@ void main() {
             sweepActor,
             writerActor,
             waiting,
-            statement: 'SET cutoff=GREATEST',
+            statement: 'correlia_advance_raw_cutoff',
           );
         } finally {
           await release.join();
@@ -456,7 +571,7 @@ void main() {
             sweepActor,
             cutoffGate,
             reclaiming,
-            statement: 'SET cutoff=GREATEST',
+            statement: 'correlia_advance_raw_cutoff',
             advisory: true,
           );
           final admissionEntered = Completer<LockActor>();

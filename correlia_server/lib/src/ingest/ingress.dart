@@ -53,11 +53,10 @@ final class IngressCounters {
           old.duplicate + (outcome == AdmissionOutcome.duplicate ? 1 : 0),
       rejected:
           old.rejected +
-          (outcome == null ||
-                  outcome == AdmissionOutcome.unauthorized ||
-                  outcome == AdmissionOutcome.conflict
-              ? 1
-              : 0),
+          (outcome == AdmissionOutcome.accepted ||
+                  outcome == AdmissionOutcome.duplicate
+              ? 0
+              : 1),
     );
     if (_counts.containsKey(id)) {
       _counts[id!] = next;
@@ -416,11 +415,18 @@ final class _IngressRoute extends Route {
       if (error.code == 'CR001') return const _Result(503);
       rethrow;
     }
-    return _Result(switch (outcome) {
-      AdmissionOutcome.accepted || AdmissionOutcome.duplicate => 202,
-      AdmissionOutcome.conflict => 409,
-      AdmissionOutcome.unauthorized => 401,
-    }, outcome: outcome);
+    return _Result(
+      switch (outcome) {
+        AdmissionOutcome.accepted || AdmissionOutcome.duplicate => 202,
+        AdmissionOutcome.conflict => 409,
+        AdmissionOutcome.unauthorized => 401,
+        AdmissionOutcome.inboxPressure => 429,
+        AdmissionOutcome.storagePressure ||
+        AdmissionOutcome.outputPressure => 503,
+      },
+      outcome: outcome,
+      retryAfter: outcome == AdmissionOutcome.inboxPressure ? 1 : null,
+    );
   }
 
   Future<Uint8List?> _readBody(Request request, int limit) async {

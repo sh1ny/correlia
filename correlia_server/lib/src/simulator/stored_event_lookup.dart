@@ -93,7 +93,13 @@ ${request.disposition == null ? '' : 'AND disposition=@disposition'}''',
             ),
           ))
           .first;
-  final rawKey = RawKey(row[1]! as DateTime, row[2]! as String);
+  final RawKey rawKey;
+  if ((row[1], row[2]) case (final DateTime observed, final String id)) {
+    rawKey = RawKey(observed, id);
+  } else {
+    // Correlia-origin notices have ledger evidence but no sender row.
+    return _failure(simulationRawUnavailable, 'eventId');
+  }
   final pin = row[3]! as String;
   final CanonicalEvent stored;
   try {

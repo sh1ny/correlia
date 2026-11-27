@@ -49,10 +49,29 @@ Future<void> run(List<String> args) async {
   }
 
   final startup = StartupState();
-  final pod = Serverpod(
+  late final Serverpod pod;
+  pod = Serverpod(
     options.serverpodArgs,
+    // Machine bearers are checked only by the operator endpoint. They must
+    // never establish a Serverpod user session.
+    authenticationHandler: (_, _) async => null,
     healthConfig: HealthConfig(
       additionalStartupIndicators: [CorreliaStartupIndicator(startup)],
+      additionalReadinessIndicators: [
+        if (options.role != ProcessRole.worker)
+          CorreliaStorageIndicator(() async {
+            final session = await pod.createSession(enableLogging: false);
+            try {
+              final rows = await session.db.unsafeQuery(
+                'SELECT correlia_disk_pressure()',
+                timeoutInSeconds: 2,
+              );
+              return rows.single[0]! as bool;
+            } finally {
+              await session.close();
+            }
+          }),
+      ],
     ),
   );
 
@@ -78,6 +97,7 @@ Future<void> run(List<String> args) async {
     port: ServerpodAdapter(
       pod,
       schemaLockTimeout: switches.schemaLockTimeout ?? defaultSchemaLockTimeout,
+      partitionCutoverTimeoutSeconds: options.partitionCutoverTimeoutSeconds,
     ),
     startup: startup,
     log: log,

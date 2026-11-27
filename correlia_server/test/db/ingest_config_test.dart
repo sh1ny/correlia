@@ -686,12 +686,26 @@ void main() {
           session,
           secretStore: testSecretStore,
         );
+        final config = pluginConfig(1);
+        final output =
+            (config['outputs']! as List<Map<String, Object?>>).single;
+        const pluginValues = {
+          'subject': 'events',
+          'opaque': '\u0000',
+          'literal': r'\u0000',
+        };
+        output['config'] = pluginValues;
         final definition = await repository.publishConfig(
-          pluginConfig(1),
+          config,
           pluginSecrets(7),
           runMode: 'test',
         );
         final stored = await repository.snapshot(definition.snapshotId);
+        final storedOutputs = stored['outputs']! as List<Object?>;
+        expect(
+          (storedOutputs.single! as Map<String, Object?>)['config'],
+          pluginValues,
+        );
         final text = jsonEncode(stored);
         final expected = testSecretStore.commitments.plugin(
           'plugin-token',
@@ -713,7 +727,7 @@ void main() {
           expected,
         );
         final same = await repository.publishConfig(
-          pluginConfig(1),
+          config,
           pluginSecrets(7),
           runMode: 'test',
         );

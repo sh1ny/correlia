@@ -10,8 +10,13 @@
 // ignore_for_file: invalid_use_of_internal_member
 
 // ignore_for_file: no_leading_underscores_for_library_prefixes
+import 'package:correlia_server/src/generated/queue/queue_failure_filter.dart'
+    as _irxla14l;
+import 'package:correlia_server/src/generated/queue/queue_failure_kind.dart'
+    as _ielmb4fd;
 import 'package:serverpod/serverpod.dart' as _is;
 import '../endpoints/alert_console_endpoint.dart' as _izj6k6t1;
+import '../endpoints/dead_letter_endpoint.dart' as _icxsitlu;
 import '../endpoints/icinga2_stream_endpoint.dart' as _i11286m8;
 import '../endpoints/mapping_preview_endpoint.dart' as _idbsfgu3;
 import '../endpoints/rule_simulator_endpoint.dart' as _if0vnxqm;
@@ -24,6 +29,12 @@ class Endpoints extends _is.EndpointDispatch {
         ..initialize(
           server,
           'alertConsole',
+          null,
+        ),
+      'deadLetter': _icxsitlu.DeadLetterEndpoint()
+        ..initialize(
+          server,
+          'deadLetter',
           null,
         ),
       'icinga2Stream': _i11286m8.Icinga2StreamEndpoint()
@@ -98,6 +109,113 @@ class Endpoints extends _is.EndpointDispatch {
                 Map<String, Stream> streamParams,
               ) => (endpoints['alertConsole'] as _izj6k6t1.AlertConsoleEndpoint)
                   .wakeUps(session),
+        ),
+      },
+    );
+    connectors['deadLetter'] = _is.EndpointConnector(
+      name: 'deadLetter',
+      endpoint: endpoints['deadLetter']!,
+      methodConnectors: {
+        'list': _is.MethodConnector(
+          name: 'list',
+          params: {
+            'filter': _is.ParameterDescription(
+              name: 'filter',
+              type: _is.getType<_irxla14l.QueueFailureFilter>(),
+              nullable: false,
+            ),
+            'limit': _is.ParameterDescription(
+              name: 'limit',
+              type: _is.getType<int>(),
+              nullable: false,
+            ),
+            'continuation': _is.ParameterDescription(
+              name: 'continuation',
+              type: _is.getType<String?>(),
+              nullable: true,
+            ),
+          },
+          call:
+              (
+                _is.Session session,
+                Map<String, dynamic> params,
+              ) async =>
+                  (endpoints['deadLetter'] as _icxsitlu.DeadLetterEndpoint)
+                      .list(
+                        session,
+                        params['filter'],
+                        limit: params['limit'],
+                        continuation: params['continuation'],
+                      ),
+        ),
+        'replay': _is.MethodConnector(
+          name: 'replay',
+          params: {
+            'kind': _is.ParameterDescription(
+              name: 'kind',
+              type: _is.getType<_ielmb4fd.QueueFailureKind>(),
+              nullable: false,
+            ),
+            'occurrence': _is.ParameterDescription(
+              name: 'occurrence',
+              type: _is.getType<int>(),
+              nullable: false,
+            ),
+          },
+          call:
+              (
+                _is.Session session,
+                Map<String, dynamic> params,
+              ) async =>
+                  (endpoints['deadLetter'] as _icxsitlu.DeadLetterEndpoint)
+                      .replay(
+                        session,
+                        params['kind'],
+                        params['occurrence'],
+                      ),
+        ),
+        'replayBatch': _is.MethodConnector(
+          name: 'replayBatch',
+          params: {
+            'filter': _is.ParameterDescription(
+              name: 'filter',
+              type: _is.getType<_irxla14l.QueueFailureFilter>(),
+              nullable: false,
+            ),
+            'limit': _is.ParameterDescription(
+              name: 'limit',
+              type: _is.getType<int>(),
+              nullable: false,
+            ),
+            'continuation': _is.ParameterDescription(
+              name: 'continuation',
+              type: _is.getType<String?>(),
+              nullable: true,
+            ),
+          },
+          call:
+              (
+                _is.Session session,
+                Map<String, dynamic> params,
+              ) async =>
+                  (endpoints['deadLetter'] as _icxsitlu.DeadLetterEndpoint)
+                      .replayBatch(
+                        session,
+                        params['filter'],
+                        limit: params['limit'],
+                        continuation: params['continuation'],
+                      ),
+        ),
+        'status': _is.MethodConnector(
+          name: 'status',
+          params: {},
+          call:
+              (
+                _is.Session session,
+                Map<String, dynamic> params,
+              ) async =>
+                  (endpoints['deadLetter'] as _icxsitlu.DeadLetterEndpoint)
+                      .status(session),
         ),
       },
     );

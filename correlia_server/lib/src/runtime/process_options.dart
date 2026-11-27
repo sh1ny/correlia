@@ -1,5 +1,7 @@
 import 'package:args/args.dart';
 
+import '../schema/schema_steps.dart' show defaultPartitionCutoverTimeoutSeconds;
+
 /// Exit codes used by the Correlia entry point.
 abstract final class ExitCodes {
   /// A subsystem, Serverpod or a shutdown task failed.
@@ -48,6 +50,7 @@ final class ProcessOptions extends ProcessOptionsResult {
   const ProcessOptions._({
     required this.role,
     required this.runMode,
+    required this.partitionCutoverTimeoutSeconds,
     required this.serverpodArgs,
   });
 
@@ -57,6 +60,9 @@ final class ProcessOptions extends ProcessOptionsResult {
   /// The effective run mode: `--mode`, else `SERVERPOD_RUN_MODE`, else
   /// `development`.
   final String runMode;
+
+  /// Client deadline in seconds for the offline partition script only.
+  final int partitionCutoverTimeoutSeconds;
 
   /// The arguments to hand to Serverpod: the command line without
   /// `--process-role`, preceded by `--role monolith` when it names no
@@ -69,6 +75,8 @@ final class ProcessOptions extends ProcessOptionsResult {
   final List<String> serverpodArgs;
 
   static const String _roleOption = 'process-role';
+  static const _cutoverTimeoutSetting =
+      'CORRELIA_PARTITION_CUTOVER_TIMEOUT_SECONDS';
 
   static const List<String> _runModes = [
     'development',
@@ -102,7 +110,7 @@ final class ProcessOptions extends ProcessOptionsResult {
       allowed: [for (final role in ProcessRole.values) role.name],
     );
 
-  /// Parses [args], reading `SERVERPOD_RUN_MODE` from [environment].
+  /// Parses [args] and startup settings from [environment].
   static ProcessOptionsResult parse(
     List<String> args, {
     required Map<String, String> environment,
@@ -130,10 +138,23 @@ final class ProcessOptions extends ProcessOptionsResult {
       );
     }
 
+    final cutoverTimeout = switch (environment[_cutoverTimeoutSetting]) {
+      final value? => int.tryParse(value, radix: 10),
+      null => defaultPartitionCutoverTimeoutSeconds,
+    };
+    if (cutoverTimeout == null ||
+        cutoverTimeout <= 0 ||
+        Duration(seconds: cutoverTimeout).inSeconds != cutoverTimeout) {
+      return const ProcessOptionsError(
+        '$_cutoverTimeoutSetting must be a positive integer number of seconds.',
+      );
+    }
+
     final forwarded = _withoutRoleOption(args);
     return ProcessOptions._(
       role: role,
       runMode: runMode,
+      partitionCutoverTimeoutSeconds: cutoverTimeout,
       serverpodArgs: results.wasParsed('role')
           ? forwarded
           : ['--role', 'monolith', ...forwarded],

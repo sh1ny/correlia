@@ -8,7 +8,15 @@ import '../schema/ingest_records.dart';
 import 'bootstrap.dart';
 
 /// The committed result of a delivery admission.
-enum AdmissionOutcome { accepted, duplicate, conflict, unauthorized }
+enum AdmissionOutcome {
+  accepted,
+  duplicate,
+  conflict,
+  unauthorized,
+  inboxPressure,
+  storagePressure,
+  outputPressure,
+}
 
 /// Compares fixed-length credential digests without an early mismatch exit.
 bool constantTimeDigestEquals(String left, String right) {
@@ -26,6 +34,10 @@ final class IngestAdmission {
   const IngestAdmission(
     this.session, {
     this.window = const Duration(minutes: 10),
+    this.afterReservationConflictForTest,
+    this.beforeCapacityLockForTest,
+    this.beforeRawInsertForTest,
+    this.reservationElapsedForTest,
   });
 
   /// The session used for database operations.
@@ -33,6 +45,18 @@ final class IngestAdmission {
 
   /// The non-sliding transport deduplication window.
   final Duration window;
+
+  /// Pauses after an existing transport reservation wins the insert.
+  final Future<void> Function()? afterReservationConflictForTest;
+
+  /// Lets a contention fixture identify the transaction before it waits.
+  final Future<void> Function(Transaction)? beforeCapacityLockForTest;
+
+  /// Observes accepted admission while its pending-count reservation is held.
+  final Future<void> Function(Transaction)? beforeRawInsertForTest;
+
+  /// Supplies elapsed reservation time in deterministic database tests.
+  final Duration Function()? reservationElapsedForTest;
 
   /// Stores a delivery or returns its existing reservation's outcome.
   Future<AdmissionOutcome> admit({
@@ -106,16 +130,48 @@ final class IngestAdmission {
         'expires': observedAt.add(window),
         'raw': rawId,
       });
-      final inserted = await session.db.unsafeQuery(
-        '''INSERT INTO transport_keys
+      final stopwatch = reservationElapsedForTest == null
+          ? (Stopwatch()..start())
+          : null;
+      Duration remainingReservationTime() {
+        final elapsed = reservationElapsedForTest?.call() ?? stopwatch!.elapsed;
+        final remaining = const Duration(seconds: 5) - elapsed;
+        if (remaining <= Duration.zero) {
+          throw StateError('Transport reservation deadline exceeded');
+        }
+        return remaining;
+      }
+
+      var narrowedTimeout = false;
+      Future<void> limitReservationWait() async {
+        final left = remainingReservationTime().inMilliseconds.clamp(1, 5000);
+        await session.db.unsafeSimpleExecute(
+          "SET LOCAL statement_timeout='${left}ms'; SET LOCAL lock_timeout='${left}ms'",
+          transaction: tx,
+          timeoutInSeconds: 5,
+        );
+        narrowedTimeout = true;
+        remainingReservationTime();
+      }
+
+      // The transaction already sets a five-second limit for the first insert.
+      // The locked read and every retry share what remains of that allowance.
+      bool inserted;
+      while (true) {
+        if (narrowedTimeout) await limitReservationWait();
+        inserted = (await session.db.unsafeQuery(
+          '''INSERT INTO transport_keys
 ("sourceId", "key", "bodySha256", "firstSeenAt", "expiresAt", "rawObservedAt", "rawId")
 VALUES (CAST(@source AS uuid), @key, @digest, @now, @expires, @now, CAST(@raw AS uuid))
 ON CONFLICT ("sourceId", "key") DO NOTHING RETURNING "key"''',
-        parameters: params,
-        transaction: tx,
-        timeoutInSeconds: 5,
-      );
-      if (inserted.isEmpty) {
+          parameters: params,
+          transaction: tx,
+          timeoutInSeconds: 5,
+        )).isNotEmpty;
+        remainingReservationTime();
+        if (inserted) break;
+        await afterReservationConflictForTest?.call();
+        await limitReservationWait();
         final existing = await session.db.unsafeQuery(
           '''SELECT "bodySha256", "expiresAt" FROM transport_keys
 WHERE "sourceId"=CAST(@source AS uuid) AND "key"=@key FOR UPDATE''',
@@ -123,12 +179,57 @@ WHERE "sourceId"=CAST(@source AS uuid) AND "key"=@key FOR UPDATE''',
           transaction: tx,
           timeoutInSeconds: 5,
         );
-        final row = existing.single;
-        if ((row[1] as DateTime).isAfter(observedAt)) {
-          return row[0] == digest
-              ? AdmissionOutcome.duplicate
-              : AdmissionOutcome.conflict;
+        remainingReservationTime();
+        if (existing.singleOrNull case final row?) {
+          if ((row[1] as DateTime).isAfter(observedAt)) {
+            return row[0] == digest
+                ? AdmissionOutcome.duplicate
+                : AdmissionOutcome.conflict;
+          }
+          break;
         }
+        // Maintenance may delete the expired winner after the insert lost.
+      }
+      if (narrowedTimeout) {
+        await session.db.unsafeSimpleExecute(
+          "SET LOCAL statement_timeout='5s'; SET LOCAL lock_timeout='5s'",
+          transaction: tx,
+          timeoutInSeconds: 5,
+        );
+      }
+      final beforeCapacityLock = beforeCapacityLockForTest;
+      if (beforeCapacityLock != null) await beforeCapacityLock(tx);
+      final pressure = (await session.db.unsafeQuery(
+        'SELECT correlia_reserve_raw(1)',
+        transaction: tx,
+        timeoutInSeconds: beforeCapacityLock == null ? 5 : 300,
+      )).single[0];
+      if (pressure != null) {
+        await session.db.unsafeQuery(
+          'SELECT correlia_check_refused_raw_receipt(@receipt)',
+          parameters: QueryParameters.named({'receipt': observedAt}),
+          transaction: tx,
+          timeoutInSeconds: 5,
+        );
+        // Only the receipt inserted by this transaction can be removed.
+        // Leave any expired winner and the shared disk sample intact.
+        if (inserted) {
+          await session.db.unsafeExecute(
+            '''DELETE FROM transport_keys
+WHERE "sourceId"=CAST(@source AS uuid) AND "key"=@key''',
+            parameters: QueryParameters.named({'source': sourceId, 'key': key}),
+            transaction: tx,
+            timeoutInSeconds: 5,
+          );
+        }
+        return switch (pressure) {
+          'inbox' => AdmissionOutcome.inboxPressure,
+          'storage' => AdmissionOutcome.storagePressure,
+          'output' => AdmissionOutcome.outputPressure,
+          _ => throw StateError('Unknown pressure code'),
+        };
+      }
+      if (!inserted) {
         await session.db.unsafeExecute(
           '''UPDATE transport_keys SET "bodySha256"=@digest,
 "firstSeenAt"=@now, "expiresAt"=@expires, "rawObservedAt"=@now, "rawId"=CAST(@raw AS uuid)
@@ -138,6 +239,7 @@ WHERE "sourceId"=CAST(@source AS uuid) AND "key"=@key''',
           timeoutInSeconds: 5,
         );
       }
+      await beforeRawInsertForTest?.call(tx);
       await IngestRecords(session).insertRaw(
         RawInboxRecord(
           identity: RawIdentity(observedAt, rawId),

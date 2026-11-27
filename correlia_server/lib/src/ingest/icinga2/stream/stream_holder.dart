@@ -235,6 +235,7 @@ final class _StreamAttempt {
       admission = ConsumerAdmission(
         db,
         beforeCommit: holder.owner._beforeAdmissionCommit,
+        beforeCapacityLockForTest: holder.owner._beforeCapacityLock,
         beforeWriteForTest: holder.owner._beforeRawWrite,
         writeErrorForTest: holder.owner._rawWriteError,
       );

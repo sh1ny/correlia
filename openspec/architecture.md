@@ -93,14 +93,14 @@ run in every role unless they are switched off:
 
 | State | Sole writer | Lifetime | Invalidation / rebuild | Authoritative copy |
 |---|---|---|---|---|
-| `raw_inbox` | Webhook routes, pull sources (insert); pipeline (state) | `done` rows: retention window (configurable, default 30 d). `pending`/`failed` or dead-letter-referenced rows never expire (ADR 0016) | Automatic retries reuse the pinned config version; an operator's pipeline replay uses the current one (ADR 0016) | Postgres |
-| `events` (canonical) | Pipeline normalize/enrich stage | Retention (configurable, default 90 d), partitioned; kept while referenced by a pending or dead-lettered outbox row | Evidence, not state. Re-derivable from `raw_inbox` while that is retained | Postgres |
+| `raw_inbox` | Webhook routes, pull sources (insert); pipeline, operator replay, maintenance (state) | `done` and `discarded`: configurable retention (default 30 d). Pending rows stay; failures become discardable only after dead-letter expiry | Automatic retries keep the pin; operator replay pins the active compatible snapshot ([ADR 0035](../docs/adr/0035-durable-queue-operations.md)) | Postgres |
+| `events` (canonical) | Pipeline normalize/enrich stage for sender events; overflow-notice worker for Correlia notices | Retention (configurable, default 90 d), partitioned; kept while referenced by a pending or dead-lettered outbox row | Evidence, not state. Sender events can be derived from retained `raw_inbox` rows. Overflow notices reference `activity` evidence and have no raw row | Postgres |
 | `alerts` (state per fingerprint, with ordering fence and `last_observed_at`) | `StateMutationService` | Firing: indefinite. Resolved: kept as tombstone at least the lateness horizon (default 7 d) | **Authoritative, never rebuilt** from events (ADR 0017) | Postgres |
 | `incidents`, `incident_alerts`, `threshold_contributions`, `incident_transitions` | `StateMutationService` only (pipeline, operator actions, expiry/reminder jobs, merge/split all call it) | Indefinite (archival policy later) | Not rebuilt; the activity ledger explains every change | Postgres |
 | `activity` ledger (also the change feed, cursor `(txid, id)`) | `StateMutationService`, endpoints; supervisor for plugin degraded/recovered entries in the status transaction | Indefinite (feed retention configurable; older cursors get `cursor_expired`) | Append-only | Postgres |
 | Configuration versions (rules of every kind, source mappings, routing, plugin config) | M1 ingest publication repository; later endpoints and provisioning loader | Versioned forever | Immutable; M1 activation requires increasing revision; revert by publishing earlier content at a higher revision | Postgres; M1 bootstrap files are inputs |
 | Source instances and namespaces | M1 ingest publication repository; later endpoints (admin) | Until removed | Admission state atomically follows the active snapshot | Postgres (ADR 0024) |
-| `outbox`, `delivery_attempts` | Pipeline and `StateMutationService` (insert), relays (update) | M1 retains all rows; later retention applies to terminal work | Only durable delivery queue; plugin batches pin one definition digest and complete atomically under claim/lease fences; individually oversized intents are retained dead before transport without a new attempt (ADR 0027); replay (byte-identical) is later work | Postgres |
+| `outbox`, `delivery_attempts` | Pipeline, `StateMutationService` and overflow-notice worker (intent inserts); relays, operator replay and maintenance (state) | Delivered/discarded: configurable retention from terminal time (default 7 d). Dead rows stay until replay or dead-letter expiry | Only durable delivery queue; plugin batches pin one definition and complete under claim/lease fences. Replay keeps the intent and history and gives a fresh attempt allowance | Postgres |
 | Plugin configs and secrets | Publication owns configuration and sealed records; operator owns the external key and import file | Configurations are versioned; sealed records are immutable | Rotate under a new reference; missing historical plugin material blocks only its definition | PostgreSQL ciphertext and commitments; the external key never enters PostgreSQL (ADR 0028) |
 | Plugin process state and admission cursor | Plugin supervisor | Process lifetime | Restart and re-handshake; memory holds only running instances and one keyset cursor | Memory |
 | `plugin_instance_status` | Supervisor of the named host; periodic cross-host expiry only after >24 h without a heartbeat | Every 60 s: own stopped rows >60 s old only without health for their key; other hosts' rows >24 h old | Transitions; ready/waiting rows every 15 s, starting at launch; >60 s heartbeats read stale, not proof of death | Postgres mirror |
@@ -150,6 +150,9 @@ run in every role unless they are switched off:
   automation and third parties: incidents, alerts, actions and rule import/export. API keys are scoped. Any
   malformed input (bad timestamp, naive datetime, unknown enum, oversize field) is a 400/422 with a field
   error (`application/problem+json`), never a 500 (legacy B7).
+- **Queue operator API:** opt-in typed Serverpod methods for dead-letter inspection, replay and pressure
+  status. Dedicated machine bearer credentials set the replay ledger actor. Replies contain operational
+  metadata, not raw bodies, delivery payloads or secrets ([ADR 0035](../docs/adr/0035-durable-queue-operations.md)).
 - **Identities:** source, transport delivery, observation (event id) and alert (fingerprint), with one
   canonical encoding (ADRs [0024](../docs/adr/0024-identities-and-upstream-evidence.md), [0021](../docs/adr/0021-canonical-event-v1-contract.md)). The fixed UUIDv5
   namespace is `f36aac0f-16fa-46db-951b-bb578b323aed`, distinct from operator alert namespace strings.
@@ -169,8 +172,9 @@ run in every role unless they are switched off:
   Each exception is a reviewed one listed here:
   - `activity`: schema step 0002 creates the ledger with its
     `txid xid8 DEFAULT pg_current_xact_id()` column (ADR 0017);
-  - `events`, `raw_inbox`, `outbox`: SQL-owned time-qualified composite primary keys, initially ordinary
-    tables, with partition maintenance deferred to M2 (ADR 0016). Schema step 0002 adds nullable
+  - `events`, `raw_inbox`, `outbox`: SQL-owned time-qualified composite primary keys. The M2 partition
+    cutover attaches populated heaps offline, then uses UTC daily children and a default child (ADRs 0016,
+    0035). Raw writes still use the parent cutoff trigger. Schema step 0002 adds nullable
     `events.state_outcome` to distinguish applied and stale observations.
   - `matcher_content_digest`, `matcher_content_digest_fill`: schema step 0015 creates both tables: the
     digest of every published matcher section (primary key `digest`) and a one-row fill state. Step 0016
@@ -178,12 +182,27 @@ run in every role unless they are switched off:
     publication fill the digests for every snapshot after the watermark, including one an older binary
     published during an offline downgrade, so an existing row does not mean the fill has no work left. The
     reserved-label check is one primary-key probe (ADR 0034).
+  - `pipeline_icinga2_replay_floor`: receipt floor captured from the old admission cutoff at the M2
+    cutover; earlier pre-upgrade Icinga2 replay cannot recreate firing state.
+  - `pipeline_queue_policy`, `pipeline_pending`, `pipeline_disk_sample`, `pipeline_output_capacity`,
+    `pipeline_output_demand`, `pipeline_output_commitment` and `pipeline_event_reference`: committed queue
+    policy, pending reservations, sampled storage, output counts, deferred demand and historical references
+    (ADR 0035).
+  - `pipeline_overflow_notice`: durable overflow routing claims and sanitized evidence for
+    Correlia-origin canonical alerts. No notice can bypass a destination's queue budget.
+  - `pipeline_dead_letter`, `pipeline_retired_delivery`, `pipeline_retention_cursor`,
+    `pipeline_maintenance_outcome`, `pipeline_partition_range` and `pipeline_partition_retry`:
+    the active failure directory, bounded reclamation progress and daily partition state.
+  - `pipeline_outbox_partition_count`: exact counts per outbox child and output. Retention uses these
+    counts to prove a child is empty before dropping it without a payload heap scan.
+  - `pipeline_legacy_delivery_terminal`: terminal times for outbox intents that were already dead or
+    delivered at cutover. The upgrade records those times without rewriting the payload tuples.
 
   `alerts` is a Serverpod-managed table with a unique tenant/fingerprint index.
 
   Every migration is forward-only and tested against a populated database. Serverpod repair migrations try
-  to drop tables outside the migration system. Review every repair and remove operations against SQL-owned
-  tables and their indexes/constraints before applying it; see `docs/ingest-pipeline.md`.
+  to drop tables outside the migration system. Before applying a repair, remove operations against all SQL-owned
+  queue objects, including metadata tables, indexes and constraints. See `docs/ingest-pipeline.md`.
 - **Ingest configuration:** operator-owned JSON or YAML bootstrap files publish immutable public snapshots and
   credential rows atomically. Revisions only advance, including deliberate reverts. Credentials and
   signing material resolve from PostgreSQL records encrypted under an external key; the operator
@@ -196,19 +215,19 @@ run in every role unless they are switched off:
 | Flow / store | Bound | At the bound | On failure | Who finds out |
 |---|---|---|---|---|
 | Webhook body | 1 MiB default per source. Serverpod's `maxRequestSize` (512 KiB) is global and applies to endpoints; ingest webhooks are custom web routes that enforce their own per-source limit while reading the body (to be proven by the first webhook change, since Serverpod does not document whether web routes are bound by `maxRequestSize`) | 413 | n/a | The sender; an ingest-rejected counter |
-| Raw inbox lag | Configurable age/count (default 30 s / 50k rows) | 429/503 + `Retry-After` | n/a | The sender retries; a console banner shows backpressure |
-| Decode | Per-event time budget | Event dead-lettered | `pipeline_failures` row with error | Console dead-letter view with replay |
+| Raw inbox lag | Configurable age/count (default 30 s / 50k rows) | 429 + `Retry-After`; pull sources pause | n/a | Sender response; protected queue status |
+| Decode | Per-event time budget | Raw row fails | `pipeline_failures` row with error | Protected dead-letter RPC; console in M4 |
 | Enrichment | Per-rule regex timeout; per-plugin deadline | Rule skipped and recorded | Soft: `pipeline.enrichment_errors[]` | Event detail; per-rule error counter |
 | Correlation group size | Unbounded membership, relational; display capped | n/a | Group lock serializes writers; deadlock/lock-timeout retries (5) then batch split, then pipeline failure | Metrics: lock waits, retries, hot groups |
-| Ingest storage | DB-size watermark (default 85 % of the disk budget) | 429/503 + `Retry-After`; pull sources pause | Accepted work is never dropped | Console banner; health `/readyz` degraded |
-| Output storage | Per output: 500k rows / 1 GiB, pending and dead-lettered combined | Output `overflowing`; policy `discard_new` (default, counted in the ledger) or `block_ingest` (opt-in) | Others unaffected under `discard_new` | Self-alert; console output health; counter |
+| Ingest storage | DB-size watermark (default 85 % of the configured budget) | 503 + `Retry-After`; pull sources pause | Accepted work is never dropped | Protected queue status; `/readyz` degraded on disk pressure |
+| Output storage | Per output: 500k rows / 1 GiB, queued, delivering and dead combined | `discard_new` (default) skips excess intents; `block_ingest` defers the raw transaction and returns 503 on new ingress | Other outputs still receive their intents under `discard_new` | Ledger, routed overflow notice, protected queue status |
 | Observation dedup | `observation_keys` kept until max(first seen, source time) + 7 d + 5 min; source time at most 24 h ahead | Pruned by retention; later retries are `late`; far-future observations quarantined `future_dated` | n/a | `duplicate_observation` and `future_dated` counters |
-| Dead letters | Retention 14 d (configurable) | Expired without replay: discarded, count written to the ledger | n/a | Ledger entry; console dead-letter view |
+| Dead letters | Retention 14 d (configurable) | Expired without replay: discarded, count written to the ledger | n/a | Ledger and protected dead-letter RPC |
 | Change feed | Watermark lag bounded by the transaction timeout | Feed waits for the watermark; wake-up pushed when it advances; 10 s safety pull | `cursor_expired` beyond feed retention, client re-snapshots | Metric: feed lag |
 | Ingest dedup | Window 10 min | Older retries are new deliveries; event ids still dedupe them downstream (ADR 0024) | n/a | M1 process-local duplicate counter, reset at restart |
-| Outbox per output | M1: at most 20 started attempts, exponential backoff capped at 300 s | Intent becomes dead in `outbox` | Durable attempt record with error class | SQL inspection; later console and replay |
+| Outbox per output | At most 20 started attempts per allowance, exponential backoff capped at 300 s | Intent becomes dead in `outbox` | Durable attempt record with error class | Protected dead-letter RPC; byte-identical replay |
 | Plugin process | 16 starting/ready per worker, 4 per output; 10 s start, 5 s health interval / 2 s deadline; 3 failed checks count as a crash | Keyset round-robin; 60 s idle release and rotation in the blocking scope after the current ≤ 27 s batch; unfinished probes protected through startup and 60 s readiness | 1–60 s exponential backoff; > 5 failures / 10 min opens degraded circuit; 5 min probes; 5 s shutdown grace | SQL status with 15 s heartbeat / 60 s staleness; degraded/recovered activity; console page later |
-| Tables over time | Retention per table, configurable (defaults: raw `done` 30 d, events 90 d, delivered outbox 7 d), only terminal rows (ADR 0016) | Partitions dropped only when they hold no unfinished row; otherwise eligible rows deleted | Partition job failure alarm | Health endpoint + console system page |
+| Tables over time | Retention per table, configurable (defaults: raw `done` 30 d, events 90 d, delivered outbox 7 d), only terminal rows (ADR 0016) | Partitions dropped only when they hold no unfinished row; otherwise eligible rows deleted | Maintenance records failure and retries | Protected `deadLetter.status` RPC; console system page later |
 | Batch jobs (retention, partition maintenance, dead-letter expiry, reprocess-apply) | Short transactions over bounded batches (ADR 0016) | The next batch waits for the next transaction | Job retries from its last committed batch | Metrics: batch duration, feed lag |
 
 ## Correctness invariants (legacy defects and hazards)
@@ -268,6 +287,7 @@ Accepted ADRs only.
 | [0032](../docs/adr/0032-matcher-rules-and-versions.md) | Typed matcher rules, Dart and SQL evaluation, guarded publication and operator rollback, pinned runtime failure counts | [0008](../docs/adr/0008-rule-language.md) |
 | [0033](../docs/adr/0033-offline-matcher-upgrade.md) | Offline matcher upgrade with a manual drain before shutdown | 0032 rollout only; matcher behavior and publication are unchanged |
 | [0034](../docs/adr/0034-rule-simulator-and-event-classification.md) | Read-only rule simulator over re-decoded stored events, decoder-owned kind, `classify` and the reserved noise label checked against new content, matcher content digest tables, stable duplicate order | none (extends 0032) |
+| [0035](../docs/adr/0035-durable-queue-operations.md) | Scoped dead-letter operations, shared queue pressure, retention and offline partition cutover | none (refines 0016, 0030) |
 
 ### Superseded ADRs
 

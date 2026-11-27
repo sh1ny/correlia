@@ -1,6 +1,10 @@
 # Ingest pipeline schema ownership
 
-Serverpod migrations own source and configuration snapshots, the active pointer, secret commitments, transport and observation keys, pipeline failures and delivery attempts. Correlia's ordered `correlia_server/schema/*.sql` steps exclusively own `raw_inbox`, `events` and `outbox`. These tables have no generated table models. They are ordinary PostgreSQL tables with time-qualified composite primary keys; future partition maintenance remains with the SQL schema owner. References to SQL-owned identities always include their time component. Managed tables do not have foreign keys to SQL-owned tables.
+Serverpod migrations own source and configuration snapshots, the active pointer, secret commitments,
+transport and observation keys, pipeline failures and delivery attempts. Correlia's ordered
+`correlia_server/schema/*.sql` steps own `raw_inbox`, `events` and `outbox`, their partitions and
+maintenance metadata. The queue tables have no generated table models. Their composite identities
+always include the timestamp; managed tables do not reference them by foreign key.
 
 ## Fresh databases and upgrades
 
@@ -168,9 +172,11 @@ leaves the lease to expire.
 The reclamation cutoff can pass the receipt time of a buffered batch. The
 consumer rejects it without a raw row or reservation, reconnects, and syncs
 current state. A webhook rejected at this boundary returns `503`; retry the
-delivery so it gets a fresh receipt. An already committed reservation still
-deduplicates within its retention window. Reclaiming a silent tombstone ends
-its unpublished lifecycle: a later problem can create a new alert.
+delivery so it gets a fresh receipt. A retained reservation still deduplicates
+an exact retry whose receipt falls inside the transport window. Once maintenance
+reclaims the reservation, any retry with a receipt behind the cutoff gets `503`.
+Reclaiming a silent tombstone ends its unpublished lifecycle: a later problem
+can create a new alert.
 
 ### Read Icinga 2 Event Streams status
 
@@ -192,9 +198,155 @@ LEFT JOIN icinga2_stream_lease l USING ("sourceId");
 Do not read the stored `state` alone: an expired lease can leave a `connected`
 row even though the worker is gone. The query reports `stale` without rewriting it.
 
+## Offline partition cutover
+
+Stop all old `api`, `worker` and `all` processes before starting the first upgraded process. Back up
+the database before the cutover. An installation already upgraded through schema step `0017`
+(the `classify` release) does not drain the inbox or outbox for partition step `0018`. Older
+installations must first complete the applicable [matcher upgrades](#upgrade-before-enabling-matcher-rules),
+including their drains on the old release. Do not restart an older binary after the partition
+cutover.
+
+The startup schema step attaches each populated heap to a new parent under the original name. It
+includes timestamps through the last populated UTC day, then uses daily UTC partitions and a
+default partition for timestamps outside prepared ranges. It does not rewrite existing payload tuples.
+Allow offline time to validate the attachments and backfill metadata. For existing dead or
+delivered entries, the replay or retention window starts at cutover. The defaults are 14 days
+for dead entries and 7 days for delivered entries. The upgrade leaves attempt history unchanged.
+Deliveries that become terminal after cutover use the recorded transition time.
+
+The partition script has a one-hour execution timeout. Set
+`CORRELIA_PARTITION_CUTOVER_TIMEOUT_SECONDS` to a larger positive integer on the upgraded process if
+the database needs a longer maintenance window. This changes only the partition script's client
+deadline. The 30-second PostgreSQL lock timeout and other startup query deadlines are unchanged.
+
+Wait for startup before restarting writers. If the schema step fails, its table changes and
+version record roll back together. Clear the blocking transaction or fix the cause and restart the
+new binary. A successful forward cutover can be undone only by restoring the pre-upgrade backup.
+
+A partition validation failure leaves default routing intact. The worker records the retry on
+the affected day without waiting for unrelated DDL. A delayed error cannot overwrite a successful
+attachment. The worker tries days with no previous attempt first, then retries the least recently
+attempted range. Preparation has no deadline when PostgreSQL must validate a large default child.
+If a write fills a day after its attachment failed, later retries skip that occupied day
+without clearing its failure. It remains degraded until attachment succeeds or the day ages
+out of the preparation window.
+
+Retention measures days as 24 hours in UTC, regardless of the database session time zone.
+
+A closed child whose drop times out waits for its scheduled retry. Other eligible children
+can be dropped during that wait. A drop still rechecks retention and protection under
+the DDL locks. Outbox drops check exact counts per child and output without scanning
+the payload heap. A writer can delay cleanup of its own count without holding up another output.
+Target the `raw_inbox` parent for writes so the admission cutoff and pending count apply.
+The database rejects direct writes to raw children and truncation of nonempty outbox
+children because those operations can leave queue usage, failure entries or references behind.
+
+For offline repair, stop all writers first. In one transaction use the maintenance advisory
+lock `1129271900` and the `correlia_reserve_partition` and `correlia_attach_partition` SQL
+functions with one parent and one UTC date. The second function checks both the recorded range
+and the default child, and registers the partition in the same transaction as attachment.
+If the reserve call returns `NULL`, check the catalog and respect any active retry deadline.
+Never detach the default child or move protected rows to make validation pass.
+
+## Shared pressure and queue policy
+
+In a format-version 2 configuration, `pipeline_operations` can override the following limits.
+Omitting the section or explicitly supplying the defaults leaves the canonical snapshot ID
+unchanged. Adjusting a budget does not change an output's definition digest.
+
+| Field | Default |
+|---|---:|
+| `pending_max_rows` | 50,000 |
+| `pending_max_age_seconds` | 30 |
+| `disk_budget_bytes` | Omitted: no disk watermark |
+| `disk_watermark_percent` | 85 |
+| `raw_retention_days` | 30 |
+| `event_retention_days` | 90 |
+| `outbox_retention_days` | 7 |
+| `dead_letter_retention_days` | 14 |
+
+`output_budgets` is an object keyed by UUIDs in the configured output registry. Each entry can
+set `max_rows` (default 500,000), `max_payload_bytes` (default 1 GiB) and `overflow_policy`
+(`discard_new` by default, or `block_ingest`). A blocking output must fit at least 1,000 intents
+and 16 MiB in an empty queue. The latest published policy applies by output ID, including to
+already-pinned work. Retiring an output keeps its last budget while it still has retained work.
+
+A new webhook gets `429` when inbox count or oldest pending age reaches its limit, or `503` at a
+configured disk watermark or blocking output. Both include `Retry-After` in whole seconds.
+Refused requests leave neither a raw row nor a transport reservation. A known exact retry keeps
+its prior acknowledgement. Reusing the same live idempotency key with different request bytes
+returns `409`; a different key is subject to admission pressure. Leased pulls pause on the same
+shared limits and retain their batch for retry. Queue limits complement the per-process
+request-rate limiter; they do not replace it.
+
+Disk pressure uses `pg_database_size(current_database())` with a shared one-second sample.
+A request refused for disk pressure keeps the fresh measurement but no receipt. Disk pressure also
+causes `/readyz` to return `503` on `api` and `all`; `/livez` and `/startupz` do not depend on the
+watermark. This is a database budget, not a free-space check for the host or its WAL volume.
+
+Queued, delivering and dead intents consume one slot and the length of the exact stored
+CloudEvent. Successful delivery or dead-letter expiry frees that capacity. A budget reduction
+does not purge existing work: the output may remain over budget until enough intents leave.
+
+`discard_new` drops only new intents that do not fit and increments the output's durable
+discard count. The same transaction appends one `output_discarded` ledger row per affected
+output with the number discarded from that raw row. Other outputs still receive their
+intents. `block_ingest` defers an accepted raw row if all its intents for that output cannot fit.
+The row keeps its configuration pin and retry allowance. No partial state, event or delivery
+effects commit. The worker tries the row again when it becomes eligible. A rolled-back attempt
+cannot replace a newer attempt's recorded demand.
+A timeout acquiring an outbox lock, such as waiting for retention to release a
+partition count, does not spend a processing attempt. A timeout executing the
+insert rolls back the raw transaction and spends one attempt. The fifth failed
+attempt records a `processing_exhausted` dead letter.
+
+An output opens one overflow episode per period of saturation or refusal. The activity
+ledger records the episode before the worker tries to route a sanitized Correlia alert to
+the other active outputs. Routing tries once: it skips a destination if its capacity row is
+locked or it has no room. Skipped destinations do not receive the same notice later. The
+notice does not alter alert state or generate another notice. It carries a reference and hash
+of its ledger evidence, not sender data. The ledger shows the episode even when no other
+output can take the notice.
+Notice routing and expired-lease recovery each run one transaction at a time. Neither blocks
+delivery discovery. Lease recovery rotates between outputs, even when one attempt times out
+waiting for a lock. A change to either overflow policy's budget can open an episode even when
+the inbox is empty.
+Delivery attempts use UTC keys and timestamps even when the PostgreSQL session does not.
+
+## Retention and expiry
+
+Worker and all processes expire failures after 14 days by default. Expiry removes the active
+failure and records the number discarded in `activity` in the same transaction. The raw row
+or delivery is then eligible for ordinary retention, not replay. An output's retention window
+starts when it is delivered or discarded, not when it was created or moved to `dead`.
+If a delivery's capacity or event-reference row is locked, the sweep skips that delivery.
+It can still expire unrelated failures and revisit the skipped one when the cursor wraps.
+
+The worker reclaims only terminal inbox rows and unprotected events after their age cutoffs.
+Live and dead delivery references keep their event evidence. Deliberately small batches and a
+durable cursor let it pass protected pages without scanning or locking the whole backlog.
+Attempt cleanup follows the exact retired intent key and can span several batches.
+
+Transport keys remain until the retry window and raw admission cutoff have both passed.
+Worker maintenance advances that cutoff even if no Icinga 2 target can load.
+Observation keys and silent Icinga 2 tombstones also respect the oldest pending or failed
+receipt. A maintenance failure rolls back the whole batch; its recorded outcome has no
+discarded or reclaimed count from that batch.
+The status RPC shows the last committed maintenance outcome even if the database clock moves
+backward. `finishedAt` still reports the database's wall time.
+
 ## Repair migrations
 
-Serverpod's repair diff sees SQL-owned tables as extraneous and may propose destructive changes. Before applying any generated repair, inspect its entire SQL against the current schema and **remove all operations that drop or alter** `raw_inbox`, `events`, `outbox`, `activity`, `correlia_schema_versions`, `matcher_content_digest` (primary key `digest`), `matcher_content_digest_fill` (primary key `singleton`), their indexes, constraints and time-qualified references. Review related cascades as well. Preserve data and the version table; never force a destructive repair merely to silence drift. Inspect any other unmanaged exceptions individually. If the desired SQL-owned schema itself needs correction, write a new forward schema step, not an edit to an applied step or a generated definition. Review the resulting repair and schema step together on a populated copy before production use.
+Serverpod's repair diff may propose dropping SQL-owned objects it does not recognize. Review the
+complete repair SQL and remove operations against the `raw_inbox`, `events` and `outbox` parents,
+their historical, daily and default children, and all associated indexes, constraints and triggers.
+Preserve `activity`, `correlia_schema_versions`, `matcher_content_digest` (primary key `digest`),
+`matcher_content_digest_fill` (primary key `singleton`), `pipeline_icinga2_replay_floor` and other
+SQL-owned metadata listed in [the architecture](../openspec/architecture.md), including indirect
+cascades and time-qualified references. Inspect any other unmanaged exceptions individually.
+Correct the SQL-owned schema in a new forward step, not in an applied step or generated
+definition. Test the repair and the new step together on a populated copy before production use.
 
 `matcher_content_digest` has the foreign key `matcher_content_digest_first_snapshot_fk` from `first_snapshot_id` to `ingest_config_snapshot."snapshotId"`, and `icinga2_raw_origin` has one from `admission_snapshot_id`. A repair that drops or recreates `ingest_config_snapshot` must keep both constraints or recreate them, with their data intact. Correlia never deletes a snapshot, and deleting one by hand is not supported. The two foreign keys cover only digests and stream admissions. Other rows name a snapshot with no constraint: the active pointer `ingest_active_config."snapshotId"`, the pin `raw_inbox.config_snapshot_id` of a row still waiting to be processed, and `config_snapshot_id` of retained `events` and `outbox` rows. With their snapshot gone, the worker cannot decode a waiting row and the rule simulator returns `raw_unavailable` for those events.
 
@@ -697,7 +849,7 @@ The latest patch of every minor from 0.16 through 0.35 is supported, proven by r
 
 Only version, status and alerts are required at group level. All recognised fields are type-checked. `routeLabels` and `notification_reason` stay raw-only; neither substitutes for alert evidence. The existing `externalURL` link mapping is unchanged.
 
-Unknown **top-level** fields are processed and flagged, not rejected. Unknown **per-alert** fields and wrong types on known fields still fail the complete delivery. Existing failed raw rows are not backfilled; replay is future work.
+Unknown **top-level** fields are processed and flagged, not rejected. Unknown **per-alert** fields and wrong types on known fields still fail the complete delivery. The upgrade does not reprocess failed raw rows automatically. Operators can request replay of eligible failures through the [Operator RPC](#operator-rpc); replay uses the active compatible configuration.
 
 Every successful raw outcome includes `unknown_top_level_fields` and `unknown_top_level_overflow`, even when they are `[]` and `0`. The list contains the first 16 sorted unknown names matching `^[A-Za-z0-9_.-]{1,64}$`; all others, including oversized or control-character names, count toward overflow. Names remain restricted with the raw body; values are not copied into the outcome.
 
@@ -1038,19 +1190,76 @@ Future-dated evidence (more than 24 hours ahead) has no observation key, state o
 
 Serialization, deadlock, lock-timeout and connection-unavailable errors retry indefinitely with capped one-to-thirty-second backoff without spending the internal-error budget. Other internal failures consume five attempts, then produce `processing_exhausted`. Scheduling hints are bounded and process-local; database eligibility, raw bytes, pins and the internal-error budget remain durable. A ten-second total transaction deadline and five-second statement/lock bounds limit work.
 
-Inspect failures through restricted SQL, not a public API:
+Use both time and ID when joining raw, event or delivery evidence. Raw bodies and delivery
+payloads are private operational data; do not paste them into diagnostics.
 
-```sql
-SELECT observed_at, raw_id, source_id, status, config_snapshot_id,
-       attempt_count, outcome_json
-FROM raw_inbox
-WHERE status = 'failed';
+### Operator RPC
 
-SELECT "rawObservedAt", "rawId", "configSnapshotId", "errorClass", "fieldPath"
-FROM pipeline_failures;
-```
+The `deadLetter` RPC is off by default. To enable it on an `api` or `all` process, set
+`CORRELIA_DEAD_LETTER_CREDENTIALS_FILE` to an owner-only JSON file (`chmod 600`). The file
+maps one to eight machine IDs to distinct lowercase SHA-256 digests. IDs start with a
+lowercase letter and use at most 64 lowercase letters, digits, underscores or hyphens.
+The file is limited to 4 KiB.
 
-Use both time and id when joining raw/event/output evidence. Raw payloads remain private operational data; never paste them into diagnostics. Accepted bytes are not silently discarded, and no retention/replay scheduler is implemented in this slice. Provision disk headroom until M2 retention/backpressure work.
+Generate 32 random bytes per machine. Store the SHA-256 hex digest of those **bytes**
+in the file, and give the machine the 43-character unpadded base64url encoding of the
+bytes. Send it in `Authorization: Bearer <token>` to the API port over TLS. Do not put
+the token in the URL or RPC arguments. Webhook credentials do not grant this access.
+Replace the file and restart each API replica to rotate credentials. A malformed file or a
+repeated machine ID stops startup.
+
+Use `Client.deadLetter` from `correlia_client` with the machine bearer:
+
+| Method | Inputs and effects |
+|---|---|
+| `list` | Select `raw` or `delivery`. Optionally filter by source/output UUID, error class and inclusive failure-time range. Returns sanitized metadata including the occurrence ID, age and error class. A raw result can include its pinned snapshot and safe field path. |
+| `replay` | Requeue one occurrence of the specified kind. A later failure of the same row has a new occurrence ID. |
+| `replayBatch` | Requeue eligible occurrences in one page of the same filters. Returns queued and refused counts, a reason for each occurrence and a continuation when more matches remain. |
+| `status` | Read pending count, oldest pending age, database pressure, output limits and usage, discard counts, overflow episodes, and the last completed maintenance batch. `maintenanceFailures` lists one sanitized failure per job until that job succeeds. Partition retry status is separate. |
+
+Status shows blocking outputs first, up to 64 lanes. `outputsTruncated` indicates that other
+lanes are omitted. A failed partition attachment reports `prepare_partition` with zero
+affected rows and keeps its retry record. A successful attachment reports one affected partition.
+
+Supply a limit from 1 to 100 for `list` and `replayBatch`. Pass the continuation unchanged to
+the same method with the same filters. The first page briefly locks the failure directory to capture
+committed occurrences, then releases that lock before replay takes any work locks. The
+continuation keeps the first page's upper time and occurrence ID bounds even if the clock moves
+back. Start a new listing to include failures committed after capture or revisit refused items.
+If capture times out, replay requeues nothing. No reply includes raw bodies, delivery
+payloads, destinations or signing references. Successful replay records the verified machine
+ID and queued count in `activity`.
+
+Continuations are unsigned and do not grant access. A dedicated credential already lets its
+holder start a selection and replay any eligible failure. The RPC rejects malformed
+continuations with `invalid_continuation` before selecting work.
+
+Plugin dead letters use the `plugin_failure` category for listing and filters. The API does
+not return plugin-supplied error text.
+
+Raw replay needs a free pending slot and an enabled source with the same admission mode.
+It pins the configuration active at replay, retaining the original bytes, receipt, Icinga 2
+origin and generation 0. Queue age alone does not block replay. An unavailable source, full
+inbox or expired failure cannot be requeued. A replay of a reconcile row does not change its
+original sync run. If it finishes without writing an event, the worker records that outcome
+in the ledger before deleting the raw row.
+
+A pre-upgrade Icinga 2 item below the published reclamation boundary counts as late.
+If it is also future-dated relative to its original receipt, the worker keeps the quarantine
+rules and counts both conditions.
+
+Delivery replay keeps the original payload, event ID, delivery ID, destination, and signing
+commitment. It requires the original webhook signing material and room in the live output
+inventory if it adds a lane. It starts a fresh 20-attempt allowance; attempt numbers keep
+increasing and prior history remains. Replay does not run the pipeline or alter alert state.
+
+An `api` replica can replay webhook deliveries without `CORRELIA_INGEST_CONFIG`. Set
+`CORRELIA_SECRET_KEY_FILE` on that replica to the same database encryption key used by the
+publisher. The replica does not need the configuration or secret import files.
+
+Change 9's demo uses this API to find and replay a dead delivery and show pressure clearing.
+The DUR-4 console check stays with M4: the dead-letter view must identify the failed output,
+show its sanitized error class and let an authorized operator replay the exact occurrence.
 
 ## Plugin batch delivery
 
@@ -1068,7 +1277,7 @@ Only 2xx acknowledges. Network errors, total-deadline expiry, 408, 429 and 5xx r
 
 One shared discovery loop serves independent lanes, with at most one in-flight request per retained output id. A failing output cannot hold a database transaction over HTTP or block healthy outputs. Acquiring an intent commits a random claim token, database-clock thirty-second lease and started attempt. Finalization is fenced by that current unexpired token. Death after remote success can therefore produce a byte-identical duplicate after restart; stale completions cannot overwrite a successor.
 
-Expired claims mark their unfinished attempts `interrupted` and retry. Every started attempt spends the twenty-attempt budget, including ambiguous outcomes and process death. Backoff is `min(300 seconds, 2^(attempt-1) seconds)`; exhausted or permanent work becomes terminal `dead` with its payload retained. Delivered/dead rows have no automatic replay in this slice.
+Expired claims mark their unfinished attempts `interrupted` and retry. Every started attempt spends the twenty-attempt budget, including ambiguous outcomes and process death. Backoff is `min(300 seconds, 2^(attempt-1) seconds)` within that allowance. Exhausted or permanent work becomes `dead` with its payload retained; only an explicit operator replay can requeue it.
 
 Inspect delivery state and attempts with restricted SQL:
 

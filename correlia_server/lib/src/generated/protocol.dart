@@ -44,6 +44,16 @@ import 'observation_key.dart' as _ii70ink4;
 import 'pipeline_failure.dart' as _ir1rifdz;
 import 'plugin_definition_health.dart' as _iqfe2rop;
 import 'plugin_instance_status.dart' as _i5barlkw;
+import 'queue/queue_failure.dart' as _i1399vez;
+import 'queue/queue_failure_filter.dart' as _i3paal6y;
+import 'queue/queue_failure_kind.dart' as _ijk6hojr;
+import 'queue/queue_failure_page.dart' as _io00fnfh;
+import 'queue/queue_maintenance_status.dart' as _ip4smbu4;
+import 'queue/queue_operator_exception.dart' as _i9vx28ve;
+import 'queue/queue_output_status.dart' as _ie72o327;
+import 'queue/queue_replay_item.dart' as _i738ir7t;
+import 'queue/queue_replay_result.dart' as _ikvpqw3q;
+import 'queue/queue_status.dart' as _iylzdl71;
 import 'rule_simulation_result.dart' as _i2oitrdy;
 import 'rule_trace.dart' as _ingcfw9t;
 import 'secret_record.dart' as _ibz1p89x;
@@ -83,6 +93,16 @@ export 'observation_key.dart';
 export 'pipeline_failure.dart';
 export 'plugin_definition_health.dart';
 export 'plugin_instance_status.dart';
+export 'queue/queue_failure.dart';
+export 'queue/queue_failure_filter.dart';
+export 'queue/queue_failure_kind.dart';
+export 'queue/queue_failure_page.dart';
+export 'queue/queue_maintenance_status.dart';
+export 'queue/queue_operator_exception.dart';
+export 'queue/queue_output_status.dart';
+export 'queue/queue_replay_item.dart';
+export 'queue/queue_replay_result.dart';
+export 'queue/queue_status.dart';
 export 'rule_simulation_result.dart';
 export 'rule_trace.dart';
 export 'secret_record.dart';
@@ -136,6 +156,16 @@ class Protocol extends _is.DatabaseSerializationManager
           _is.getType<_ir1rifdz.PipelineFailure>,
           _is.getType<_iqfe2rop.PluginDefinitionHealth>,
           _is.getType<_i5barlkw.PluginInstanceStatus>,
+          _is.getType<_i1399vez.QueueFailure>,
+          _is.getType<_i3paal6y.QueueFailureFilter>,
+          _is.getType<_ijk6hojr.QueueFailureKind>,
+          _is.getType<_io00fnfh.QueueFailurePage>,
+          _is.getType<_ip4smbu4.QueueMaintenanceStatus>,
+          _is.getType<_i9vx28ve.QueueOperatorException>,
+          _is.getType<_ie72o327.QueueOutputStatus>,
+          _is.getType<_i738ir7t.QueueReplayItem>,
+          _is.getType<_ikvpqw3q.QueueReplayResult>,
+          _is.getType<_iylzdl71.QueueStatus>,
           _is.getType<_i2oitrdy.RuleSimulationResult>,
           _is.getType<_ingcfw9t.RuleTrace>,
           _is.getType<_ibz1p89x.SecretRecord>,
@@ -175,6 +205,16 @@ class Protocol extends _is.DatabaseSerializationManager
           _is.getType<_ir1rifdz.PipelineFailure?>,
           _is.getType<_iqfe2rop.PluginDefinitionHealth?>,
           _is.getType<_i5barlkw.PluginInstanceStatus?>,
+          _is.getType<_i1399vez.QueueFailure?>,
+          _is.getType<_i3paal6y.QueueFailureFilter?>,
+          _is.getType<_ijk6hojr.QueueFailureKind?>,
+          _is.getType<_io00fnfh.QueueFailurePage?>,
+          _is.getType<_ip4smbu4.QueueMaintenanceStatus?>,
+          _is.getType<_i9vx28ve.QueueOperatorException?>,
+          _is.getType<_ie72o327.QueueOutputStatus?>,
+          _is.getType<_i738ir7t.QueueReplayItem?>,
+          _is.getType<_ikvpqw3q.QueueReplayResult?>,
+          _is.getType<_iylzdl71.QueueStatus?>,
           _is.getType<_i2oitrdy.RuleSimulationResult?>,
           _is.getType<_ingcfw9t.RuleTrace?>,
           _is.getType<_ibz1p89x.SecretRecord?>,
@@ -188,6 +228,10 @@ class Protocol extends _is.DatabaseSerializationManager
           _is.getType<Map<String, int>>,
           _is.getType<List<_i20s3xik.MappingPreviewEvent>>,
           _is.getType<List<_ibaui0zg.MappingPreviewDiagnostic>>,
+          _is.getType<List<_i1399vez.QueueFailure>>,
+          _is.getType<List<_i738ir7t.QueueReplayItem>>,
+          _is.getType<List<_ie72o327.QueueOutputStatus>>,
+          _is.getType<List<_ip4smbu4.QueueMaintenanceStatus>>,
           _is.getType<List<_ingcfw9t.RuleTrace>>,
           _is.getType<List<_i3ntsck3.SimulatedLabel>>,
           _is.getType<List<_ieclo1rh.SimulatedLink>>,
@@ -231,6 +275,16 @@ class Protocol extends _is.DatabaseSerializationManager
           'PipelineFailure',
           'PluginDefinitionHealth',
           'PluginInstanceStatus',
+          'QueueFailure',
+          'QueueFailureFilter',
+          'QueueFailureKind',
+          'QueueFailurePage',
+          'QueueMaintenanceStatus',
+          'QueueOperatorException',
+          'QueueOutputStatus',
+          'QueueReplayItem',
+          'QueueReplayResult',
+          'QueueStatus',
           'RuleSimulationResult',
           'RuleTrace',
           'SecretRecord',
@@ -1658,6 +1712,36 @@ class Protocol extends _is.DatabaseSerializationManager
     if (t == _i5barlkw.PluginInstanceStatus) {
       return _i5barlkw.PluginInstanceStatus.fromJson(data) as T;
     }
+    if (t == _i1399vez.QueueFailure) {
+      return _i1399vez.QueueFailure.fromJson(data) as T;
+    }
+    if (t == _i3paal6y.QueueFailureFilter) {
+      return _i3paal6y.QueueFailureFilter.fromJson(data) as T;
+    }
+    if (t == _ijk6hojr.QueueFailureKind) {
+      return _ijk6hojr.QueueFailureKind.fromJson(data) as T;
+    }
+    if (t == _io00fnfh.QueueFailurePage) {
+      return _io00fnfh.QueueFailurePage.fromJson(data) as T;
+    }
+    if (t == _ip4smbu4.QueueMaintenanceStatus) {
+      return _ip4smbu4.QueueMaintenanceStatus.fromJson(data) as T;
+    }
+    if (t == _i9vx28ve.QueueOperatorException) {
+      return _i9vx28ve.QueueOperatorException.fromJson(data) as T;
+    }
+    if (t == _ie72o327.QueueOutputStatus) {
+      return _ie72o327.QueueOutputStatus.fromJson(data) as T;
+    }
+    if (t == _i738ir7t.QueueReplayItem) {
+      return _i738ir7t.QueueReplayItem.fromJson(data) as T;
+    }
+    if (t == _ikvpqw3q.QueueReplayResult) {
+      return _ikvpqw3q.QueueReplayResult.fromJson(data) as T;
+    }
+    if (t == _iylzdl71.QueueStatus) {
+      return _iylzdl71.QueueStatus.fromJson(data) as T;
+    }
     if (t == _i2oitrdy.RuleSimulationResult) {
       return _i2oitrdy.RuleSimulationResult.fromJson(data) as T;
     }
@@ -1834,6 +1918,48 @@ class Protocol extends _is.DatabaseSerializationManager
               : null)
           as T;
     }
+    if (t == _is.getType<_i1399vez.QueueFailure?>()) {
+      return (data != null ? _i1399vez.QueueFailure.fromJson(data) : null) as T;
+    }
+    if (t == _is.getType<_i3paal6y.QueueFailureFilter?>()) {
+      return (data != null ? _i3paal6y.QueueFailureFilter.fromJson(data) : null)
+          as T;
+    }
+    if (t == _is.getType<_ijk6hojr.QueueFailureKind?>()) {
+      return (data != null ? _ijk6hojr.QueueFailureKind.fromJson(data) : null)
+          as T;
+    }
+    if (t == _is.getType<_io00fnfh.QueueFailurePage?>()) {
+      return (data != null ? _io00fnfh.QueueFailurePage.fromJson(data) : null)
+          as T;
+    }
+    if (t == _is.getType<_ip4smbu4.QueueMaintenanceStatus?>()) {
+      return (data != null
+              ? _ip4smbu4.QueueMaintenanceStatus.fromJson(data)
+              : null)
+          as T;
+    }
+    if (t == _is.getType<_i9vx28ve.QueueOperatorException?>()) {
+      return (data != null
+              ? _i9vx28ve.QueueOperatorException.fromJson(data)
+              : null)
+          as T;
+    }
+    if (t == _is.getType<_ie72o327.QueueOutputStatus?>()) {
+      return (data != null ? _ie72o327.QueueOutputStatus.fromJson(data) : null)
+          as T;
+    }
+    if (t == _is.getType<_i738ir7t.QueueReplayItem?>()) {
+      return (data != null ? _i738ir7t.QueueReplayItem.fromJson(data) : null)
+          as T;
+    }
+    if (t == _is.getType<_ikvpqw3q.QueueReplayResult?>()) {
+      return (data != null ? _ikvpqw3q.QueueReplayResult.fromJson(data) : null)
+          as T;
+    }
+    if (t == _is.getType<_iylzdl71.QueueStatus?>()) {
+      return (data != null ? _iylzdl71.QueueStatus.fromJson(data) : null) as T;
+    }
     if (t == _is.getType<_i2oitrdy.RuleSimulationResult?>()) {
       return (data != null
               ? _i2oitrdy.RuleSimulationResult.fromJson(data)
@@ -1894,6 +2020,30 @@ class Protocol extends _is.DatabaseSerializationManager
     if (t == List<_ibaui0zg.MappingPreviewDiagnostic>) {
       return (data as List)
               .map((e) => deserialize<_ibaui0zg.MappingPreviewDiagnostic>(e))
+              .toList()
+          as T;
+    }
+    if (t == List<_i1399vez.QueueFailure>) {
+      return (data as List)
+              .map((e) => deserialize<_i1399vez.QueueFailure>(e))
+              .toList()
+          as T;
+    }
+    if (t == List<_i738ir7t.QueueReplayItem>) {
+      return (data as List)
+              .map((e) => deserialize<_i738ir7t.QueueReplayItem>(e))
+              .toList()
+          as T;
+    }
+    if (t == List<_ie72o327.QueueOutputStatus>) {
+      return (data as List)
+              .map((e) => deserialize<_ie72o327.QueueOutputStatus>(e))
+              .toList()
+          as T;
+    }
+    if (t == List<_ip4smbu4.QueueMaintenanceStatus>) {
+      return (data as List)
+              .map((e) => deserialize<_ip4smbu4.QueueMaintenanceStatus>(e))
               .toList()
           as T;
     }
@@ -1999,6 +2149,16 @@ class Protocol extends _is.DatabaseSerializationManager
       _ir1rifdz.PipelineFailure => 'PipelineFailure',
       _iqfe2rop.PluginDefinitionHealth => 'PluginDefinitionHealth',
       _i5barlkw.PluginInstanceStatus => 'PluginInstanceStatus',
+      _i1399vez.QueueFailure => 'QueueFailure',
+      _i3paal6y.QueueFailureFilter => 'QueueFailureFilter',
+      _ijk6hojr.QueueFailureKind => 'QueueFailureKind',
+      _io00fnfh.QueueFailurePage => 'QueueFailurePage',
+      _ip4smbu4.QueueMaintenanceStatus => 'QueueMaintenanceStatus',
+      _i9vx28ve.QueueOperatorException => 'QueueOperatorException',
+      _ie72o327.QueueOutputStatus => 'QueueOutputStatus',
+      _i738ir7t.QueueReplayItem => 'QueueReplayItem',
+      _ikvpqw3q.QueueReplayResult => 'QueueReplayResult',
+      _iylzdl71.QueueStatus => 'QueueStatus',
       _i2oitrdy.RuleSimulationResult => 'RuleSimulationResult',
       _ingcfw9t.RuleTrace => 'RuleTrace',
       _ibz1p89x.SecretRecord => 'SecretRecord',
@@ -2083,6 +2243,26 @@ class Protocol extends _is.DatabaseSerializationManager
         return 'PluginDefinitionHealth';
       case _i5barlkw.PluginInstanceStatus():
         return 'PluginInstanceStatus';
+      case _i1399vez.QueueFailure():
+        return 'QueueFailure';
+      case _i3paal6y.QueueFailureFilter():
+        return 'QueueFailureFilter';
+      case _ijk6hojr.QueueFailureKind():
+        return 'QueueFailureKind';
+      case _io00fnfh.QueueFailurePage():
+        return 'QueueFailurePage';
+      case _ip4smbu4.QueueMaintenanceStatus():
+        return 'QueueMaintenanceStatus';
+      case _i9vx28ve.QueueOperatorException():
+        return 'QueueOperatorException';
+      case _ie72o327.QueueOutputStatus():
+        return 'QueueOutputStatus';
+      case _i738ir7t.QueueReplayItem():
+        return 'QueueReplayItem';
+      case _ikvpqw3q.QueueReplayResult():
+        return 'QueueReplayResult';
+      case _iylzdl71.QueueStatus():
+        return 'QueueStatus';
       case _i2oitrdy.RuleSimulationResult():
         return 'RuleSimulationResult';
       case _ingcfw9t.RuleTrace():
@@ -2205,6 +2385,36 @@ class Protocol extends _is.DatabaseSerializationManager
     }
     if (dataClassName == 'PluginInstanceStatus') {
       return deserialize<_i5barlkw.PluginInstanceStatus>(data['data']);
+    }
+    if (dataClassName == 'QueueFailure') {
+      return deserialize<_i1399vez.QueueFailure>(data['data']);
+    }
+    if (dataClassName == 'QueueFailureFilter') {
+      return deserialize<_i3paal6y.QueueFailureFilter>(data['data']);
+    }
+    if (dataClassName == 'QueueFailureKind') {
+      return deserialize<_ijk6hojr.QueueFailureKind>(data['data']);
+    }
+    if (dataClassName == 'QueueFailurePage') {
+      return deserialize<_io00fnfh.QueueFailurePage>(data['data']);
+    }
+    if (dataClassName == 'QueueMaintenanceStatus') {
+      return deserialize<_ip4smbu4.QueueMaintenanceStatus>(data['data']);
+    }
+    if (dataClassName == 'QueueOperatorException') {
+      return deserialize<_i9vx28ve.QueueOperatorException>(data['data']);
+    }
+    if (dataClassName == 'QueueOutputStatus') {
+      return deserialize<_ie72o327.QueueOutputStatus>(data['data']);
+    }
+    if (dataClassName == 'QueueReplayItem') {
+      return deserialize<_i738ir7t.QueueReplayItem>(data['data']);
+    }
+    if (dataClassName == 'QueueReplayResult') {
+      return deserialize<_ikvpqw3q.QueueReplayResult>(data['data']);
+    }
+    if (dataClassName == 'QueueStatus') {
+      return deserialize<_iylzdl71.QueueStatus>(data['data']);
     }
     if (dataClassName == 'RuleSimulationResult') {
       return deserialize<_i2oitrdy.RuleSimulationResult>(data['data']);

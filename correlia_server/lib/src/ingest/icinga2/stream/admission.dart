@@ -117,6 +117,8 @@ final class ConsumerAdmission {
   const ConsumerAdmission(
     this.connection, {
     this.afterFence,
+    this.beforeSyncProgressLockForTest,
+    this.beforeCapacityLockForTest,
     this.beforeCommit,
     this.beforeWriteForTest,
     this.writeErrorForTest,
@@ -129,6 +131,12 @@ final class ConsumerAdmission {
 
   /// A test can hold the real admission transaction just before commit.
   final Future<void> Function(pg.TxSession)? beforeCommit;
+
+  /// Observes the transaction immediately before locking sync progress.
+  final Future<void> Function(pg.TxSession)? beforeSyncProgressLockForTest;
+
+  /// Lets a contention fixture identify the transaction before it waits.
+  final Future<void> Function(pg.TxSession)? beforeCapacityLockForTest;
 
   /// Observes or stages the exact raw write transaction in a fixture.
   final Future<void> Function(pg.TxSession, StreamRawBatch)? beforeWriteForTest;
@@ -185,9 +193,11 @@ final class ConsumerAdmission {
         final cap = snapshot.single[1]! as int;
         final retainedRows = await _retained(tx, lease.sourceId, cap + 1);
         if (retainedRows + batch.rows.length > cap) {
-          return await _isCommitted(tx, batchKey)
-              ? StreamAdmissionResult.committed
-              : StreamAdmissionResult.atCapacity;
+          if (await _isCommitted(tx, batchKey)) {
+            return StreamAdmissionResult.committed;
+          }
+          await _checkRefusedReceipt(tx, batch);
+          return StreamAdmissionResult.atCapacity;
         }
         if (batch.rows.isEmpty ||
             (batch.origin == IcingaStreamOrigin.sync) !=
@@ -206,6 +216,35 @@ final class ConsumerAdmission {
         // PostgreSQL waits for an uncommitted unique-key conflict to settle.
         // A rollback lets this insert claim the batch instead.
         if (claimed.isEmpty) return StreamAdmissionResult.committed;
+
+        if (batch.syncId case final syncId?) {
+          await beforeSyncProgressLockForTest?.call(tx);
+          final progress = await tx.execute(
+            pg.Sql.named('''SELECT 1 FROM icinga2_sync_progress
+              WHERE sync_id=CAST(@sync AS uuid) AND source_id=CAST(@source AS uuid)
+                AND read_end_at IS NULL FOR UPDATE'''),
+            parameters: {...sourceArg, 'sync': syncId},
+          );
+          if (progress.isEmpty) throw StateError('Icinga2 sync is not reading');
+        }
+        if (beforeCapacityLockForTest case final beforeCapacityLock?) {
+          await beforeCapacityLock(tx);
+        }
+        final pressure = (await tx.execute(
+          pg.Sql.named('SELECT correlia_reserve_raw(@count)'),
+          parameters: {'count': batch.rows.length},
+        )).single[0];
+        if (pressure != null) {
+          await _checkRefusedReceipt(tx, batch);
+          await tx.execute(
+            pg.Sql.named(
+              '''DELETE FROM icinga2_admitted_batch
+              WHERE "sourceId"=CAST(@source AS uuid) AND "batchId"=CAST(@batch AS uuid)''',
+            ),
+            parameters: batchKey,
+          );
+          return StreamAdmissionResult.atCapacity;
+        }
 
         await beforeWriteForTest?.call(tx, batch);
         for (final row in batch.rows) {
@@ -240,6 +279,25 @@ final class ConsumerAdmission {
       }
       rethrow;
     }
+  }
+
+  static Future<void> _checkRefusedReceipt(
+    pg.TxSession tx,
+    StreamRawBatch batch,
+  ) async {
+    DateTime? earliest;
+    for (final row in batch.rows) {
+      for (final item in row) {
+        if (earliest == null || item.received.isBefore(earliest)) {
+          earliest = item.received;
+        }
+      }
+    }
+    if (earliest == null) return;
+    await tx.execute(
+      pg.Sql.named('SELECT correlia_check_refused_raw_receipt(@receipt)'),
+      parameters: {'receipt': earliest.toUtc()},
+    );
   }
 
   static Future<bool> _isCommitted(
@@ -289,12 +347,14 @@ final class ConsumerAdmission {
       ..addByte(125);
     final body = encoded.takeBytes();
     await tx.execute(
-      pg.Sql.named('''WITH admitted AS (
+      pg.Sql.named(
+        '''WITH admitted AS (
           INSERT INTO raw_inbox(observed_at,raw_id,source_id,body,body_sha256,content_type)
           VALUES (@observed,gen_random_uuid(),CAST(@source AS uuid),@body,@digest,'application/json')
-          RETURNING raw_id
-        ) INSERT INTO icinga2_raw_origin(raw_id,origin,sync_id,admission_snapshot_id)
-          SELECT raw_id,@origin,CAST(@sync AS uuid),@snapshot FROM admitted'''),
+          RETURNING observed_at,raw_id
+        ) INSERT INTO icinga2_raw_origin(raw_observed_at,raw_id,origin,sync_id,admission_snapshot_id)
+          SELECT observed_at,raw_id,@origin,CAST(@sync AS uuid),@snapshot FROM admitted''',
+      ),
       parameters: {
         'observed': earliest.toUtc(),
         'source': source,

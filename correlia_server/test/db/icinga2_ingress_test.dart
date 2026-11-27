@@ -195,7 +195,8 @@ void main() {
 
       test('cutoff_keeps_webhook_dedup_window', () async {
         final input = await publish(both: false);
-        await start(input);
+        var receipt = _now;
+        await start(input, clock: () => receipt);
         const path = '/hooks/icinga2/$_icinga2Id';
         const key = 'cutoff-window';
         expect(await post(path, bearer: 2, key: key), 202);
@@ -205,12 +206,33 @@ void main() {
           await post(path, bearer: 2, key: key, text: '{"different":true}'),
           409,
         );
-        await session.db.unsafeExecute(
-          'UPDATE transport_keys SET "expiresAt"=@now',
-          parameters: QueryParameters.named({'now': _now}),
+        final expiry =
+            (await session.db.unsafeQuery(
+                  '''SELECT "expiresAt" AT TIME ZONE 'UTC' FROM transport_keys''',
+                )).single[0]!
+                as DateTime;
+        receipt = expiry;
+        await setCutoff(expiry.add(const Duration(microseconds: 1)));
+        expect(await post(path, bearer: 2, key: key), 503);
+        receipt = _now;
+        expect(await post(path, bearer: 2, key: key), 202);
+        expect(
+          (await session.db.unsafeQuery(
+            "SELECT correlia_maintain('transport',@expiry,100)",
+            parameters: QueryParameters.named({'expiry': expiry}),
+          )).single[0],
+          1,
         );
+        // The captured receipt still falls inside the original window.
+        // The cutoff now fences it because no reservation survives.
         expect(await post(path, bearer: 2, key: key), 503);
         expect(await rawCount(), 1);
+        expect(
+          (await session.db.unsafeQuery(
+            'SELECT count(*) FROM transport_keys',
+          )).single[0],
+          0,
+        );
       });
 
       test('delivery_to_a_stream_source', () async {
@@ -275,7 +297,11 @@ void main() {
           await post('/hooks/alertmanager/$_alertmanagerId', bearer: 1),
           202,
         );
+        // The fixture clock is fixed. Don't leave old pending work between
+        // admissions in this test of routing, not queue pressure.
+        await session.db.unsafeExecute("UPDATE raw_inbox SET status='done'");
         expect(await post('/hooks/icinga2/$_icinga2Id', bearer: 2), 202);
+        await session.db.unsafeExecute("UPDATE raw_inbox SET status='done'");
         expect(await post('/hooks/generic/$_genericId', bearer: 3), 202);
         expect(await rawCount(), 3);
         // Each source answers only under its own kind's route.

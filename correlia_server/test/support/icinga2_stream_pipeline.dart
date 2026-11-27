@@ -42,6 +42,9 @@ Future<String> publishStreamDb(
         'output_ids': [icinga2DbOutputIds.first],
       },
   ]);
+  // These fixtures prescribe receipt times. Their stream fences and
+  // reconciliation should not depend on the age of a checkout.
+  config['pipeline_operations'] = {'pending_max_age_seconds': 2147483647};
   if (matcher != null) {
     config['matcher'] = matcher;
     config['expected_active_snapshot'] = null;
@@ -152,10 +155,11 @@ Future<String> seedStreamDb(
   }, receipt);
   await session.db.unsafeExecute(
     '''INSERT INTO icinga2_raw_origin
-    (raw_id,origin,sync_id,admission_snapshot_id)
-    VALUES (CAST(@raw AS uuid),@origin,CAST(@sync AS uuid),@snapshot)''',
+    (raw_observed_at,raw_id,origin,sync_id,admission_snapshot_id)
+    VALUES (@receipt,CAST(@raw AS uuid),@origin,CAST(@sync AS uuid),@snapshot)''',
     parameters: QueryParameters.named({
       'raw': raw,
+      'receipt': receipt,
       'origin': origin,
       'sync': sync ? syncId : null,
       'snapshot': snapshot,

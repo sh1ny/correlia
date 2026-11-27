@@ -17,13 +17,13 @@ import '../ingest/bootstrap.dart'
         GenericPointer,
         GenericSourceKind,
         Icinga2SourceKind,
-        SourceKind,
-        sha256Digest;
+        SourceKind;
 import '../ingest/icinga2/decoder.dart';
 import '../ingest/source_decoder.dart';
 import '../matcher/matcher_document.dart';
 import '../matcher/matcher_evaluation.dart';
 import '../matcher/matcher_regex_worker.dart';
+import '../output/queue_intents.dart';
 import '../runtime/process_options.dart';
 import '../runtime/subsystem.dart';
 import '../state/alert_state_service.dart';
@@ -215,6 +215,9 @@ final class _Raw {
     this.bytes,
     this.digest,
     this.pin,
+    this.epoch,
+    this.revision,
+    this.legacyFailure,
   );
   final DateTime observed;
   final String id;
@@ -222,28 +225,45 @@ final class _Raw {
   final Uint8List bytes;
   final String digest;
   final String pin;
+  final int epoch;
+  final int revision;
+  final bool legacyFailure;
+  bool get replayed => epoch != 0;
+  String get retryKey => '$id:$epoch';
 }
 
-sealed class _Output {
-  const _Output(this.id);
-  final String id;
+final class _OutputDeferral implements Exception {
+  const _OutputDeferral(this.demands);
+
+  final Map<String, ({int rows, int bytes})> demands;
 }
 
-final class _WebhookOutput extends _Output {
-  const _WebhookOutput(super.id, this.url, this.ref, this.commitment);
-  final String url, ref, commitment;
-}
+// A statement can time out before PostgreSQL's lock timeout. A timeout
+// while acquiring a lock is contention, not a failed processing attempt.
+final class _PipelineLockWait implements Exception {
+  const _PipelineLockWait();
 
-final class _PluginOutput extends _Output {
-  const _PluginOutput(super.id, this.digest);
-  final String digest;
+  static Never throwFor(Object error, StackTrace stack) {
+    if (error is TimeoutException ||
+        (error is DatabaseQueryException && error.code == '57014')) {
+      throw const _PipelineLockWait();
+    }
+    Error.throwWithStackTrace(error, stack);
+  }
 }
 
 final class _Prepared {
-  const _Prepared(this.event, this.disposition, this.payload, this.position);
+  const _Prepared(
+    this.event,
+    this.disposition,
+    this.payload,
+    this.legacyLate,
+    this.position,
+  );
   final CanonicalEvent event;
   final EvidenceDisposition disposition;
   final Uint8List payload;
+  final bool legacyLate;
 
   /// The event's position in its decoded batch.
   final int position;
@@ -258,6 +278,10 @@ typedef _Retained = ({
   bool routes,
 });
 
+final class _ProcessingDeadlineExceeded implements Exception {
+  const _ProcessingDeadlineExceeded();
+}
+
 final class _Deadline {
   _Deadline(this._testElapsed)
     : _stopwatch = _testElapsed == null ? (Stopwatch()..start()) : null;
@@ -271,7 +295,7 @@ final class _Deadline {
 
   void check() {
     if (_elapsed >= pipelineRowDeadline) {
-      throw TimeoutException('pipeline transaction deadline');
+      throw const _ProcessingDeadlineExceeded();
     }
   }
 
@@ -302,6 +326,13 @@ final class PipelineRepository {
     this.afterAlertInsertConflict,
     this.afterKeyReservationForTest,
     this.elapsedForTest,
+    this.afterOutputRefusalForTest,
+    this.beforeOutputDeferralRetryForTest,
+    this.beforeCapacityLockForTest,
+    this.beforeOutboxCountLockForTest,
+    this.beforeIntentWriteForTest,
+    this.beforeEventWriteForTest,
+    this.beforePendingCounterLockForTest,
     Map<String, int>? retryCounts,
     this.retryDelay,
     PipelineCounters? counters,
@@ -310,6 +341,8 @@ final class PipelineRepository {
     this.icinga2Decoder = decodeIcinga2Request,
     this.regexWorker,
     this.beforePinCommitForTest,
+    this.beforeRecordErrorForTest,
+    this.beforeSyncProgressLockForTest,
     this.fanoutLimitForTest,
   }) : clock = clock ?? DateTime.now,
        _retryCounts = retryCounts ?? {},
@@ -329,6 +362,27 @@ final class PipelineRepository {
 
   /// Test transaction elapsed time, independent of the worker receipt clock.
   final Duration Function()? elapsedForTest;
+
+  /// Lets a fixture exhaust the remaining row deadline after a refusal.
+  final void Function()? afterOutputRefusalForTest;
+
+  /// Lets another worker process the row after a refusal rolls back.
+  final Future<void> Function()? beforeOutputDeferralRetryForTest;
+
+  /// Lets a fixture hold a capacity lock past the remaining SQL deadline.
+  final Future<void> Function(Transaction)? beforeCapacityLockForTest;
+
+  /// Lets a fixture expire the statement waiting for an outbox child count.
+  final Future<void> Function(Transaction)? beforeOutboxCountLockForTest;
+
+  /// Runs just before each outbox insert, after its locks are acquired.
+  final Future<void> Function(Transaction)? beforeIntentWriteForTest;
+
+  /// Lets a fixture expire a statement while the events parent is locked.
+  final Future<void> Function(Transaction)? beforeEventWriteForTest;
+
+  /// Lets a fixture expire the statement waiting for the pending counter.
+  final Future<void> Function(Transaction)? beforePendingCounterLockForTest;
   final Map<String, int> _retryCounts;
   final Duration Function(int)? retryDelay;
   final PipelineCounters counters;
@@ -347,19 +401,203 @@ final class PipelineRepository {
   /// Fixture barrier after a pin is written but before its lock is released.
   final Future<void> Function(Transaction)? beforePinCommitForTest;
 
+  /// Fixture barrier after the work rollback and before recording its error.
+  final Future<void> Function()? beforeRecordErrorForTest;
+
+  /// Observes the transaction immediately before updating sync progress.
+  final Future<void> Function(Transaction)? beforeSyncProgressLockForTest;
+
   /// Fixture override for exact fanout boundary tests.
   final int? fanoutLimitForTest;
 
   Future<void> _limits(Transaction tx, _Deadline deadline) async {
-    await session.db.unsafeQuery(
-      "SELECT set_config('statement_timeout', @timeout, true), set_config('lock_timeout', '5s', true)",
-      parameters: QueryParameters.named({
-        'timeout': '${deadline.remainingMillis}ms',
-      }),
-      transaction: tx,
-      timeoutInSeconds: 5,
-    );
+    await _setLimits(tx, deadline.remainingMillis);
     deadline.check();
+  }
+
+  Future<void> _setLimits(
+    Transaction tx,
+    int remainingMillis,
+  ) => session.db.unsafeQuery(
+    "SELECT set_config('statement_timeout', @timeout, true), set_config('lock_timeout', '5s', true)",
+    parameters: QueryParameters.named({'timeout': '${remainingMillis}ms'}),
+    transaction: tx,
+    timeoutInSeconds: 5,
+  );
+
+  Future<void> _writeIntents(
+    Transaction tx,
+    _Deadline deadline,
+    _Raw raw,
+    List<QueueIntent> intents,
+    Iterable<String> destinations,
+    DateTime created,
+  ) async {
+    if (intents.isEmpty) return;
+    var appliedMillis = 0;
+    Future<void>? refresh() {
+      final remaining = deadline.remainingMillis;
+      // Before the last five seconds the statement cap is unchanged.
+      if (remaining == appliedMillis) return null;
+      appliedMillis = remaining;
+      return _setLimits(tx, remaining);
+    }
+
+    final Map<String, OutputCapacity> caps;
+    try {
+      if (refresh() case final setting?) await setting;
+      // Relay finalization holds the outbox relation before releasing capacity.
+      await session.db.unsafeExecute(
+        'LOCK TABLE ONLY outbox IN ROW EXCLUSIVE MODE',
+        transaction: tx,
+        timeoutInSeconds: 5,
+      );
+      if (refresh() case final setting?) await setting;
+      if (beforeCapacityLockForTest case final beforeCapacityLock?) {
+        await beforeCapacityLock(tx);
+        appliedMillis = 0;
+      }
+      caps = await lockOutputCapacity(session, tx, destinations);
+    } catch (error, stack) {
+      _PipelineLockWait.throwFor(error, stack);
+    }
+    final demands = <String, ({int rows, int bytes})>{};
+    final fitting = <String>{};
+    for (final intent in intents) {
+      final id = intent.destination.id;
+      final old = demands[id] ?? (rows: 0, bytes: 0);
+      if (caps[id]!.fits(1, intent.payload.length)) fitting.add(id);
+      demands[id] = (
+        rows: old.rows + 1,
+        bytes: old.bytes + intent.payload.length,
+      );
+    }
+    final blocked = <String, ({int rows, int bytes})>{
+      for (final MapEntry(key: id, value: demand) in demands.entries)
+        if (caps[id]!.blocking && !caps[id]!.fits(demand.rows, demand.bytes))
+          id: demand,
+    };
+    if (blocked.isNotEmpty) throw _OutputDeferral(blocked);
+
+    try {
+      if (refresh() case final setting?) await setting;
+      await lockOutputCommitments(session, tx, raw.pin, destinations);
+      if (fitting.isNotEmpty) {
+        if (refresh() case final setting?) await setting;
+        if (beforeOutboxCountLockForTest case final beforeCountLock?) {
+          await beforeCountLock(tx);
+          appliedMillis = 0;
+        }
+        await session.db.unsafeQuery(
+          'SELECT correlia_lock_outbox_insert(@created,CAST(@outputs AS jsonb))',
+          parameters: QueryParameters.named({
+            'created': created,
+            'outputs': jsonEncode(fitting.toList()),
+          }),
+          transaction: tx,
+          timeoutInSeconds: 5,
+        );
+      }
+    } catch (error, stack) {
+      _PipelineLockWait.throwFor(error, stack);
+    }
+    final ignored = <String, int>{};
+    for (final intent in intents) {
+      final id = intent.destination.id;
+      final bytes = intent.payload.length;
+      if (caps[id]!.take(bytes)) {
+        if (refresh() case final setting?) await setting;
+        if (beforeIntentWriteForTest case final beforeIntentWrite?) {
+          await beforeIntentWrite(tx);
+        }
+        await insertQueueIntent(session, tx, raw.pin, created, intent);
+      } else {
+        ignored[id] = (ignored[id] ?? 0) + 1;
+      }
+    }
+    for (final id in demands.keys) {
+      final cap = caps[id]!;
+      final discarded = ignored[id];
+      if (discarded != null || cap.rows == 0 || cap.bytes == 0) {
+        if (refresh() case final setting?) await setting;
+        await recordOutputOverflow(
+          session,
+          tx,
+          id,
+          created,
+          reason: discarded == null ? 'saturated' : 'discard_new',
+          discarded: discarded ?? 0,
+        );
+      }
+    }
+  }
+
+  // Sync progress must be updated first: pull admission uses that same order.
+  Future<void> _lockPendingCounter(Transaction tx, _Deadline deadline) async {
+    try {
+      await _limits(tx, deadline);
+      // Acquire the write lock before the counter, never while holding it.
+      await session.db.unsafeExecute(
+        'LOCK TABLE ONLY raw_inbox IN ROW EXCLUSIVE MODE',
+        transaction: tx,
+        timeoutInSeconds: 5,
+      );
+      await _limits(tx, deadline);
+      if (beforePendingCounterLockForTest case final beforePending?) {
+        await beforePending(tx);
+      }
+      await session.db.unsafeQuery(
+        'SELECT 1 FROM pipeline_pending WHERE singleton=1 FOR UPDATE',
+        transaction: tx,
+        timeoutInSeconds: 5,
+      );
+    } catch (error, stack) {
+      _PipelineLockWait.throwFor(error, stack);
+    }
+  }
+
+  Future<void> _lockSyncProgress(
+    Transaction tx,
+    _Deadline deadline, {
+    String? sync,
+    String? raw,
+  }) async {
+    await _limits(tx, deadline);
+    try {
+      if (beforeSyncProgressLockForTest case final beforeProgress?) {
+        await beforeProgress(tx);
+      }
+      await session.db.unsafeQuery(
+        '''SELECT 1 FROM icinga2_sync_progress WHERE sync_id=coalesce(@sync::uuid,
+          (SELECT sync_id FROM icinga2_raw_origin WHERE raw_id=@raw::uuid AND origin='sync'))
+        FOR UPDATE''',
+        parameters: QueryParameters.named({'sync': sync, 'raw': raw}),
+        transaction: tx,
+        timeoutInSeconds: 5,
+      );
+    } catch (error, stack) {
+      _PipelineLockWait.throwFor(error, stack);
+    }
+  }
+
+  Future<void> _lockRawPin(Transaction tx, _Deadline deadline, _Raw raw) async {
+    await _limits(tx, deadline);
+    try {
+      if (beforeCapacityLockForTest case final beforeCapacityLock?) {
+        await beforeCapacityLock(tx);
+      }
+      await session.db.unsafeQuery(
+        'SELECT correlia_lock_raw_pin(@pin,@source::uuid)',
+        parameters: QueryParameters.named({
+          'pin': raw.pin,
+          'source': raw.source,
+        }),
+        transaction: tx,
+        timeoutInSeconds: 5,
+      );
+    } catch (error, stack) {
+      _PipelineLockWait.throwFor(error, stack);
+    }
   }
 
   /// Commits one unpinned row's active snapshot before decoding or returning.
@@ -405,17 +643,26 @@ WHERE observed_at=@observed AND raw_id=CAST(@id AS uuid)''',
   /// Processes one pinned eligible row, or returns false when none is eligible.
   Future<bool> processOne() async {
     _Raw? claimed;
+    _OutputDeferral? outputDeferral;
     DecodedBatch? completedBatch;
     final deadline = _Deadline(elapsedForTest);
     MatcherRegexWorker? ownedRegex;
     try {
       final processed = await session.db.transaction((tx) async {
         await _limits(tx, deadline);
+        // A deferral moves behind work that was already eligible.
         final rows = await session.db.unsafeQuery(
-          '''SELECT observed_at,raw_id::text,source_id::text,body,body_sha256,config_snapshot_id
-FROM raw_inbox WHERE status='pending' AND config_snapshot_id IS NOT NULL
-AND (next_attempt_at IS NULL OR next_attempt_at<=@now)
-ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
+          '''WITH claimed AS MATERIALIZED (
+  SELECT observed_at,raw_id,source_id,body,body_sha256,config_snapshot_id,
+    processing_epoch,legacy_failure
+  FROM raw_inbox WHERE status='pending' AND config_snapshot_id IS NOT NULL
+  AND (next_attempt_at IS NULL OR next_attempt_at<=@now)
+  ORDER BY coalesce(next_attempt_at,observed_at),observed_at,raw_id
+  FOR UPDATE SKIP LOCKED LIMIT 1
+)
+SELECT observed_at,raw_id::text,source_id::text,body,body_sha256,config_snapshot_id,
+  processing_epoch,nextval('pipeline_raw_attempt_revision'),legacy_failure
+FROM claimed''',
           parameters: QueryParameters.named({'now': clock().toUtc()}),
           transaction: tx,
           timeoutInSeconds: 5,
@@ -438,6 +685,9 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
           bytes,
           row[4] as String,
           row[5] as String,
+          row[6] as int,
+          row[7] as int,
+          row[8] as bool,
         );
         claimed = raw;
         if (afterClaim case final hook?) await hook();
@@ -468,23 +718,11 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
                 {for (final output in outputRows) output['id'] as String},
               )
             : MatcherDocument.empty;
-        final registry = <String, _Output>{
+        final registry = <String, QueueDestination>{
           for (final output in outputRows)
             if (outputIds.contains(output['id']) ||
                 matcher.outputIds.contains(output['id']))
-              output['id'] as String: switch (output['kind']) {
-                'webhook' => _WebhookOutput(
-                  output['id'] as String,
-                  output['url'] as String,
-                  output['signing_key_ref'] as String,
-                  output['signing_key_commitment'] as String,
-                ),
-                'plugin' => _PluginOutput(
-                  output['id'] as String,
-                  sha256Digest(output),
-                ),
-                _ => throw StateError('Invalid pinned output kind'),
-              },
+              output['id'] as String: QueueDestination.fromSnapshot(output),
         };
         final outputs = [for (final id in outputIds) registry[id]!];
         final mapping = inputs.mapping;
@@ -511,21 +749,43 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
           );
           batch = decoded.batch;
           syncId = decoded.syncId;
+          int? floorMicros;
+          if (raw.replayed && raw.legacyFailure && kind is Icinga2SourceKind) {
+            final floors = await session.db.unsafeQuery(
+              '''
+              SELECT effective_floor FROM pipeline_icinga2_replay_floor
+              WHERE singleton=1 AND isfinite(effective_floor)
+              ''',
+              transaction: tx,
+              timeoutInSeconds: 5,
+            );
+            if (floors.isNotEmpty) {
+              floorMicros =
+                  (floors.single[0]! as DateTime).microsecondsSinceEpoch;
+            }
+          }
           deadline.check();
           for (final event in batch.events) {
             deadline.check();
-            final disposition = classifyEvidence(
-              event.sourceTime!,
-              stream
-                  ? DateTime.fromMicrosecondsSinceEpoch(
-                      event.observedAt.seconds * 1000000 +
-                          event.observedAt.nanos ~/ 1000,
-                      isUtc: true,
-                    )
-                  : raw.observed,
-            );
+            final source = event.sourceTime!;
+            final receipt = stream ? _date(event.observedAt) : raw.observed;
+            var disposition = classifyEvidence(source, receipt);
+            // An item can predate the old fence and still be far ahead of
+            // its own receipt. Count it as late without lifting quarantine.
+            final legacyLate =
+                floorMicros != null &&
+                (source.seconds * 1000000 + source.nanos ~/ 1000 <
+                        floorMicros ||
+                    receipt.microsecondsSinceEpoch +
+                            stateSkewAllowance.inMicroseconds <
+                        floorMicros);
+            if (legacyLate && disposition != EvidenceDisposition.futureDated) {
+              disposition = EvidenceDisposition.late;
+            }
             final data = CloudEvent(event: event).toJsonBytes();
-            prepared.add(_Prepared(event, disposition, data, prepared.length));
+            prepared.add(
+              _Prepared(event, disposition, data, legacyLate, prepared.length),
+            );
           }
         } on EventValidationError catch (error) {
           await _fail(
@@ -579,12 +839,12 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
               EvidenceDisposition.late => StreamEligibility.late,
               EvidenceDisposition.futureDated => StreamEligibility.futureDated,
             };
+            if (item.legacyLate ||
+                (stream && eligibility == StreamEligibility.late)) {
+              late++;
+            }
             if (stream && eligibility != StreamEligibility.ready) {
-              if (eligibility == StreamEligibility.late) {
-                late++;
-              } else {
-                quarantines++;
-              }
+              if (eligibility == StreamEligibility.futureDated) quarantines++;
               if (reconcile) {
                 stateInputs.add(
                   StateInput(
@@ -634,6 +894,9 @@ ON CONFLICT ("eventId") DO NOTHING RETURNING "eventId"''',
               );
               if (key.isEmpty) {
                 duplicates++;
+                // Late evidence cannot refresh an alert, regardless of the
+                // original key's disposition or whether retention removed it.
+                if (item.disposition != EvidenceDisposition.ready) continue;
                 await _limits(tx, deadline);
                 final original = await session.db.unsafeQuery(
                   'SELECT disposition FROM observation_keys WHERE "eventId"=CAST(@event AS uuid)',
@@ -641,11 +904,7 @@ ON CONFLICT ("eventId") DO NOTHING RETURNING "eventId"''',
                   transaction: tx,
                   timeoutInSeconds: 5,
                 );
-                // A duplicate refreshes the alert only when both it and the
-                // original are ready: a late or future-dated redelivery of a
-                // ready observation says nothing about the object's freshness.
-                if (original.single[0] == 'ready' &&
-                    item.disposition == EvidenceDisposition.ready) {
+                if (original.singleOrNull?[0] == 'ready') {
                   stateInputs.add(
                     StateInput(event, duplicate: true, reconcile: reconcile),
                   );
@@ -689,8 +948,25 @@ ON CONFLICT ("eventId") DO NOTHING RETURNING "eventId"''',
             }
           }
 
+          var eventsLocked = false;
           Future<bool> insertEvent(_Retained retained, Uint8List bytes) async {
             final event = retained.item.event;
+            if (!eventsLocked) {
+              await _limits(tx, deadline);
+              try {
+                if (beforeEventWriteForTest case final beforeEventWrite?) {
+                  await beforeEventWrite(tx);
+                }
+                await session.db.unsafeExecute(
+                  'LOCK TABLE ONLY events IN ROW EXCLUSIVE MODE',
+                  transaction: tx,
+                  timeoutInSeconds: 5,
+                );
+              } catch (error, stack) {
+                _PipelineLockWait.throwFor(error, stack);
+              }
+              eventsLocked = true;
+            }
             await _limits(tx, deadline);
             final rows = await session.db.unsafeQuery(
               '''INSERT INTO events
@@ -785,6 +1061,7 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
                   (fanoutLimitForTest ?? pipelineFanoutLimit) - aggregate,
             );
           }
+          final intents = <QueueIntent>[];
           for (final effect in retained) {
             deadline.check();
             final (
@@ -826,7 +1103,7 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
               throw StateError('Eligible event key conflict');
             }
             if (item.disposition == EvidenceDisposition.late) {
-              late++;
+              if (!item.legacyLate) late++;
               continue;
             }
             committed++;
@@ -834,51 +1111,37 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
             if (outputs.isEmpty && addedRoutes.isEmpty) {
               unrouted++;
             }
-            final created = clock().toUtc();
+            if (outputs.isEmpty && addedRoutes.isEmpty) continue;
             final destinations = addedRoutes.isEmpty
                 ? outputs
                 : [...outputs, for (final id in addedRoutes) registry[id]!];
             for (final output in destinations) {
-              await _limits(tx, deadline);
-              await session.db.unsafeExecute(
-                '''INSERT INTO outbox
-(created_at,delivery_id,event_observed_at,event_id,event_disposition,output_id,config_snapshot_id,output_kind,definition_digest,target_url,signing_key_ref,signing_key_commitment,payload)
-VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposition,CAST(@output AS uuid),@pin,@kind,@digest,@url,@ref,@commitment,@payload)''',
-                parameters: QueryParameters.named({
-                  'created': created,
-                  'delivery': const Uuid().v4(),
-                  'observed': observed,
-                  'event': event.eventId,
-                  'disposition': disposition,
-                  'output': output.id,
-                  'pin': raw.pin,
-                  'kind': switch (output) {
-                    _WebhookOutput() => 'webhook',
-                    _PluginOutput() => 'plugin',
-                  },
-                  'digest': switch (output) {
-                    _WebhookOutput() => null,
-                    _PluginOutput(:final digest) => digest,
-                  },
-                  'url': switch (output) {
-                    _WebhookOutput(:final url) => url,
-                    _PluginOutput() => null,
-                  },
-                  'ref': switch (output) {
-                    _WebhookOutput(:final ref) => ref,
-                    _PluginOutput() => null,
-                  },
-                  'commitment': switch (output) {
-                    _WebhookOutput(:final commitment) => commitment,
-                    _PluginOutput() => null,
-                  },
-                  'payload': payload,
-                }),
-                transaction: tx,
-                timeoutInSeconds: 5,
-              );
+              intents.add((
+                observed: observed,
+                event: event.eventId,
+                disposition: disposition,
+                destination: output,
+                payload: payload,
+              ));
             }
           }
+          await _writeIntents(
+            tx,
+            deadline,
+            raw,
+            intents,
+            registry.keys,
+            clock().toUtc(),
+          );
+          // If no intent was emitted, pin release still takes output locks
+          // before the sync-progress and pending-count fences.
+          if (intents.isEmpty) await _lockRawPin(tx, deadline, raw);
+        } on _OutputDeferral catch (error) {
+          outputDeferral = error;
+          await savepoint.rollback();
+          afterOutputRefusalForTest?.call();
+          await _deferOutput(tx, deadline, raw, error);
+          return true;
         } on EventValidationError catch (error) {
           await savepoint.rollback();
           await _fail(
@@ -908,7 +1171,7 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
             transaction: tx,
           );
         }
-        if (syncId != null) {
+        if (syncId != null && !raw.replayed) {
           final counts = {
             'applied': applied,
             'confirmed': confirmed,
@@ -922,6 +1185,7 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
             'clamped': clamped,
             'diverged': diverged,
           };
+          await _lockSyncProgress(tx, deadline, sync: syncId);
           await _limits(tx, deadline);
           final updated = await session.db.unsafeExecute(
             '''UPDATE icinga2_sync_progress AS p
@@ -937,13 +1201,35 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
           );
           if (updated != 1) throw StateError('Missing Icinga sync progress');
           await _finalizeSync(tx, deadline, syncId);
+        }
+        if (reconcile) {
+          // Reconcile is a stream row. Ineligible items increment counters
+          // without storing an event; only a committed ready event keeps raw.
           if (committed == 0) {
+            if (raw.replayed) {
+              await _limits(tx, deadline);
+              await session.db.unsafeExecute(
+                '''
+                INSERT INTO activity (occurred_at,entity_kind,entity_id,entity_version,
+                  change_kind,actor_kind,cause_raw_id)
+                VALUES (@now,'pipeline_failure',0,@count,'replayed_reconcile_no_event','system',@raw::uuid)
+              ''',
+                parameters: QueryParameters.named({
+                  'now': clock().toUtc(),
+                  'raw': raw.id,
+                  'count': batch.events.length + batch.softInfo,
+                }),
+                transaction: tx,
+                timeoutInSeconds: 5,
+              );
+            }
             await _limits(tx, deadline);
             await session.db.unsafeExecute(
               'DELETE FROM icinga2_raw_origin WHERE raw_id=CAST(@raw AS uuid)',
               parameters: QueryParameters.named({'raw': raw.id}),
               transaction: tx,
             );
+            await _lockPendingCounter(tx, deadline);
             await _limits(tx, deadline);
             await session.db.unsafeExecute(
               'DELETE FROM raw_inbox WHERE observed_at=@observed AND raw_id=CAST(@raw AS uuid)',
@@ -957,6 +1243,7 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
             return true;
           }
         }
+        await _lockPendingCounter(tx, deadline);
         await _limits(tx, deadline);
         await session.db.unsafeExecute(
           'UPDATE raw_inbox SET status=\'done\',next_attempt_at=NULL,outcome_json=@outcome WHERE observed_at=@observed AND raw_id=CAST(@raw AS uuid)',
@@ -993,7 +1280,7 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
         completedBatch = batch;
         return true;
       });
-      if (claimed != null) _retryCounts.remove(claimed!.id);
+      if (claimed != null) _retryCounts.remove(claimed!.retryKey);
       final batch = completedBatch;
       if (batch != null &&
           (batch.unknownTopLevelFields.isNotEmpty ||
@@ -1013,11 +1300,69 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
       return processed;
     } catch (error) {
       if (claimed == null) rethrow;
+      if (outputDeferral case final refusal?) {
+        // The original transaction rolled back. Recheck the demand under the
+        // current budgets without charging the processing allowance.
+        await beforeOutputDeferralRetryForTest?.call();
+        final retryDeadline = _Deadline(elapsedForTest);
+        await session.db.transaction(
+          (tx) => _deferOutput(tx, retryDeadline, claimed!, refusal),
+        );
+        return true;
+      }
+      await beforeRecordErrorForTest?.call();
       await _recordError(claimed!, error);
       return true;
     } finally {
       ownedRegex?.close();
     }
+  }
+
+  Future<void> _deferOutput(
+    Transaction tx,
+    _Deadline deadline,
+    _Raw raw,
+    _OutputDeferral refusal,
+  ) async {
+    await _limits(tx, deadline);
+    // A newer claim may have scheduled a different outcome after our rollback.
+    // Fence both replay and newer committed outcomes before touching demands.
+    final scheduled = await session.db.unsafeExecute(
+      '''
+      UPDATE raw_inbox SET next_attempt_at=greatest(next_attempt_at,@next::timestamptz),
+        attempt_revision=@revision
+      WHERE observed_at=@observed AND raw_id=@id::uuid AND status='pending'
+        AND config_snapshot_id=@pin AND processing_epoch=@epoch
+        AND attempt_revision<@revision
+      ''',
+      parameters: QueryParameters.named({
+        'next': clock().toUtc().add(const Duration(seconds: 1)),
+        'observed': raw.observed,
+        'id': raw.id,
+        'pin': raw.pin,
+        'epoch': raw.epoch,
+        'revision': raw.revision,
+      }),
+      transaction: tx,
+      timeoutInSeconds: 5,
+    );
+    if (scheduled == 0) return;
+    await _limits(tx, deadline);
+    await session.db.unsafeQuery(
+      'SELECT correlia_set_raw_output_demands(@observed,@id::uuid,@demands::jsonb,@now)',
+      parameters: QueryParameters.named({
+        'observed': raw.observed,
+        'id': raw.id,
+        'demands': jsonEncode({
+          for (final MapEntry(key: id, value: demand)
+              in refusal.demands.entries)
+            id: [demand.rows, demand.bytes],
+        }),
+        'now': clock().toUtc(),
+      }),
+      transaction: tx,
+      timeoutInSeconds: 5,
+    );
   }
 
   Future<void> _fail(
@@ -1027,22 +1372,53 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
     String code,
     String? path,
   ) async {
+    await _lockRawPin(tx, deadline, raw);
     await _limits(tx, deadline);
-    await session.db.unsafeExecute(
-      '''INSERT INTO pipeline_failures
-("rawObservedAt","rawId","configSnapshotId","errorClass","fieldPath","createdAt")
-VALUES (@observed,CAST(@raw AS uuid),@pin,@code,@path,@now)''',
+    await session.db.unsafeQuery(
+      '''WITH sampled AS MATERIALIZED (SELECT clock_timestamp() AS failed_at),
+failure AS (
+  INSERT INTO pipeline_failures
+    ("rawObservedAt","rawId","configSnapshotId","errorClass","fieldPath","createdAt")
+  SELECT @observed::timestamptz AT TIME ZONE 'UTC',@raw::uuid,@pin,@code,@path,
+    sampled.failed_at AT TIME ZONE 'UTC' FROM sampled RETURNING id
+) SELECT correlia_record_raw_failure(@observed,@raw::uuid,@source::uuid,@pin,@code,@path,sampled.failed_at)
+FROM failure CROSS JOIN sampled''',
       parameters: QueryParameters.named({
         'observed': raw.observed,
         'raw': raw.id,
+        'source': raw.source,
         'pin': raw.pin,
         'code': code,
         'path': path,
-        'now': clock().toUtc(),
       }),
       transaction: tx,
       timeoutInSeconds: 5,
     );
+    if (!raw.replayed) await _lockSyncProgress(tx, deadline, raw: raw.id);
+    await _limits(tx, deadline);
+    final failedSync = await session.db.unsafeQuery(
+      '''WITH admission AS MATERIALIZED (
+          SELECT origin,sync_id FROM icinga2_raw_origin WHERE raw_id=CAST(@raw AS uuid)
+        ), failed_sync AS (
+          UPDATE icinga2_sync_progress AS p SET rows_failed=rows_failed+1
+          FROM admission a WHERE a.origin='sync' AND p.sync_id=a.sync_id AND NOT @replayed
+          RETURNING p.sync_id::text AS sync_id
+        ), request_sync AS (
+          INSERT INTO icinga2_stream_resync ("sourceId","requestSeq")
+          SELECT CAST(@source AS uuid),1 FROM admission WHERE origin='stream'
+          ON CONFLICT ("sourceId") DO UPDATE SET "requestSeq"=icinga2_stream_resync."requestSeq"+1
+        ) SELECT sync_id FROM failed_sync''',
+      parameters: QueryParameters.named({
+        'raw': raw.id,
+        'source': raw.source,
+        'replayed': raw.replayed,
+      }),
+      transaction: tx,
+    );
+    if (failedSync.isNotEmpty) {
+      await _finalizeSync(tx, deadline, failedSync.single[0]! as String);
+    }
+    await _lockPendingCounter(tx, deadline);
     await _limits(tx, deadline);
     await session.db.unsafeExecute(
       "UPDATE raw_inbox SET status='failed',next_attempt_at=NULL WHERE observed_at=@observed AND raw_id=CAST(@raw AS uuid)",
@@ -1053,25 +1429,6 @@ VALUES (@observed,CAST(@raw AS uuid),@pin,@code,@path,@now)''',
       transaction: tx,
       timeoutInSeconds: 5,
     );
-    await _limits(tx, deadline);
-    final failedSync = await session.db.unsafeQuery(
-      '''WITH admission AS MATERIALIZED (
-          SELECT origin,sync_id FROM icinga2_raw_origin WHERE raw_id=CAST(@raw AS uuid)
-        ), failed_sync AS (
-          UPDATE icinga2_sync_progress AS p SET rows_failed=rows_failed+1
-          FROM admission a WHERE a.origin='sync' AND p.sync_id=a.sync_id
-          RETURNING p.sync_id::text AS sync_id
-        ), request_sync AS (
-          INSERT INTO icinga2_stream_resync ("sourceId","requestSeq")
-          SELECT CAST(@source AS uuid),1 FROM admission WHERE origin='stream'
-          ON CONFLICT ("sourceId") DO UPDATE SET "requestSeq"=icinga2_stream_resync."requestSeq"+1
-        ) SELECT sync_id FROM failed_sync''',
-      parameters: QueryParameters.named({'raw': raw.id, 'source': raw.source}),
-      transaction: tx,
-    );
-    if (failedSync.isNotEmpty) {
-      await _finalizeSync(tx, deadline, failedSync.single[0]! as String);
-    }
     deadline.check();
   }
 
@@ -1091,6 +1448,7 @@ VALUES (@observed,CAST(@raw AS uuid),@pin,@code,@path,@now)''',
   Future<void> _recordError(_Raw raw, Object error) async {
     final code = error is DatabaseQueryException ? error.code : null;
     final transient =
+        error is _PipelineLockWait ||
         code == '40001' ||
         code == '40P01' ||
         code == '55P03' ||
@@ -1102,17 +1460,20 @@ VALUES (@observed,CAST(@raw AS uuid),@pin,@code,@path,@now)''',
       await _limits(tx, deadline);
       final rows = await session.db.unsafeQuery(
         '''SELECT attempt_count FROM raw_inbox WHERE observed_at=@observed
-AND raw_id=CAST(@raw AS uuid) AND status='pending' AND config_snapshot_id=@pin FOR UPDATE''',
+AND raw_id=CAST(@raw AS uuid) AND status='pending' AND config_snapshot_id=@pin
+AND processing_epoch=@epoch AND attempt_revision<@revision FOR UPDATE''',
         parameters: QueryParameters.named({
           'observed': raw.observed,
           'raw': raw.id,
           'pin': raw.pin,
+          'epoch': raw.epoch,
+          'revision': raw.revision,
         }),
         transaction: tx,
         timeoutInSeconds: 5,
       );
       if (rows.isEmpty) {
-        _retryCounts.remove(raw.id);
+        _retryCounts.remove(raw.retryKey);
         return false;
       }
       final attempts = (rows.single[0] as int) + (transient ? 0 : 1);
@@ -1129,26 +1490,28 @@ AND raw_id=CAST(@raw AS uuid) AND status='pending' AND config_snapshot_id=@pin F
           timeoutInSeconds: 5,
         );
         await _fail(tx, deadline, raw, 'processing_exhausted', null);
-        _retryCounts.remove(raw.id);
+        _retryCounts.remove(raw.retryKey);
       } else {
         // Only scheduling hints live here; the durable next-attempt time and
         // internal-error budget remain authoritative across eviction/restart.
-        if (!_retryCounts.containsKey(raw.id) && _retryCounts.length >= 64) {
+        final key = raw.retryKey;
+        if (!_retryCounts.containsKey(key) && _retryCounts.length >= 64) {
           _retryCounts.remove(_retryCounts.keys.first);
         }
-        final failures = (_retryCounts[raw.id] ?? 0) + 1;
-        _retryCounts[raw.id] = failures;
+        final failures = (_retryCounts[key] ?? 0) + 1;
+        _retryCounts[key] = failures;
         final seconds = (1 << (failures - 1).clamp(0, 5)).clamp(1, 30);
         final delay = retryDelay?.call(failures) ?? Duration(seconds: seconds);
         await _limits(tx, deadline);
         await session.db.unsafeExecute(
-          '''UPDATE raw_inbox SET attempt_count=@attempts,next_attempt_at=@next
+          '''UPDATE raw_inbox SET attempt_count=@attempts,next_attempt_at=@next,attempt_revision=@revision
 WHERE observed_at=@observed AND raw_id=CAST(@raw AS uuid)''',
           parameters: QueryParameters.named({
             'attempts': attempts,
             'next': clock().toUtc().add(delay),
             'observed': raw.observed,
             'raw': raw.id,
+            'revision': raw.revision,
           }),
           transaction: tx,
           timeoutInSeconds: 5,

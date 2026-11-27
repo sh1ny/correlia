@@ -9,8 +9,7 @@ import 'package:crypto/crypto.dart';
 import 'package:postgres/postgres.dart';
 import 'package:test/test.dart';
 
-import 'package:correlia_server/src/schema/schema_steps.dart'
-    show defaultSchemaLockTimeout;
+import 'package:correlia_server/src/schema/schema_steps.dart' show schemaSteps;
 
 import '../support/child_server.dart';
 import '../support/shared_cluster.dart';
@@ -127,56 +126,36 @@ final class _Upgrade {
     return done.future.timeout(const Duration(seconds: 90));
   }
 
-  /// Starts a server of this release, stops it, and rewinds the database to
-  /// what the release before step 4 left: no column, no function, no version.
-  Future<Connection> prepareBeforeStep4() async {
-    final first = await start();
-    await first.waitUntilReady();
-    expect(await first.closeStdin(), 0);
+  /// Builds the preceding SQL-owned schema on a fresh managed database.
+  Future<Connection> prepareAt(int version) async {
     final connection = await connect();
-    await connection.execute(
-      'DROP FUNCTION events_effective_source_time(events)',
-    );
-    await connection.execute(
-      'ALTER TABLE events DROP COLUMN effective_source_time',
-    );
+    final managed = (await connection.execute(
+      "SELECT to_regclass('serverpod_migrations')::text",
+    )).single[0];
+    if (managed == null) {
+      final registry = File(
+        'migrations/migration_registry.txt',
+      ).readAsLinesSync();
+      final latest = registry.lastWhere(
+        (entry) => entry.isNotEmpty && !entry.startsWith('#'),
+      );
+      await connection.execute(
+        File('migrations/$latest/definition.sql').readAsStringSync(),
+        queryMode: QueryMode.simple,
+      );
+    }
     await connection.runTx((tx) async {
       await tx.execute(
-        'DROP FUNCTION correlia_record_matcher_batch(text, jsonb, uuid, timestamptz)',
+        'CREATE TABLE correlia_schema_versions '
+        '(version integer PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())',
       );
-      await tx.execute(
-        'DROP FUNCTION correlia_record_matcher_failure(text, text, bigint, uuid, timestamptz)',
-      );
-      await tx.execute('DROP TABLE matcher_failure');
-      await tx.execute(
-        'DROP TABLE matcher_content_digest,matcher_content_digest_fill',
-      );
-      await tx.execute(
-        'DROP FUNCTION correlia_retained_output_ids(), correlia_pinned_output_routes()',
-      );
-      await tx.execute('DROP FUNCTION correlia_matcher_data(bytea)');
-      await tx.execute('DROP FUNCTION correlia_event_subject(bytea) CASCADE');
-      await tx.execute(
-        'DROP FUNCTION correlia_enforce_raw_admission_cutoff() CASCADE',
-      );
-      await tx.execute('DROP FUNCTION icinga2_finalize_sync(uuid, boolean)');
-      await tx.execute('DROP TABLE icinga2_sync_progress,raw_admission_cutoff');
-      await tx.execute('ALTER TABLE alerts DROP COLUMN silent_tombstone');
-      await tx.execute(
-        'DROP INDEX raw_pending_receipt_idx,activity_entity_idx,observation_keys_fingerprint_idx,raw_stream_retained_idx',
-      );
-      await tx.execute(
-        'DROP FUNCTION correlia_require_publisher_version() CASCADE',
-      );
-      await tx.execute(
-        'DROP FUNCTION correlia_keep_retired_credential_digest() CASCADE',
-      );
-      await tx.execute(
-        'DROP TABLE secret_reuse_digest,secret_reuse_backfill,secret_reuse_retired_credential,icinga2_raw_origin',
-      );
-      await tx.execute(
-        'DELETE FROM correlia_schema_versions WHERE version >= 4',
-      );
+      for (final step in schemaSteps) {
+        if (step.version > version) break;
+        await tx.execute(step.sql, queryMode: QueryMode.simple);
+        await tx.execute(
+          'INSERT INTO correlia_schema_versions (version) VALUES (${step.version})',
+        );
+      }
     });
     return connection;
   }
@@ -202,50 +181,11 @@ Future<List<int>> _versions(Connection connection) async => [
     row[0]! as int,
 ];
 
-const _currentVersions = [
-  1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, //
-];
+final _currentVersions = [for (final step in schemaSteps) step.version];
 
-/// How long a lock request of another backend of [observer]'s database waits
-/// before it is no longer waiting: from when it is first seen ungranted in
-/// `pg_locks` until it is gone.
-Future<Duration> _lockWait(Connection observer) async {
-  Future<bool> waiting() async =>
-      (await observer.execute(
-            '''SELECT count(*) FROM pg_locks
-               WHERE NOT granted AND pid <> pg_backend_pid()
-                 AND database = (SELECT oid FROM pg_database
-                                 WHERE datname = current_database())''',
-          )).single[0]!
-          as int >
-      0;
-  final deadline = DateTime.now().add(_exitWithin);
-  while (!await waiting()) {
-    if (DateTime.now().isAfter(deadline)) fail('no lock request waited');
-    await Future<void>.delayed(const Duration(milliseconds: 10));
-  }
-  final waited = Stopwatch()..start();
-  while (await waiting()) {
-    if (DateTime.now().isAfter(deadline)) fail('the lock request never ended');
-    await Future<void>.delayed(const Duration(milliseconds: 10));
-  }
-  return waited.elapsed;
-}
-
-/// Asserts that [child]'s schema attempt gave up on its lock after the
-/// injected timeout, well before the production default, then that it exits
-/// non-zero and names [step] and `lock_timeout`.
-Future<void> _expectLockTimeout(
-  ChildServer child,
-  int step,
-  Connection observer,
-) async {
-  final waited = await _lockWait(observer);
-  expect(
-    waited,
-    lessThan(defaultSchemaLockTimeout ~/ 3),
-    reason: 'the injected ${_shortLockTimeoutMs}ms timeout was not applied',
-  );
+/// The conflicting lock stays held until the child reports SQLSTATE 55P03.
+/// Each database fixture checks the timeout inside the lock-taking statement.
+Future<void> _expectLockTimeout(ChildServer child, int step) async {
   final code = await child.exitCode.timeout(_exitWithin);
   expect(code, isNot(0), reason: child.output);
   expect(
@@ -260,16 +200,34 @@ void main() {
     () async {
       final upgrade = await _Upgrade.create();
       try {
-        final connection = await upgrade.prepareBeforeStep4();
+        final connection = await upgrade.prepareAt(3);
+        await connection.execute(
+          '''
+          CREATE FUNCTION check_schema_lock_timeout() RETURNS event_trigger
+          LANGUAGE plpgsql AS \$\$
+          BEGIN
+            IF current_setting('lock_timeout') <> '${_shortLockTimeoutMs}ms' THEN
+              RAISE EXCEPTION 'Unexpected lock_timeout at ALTER TABLE';
+            END IF;
+          END
+          \$\$;
+          CREATE EVENT TRIGGER check_schema_lock_timeout ON ddl_command_start
+            WHEN TAG IN ('ALTER TABLE') EXECUTE FUNCTION check_schema_lock_timeout();
+          ''',
+          queryMode: QueryMode.simple,
+        );
         final blocker = await upgrade.connect();
         await blocker.execute('BEGIN');
         await blocker.execute('LOCK TABLE events IN ACCESS SHARE MODE');
         final blocked = await upgrade.start({
           'CORRELIA_TEST_SCHEMA_LOCK_TIMEOUT_MS': _shortLockTimeoutMs,
         });
-        await _expectLockTimeout(blocked, 4, connection);
+        await _expectLockTimeout(blocked, 4);
         expect(await _versions(connection), [1, 2, 3]);
         await blocker.execute('ROLLBACK');
+        await connection.execute(
+          'DROP EVENT TRIGGER check_schema_lock_timeout',
+        );
         final restarted = await upgrade.start();
         await restarted.waitUntilReady();
         expect(await _versions(connection), _currentVersions);
@@ -285,19 +243,35 @@ void main() {
     () async {
       final upgrade = await _Upgrade.create();
       try {
-        final connection = await upgrade.prepareBeforeStep4();
+        final connection = await upgrade.prepareAt(3);
+        // The runner passes an integer literal. Verify the GUC immediately
+        // before handing that lock to PostgreSQL's bigint overload.
+        await connection.execute('''
+          CREATE FUNCTION pg_advisory_xact_lock(integer) RETURNS void
+          LANGUAGE plpgsql AS \$\$
+          BEGIN
+            IF current_setting('lock_timeout') <> '${_shortLockTimeoutMs}ms' THEN
+              RAISE EXCEPTION 'Unexpected lock_timeout at advisory lock';
+            END IF;
+            PERFORM pg_catalog.pg_advisory_xact_lock(\$1::bigint);
+          END
+          \$\$
+          ''');
         final other = await upgrade.connect();
         await other.execute('BEGIN');
         await other.execute(
-          'SELECT pg_advisory_xact_lock($_schemaAdvisoryLock)',
+          'SELECT pg_catalog.pg_advisory_xact_lock($_schemaAdvisoryLock::bigint)',
         );
         final blocked = await upgrade.start({
           'CORRELIA_TEST_SCHEMA_LOCK_TIMEOUT_MS': _shortLockTimeoutMs,
         });
         // The first transaction of the runner waits for the advisory lock.
-        await _expectLockTimeout(blocked, 0, connection);
+        await _expectLockTimeout(blocked, 0);
         expect(await _versions(connection), [1, 2, 3]);
         await other.execute('ROLLBACK');
+        await connection.execute(
+          'DROP FUNCTION pg_advisory_xact_lock(integer)',
+        );
         final restarted = await upgrade.start();
         await restarted.waitUntilReady();
         expect(await _versions(connection), _currentVersions);
@@ -313,11 +287,7 @@ void main() {
     () async {
       final upgrade = await _Upgrade.create();
       try {
-        // The older release is simulated by the rewound schema: no older
-        // process exists to run, so every process has stopped before the
-        // upgraded ones start.
-        final connection = await upgrade.prepareBeforeStep4();
-        expect(upgrade.children.every((child) => child.hasExited), isTrue);
+        final connection = await upgrade.prepareAt(3);
         final observed = DateTime.now().toUtc();
         for (final name in ['PendingOne', 'PendingTwo']) {
           final body = utf8.encode(
@@ -375,28 +345,11 @@ void main() {
     () async {
       final upgrade = await _Upgrade.create();
       addTearDown(upgrade.dispose);
-      final first = await upgrade.start();
-      await first.waitUntilReady();
-      expect(await first.closeStdin(), 0);
-      final connection = await upgrade.connect();
+      final connection = await upgrade.prepareAt(10);
       final indexOid = (await connection.execute(
         "SELECT 'events_subject_idx'::regclass::oid::bigint",
       )).single[0];
-      // Restore the version-10 function in place, leaving its index intact.
-      await connection.runTx((tx) async {
-        await tx.execute('''
-CREATE OR REPLACE FUNCTION correlia_event_subject(value bytea) RETURNS text
-LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE
-RETURN convert_from(value, 'UTF8')::jsonb->>'subject'
-''');
-        await tx.execute(
-          'DELETE FROM correlia_schema_versions WHERE version = 11',
-        );
-      });
-      expect(
-        await _versions(connection),
-        _currentVersions.where((v) => v != 11),
-      );
+      expect(await _versions(connection), List.generate(10, (i) => i + 1));
 
       final oldSubject = 'a' * 64;
       final newSubject = 'b' * 64;
@@ -436,7 +389,9 @@ VALUES
       expect(await _versions(connection), _currentVersions);
       expect(
         (await connection.execute(
-          "SELECT 'events_subject_idx'::regclass::oid::bigint",
+          "SELECT inhrelid::bigint FROM pg_inherits "
+          "WHERE inhparent = 'events_subject_idx'::regclass "
+          "AND inhrelid = 'legacy_events_subject_idx'::regclass",
         )).single[0],
         indexOid,
       );

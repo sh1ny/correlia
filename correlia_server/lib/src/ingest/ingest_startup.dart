@@ -30,6 +30,9 @@ final class IngestStartup extends Subsystem {
   /// The process-local resolver shared by runtime consumers.
   SecretResolver? resolver;
 
+  /// The encrypted store used inside operator replay transactions.
+  SecretStore? secretStore;
+
   /// The lookup limit shared by ingress and the secret store.
   final lookupGate = SecretLookupGate();
 
@@ -46,7 +49,11 @@ final class IngestStartup extends Subsystem {
     ready = false;
     final keyPath = environment['CORRELIA_SECRET_KEY_FILE'];
     final configured = environment['CORRELIA_INGEST_CONFIG'] != null;
-    final store = configured
+    final operatorStore =
+        role == ProcessRole.api &&
+        keyPath != null &&
+        environment['CORRELIA_DEAD_LETTER_CREDENTIALS_FILE'] != null;
+    final store = configured || operatorStore
         ? SecretStore(
             await loadSecretKey(
               keyPath ??
@@ -77,10 +84,10 @@ final class IngestStartup extends Subsystem {
       if (input == null && role != ProcessRole.api) {
         await repository.validateWithoutBootstrap();
       }
-      resolver = store == null
+      resolver = input == null
           ? null
           : SecretResolver(
-              store: store,
+              store: store!,
               openSession: () => pod.createSession(enableLogging: false),
               log: log,
               gate: lookupGate,
@@ -93,6 +100,7 @@ final class IngestStartup extends Subsystem {
         ]);
       }
       bootstrap = input?.withoutImport();
+      secretStore = store;
       ready = true;
     } finally {
       await session.close();
@@ -102,6 +110,7 @@ final class IngestStartup extends Subsystem {
   @override
   Future<void> stop() async {
     ready = false;
+    secretStore = null;
   }
 }
 

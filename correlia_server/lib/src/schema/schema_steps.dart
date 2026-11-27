@@ -34,6 +34,11 @@ enum SchemaFailureClass {
 /// How long a schema transaction waits for any lock in production.
 const defaultSchemaLockTimeout = Duration(seconds: 30);
 
+/// Maximum client wait for the offline partition script unless overridden.
+const defaultPartitionCutoverTimeoutSeconds = 3600;
+
+const _partitionCutoverVersion = 18;
+
 /// A sanitized schema initialization failure.
 final class SchemaStepException implements Exception {
   /// Creates a failure identifying only its step and failure class.
@@ -103,6 +108,10 @@ List<SchemaStep> get schemaSteps => [
     17,
     File('schema/0017_matcher_digest_snapshot_fk.sql').readAsStringSync(),
   ),
+  SchemaStep(
+    _partitionCutoverVersion,
+    File('schema/0018_pipeline_partitions.sql').readAsStringSync(),
+  ),
 ];
 
 /// Installs the publisher-version trigger and backfill boundaries in one
@@ -123,12 +132,14 @@ SchemaStep get _publisherVersion2 => SchemaStep(
 /// Every transaction first sets `lock_timeout` to [lockTimeout], so waiting
 /// behind another starter or for a lock on a table fails with
 /// [SchemaFailureClass.lockTimeout] and records nothing.
+/// [partitionCutoverTimeoutSeconds] applies only to the offline partition SQL.
 ///
 /// The caller must provide a session not already bound to a transaction.
 Future<void> applySchemaSteps(
   Session session,
   List<SchemaStep> steps, {
   Duration lockTimeout = defaultSchemaLockTimeout,
+  int partitionCutoverTimeoutSeconds = defaultPartitionCutoverTimeoutSeconds,
   Future<void> Function(Transaction, SchemaStep)? beforeStepForTest,
   int? stepTimeoutInSecondsForTest,
 }) async {
@@ -170,7 +181,11 @@ Future<void> applySchemaSteps(
         await session.db.unsafeSimpleExecute(
           step.sql,
           transaction: transaction,
-          timeoutInSeconds: stepTimeoutInSecondsForTest,
+          timeoutInSeconds:
+              stepTimeoutInSecondsForTest ??
+              (step.version == _partitionCutoverVersion
+                  ? partitionCutoverTimeoutSeconds
+                  : null),
         );
         await session.db.unsafeExecute(
           'INSERT INTO correlia_schema_versions (version) VALUES (@version)',
@@ -206,6 +221,7 @@ Future<void> initializeSchema(
   void Function(int rows)? onFillPageForTest,
   Future<void> Function(int inserted)? afterFillInsertForTest,
   Future<void> Function()? beforeFillCompletionForTest,
+  int partitionCutoverTimeoutSeconds = defaultPartitionCutoverTimeoutSeconds,
   Future<void> Function(Transaction, bool)? beforeBackfillWriteForTest,
   int? backfillWriteTimeoutInSecondsForTest,
 }) async {
@@ -215,7 +231,12 @@ Future<void> initializeSchema(
   } catch (_) {
     throw const SchemaStepException(1);
   }
-  await applySchemaSteps(session, steps, lockTimeout: lockTimeout);
+  await applySchemaSteps(
+    session,
+    steps,
+    lockTimeout: lockTimeout,
+    partitionCutoverTimeoutSeconds: partitionCutoverTimeoutSeconds,
+  );
   await backfillSecretReuse(
     session,
     beforeWriteForTest: beforeBackfillWriteForTest,
