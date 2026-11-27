@@ -87,7 +87,8 @@ final class DecodeInputs {
        excludedLabels = const [],
        stream = false,
        admission = null,
-       admissionFailure = null;
+       admissionFailure = null,
+       envelope = null;
 
   /// Creates inputs for a decodable row.
   const DecodeInputs({
@@ -104,6 +105,7 @@ final class DecodeInputs {
     required this.stream,
     required this.admission,
     this.admissionFailure,
+    this.envelope,
   }) : rejection = null;
 
   /// The row being decoded.
@@ -151,6 +153,14 @@ final class DecodeInputs {
   /// [decodeRow] throws it only after the row's own format is validated, so a
   /// row in an unknown format still fails with `unsupported_format`.
   final InvalidStoredSettings? admissionFailure;
+
+  /// The parsed envelope of a stream row, or `null` when the row is not a
+  /// stream row or its envelope does not parse.
+  ///
+  /// [decodeRow] reuses it for the same bytes instead of parsing them again;
+  /// when it is `null`, [decodeRow] parses the bytes and so throws the
+  /// envelope's own error.
+  final IcingaStreamRow? envelope;
 }
 
 /// The result of decoding one raw row.
@@ -288,7 +298,8 @@ Future<DecodeInputs> _readDecodeInputs(
   // A row whose envelope does not parse fails with that error in decodeRow,
   // so its admission metadata is not read: an unavailable admission read
   // must not turn the row's own format error into a retry.
-  if (stream && _streamEnvelopeParses(bytes)) {
+  final envelope = stream ? _parseStreamEnvelope(bytes) : null;
+  if (envelope != null) {
     // The admission snapshot is read as text and decoded here: a U+0000
     // escape elsewhere in it cannot become jsonb, and a failed cast would hide
     // the row's own format error. When it is the pin itself, the document
@@ -360,16 +371,16 @@ Future<DecodeInputs> _readDecodeInputs(
     stream: stream,
     admission: admission,
     admissionFailure: admissionFailure,
+    envelope: envelope,
   );
 }
 
-/// Whether [bytes] hold an Icinga2 stream envelope that [decodeRow] reads.
-bool _streamEnvelopeParses(Uint8List bytes) {
+/// The Icinga2 stream envelope in [bytes], or `null` when it does not parse.
+IcingaStreamRow? _parseStreamEnvelope(Uint8List bytes) {
   try {
-    IcingaStreamRow.parse(bytes);
-    return true;
+    return IcingaStreamRow.parse(bytes);
   } on EventValidationError {
-    return false;
+    return null;
   }
 }
 
@@ -382,6 +393,9 @@ bool _streamEnvelopeParses(Uint8List bytes) {
 /// row in a known format was admitted under a snapshot that is not JSON or
 /// that lists the row's source more than once, and a
 /// [StateError] when [inputs] carries a [DecodeInputs.rejection].
+///
+/// [bytes] must be the bytes [inputs] were read for: a stream row's envelope
+/// is the one [readDecodeInputs] already parsed from them.
 DecodedRow decodeRow(
   DecodeInputs inputs,
   Uint8List bytes, {
@@ -408,7 +422,7 @@ DecodedRow decodeRow(
     configVersion: inputs.pin,
   );
   if (inputs.stream) {
-    final envelope = IcingaStreamRow.parse(request.bytes);
+    final envelope = inputs.envelope ?? IcingaStreamRow.parse(request.bytes);
     if (inputs.admissionFailure case final failure?) throw failure;
     final admission = inputs.admission;
     if (admission == null) {
