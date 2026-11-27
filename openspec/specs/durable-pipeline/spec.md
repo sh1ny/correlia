@@ -107,7 +107,7 @@ Only api/all SHALL mount ingest routes; only worker/all SHALL process inbox and 
 
 The pipeline SHALL decode a raw row with the decoder of its pinned source's kind and, for an `icinga2` source in
 mode `event_streams`, of the row's stored format. A `generic` row SHALL use its pinned snapshot's mapping on every
-retry; decoding with a later mapping is operator replay, outside automatic retry and deferred to M2 change 7.
+retry; decoding with a later mapping is operator replay, outside automatic retry and deferred to the M2 change `dead-letters-backpressure-and-retention`.
 A kind or format with no decoder SHALL fail the row with a bounded error, never fall back to another decoder.
 
 #### Scenario: Two kinds in one batch
@@ -312,3 +312,19 @@ taken from the sender's body.
 #### Scenario: Multibyte segment at the path bound
 - **WHEN** a failing path's next mapping-named segment holds multibyte or `~1`-escaped characters that would cross 256 bytes
 - **THEN** the stored path ends before that segment, and no character or escape is split
+
+### Requirement: The earliest same-ID member of a batch is the candidate
+
+The existing same-ID check SHALL admit, for each event ID in a raw batch, the first item in input order that reaches it. Each stream item SHALL still be classified and counted by its own receipt time before that check, and later same-ID items SHALL count as duplicates as today.
+
+#### Scenario: First input member is the candidate
+- **WHEN** a raw batch of more than 32 members, large enough that the previous unstable sort reorders equal IDs, holds two deliverable alerts with the same event ID that differ only in an annotation
+- **THEN** the stored and delivered event carries the annotation of the first of the two in input order
+
+#### Scenario: Reversed input order
+- **WHEN** the same batch arrives with the two alerts in reverse order, in a database that has not seen their observation key
+- **THEN** the stored and delivered event carries the annotation of the alert that is now first
+
+#### Scenario: Stream copies straddle the future limit
+- **WHEN** an Icinga2 stream batch holds two copies of one check result, the first received past the future limit and the second within it
+- **THEN** the first is counted as future-dated, and the second is stored and delivered
