@@ -1230,6 +1230,45 @@ DELETE FROM correlia_schema_versions WHERE version IN (15, 16, 17)''',
         },
       );
 
+      test('a_retained_reconciliation_event', () async {
+        final snapshot = await publishStreamDb(
+          session,
+          matcher: _matcher([
+            _rule(
+              'sync',
+              {'field': 'summary', 'op': 'regex', 'value': 'stream-service'},
+              [_label('hit', 'yes')],
+            ),
+          ]),
+        );
+        await session.db.unsafeExecute('''
+INSERT INTO icinga2_sync_progress(sync_id,source_id,phase,rows_admitted,started_at)
+VALUES ('$streamDbSyncId','$icinga2DbSourceId','reading',1,now())''');
+        // A Service object read by reconciliation, with no alert before it.
+        final raw = await seedStreamDb(session, snapshot, [
+          streamDbCheck(
+            streamDbNow.subtract(const Duration(seconds: 30)),
+            sync: true,
+          ),
+        ], sync: true);
+        await processIcinga2(session, streamDbNow);
+        final stored = await only();
+        expect(
+          (await session.db.unsafeQuery(
+            'SELECT raw_id::text FROM events',
+          )).single[0],
+          raw,
+        );
+        final result = await _simulateStored(session, stored);
+        // The row decodes again through the Host/Service decoder: the live
+        // decoder would reject its lines, and no member would be found.
+        expect(result.error, isNull);
+        expect(result.eventKind, 'alert');
+        expect(_outcomes(result), ['matched']);
+        expect(result.finalLabelMap, containsPair('hit', 'yes'));
+        expect(result.storedLabelMap, containsPair('hit', 'yes'));
+      });
+
       test('routes_for_an_ineligible_event_are_hypothetical', () async {
         const output = '99999999-9999-4999-8999-999999999999';
         final snapshot = await publishStreamDb(

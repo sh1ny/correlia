@@ -284,13 +284,16 @@ Future<DecodeInputs> _readDecodeInputs(
   if (stream) {
     // The admission snapshot is read as text and decoded here: a U+0000
     // escape elsewhere in it cannot become jsonb, and a failed cast would hide
-    // the row's own format error.
+    // the row's own format error. When it is the pin itself, the document
+    // already parsed above is reused and its text is not read again.
     final admitted = await session.db.unsafeQuery(
-      '''SELECT o.origin, o.sync_id::text, c."publicJson", c."snapshotId"
+      '''SELECT o.origin, o.sync_id::text,
+          CASE WHEN c."snapshotId"=@pin THEN NULL ELSE c."publicJson" END,
+          c."snapshotId"
         FROM icinga2_raw_origin o
         JOIN ingest_config_snapshot c ON c."snapshotId"=o.admission_snapshot_id
         WHERE o.raw_id=CAST(@raw AS uuid)''',
-      parameters: QueryParameters.named({'raw': rawKey.rawId}),
+      parameters: QueryParameters.named({'raw': rawKey.rawId, 'pin': pin}),
       transaction: tx,
       timeoutInSeconds: 5,
     );
@@ -298,7 +301,9 @@ Future<DecodeInputs> _readDecodeInputs(
       final metadata = admitted.single;
       Object? document;
       try {
-        document = jsonDecode(metadata[2]! as String);
+        document = metadata[3] == pin
+            ? snapshot
+            : jsonDecode(metadata[2]! as String);
       } on FormatException catch (error) {
         admissionFailure = InvalidStoredSettings(
           metadata[3]! as String,
