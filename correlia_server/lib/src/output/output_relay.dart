@@ -588,7 +588,7 @@ final class OutputRelayRepository {
     String? after,
   ) async => (await session.db.unsafeQuery(
     '''SELECT created_at,delivery_id::text,claim_id::text,attempt_count,retry_base,
-       clock_timestamp(),output_id::text FROM outbox
+       output_id::text FROM outbox
        WHERE status='delivering'
          AND lease_until<=coalesce(@now::timestamptz,statement_timestamp())
          ${after == null ? '' : 'AND output_id>@after::uuid'}
@@ -616,37 +616,36 @@ final class OutputRelayRepository {
       }
       // Advance before finalization: a lock timeout rolls back DB work, not
       // this process-local scheduling hint. The expired claim stays durable.
-      _recoveryAfter = row[6]! as String;
+      _recoveryAfter = row[5]! as String;
       await afterLockForTest?.call(tx);
       final number = row[3] as int;
       final attemptsThisCycle = number - (row[4] as int);
       final status = attemptsThisCycle >= 20 ? 'dead' : 'queued';
       final delay = math.min(300, 1 << math.min(19, attemptsThisCycle - 1));
+      // Sample once when applying the transition, not when selecting the lease.
       await session.db.unsafeExecute(
-        '''UPDATE delivery_attempts SET "finishedAt"=@finished::timestamptz AT TIME ZONE 'UTC',outcome='interrupted',"errorClass"='interrupted'
-        WHERE "outboxCreatedAt"=@created AND "deliveryId"=CAST(@id AS uuid) AND "claimId"=CAST(@claim AS uuid) AND "attemptNumber"=@number AND outcome='started' ''',
-        parameters: QueryParameters.named({
-          'created': row[0],
-          'id': row[1],
-          'claim': row[2],
-          'number': number,
-          'finished': row[5],
-        }),
-        transaction: tx,
-        timeoutInSeconds: 5,
-      );
-      await session.db.unsafeExecute(
-        '''UPDATE outbox SET status=@status,claim_id=NULL,lease_until=NULL,
-        next_attempt_at=CASE WHEN @status='queued' THEN @finished::timestamptz+@delay*interval '1 second' ELSE NULL END,
-        dead_reason=CASE WHEN @status='dead' THEN 'interrupted' ELSE NULL END
-        WHERE created_at=@created AND delivery_id=CAST(@id AS uuid) AND claim_id=CAST(@claim AS uuid)''',
+        '''WITH sampled AS MATERIALIZED (SELECT clock_timestamp() AS finished),
+        recovered AS (
+          UPDATE outbox SET status=@status,claim_id=NULL,lease_until=NULL,
+            next_attempt_at=CASE WHEN @status='queued'
+              THEN sampled.finished+@delay*interval '1 second' ELSE NULL END,
+            dead_reason=CASE WHEN @status='dead' THEN 'interrupted' ELSE NULL END
+          FROM sampled
+          WHERE created_at=@created AND delivery_id=@id::uuid AND claim_id=@claim::uuid
+          RETURNING sampled.finished
+        )
+        UPDATE delivery_attempts SET "finishedAt"=recovered.finished AT TIME ZONE 'UTC',
+          outcome='interrupted',"errorClass"='interrupted'
+        FROM recovered
+        WHERE "outboxCreatedAt"=@created AND "deliveryId"=@id::uuid AND "claimId"=@claim::uuid
+          AND "attemptNumber"=@number AND outcome='started' ''',
         parameters: QueryParameters.named({
           'created': row[0],
           'id': row[1],
           'claim': row[2],
           'status': status,
           'delay': delay,
-          'finished': row[5],
+          'number': number,
         }),
         transaction: tx,
         timeoutInSeconds: 5,

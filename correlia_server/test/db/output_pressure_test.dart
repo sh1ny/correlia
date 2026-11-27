@@ -1510,6 +1510,60 @@ void main() {
         expect(await raw.count(session, 'alerts'), 2);
       });
 
+      test('notice_skips_locked_capacity_without_retrying_it', () async {
+        const third = '44444444-4444-4444-8444-444444444444';
+        await _publish(
+          session,
+          1,
+          outputs: [_first, _second, third],
+          routes: [_first],
+          budgets: {
+            _first: {'max_rows': 1},
+          },
+        );
+        await _process(session, ['notice-with-busy-destination']);
+        expect(await notices(), 1);
+        final locker = builder.build();
+        final locked = Completer<void>();
+        final release = ContentionGate();
+        final holding = release.run(
+          () => locker.db.transaction((tx) async {
+            await locker.db.unsafeQuery('''
+              SELECT 1 FROM pipeline_output_capacity WHERE output_id='$_second'
+              FOR UPDATE
+            ''', transaction: tx);
+            locked.complete();
+            await release.future;
+          }),
+        );
+        try {
+          await Future.any([
+            locked.future,
+            holding.then<void>((_) => fail('Capacity lock was not held')),
+          ]);
+          expect(await OverflowNotices(session).routeOne(), isTrue);
+          expect(await _intents(session), {_first: 1, third: 1});
+          verifyEvidence((await noticePayload(third)).single);
+          final occurrence = (await session.db.unsafeQuery('''
+            SELECT activity_id,handled FROM pipeline_overflow_notice
+          ''')).single;
+          expect(occurrence[1], isTrue);
+          final status = await QueueOperations(session).status();
+          expect(
+            status.outputs
+                .singleWhere((output) => output.outputId == _first)
+                .overflowActivityId,
+            occurrence[0],
+          );
+        } finally {
+          await release.join();
+        }
+        expect(await OverflowNotices(builder.build()).routeOne(), isFalse);
+        expect(await notices(), 1);
+        expect(await _intents(session), {_first: 1, third: 1});
+        expect(await noticePayload(_second), isEmpty);
+      });
+
       test('full_notice_destinations_do_not_enqueue_or_recurse', () async {
         final snapshot = await _publish(
           session,

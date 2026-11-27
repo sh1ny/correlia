@@ -55,17 +55,20 @@ final class OutputCapacity {
 }
 
 /// Locks output budgets in the same order as config publication and replay.
+///
+/// Only one-shot overflow notices skip locked capacity rows.
 Future<Map<String, OutputCapacity>> lockOutputCapacity(
   Session session,
   Transaction tx,
-  Iterable<String> outputs,
-) async => {
+  Iterable<String> outputs, {
+  bool skipLocked = false,
+}) async => {
   for (final row in await session.db.unsafeQuery(
     '''SELECT output_id::text,max_rows-used_rows,max_payload_bytes-used_bytes,
        overflow_policy='block_ingest'
        FROM pipeline_output_capacity WHERE output_id IN (
          SELECT value::uuid FROM jsonb_array_elements_text(@outputs::jsonb))
-       ORDER BY output_id FOR UPDATE''',
+       ORDER BY output_id FOR UPDATE ${skipLocked ? 'SKIP LOCKED' : ''}''',
     parameters: QueryParameters.named({
       'outputs': jsonEncode(outputs.toList()),
     }),

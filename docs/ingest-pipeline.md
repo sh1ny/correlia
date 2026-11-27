@@ -295,10 +295,11 @@ an outbox partition count, does not spend a processing attempt.
 
 An output opens one overflow episode per period of saturation or refusal. The activity
 ledger records the episode before the worker tries to route a sanitized Correlia alert to
-the other active outputs. Each destination must have room. The notice does not alter alert
-state, does not generate another notice and carries only a reference and hash of its stored
-ledger evidence, not sender data. The ledger still shows the episode when none of the
-other outputs can take the alert.
+the other active outputs. Routing tries once: it skips a destination if its capacity row is
+locked or it has no room. Skipped destinations do not receive the same notice later. The
+notice does not alter alert state or generate another notice. It carries a reference and hash
+of its ledger evidence, not sender data. The ledger shows the episode even when no other
+output can take the notice.
 Notice routing and expired-lease recovery each run one transaction at a time. Neither blocks
 delivery discovery. Lease recovery rotates between outputs, even when one attempt times out
 waiting for a lock. A change to either overflow policy's budget can open an episode even when

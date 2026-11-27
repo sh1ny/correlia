@@ -103,10 +103,11 @@ final class OverflowNotices {
       session,
       tx,
       destinations.map((d) => d.id),
+      skipLocked: true,
     );
     final fitting = [
       for (final dest in destinations)
-        if (caps[dest.id]!.fits(1, payload.length)) dest,
+        if (caps[dest.id]?.fits(1, payload.length) ?? false) dest,
     ];
     if (fitting.isNotEmpty) {
       await session.db.unsafeExecute(
