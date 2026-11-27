@@ -50,14 +50,11 @@ Admission SHALL check a live transport or pull-batch receipt before rejecting ne
 
 ### Requirement: New raw admissions honor the reclamation cutoff
 
-The durable admission cutoff SHALL advance monotonically with reclamation and fence all new raw inserts.
-Receipts below it SHALL roll back admission. Consumer rows SHALL use their earliest item receipt.
-An exact webhook retry with a retained reservation and a receipt within its transport window SHALL
-return the committed result without inserting. A retained batch receipt SHALL also return the
-committed result without inserting. A live explicit key with a different body SHALL still return 409.
-Terminal rows below the cutoff SHALL NOT be requeued except through authorized replay of an eligible
-retained raw failure. Such replay SHALL keep the original receipt and SHALL NOT insert a new raw row
-or transport reservation. The dead-letter replay eligibility, capacity and ordering rules still apply.
+The durable admission cutoff SHALL only advance. New admissions below it SHALL roll back.
+Consumer batches SHALL use their earliest item receipt. An exact webhook retry with a receipt
+inside a retained reservation's window SHALL return the committed result without inserting,
+as SHALL a retry with a retained batch receipt. A live explicit key with changed bytes SHALL
+return 409. Below the cutoff, only authorized replay MAY requeue an eligible terminal raw row.
 
 #### Scenario: Webhook reaches admission after its receipt falls behind the cutoff
 - **WHEN** a valid webhook read began before the cutoff and attempts a new admission after the cutoff advances past its receipt
@@ -85,4 +82,5 @@ or transport reservation. The dead-letter replay eligibility, capacity and order
 
 #### Scenario: Operator replays a retained failure behind the cutoff
 - **WHEN** an authorized operator replays an eligible retained raw failure whose original receipt is below the admission cutoff
-- **THEN** the existing row is requeued with its original raw ID and receipt; neither a new raw row nor a transport reservation is inserted
+- **THEN** the existing row is requeued with its original raw ID and receipt; neither a new raw row nor a transport reservation is inserted.
+  The dead-letter eligibility, capacity and ordering rules still apply.
