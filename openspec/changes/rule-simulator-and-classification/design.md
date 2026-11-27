@@ -91,7 +91,7 @@ Line citations in Context are to `main` before this change (commit `1bfa471`).
 - **Read-only console endpoint pattern.** `ConsoleAccessPolicy.check`, then a helper reading the
   active snapshot (`endpoints/mapping_preview_endpoint.dart:20-31`, `ingest/mapping_preview.dart:37-46`).
 - **Kinds.** Icinga2 webhook (`ingest/icinga2/mapper.dart:33-46`). Event Streams: a state change is
-  `alert`, but a non-OK SOFT state under `hard_only` yields no event
+  `alert`, but a SOFT state other than `OK` or `UP` under `hard_only` yields no event
   (`ingest/icinga2/stream/decoder.dart:241-255`); acknowledgements, downtimes and flapping are `ack`,
   `downtime` and `state`, and other types are `unsupported_type` (`stream/decoder.dart:289-324`).
   Alertmanager (`ingest/alertmanager_decoder.dart:264`) and generic (`ingest/generic_decoder.dart:190`)

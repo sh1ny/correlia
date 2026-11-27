@@ -21,7 +21,7 @@ Each event's canonical `kind` SHALL be set only by its source's decoder, per the
 
 #### Scenario: Icinga2 Event Streams kinds under each state policy
 - **WHEN** golden Event Streams fixtures are normalized under `hard_only` and under `soft_and_hard`
-- **THEN** state changes are `alert`, except that a non-OK SOFT state under `hard_only` produces no event; acknowledgements are `ack`, downtimes `downtime` and flapping changes `state`; and an Event Streams comment type is rejected as `unsupported_type`
+- **THEN** state changes are `alert`, except that a SOFT state other than `OK` or `UP` under `hard_only` produces no event; acknowledgements are `ack`, downtimes `downtime` and flapping changes `state`; and an Event Streams comment type is rejected as `unsupported_type`
 
 #### Scenario: A label named kind does not change kind
 - **WHEN** a rule sets the label `kind` to `heartbeat` on an Alertmanager event

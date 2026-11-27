@@ -380,13 +380,13 @@ Icinga 2 webhook table in [Mapping](#mapping) gives the kind for each notificati
 | Alertmanager | each alert, firing or resolved | `alert` |
 | Generic webhook | each mapped alert | `alert` |
 | Icinga 2 Event Streams | `StateChange`, HARD or `soft_and_hard`, any state; SOFT recovery under `hard_only` | `alert` |
-| Icinga 2 Event Streams | `StateChange`, SOFT non-OK under `hard_only` | no event; a lag observation only |
+| Icinga 2 Event Streams | `StateChange`, SOFT state other than `OK` or `UP` under `hard_only` | no event; a lag observation only |
 | Icinga 2 Event Streams | `AcknowledgementSet`, `AcknowledgementCleared` | `ack` |
 | Icinga 2 Event Streams | `DowntimeStarted`, `DowntimeRemoved` | `downtime` |
 | Icinga 2 Event Streams | `Flapping` | `state` |
 | Icinga 2 Event Streams | any other live stream type | rejected with `unsupported_type` at `type` |
 | Icinga 2 reconciliation (sync) | `Host` or `Service` object, HARD or `soft_and_hard`, any state; SOFT recovery under `hard_only` | `alert` |
-| Icinga 2 reconciliation (sync) | `Host` or `Service` object, SOFT non-OK under `hard_only` | no event |
+| Icinga 2 reconciliation (sync) | `Host` or `Service` object, SOFT state other than `OK` or `UP` under `hard_only` | no event |
 | Icinga 2 reconciliation (sync) | any other object type | rejected with `unsupported_type` at `type` |
 
 A `classify` action (see above) adds the noise class hint on top of the kind; it never replaces it.
@@ -796,7 +796,7 @@ state it carries.
 | `PROBLEM` or `RECOVERY`, HARD `DOWN` or `UNREACHABLE` or `CRITICAL` | `alert` | `firing` | `critical` |
 | `PROBLEM` or `RECOVERY`, HARD `WARNING` | `alert` | `firing` | `warning` |
 | `PROBLEM` or `RECOVERY`, HARD `UNKNOWN` | `alert` | `firing` | `unknown` |
-| `PROBLEM` or `RECOVERY`, SOFT non-OK state | `state` | `info` | `info` |
+| `PROBLEM` or `RECOVERY`, SOFT state other than `OK` or `UP` | `state` | `info` | `info` |
 | `ACKNOWLEDGEMENT` | `ack` | `info` | `info` |
 | `DOWNTIMESTART`, `DOWNTIMEEND`, `DOWNTIMECANCELLED` | `downtime` | `info` | `info` |
 | `FLAPPINGSTART`, `FLAPPINGEND` | `state` | `info` | `info` |
