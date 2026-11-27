@@ -329,6 +329,7 @@ final class PipelineRepository {
     this.afterOutputRefusalForTest,
     this.beforeOutputDeferralRetryForTest,
     this.beforeCapacityLockForTest,
+    this.beforeOutboxCountLockForTest,
     this.beforeIntentWriteForTest,
     this.beforeEventWriteForTest,
     this.beforePendingCounterLockForTest,
@@ -371,7 +372,10 @@ final class PipelineRepository {
   /// Lets a fixture hold a capacity lock past the remaining SQL deadline.
   final Future<void> Function(Transaction)? beforeCapacityLockForTest;
 
-  /// Lets a fixture shorten the SQL deadline while the partition count is held.
+  /// Lets a fixture expire the statement waiting for an outbox child count.
+  final Future<void> Function(Transaction)? beforeOutboxCountLockForTest;
+
+  /// Runs just before each outbox insert, after its locks are acquired.
   final Future<void> Function(Transaction)? beforeIntentWriteForTest;
 
   /// Lets a fixture expire a statement while the events parent is locked.
@@ -458,9 +462,11 @@ final class PipelineRepository {
       _PipelineLockWait.throwFor(error, stack);
     }
     final demands = <String, ({int rows, int bytes})>{};
+    final fitting = <String>{};
     for (final intent in intents) {
       final id = intent.destination.id;
       final old = demands[id] ?? (rows: 0, bytes: 0);
+      if (caps[id]!.fits(1, intent.payload.length)) fitting.add(id);
       demands[id] = (
         rows: old.rows + 1,
         bytes: old.bytes + intent.payload.length,
@@ -476,6 +482,22 @@ final class PipelineRepository {
     try {
       if (refresh() case final setting?) await setting;
       await lockOutputCommitments(session, tx, raw.pin, destinations);
+      if (fitting.isNotEmpty) {
+        if (refresh() case final setting?) await setting;
+        if (beforeOutboxCountLockForTest case final beforeCountLock?) {
+          await beforeCountLock(tx);
+          appliedMillis = 0;
+        }
+        await session.db.unsafeQuery(
+          'SELECT correlia_lock_outbox_insert(@created,CAST(@outputs AS jsonb))',
+          parameters: QueryParameters.named({
+            'created': created,
+            'outputs': jsonEncode(fitting.toList()),
+          }),
+          transaction: tx,
+          timeoutInSeconds: 5,
+        );
+      }
     } catch (error, stack) {
       _PipelineLockWait.throwFor(error, stack);
     }
@@ -488,12 +510,7 @@ final class PipelineRepository {
         if (beforeIntentWriteForTest case final beforeIntentWrite?) {
           await beforeIntentWrite(tx);
         }
-        try {
-          // The bounded insert also acquires the child/output count stripe.
-          await insertQueueIntent(session, tx, raw.pin, created, intent);
-        } catch (error, stack) {
-          _PipelineLockWait.throwFor(error, stack);
-        }
+        await insertQueueIntent(session, tx, raw.pin, created, intent);
       } else {
         ignored[id] = (ignored[id] ?? 0) + 1;
       }

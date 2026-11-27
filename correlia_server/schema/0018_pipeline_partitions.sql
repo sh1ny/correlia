@@ -535,6 +535,27 @@ SELECT c.relname,o.output_id,count(*) FROM outbox o
 JOIN pg_class c ON c.oid=o.tableoid
 GROUP BY c.relname,o.output_id;
 
+CREATE FUNCTION correlia_lock_outbox_insert(p_created timestamptz,p_outputs jsonb)
+RETURNS void LANGUAGE plpgsql AS $$
+DECLARE
+  utc_day date := (p_created AT TIME ZONE 'UTC')::date;
+  child text;
+BEGIN
+  -- The caller holds the parent relation and the destination capacity locks.
+  -- Match PostgreSQL's routing without touching unrelated partitions. A
+  -- concurrent retention delete can hold a visible count even as it drops it.
+  SELECT r.child_name INTO child FROM (
+    SELECT first_day,child_name FROM pipeline_partition_range
+    WHERE parent_name='outbox' AND end_day>utc_day ORDER BY end_day LIMIT 1
+  ) r WHERE r.first_day<=utc_day;
+  child := coalesce(child,'outbox_default');
+  EXECUTE format('LOCK TABLE ONLY %I IN ROW EXCLUSIVE MODE',child);
+  PERFORM c.output_id FROM pipeline_outbox_partition_count c
+  JOIN jsonb_array_elements_text(p_outputs) AS o(id) ON c.output_id=o.id::uuid
+  WHERE c.child_name=child ORDER BY c.output_id FOR UPDATE OF c;
+END;
+$$;
+
 CREATE FUNCTION correlia_account_outbox_partition() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
   remaining bigint;

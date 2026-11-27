@@ -782,7 +782,7 @@ void main() {
             session,
             clock: () => created,
             elapsedForTest: () => Duration.zero,
-            beforeIntentWriteForTest: (tx) => session.db.unsafeSimpleExecute(
+            beforeOutboxCountLockForTest: (tx) => session.db.unsafeSimpleExecute(
               "SET LOCAL statement_timeout='50ms'; SET LOCAL lock_timeout=0",
               transaction: tx,
             ),
@@ -810,6 +810,46 @@ void main() {
           await gate.join();
         }
       });
+
+      test(
+        'outbox_execution_timeout_spends_the_processing_allowance',
+        () async {
+          await _publish(session, 1, outputs: [_first]);
+          await _send(session, ['outbox-execution-timeout']);
+          final worker = _worker(session);
+          expect(await worker.pinOne(), isTrue);
+          await session.db.transaction((tx) async {
+            await session.db.unsafeSimpleExecute(r'''
+            UPDATE raw_inbox SET attempt_count=4;
+            CREATE FUNCTION test_outbox_execution_timeout() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN RAISE EXCEPTION 'test execution timeout' USING ERRCODE='57014'; END $$;
+            CREATE TRIGGER test_outbox_execution_timeout BEFORE INSERT ON outbox
+            FOR EACH ROW EXECUTE FUNCTION test_outbox_execution_timeout()
+          ''', transaction: tx);
+          });
+          addTearDown(
+            () => session.db.unsafeSimpleExecute('''
+            DROP TRIGGER test_outbox_execution_timeout ON outbox;
+            DROP FUNCTION test_outbox_execution_timeout()
+          '''),
+          );
+          expect(await worker.processOne(), isTrue);
+          expect(
+            (await session.db.unsafeQuery(
+              'SELECT status,attempt_count FROM raw_inbox',
+            )).single.toList(),
+            ['failed', 5],
+          );
+          expect(
+            (await session.db.unsafeQuery(
+              'SELECT error_class FROM pipeline_dead_letter',
+            )).single[0],
+            'processing_exhausted',
+          );
+          expect(await raw.count(session, 'events'), 0);
+          expect(await _intents(session), isEmpty);
+        },
+      );
 
       test('pending_counter_timeout_keeps_processing_allowance', () async {
         await _publish(session, 1, outputs: [_first]);
