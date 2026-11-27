@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import '../event/canonical_event.dart';
@@ -240,12 +241,15 @@ Future<({CanonicalEvent event, Set<String> routes})?> applyMatcherRule(
               if (entry.site case final site?) {
                 put(index, 'site', site);
                 extracted?.remove('site');
-                written?.add(('site', 'site=$site'));
+                written?.add(('site', 'site=${_traceValue(site)}'));
               }
               if (entry.environment case final environment?) {
                 put(index, 'environment', environment);
                 extracted?.remove('environment');
-                written?.add(('environment', 'environment=$environment'));
+                written?.add((
+                  'environment',
+                  'environment=${_traceValue(environment)}',
+                ));
               }
               found = true;
               break;
@@ -537,3 +541,16 @@ final class MatcherBatch {
 final class _OptionalCutoff implements Exception {
   const _OptionalCutoff();
 }
+
+/// Characters that delimit a location trace detail.
+final _traceDelimiters = RegExp(r'[,()"\\]|^\s|\s$');
+
+/// [value] as a location trace detail shows it.
+///
+/// A value that is empty, holds a comma, a parenthesis, a quote or a
+/// backslash, or starts or ends with white space is shown as a JSON string, so
+/// it cannot read as a list separator or as the overwrite marker.
+String _traceValue(String value) =>
+    value.isEmpty || _traceDelimiters.hasMatch(value)
+    ? jsonEncode(value)
+    : value;

@@ -630,6 +630,47 @@ void main() {
     expect(result.finalLabelMap, containsPair('environment', 'prod'));
   });
 
+  test('a_location_value_that_reads_like_a_marker_is_quoted', () async {
+    Future<String?> detail(String site, {bool overwrite = false}) async {
+      final result = await _simulate(
+        _event(),
+        _document([
+          _rule('partly', [
+            {
+              'type': 'location',
+              'field': 'labels.alertname',
+              'entries': [
+                {'hostname': 'Watchdog', 'site': site, 'environment': 'prod'},
+              ],
+            },
+            if (overwrite) _label('site', 'eu2'),
+          ]),
+        ]),
+      );
+      return result.trace.single.actions.first.detail;
+    }
+
+    // A value that holds the marker text is quoted; an overwritten one is not.
+    final lookalike = await detail('eu1 (overwritten later in its rule)');
+    final overwritten = await detail('eu1', overwrite: true);
+    expect(
+      lookalike,
+      'site="eu1 (overwritten later in its rule)", environment=prod',
+    );
+    expect(
+      overwritten,
+      'site=eu1 (overwritten later in its rule), environment=prod',
+    );
+    expect(lookalike, isNot(overwritten));
+    expect(await detail('a, b'), 'site="a, b", environment=prod');
+    expect(
+      await detail(r'back\slash'),
+      r'site="back\\slash", environment=prod',
+    );
+    expect(await detail(' padded'), 'site=" padded", environment=prod');
+    expect(await detail('plain-eu1'), 'site=plain-eu1, environment=prod');
+  });
+
   test('later_rule_wins_a_shared_key', () async {
     final result = await _simulate(
       _event(),

@@ -420,7 +420,7 @@ The result carries:
   A write that a later action of the same rule overwrites (a label key, or a second matching `map_severity`) is
   `skipped: overwritten later in its rule`; a `location` action counts as overwritten only when every label it
   staged is. When only some are, the action stays staged and its detail marks each overwritten label, as in
-  `site=eu1 (overwritten later in its rule), environment=prod`. When a later action fails, the writes before it
+  `site=eu1 (overwritten later in its rule), environment=prod`. A value that is empty, holds a comma, a parenthesis, a quote or a backslash, or starts or ends with white space is shown as a JSON string, as in `site="eu1 (old)"`, so it cannot read as the marker or as a separator. When a later action fails, the writes before it
   that a later action had already overwritten still show this, and nothing of the rule is applied. A write in a later rule is a separate patch, so both rules' writes are applied. A `map_severity`
   whose target equals the event's current severity is `skipped: severity already <value>`.
 - The final labels, label origins, links, severity and `eventKind`, plus `noiseClassHint` when a rule classified

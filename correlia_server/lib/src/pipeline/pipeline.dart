@@ -240,10 +240,13 @@ final class _PluginOutput extends _Output {
 }
 
 final class _Prepared {
-  const _Prepared(this.event, this.disposition, this.payload);
+  const _Prepared(this.event, this.disposition, this.payload, this.position);
   final CanonicalEvent event;
   final EvidenceDisposition disposition;
   final Uint8List payload;
+
+  /// The event's position in its decoded batch.
+  final int position;
 }
 
 typedef _Retained = ({
@@ -521,7 +524,7 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
                   : raw.observed,
             );
             final data = CloudEvent(event: event).toJsonBytes();
-            prepared.add(_Prepared(event, disposition, data));
+            prepared.add(_Prepared(event, disposition, data, prepared.length));
           }
         } on EventValidationError catch (error) {
           await _fail(
@@ -545,12 +548,9 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
         }
         // `List.sort` is not stable, so equal event IDs are ordered by input
         // position: the same-ID check below then admits the earliest member.
-        final inputOrder = {
-          for (final (index, item) in prepared.indexed) item: index,
-        };
         prepared.sort((a, b) {
           final byId = a.event.eventId.compareTo(b.event.eventId);
-          return byId != 0 ? byId : inputOrder[a]!.compareTo(inputOrder[b]!);
+          return byId != 0 ? byId : a.position.compareTo(b.position);
         });
         var committed = 0,
             duplicates = 0,
