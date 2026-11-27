@@ -145,7 +145,8 @@ final class DecodeInputs {
   /// The admission metadata of a stream row, `null` when none is stored.
   final StreamAdmission? admission;
 
-  /// Why a stream row's admission snapshot does not read, or `null`.
+  /// Why a stream row's admission snapshot does not read, or `null`: it is
+  /// not JSON, or it lists the row's source more than once.
   ///
   /// [decodeRow] throws it only after the row's own format is validated, so a
   /// row in an unknown format still fails with `unsupported_format`.
@@ -169,8 +170,8 @@ typedef DecodedRow = ({DecodedBatch batch, String? syncId});
 /// plain read-only transaction [tx] is enough. Throws a [StateError] when the
 /// pin does not exist, and an [InvalidStoredSettings] when the stored snapshot
 /// or source settings do not have the shape this binary reads. An admission
-/// snapshot that is not JSON does not throw here: [DecodeInputs.admissionFailure]
-/// carries it to [decodeRow]. Database errors propagate unchanged.
+/// snapshot that is not JSON, or that lists the source more than once, does not
+/// throw here: [DecodeInputs.admissionFailure] carries it to [decodeRow]. Database errors propagate unchanged.
 Future<DecodeInputs> readDecodeInputs(
   Session session,
   Transaction tx,
@@ -311,8 +312,15 @@ Future<DecodeInputs> _readDecodeInputs(
           ),
         _ => const <Map<String, Object?>>[],
       };
-      if (admittedSource.isNotEmpty) {
-        final policy = admittedSource.first['state_type_policy'];
+      // Exactly one entry may name the source: with two, array order would
+      // pick the policy, which the stored row cannot confirm.
+      if (admittedSource.length > 1) {
+        admissionFailure = InvalidStoredSettings(
+          metadata[3]! as String,
+          'source $sourceId is listed more than once',
+        );
+      } else if (admittedSource.isNotEmpty) {
+        final policy = admittedSource.single['state_type_policy'];
         admission = StreamAdmission(
           origin: metadata[0] as String?,
           statePolicy: policy is String ? policy : null,
@@ -349,7 +357,8 @@ Future<DecodeInputs> _readDecodeInputs(
 /// time stamped on every event, and [icinga2Decoder] decodes `icinga2` webhook
 /// rows. Throws an [EventValidationError] when the bytes or the stored
 /// admission metadata do not decode, an [InvalidStoredSettings] when a stream
-/// row in a known format was admitted under a snapshot that is not JSON, and a
+/// row in a known format was admitted under a snapshot that is not JSON or
+/// that lists the row's source more than once, and a
 /// [StateError] when [inputs] carries a [DecodeInputs.rejection].
 DecodedRow decodeRow(
   DecodeInputs inputs,

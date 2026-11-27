@@ -365,6 +365,73 @@ VALUES (CAST(@raw AS uuid),@origin,CAST(@sync AS uuid),@snapshot)''',
         },
       );
 
+      test('an_admission_snapshot_listing_the_source_twice', () async {
+        final admitted = await publishStreamDb(session);
+        final processing = await publishStreamDb(session, revision: 2);
+        // A damaged admission snapshot lists the row's source twice, with
+        // different policies: neither may be guessed.
+        final text =
+            (await session.db.unsafeQuery(
+                  'SELECT "publicJson" FROM ingest_config_snapshot WHERE "snapshotId"=@id',
+                  parameters: QueryParameters.named({'id': admitted}),
+                )).single[0]!
+                as String;
+        final document = jsonDecode(text) as Map<String, Object?>;
+        final sources = document['sources']! as List<Object?>;
+        final original = sources.cast<Map<String, Object?>>().singleWhere(
+          (entry) => entry['id'] == icinga2DbSourceId,
+        );
+        document['sources'] = [
+          {...original, 'state_type_policy': 'hard_only'},
+          ...sources,
+        ];
+        await session.db.unsafeExecute(
+          'UPDATE ingest_config_snapshot SET "publicJson"=@json WHERE "snapshotId"=@id',
+          parameters: QueryParameters.named({
+            'id': admitted,
+            'json': jsonEncode(document),
+          }),
+        );
+        final known = await seed(
+          icinga2DbSourceId,
+          streamBody(),
+          processing,
+          admission: admitted,
+        );
+        final knownInputs = await read(known, processing);
+        expect(
+          () => decodeRow(
+            knownInputs,
+            streamBody(),
+            processedAt: _firstProcessing,
+          ),
+          throwsA(isA<InvalidStoredSettings>()),
+        );
+        // A row in an unknown format still fails with its own error.
+        final body = webhook.body({
+          'format': 'correlia.icinga2.stream.v9',
+          'origin': 'stream',
+          'items': <Object?>[],
+        });
+        final unknown = await seed(
+          icinga2DbSourceId,
+          body,
+          processing,
+          admission: admitted,
+        );
+        final unknownInputs = await read(unknown, processing);
+        expect(
+          () => decodeRow(unknownInputs, body, processedAt: _firstProcessing),
+          throwsA(
+            isA<EventFieldError>().having(
+              (e) => e.code,
+              'code',
+              'unsupported_format',
+            ),
+          ),
+        );
+      });
+
       test('read_decode_inputs_names_a_pin_without_the_source', () async {
         final pin = await publishStreamDb(session);
         final key = await seed(
