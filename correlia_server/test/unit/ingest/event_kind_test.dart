@@ -116,6 +116,23 @@ void main() {
         {'notification_type': 'PROBLEM', 'state_type': 'SOFT'},
         EventKind.state,
       ),
+      // A delayed recovery that samples a SOFT problem state.
+      (
+        {
+          'notification_type': 'RECOVERY',
+          'state': 'CRITICAL',
+          'state_type': 'SOFT',
+        },
+        EventKind.state,
+      ),
+      (
+        {
+          'notification_type': 'RECOVERY',
+          'state': 'CRITICAL',
+          'state_type': 'HARD',
+        },
+        EventKind.alert,
+      ),
       ({'notification_type': 'FLAPPINGSTART'}, EventKind.state),
       ({'notification_type': 'FLAPPINGEND'}, EventKind.state),
       ({'notification_type': 'ACKNOWLEDGEMENT'}, EventKind.ack),
@@ -152,11 +169,15 @@ void main() {
           final document = jsonDecode(text) as Map<String, Object?>;
           final type = document['notification_type']! as String;
           final stateType = document['state_type'];
+          final state = document['state'];
           final expected = switch (type) {
-            // A recovery resolves the alert whatever its state type.
-            'RECOVERY' => EventKind.alert,
-            'PROBLEM' when stateType == 'HARD' => EventKind.alert,
-            'PROBLEM' => EventKind.state,
+            // The sampled state decides, never the notification type: a
+            // recovered state resolves the alert, a SOFT problem state is
+            // only a state change, and a HARD one alerts.
+            'PROBLEM' ||
+            'RECOVERY' when state == 'OK' || state == 'UP' => EventKind.alert,
+            'PROBLEM' || 'RECOVERY' when stateType == 'SOFT' => EventKind.state,
+            'PROBLEM' || 'RECOVERY' => EventKind.alert,
             'FLAPPINGSTART' || 'FLAPPINGEND' => EventKind.state,
             'ACKNOWLEDGEMENT' => EventKind.ack,
             'DOWNTIMESTART' ||
@@ -176,8 +197,9 @@ void main() {
       }
     }
     expect(deliveries, greaterThan(0));
-    // The synthetic table above covers the types the captures lack: a SOFT
-    // problem and a cancelled downtime.
+    // The synthetic table above covers the cases the captures lack: a SOFT
+    // problem, a recovery that samples a problem state and a cancelled
+    // downtime.
     expect(seen, {
       'PROBLEM',
       'RECOVERY',
