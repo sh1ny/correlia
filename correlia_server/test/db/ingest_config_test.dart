@@ -701,7 +701,7 @@ void main() {
           runMode: 'test',
         );
         final stored = await repository.snapshot(definition.snapshotId);
-        final storedOutputs = stored!['outputs']! as List<Object?>;
+        final storedOutputs = stored['outputs']! as List<Object?>;
         expect(
           (storedOutputs.single! as Map<String, Object?>)['config'],
           pluginValues,

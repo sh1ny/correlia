@@ -222,10 +222,10 @@ Wait for startup before restarting writers. If the schema step fails, its table 
 version record roll back together. Clear the blocking transaction or fix the cause and restart the
 new binary. A successful forward cutover can be undone only by restoring the pre-upgrade backup.
 
-A partition validation failure leaves default routing intact. The worker records a bounded retry;
-a delayed error from an earlier attempt cannot overwrite a successful attachment. The worker
-tries unprepared days with no previous attempt first, then retries the least recently attempted
-range. Preparation has no deadline when PostgreSQL must validate a large default child.
+A partition validation failure leaves default routing intact. The worker records the retry on
+the affected day without waiting for unrelated DDL. A delayed error cannot overwrite a successful
+attachment. The worker tries days with no previous attempt first, then retries the least recently
+attempted range. Preparation has no deadline when PostgreSQL must validate a large default child.
 If a write fills a day after its attachment failed, later retries skip that occupied day
 without clearing its failure. It remains degraded until attachment succeeds or the day ages
 out of the preparation window.

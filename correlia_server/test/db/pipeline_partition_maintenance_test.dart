@@ -334,6 +334,144 @@ void main() {
         );
       });
 
+      for (final newerFails in [false, true]) {
+        final outcome = newerFails ? 'failure' : 'success';
+        test('older_partition_success_after_newer_$outcome', () async {
+          final session = builder.build();
+          await initializeIngestSchema(session);
+          final year = newerFails ? 2031 : 2030;
+          final gate = ContentionGate();
+          final reserved = Completer<void>();
+          final first = gate.run(
+            () => MaintenanceRepository(
+              builder.build(),
+              beforePartitionAttachForTest: () async {
+                reserved.complete();
+                await gate.future;
+              },
+            ).prepareOne(nowForTest: DateTime.utc(year, 9, 1)),
+          );
+          try {
+            await Future.any([
+              reserved.future,
+              first.then((_) => fail('The first reservation was not parked')),
+            ]);
+            final newer = MaintenanceRepository(
+              session,
+              beforePartitionAttachForTest: newerFails
+                  ? () async => throw StateError('test attach failure')
+                  : null,
+            );
+            await newer.prepareOne(nowForTest: DateTime.utc(year, 8, 1));
+            final ops = QueueOperations(session);
+            final second = await ops.status();
+            final batch = second.maintenance!;
+            expect(
+              (batch.lane, batch.outcome),
+              ('prepare_partition', newerFails ? 'failed' : 'ok'),
+            );
+            expect(
+              second.maintenanceFailures.any(
+                (r) => r.lane == 'prepare_partition',
+              ),
+              newerFails,
+            );
+            await newer.sweep('transport');
+            expect((await ops.status()).maintenance!.lane, 'transport');
+
+            await gate.join();
+            await first;
+            expect(
+              await _writeEvent(session, '$year-09-01'),
+              'events_${year}0901',
+            );
+            final report = await ops.status();
+            expect(
+              (report.maintenance!.lane, report.maintenance!.outcome),
+              ('prepare_partition', 'ok'),
+            );
+            expect(
+              report.maintenanceFailures.map((r) => r.lane),
+              isNot(contains('prepare_partition')),
+            );
+            expect(report.partitionDegraded, newerFails);
+          } finally {
+            await gate.join();
+          }
+        });
+      }
+
+      test('attach_failure_reports_without_the_ddl_lock', () async {
+        final session = builder.build();
+        await initializeIngestSchema(session);
+        final child = ContentionGate();
+        final childLocked = Completer<void>();
+        final blocker = builder.build();
+        final childLock = child.run(
+          () => blocker.db.transaction((tx) async {
+            await blocker.db.unsafeExecute(
+              'LOCK TABLE ONLY events_default IN SHARE MODE',
+              transaction: tx,
+            );
+            childLocked.complete();
+            await child.future;
+          }),
+        );
+        final afterRollback = ContentionGate();
+        final rolledBack = Completer<void>();
+        final ddl = ContentionGate();
+        try {
+          await Future.any([
+            childLocked.future,
+            childLock.then((_) => fail('The default child was not locked')),
+          ]);
+          final preparation = afterRollback.run(
+            () => MaintenanceRepository(
+              session,
+              beforePartitionFailureForTest: () async {
+                rolledBack.complete();
+                await afterRollback.future;
+              },
+            ).prepareOne(nowForTest: DateTime.utc(2030, 10, 1)),
+          );
+          await Future.any([
+            rolledBack.future,
+            preparation.then((_) => fail('The attachment did not roll back')),
+          ]);
+          await child.join();
+          expect(await _writeEvent(session, '2030-10-01'), 'events_default');
+
+          final ddlSession = builder.build();
+          final ddlLocked = Completer<void>();
+          final ddlLock = ddl.run(
+            () => ddlSession.db.transaction((tx) async {
+              await ddlSession.db.unsafeQuery(
+                'SELECT pg_advisory_xact_lock(1129271900)',
+                transaction: tx,
+              );
+              ddlLocked.complete();
+              await ddl.future;
+            }),
+          );
+          await Future.any([
+            ddlLocked.future,
+            ddlLock.then((_) => fail('The DDL gate was not acquired')),
+          ]);
+          await afterRollback.join();
+          await preparation;
+          final report = await QueueOperations(session).status();
+          expect(report.partitionDegraded, isTrue);
+          expect(
+            report.maintenanceFailures.map((row) => (row.lane, row.outcome)),
+            contains(('prepare_partition', 'lock_timeout')),
+          );
+        } finally {
+          await ddl.join();
+          await child.join();
+          await afterRollback.join();
+        }
+      });
+
       test('eligible_closed_partition_drops', () async {
         final session = builder.build();
         await initializeIngestSchema(session);

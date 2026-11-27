@@ -108,6 +108,7 @@ final class MaintenanceRepository {
     this.session, {
     this.beforeCommitForTest,
     this.beforeSweepFailureForTest,
+    this.beforePartitionAttachForTest,
     this.beforePartitionFailureForTest,
   });
 
@@ -116,6 +117,9 @@ final class MaintenanceRepository {
 
   /// Parks a failed sweep after rollback but before reporting its outcome.
   final Future<void> Function()? beforeSweepFailureForTest;
+
+  /// Parks preparation after committing its reservation, before attempting DDL.
+  final Future<void> Function()? beforePartitionAttachForTest;
 
   /// Parks a failed attach after rollback and before recording the retry.
   final Future<void> Function()? beforePartitionFailureForTest;
@@ -130,6 +134,8 @@ final class MaintenanceRepository {
 
   // Every caller records its outcome last. The transaction lock keeps
   // completion numbers in commit order without blocking admission or delivery.
+  // Success can finish out of reservation order. Keep the highest accepted
+  // attempt separately so a late failure cannot reopen a cleared lane.
   Future<void> _outcome(
     Transaction tx,
     String lane,
@@ -139,12 +145,13 @@ final class MaintenanceRepository {
   ) => session.db.unsafeExecute(
     '''
         WITH ordered AS MATERIALIZED (SELECT pg_advisory_xact_lock(1129271902))
-        INSERT INTO pipeline_maintenance_outcome AS prior (lane,attempt,outcome,finished_at,affected)
+        INSERT INTO pipeline_maintenance_outcome AS prior (lane,attempt_fence,outcome,finished_at,affected)
         SELECT @lane,@attempt::bigint,@outcome,clock_timestamp(),@count::integer FROM ordered
-        ON CONFLICT (lane) DO UPDATE SET attempt=excluded.attempt,outcome=excluded.outcome,
-          finished_at=excluded.finished_at,affected=excluded.affected,
+        ON CONFLICT (lane) DO UPDATE SET
+          attempt_fence=greatest(prior.attempt_fence,excluded.attempt_fence),
+          outcome=excluded.outcome,finished_at=excluded.finished_at,affected=excluded.affected,
           completion_order=excluded.completion_order
-        WHERE prior.attempt<excluded.attempt
+        WHERE excluded.outcome='ok' OR prior.attempt_fence<excluded.attempt_fence
       ''',
     parameters: QueryParameters.named({
       'lane': lane,
@@ -333,6 +340,7 @@ final class MaintenanceRepository {
       'attempt': next.row[2],
     };
     try {
+      await beforePartitionAttachForTest?.call();
       await session.db.transaction((tx) async {
         await _limits(tx, ddl: true);
         final attached = await session.db.unsafeQuery(
