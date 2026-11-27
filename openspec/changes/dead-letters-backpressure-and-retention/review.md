@@ -81,3 +81,9 @@ The recheck confirmed that replay clears the legacy metadata. A normal permanent
 Codex approved D19 after two required test changes. A PostgreSQL lock witness shows that a first page waits behind the lower-ID failure writer, then includes the writer's occurrence exactly once after commit. A post-capture failure commits before replay takes its work locks and stays outside the continuation. A capture that times out requeues nothing.
 
 The final recheck confirmed that the deadline fixture starts a new clock origin on each call. A reset between capture and replay would leave three seconds for the ledger statement instead of the one second the test requires. The last injected second rolls back both the requeue and its audit entry.
+
+## Round 11: Operator trust and malformed continuations
+
+Pre-ship round 59 F1 requested signed continuations. The owner rejected it as outside the threat model under D20: "No, key holder is trusted." A holder of the dedicated credential can already start a new selection and replay any eligible failure. Editing a cursor grants no further privilege. D19's captured-set guarantee applies to an unchanged continuation.
+
+Codex approved the D20 amendment. The RPC accepts only the unpadded base64url encoding with consistent time and occurrence bounds for the same operation and filter. The HTTP regression rejects a percent-escaped encoding, a truncated tuple and reversed bounds. Pending and audit counts stay unchanged, and the original continuation still works.

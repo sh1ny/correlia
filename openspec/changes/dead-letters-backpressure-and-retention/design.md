@@ -153,6 +153,12 @@ Capture the first list or replay page in a short transaction that takes `SHARE` 
 
 Rejected: use the highest visible ID without a capture lock. PostgreSQL can commit a lower-ID failure after a higher one, so it could enter a later page. Reversal cost: medium. Important: yes, defines which failures a batch can replay. Chosen by: user (item 88, "No, snapshot at the first page.").
 
+### D20: Trust operators and validate unsigned continuations
+
+Do not sign list or replay continuations. Require unchanged continuations for pagination under D19. Check the encoding, tuple shape, filter and operation, and consistency of the time and occurrence bounds before reading or replaying work. Reject malformed continuations with a bounded error.
+
+Rejected: sign cursors with a new per-installation key or the database encryption key. Signing would add configuration or extend access to the encryption key without narrowing the authority of an authenticated operator. Reversal cost: medium. Important: yes, operator trust boundary. Chosen by: user (item 88, "No, key holder is trusted.").
+
 ### Decision summary
 
 | # | Decision | Choice | Rejected | Reversal cost | Important | Chosen by |
@@ -179,6 +185,7 @@ Rejected: use the highest visible ID without a capture lock. PostgreSQL can comm
 | D17 | Overflow fanout under capacity contention | One-shot routing skips unavailable capacity rows | Persist per-output progress and retry skipped lanes | medium | yes | user |
 | D18 | Legacy delivery retention origin | Start both legacy windows at offline cutover; keep attempt history | Infer a time zone for past sessions | medium | yes | user |
 | D19 | Continuation membership | First page captures committed failures under a directory-only lock | Live time-and-ID pagination | medium | yes | user |
+| D20 | Continuation trust boundary | Trust the operator; validate unsigned continuation structure and bounds | Sign with a new key or the database encryption key | medium | yes | user |
 
 ## Assumptions
 
@@ -419,6 +426,12 @@ Claim the notice, then take the event and outbox relation locks before locking t
 | Full offline payload rewrite | no | Attachment preserves identity and avoids a temporary second payload copy. | Attachment cannot preserve constraints on the pinned database, or historical volume is small and an owner approves a new cutover plan. |
 | Database-wide limit as a filesystem quota | no | The configured measurement is database size. WAL and table-space capacity still need operator headroom. | A later deployment feature has filesystem authority and can coordinate allocations. |
 | Durable bulk replay jobs or new metrics listener | no | A bounded request with continuation and the protected status RPC cover M2 and the demo. | A later published client needs resumable unattended jobs or scrape integration. |
+
+## Threat model
+
+A holder of a dedicated dead-letter credential is trusted to choose eligible work. The RPC already lets that operator list and replay any eligible failure by starting a new selection. Editing a cursor grants no additional privilege and is outside the threat model. D19's captured-set guarantee applies when a client passes the returned continuation unchanged.
+
+The credential remains the authorization boundary. Every call verifies it before accessing queue data. A cursor never supplies the actor or bypasses current state, expiry, source compatibility, pinned keys or capacity checks. The API rejects malformed cursors before reaching work and never returns credential material or sender payloads.
 
 ## Risks / Trade-offs
 

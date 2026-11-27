@@ -24,7 +24,7 @@ Listing, replay and status SHALL be typed Serverpod RPCs in the `api` and `all` 
 
 ### Requirement: Bounded dead-letter listing
 
-An authorized caller SHALL be able to page pipeline failures and delivery dead letters, with filters for the source or output, error class and failure-time range. Pages SHALL have a bounded size and a deterministic continuation. Listed metadata SHALL include the failure identity, age and sanitized error class; raw failures SHALL include the pinned snapshot and the safe field path when present.
+An authorized caller SHALL be able to page pipeline failures and delivery dead letters, with filters for the source or output, error class and failure-time range. Pages SHALL have a bounded size and a deterministic continuation. Clients SHALL pass a continuation unchanged to the same operation and filter. Listed metadata SHALL include the failure identity, age and sanitized error class; raw failures SHALL include the pinned snapshot and the safe field path when present.
 
 #### Scenario: DUR-4 a failed output is visible to an operator
 - **WHEN** an output runs past its automatic retry budget and an authorized machine lists that output's delivery dead letters
@@ -40,7 +40,7 @@ An authorized caller SHALL be able to page pipeline failures and delivery dead l
 
 #### Scenario: Listing captures committed occurrences
 - **WHEN** a machine starts a listing while a lower-ID failure is still uncommitted and a higher-ID failure is already visible
-- **THEN** the first page captures the bounds only after competing directory writers finish. Later pages cannot include failures that commit after capture, even if their wall-clock timestamps are earlier than the bound. Capture waits within the request deadline and returns no page on timeout.
+- **THEN** the first page captures the bounds only after competing directory writers finish. With an unchanged continuation, later pages cannot include failures that commit after capture, even if their wall-clock timestamps are earlier than the bound. Capture waits within the request deadline and returns no page on timeout.
 
 ### Requirement: Bounded replay selection and audit
 
@@ -52,7 +52,11 @@ An authorized caller SHALL replay one named occurrence or one bounded batch by e
 
 #### Scenario: Replay uses the captured failure set
 - **WHEN** a machine starts bulk replay while another transaction has not yet committed its failure
-- **THEN** the first page captures only committed failures and releases the directory lock before replaying work. Later pages exclude failures committed after capture. Replay still checks that each occurrence is active and unexpired. If capture cannot finish within the request deadline, it requeues nothing.
+- **THEN** the first page captures only committed failures and releases the directory lock before replaying work. With an unchanged continuation, later pages exclude failures committed after capture. Replay still checks that each occurrence is active and unexpired. If capture cannot finish within the request deadline, it requeues nothing.
+
+#### Scenario: Malformed replay continuation
+- **WHEN** an authorized operator sends an invalid continuation encoding, tuple shape or inconsistent time or occurrence bounds
+- **THEN** the request returns `invalid_continuation` without selecting or requeueing work or recording a successful replay
 
 #### Scenario: Replay exhausts its request deadline
 - **WHEN** a replay page spends its five-second database budget across statements
