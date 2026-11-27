@@ -299,6 +299,73 @@ void main() {
         expect(await _maintain(session, 'raw'), 1);
       });
 
+      for (final (kind, sql) in [
+        (
+          'capacity',
+          "SELECT output_id FROM pipeline_output_capacity WHERE output_id='$_output' FOR UPDATE",
+        ),
+        (
+          'event_reference',
+          "SELECT event_id FROM pipeline_event_reference WHERE event_id='${_id(1)}' FOR UPDATE",
+        ),
+      ]) {
+        test('expiry_skips_contended_accounting $kind', () async {
+          await _intent(session, 1, 'dead');
+          await _intent(session, 2, 'dead', output: _otherOutput);
+          await _raw(session, 4, 'pending');
+          await _failure(session, 4);
+          await _intent(session, 3, 'dead', output: _otherOutput);
+          final blocker = builder.build();
+          final locked = Completer<void>();
+          final hold = ContentionGate();
+          final holding = hold.run(
+            () => blocker.db.transaction((tx) async {
+              expect(
+                await blocker.db.unsafeQuery(sql, transaction: tx),
+                hasLength(1),
+              );
+              locked.complete();
+              await hold.future;
+            }),
+          );
+          Future<int> expire() => session.db.transaction((tx) async {
+            await session.db.unsafeExecute(
+              "SET LOCAL lock_timeout='50ms'",
+              transaction: tx,
+            );
+            return _maintain(session, 'expiry', tx: tx);
+          });
+          Future<List<String>> deliveryState() => _column(
+            session,
+            'SELECT status FROM outbox ORDER BY delivery_id',
+          );
+          try {
+            await Future.any([
+              locked.future,
+              holding.then<void>((_) => fail('Accounting lock not held')),
+            ]);
+            expect(await expire(), 2);
+            expect(await deliveryState(), ['dead', 'discarded', 'dead']);
+            expect(
+              await _column(session, 'SELECT status FROM raw_inbox'),
+              ['discarded'],
+            );
+            expect(await expire(), 1);
+            expect(await deliveryState(), ['dead', 'discarded', 'discarded']);
+          } finally {
+            await hold.join();
+          }
+          expect(await expire(), 1);
+          expect(await deliveryState(), [
+            'discarded',
+            'discarded',
+            'discarded',
+          ]);
+          expect(await _count(session, 'pipeline_dead_letter'), 0);
+          expect(await _count(session, 'pipeline_event_reference'), 0);
+        });
+      }
+
       test('publication_extension_fences_expiry', () async {
         await _raw(session, 1, 'pending');
         await _failure(session, 1);

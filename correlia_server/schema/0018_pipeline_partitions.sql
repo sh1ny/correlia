@@ -1109,8 +1109,8 @@ BEGIN
     p_parent || '_default',key,key) INTO occupied
     USING p_day::timestamp AT TIME ZONE 'UTC',(p_day+1)::timestamp AT TIME ZONE 'UTC';
   IF occupied THEN
-    UPDATE pipeline_partition_retry SET problem=NULL
-    WHERE (parent_name,day,attempt_id)=(p_parent,p_day,p_attempt);
+    -- A valid default write does not recover an earlier failed attachment.
+    -- Keep the problem until coverage changes or the retry ages out.
     RETURN false;
   END IF;
   child := p_parent || '_' || to_char(p_day,'YYYYMMDD');
@@ -1270,17 +1270,22 @@ BEGIN
     WHERE f.occurrence_id=ANY(locked_occurrences) AND f.kind='delivery' AND o.status='dead'
   ), lanes AS MATERIALIZED (
     SELECT c.output_id FROM pipeline_output_capacity c
-    WHERE c.output_id IN (SELECT output_id FROM held) ORDER BY c.output_id FOR UPDATE
+    WHERE c.output_id IN (SELECT output_id FROM held)
+    ORDER BY c.output_id FOR UPDATE OF c SKIP LOCKED
   ), refs AS MATERIALIZED (
-    SELECT r.event_id FROM (
-      SELECT DISTINCT event_observed_at,event_id,event_disposition FROM held
+    SELECT r.observed_at,r.event_id,r.disposition FROM (
+      SELECT DISTINCT h.event_observed_at,h.event_id,h.event_disposition
+      FROM held h JOIN lanes c USING (output_id)
     ) h JOIN pipeline_event_reference r ON
       (h.event_observed_at,h.event_id,h.event_disposition)=(r.observed_at,r.event_id,r.disposition)
+    -- Consume the capacity-lock query in full before taking reference locks.
     WHERE (SELECT count(*) FROM lanes)>0
-    ORDER BY r.observed_at,r.event_id,r.disposition FOR UPDATE OF r
+    ORDER BY r.observed_at,r.event_id,r.disposition FOR UPDATE OF r SKIP LOCKED
   )
-  UPDATE outbox o SET status='discarded',terminal_at=p_now FROM held h
-  WHERE (o.created_at,o.delivery_id)=(h.created_at,h.delivery_id) AND (SELECT count(*) FROM refs)>0;
+  UPDATE outbox o SET status='discarded',terminal_at=p_now
+  FROM held h JOIN lanes c USING (output_id)
+  JOIN refs r ON (h.event_observed_at,h.event_id,h.event_disposition)=(r.observed_at,r.event_id,r.disposition)
+  WHERE (o.created_at,o.delivery_id)=(h.created_at,h.delivery_id);
   GET DIAGNOSTICS deliveries=ROW_COUNT;
   expired := expired+deliveries;
   IF expired>0 THEN

@@ -177,10 +177,36 @@ void main() {
           await gate.join();
           await holding;
           expect(await _writeEvent(session, _outside), 'events_default');
+          expect(await _writeEvent(session, _futureDay), 'events_default');
+          final next =
+              (await session.db.unsafeQuery('''
+            SELECT correlia_reserve_partition('events','$_futureDay','2030-02-01 00:01 UTC')
+          ''')).single[0]!
+                  as int;
+          expect(
+            (await session.db.unsafeQuery(
+              '''
+              SELECT correlia_attach_partition('events','$_futureDay',@attempt)
+            ''',
+              parameters: QueryParameters.named({'attempt': next}),
+            )).single[0],
+            isFalse,
+          );
+          expect((await status.status()).partitionDegraded, isTrue);
+          expect(
+            (await session.db.unsafeQuery('''
+              SELECT problem FROM pipeline_partition_retry
+              WHERE parent_name='events' AND day='$_futureDay'
+            ''')).single[0],
+            'lock_timeout',
+          );
+          await session.db.unsafeExecute(
+            "DELETE FROM events WHERE observed_at='$_futureDay UTC'",
+          );
           final restarted = MaintenanceRepository(builder.build());
           for (var i = 0; i < 24; i++) {
             await restarted.prepareOne(
-              nowForTest: now.add(const Duration(minutes: 1)),
+              nowForTest: now.add(const Duration(minutes: 2)),
             );
           }
           expect(await _writeEvent(session, _futureDay), 'events_20300201');

@@ -225,6 +225,9 @@ A partition validation failure leaves default routing intact. The worker records
 a delayed error from an earlier attempt cannot overwrite a successful attachment. The worker
 tries unprepared days with no previous attempt first, then retries the least recently attempted
 range. Preparation has no deadline when PostgreSQL must validate a large default child.
+If a write fills a day after its attachment failed, later retries skip that occupied day
+without clearing its failure. It remains degraded until attachment succeeds or the day ages
+out of the preparation window.
 
 Retention measures days as 24 hours in UTC, regardless of the database session time zone.
 
@@ -311,6 +314,8 @@ Worker and all processes expire failures after 14 days by default. Expiry remove
 failure and records the number discarded in `activity` in the same transaction. The raw row
 or delivery is then eligible for ordinary retention, not replay. An output's retention window
 starts when it is delivered or discarded, not when it was created or moved to `dead`.
+If a delivery's capacity or event-reference row is locked, the sweep skips that delivery.
+It can still expire unrelated failures and revisit the skipped one when the cursor wraps.
 
 The worker reclaims only terminal inbox rows and unprotected events after their age cutoffs.
 Live and dead delivery references keep their event evidence. Deliberately small batches and a
