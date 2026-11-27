@@ -29,7 +29,7 @@ final class IngestTestGates {
   /// The barrier entered before relay acquisition.
   final String? relayAcquire;
 
-  /// The compile-time and test-mode guarded plugin completion barrier.
+  /// The compile-time and test-mode guarded delivery completion barrier.
   final RelayCompletionTestGate? relayCompletion;
 
   /// The compile-time and test-mode guarded plugin launch barrier.
@@ -74,7 +74,7 @@ final class PluginLaunchTestGate {
       awaitIngestTestGate(path, stopping);
 }
 
-/// Holds one plugin completion after a cumulative number of acknowledgements.
+/// Holds one delivery completion after a cumulative number of acknowledgements.
 final class RelayCompletionTestGate {
   /// Creates a one-shot barrier using a test-owned file.
   RelayCompletionTestGate(this.path, this.threshold);

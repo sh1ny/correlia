@@ -521,7 +521,18 @@ void main() {
               stopping = supervisor.stop();
               await stopping;
               final stopped = await waitForStatus((row) => row[0] == 'stopped');
-              expect(stopped[5], ready[5]);
+              final replacementReap = supervisorLog.singleWhere(
+                (line) =>
+                    line.startsWith('plugin-reaped ') &&
+                    line.contains(' pid=${ready[3]} '),
+              );
+              // Only a forced stop of the replacement can set this reason.
+              expect(
+                stopped[5],
+                replacementReap.contains(' forced=true ')
+                    ? 'plugin_forced_stop'
+                    : ready[5],
+              );
               expect(writes.last, isNull);
               return;
             }

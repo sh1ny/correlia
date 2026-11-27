@@ -6,6 +6,7 @@ import 'dart:io';
 
 import 'package:test/test.dart';
 
+import '../support/child_server.dart';
 import '../support/output_process.dart';
 
 Future<void> _waitForGate(String path) async {
@@ -102,23 +103,25 @@ void main() {
         }
       });
       try {
-        final child = await startOutputChild(db, env, children);
-        await postOutputAlert(child);
-        final original = await first.future.timeout(
-          const Duration(seconds: 30),
+        final gate = env['TEST_GATE_PATH']!;
+        final child = await ChildServer.startOnSharedCluster(
+          serverDir: Directory.current,
+          database: db,
+          vmArgs: const ['-Dcorrelia.testHooks=true'],
+          environment: {
+            'CORRELIA_INGEST_CONFIG': env['CORRELIA_INGEST_CONFIG']!,
+            'CORRELIA_INGEST_SECRETS': env['CORRELIA_INGEST_SECRETS']!,
+            'CORRELIA_TEST_RELAY_COMPLETION_GATE': gate,
+          },
         );
-        final deadline = DateTime.now().add(const Duration(seconds: 4));
-        var waiting = false;
-        while (!waiting && DateTime.now().isBefore(deadline)) {
-          final rows = await observer.execute(
-            "SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%UPDATE outbox%' LIMIT 1",
-          );
-          waiting = rows.isNotEmpty;
-        }
+        children.add(child);
+        await child.waitForReadyEvent();
+        await postOutputAlert(child);
+        final original = await first.future;
+        await _waitForGate(gate);
         expect(
-          waiting,
-          isTrue,
-          reason: 'finalization must be blocked by the receiver-held row lock',
+          (await observer.execute('SELECT status FROM outbox')).single[0],
+          'delivering',
         );
         child.kill();
         expect(await child.exitCode, -9);
@@ -128,9 +131,7 @@ void main() {
           "UPDATE outbox SET lease_until=clock_timestamp()-interval '1 second' WHERE status='delivering'",
         );
         await startOutputChild(db, env, children);
-        final duplicate = await second.future.timeout(
-          const Duration(seconds: 30),
-        );
+        final duplicate = await second.future;
         expect(duplicate.$1, original.$1);
         expect(duplicate.$2, original.$2);
         final attempts = await observer.execute(

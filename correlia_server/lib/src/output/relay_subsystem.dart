@@ -19,7 +19,7 @@ final class RelaySubsystem extends Subsystem {
     required String runMode,
     this.beforeAcquire,
     this.beforeClaimCommit,
-    this.beforePluginComplete,
+    this.beforeAckCommit,
     this.beforeNoticeRoutingForTest,
     this.afterRecoveryLockForTest,
     this.onUnavailable,
@@ -36,8 +36,8 @@ final class RelaySubsystem extends Subsystem {
   /// Optional test barrier immediately before a claim's commit-boundary check.
   final Future<void> Function()? beforeClaimCommit;
 
-  /// Optional test barrier after a plugin response and before its commit.
-  final Future<void> Function(int acknowledgedCount)? beforePluginComplete;
+  /// Optional test barrier after delivery and before acknowledging it locally.
+  final Future<void> Function(int acknowledgedCount)? beforeAckCommit;
 
   /// Lets a fixture pause a claimed notice before it locks destinations.
   final Future<void> Function(Transaction)? beforeNoticeRoutingForTest;
@@ -185,7 +185,7 @@ final class RelaySubsystem extends Subsystem {
           );
           if (batch == null || _stopped.isCompleted) return;
           final outcomes = await deliverPluginBatch(router, permit, batch);
-          final barrier = beforePluginComplete;
+          final barrier = beforeAckCommit;
           if (barrier != null) {
             await barrier(outcomes.whereType<DeliveryAcknowledged>().length);
           }
@@ -201,6 +201,10 @@ final class RelaySubsystem extends Subsystem {
         final outcome = await _webhook
             .send(claim.intent!, claim.key!)
             .timeout(deadline.deliveryBudget);
+        final barrier = beforeAckCommit;
+        if (barrier != null && outcome is DeliveryAcknowledged) {
+          await barrier(1);
+        }
         if (!_stopped.isCompleted) {
           await repository.complete(claim, outcome, deadline: deadline);
         }

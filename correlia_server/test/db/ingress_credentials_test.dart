@@ -180,6 +180,10 @@ void main() {
               )).single[0]!
               as int;
 
+      Future<void> drainFixtureInbox() => session.db.unsafeExecute(
+        "UPDATE raw_inbox SET status='done' WHERE status='pending'",
+      );
+
       test('stream_source_holds_no_credentials', () async {
         final input = await config.publishConfig(
           streamBootstrap(1, [streamSource(sourceId)]),
@@ -221,7 +225,11 @@ void main() {
         await start(await publish(1, [_credential(1)]));
         await publish(2, [_credential(1), _credential(2)]);
         expect((await send(bearer: 1, body: '{"rev":1}')).$1, 202);
+        // Keep previous fixtures without letting their synthetic age throttle
+        // this test of the credential overlap.
+        await drainFixtureInbox();
         expect((await send(bearer: 2, body: '{"rev":2}')).$1, 202);
+        await drainFixtureInbox();
         await publish(3, [_credential(2)]);
         expect((await send(bearer: 1)).$1, 401);
         expect((await send(bearer: 2)).$1, 202);
@@ -390,7 +398,9 @@ void main() {
               )).$1,
               202,
             );
+            await drainFixtureInbox();
             expect((await send(bearer: 1)).$1, 202);
+            await drainFixtureInbox();
           } finally {
             resume.complete();
             expect((await held).map((result) => result.$1), everyElement(401));

@@ -82,7 +82,7 @@ final class IngestWorkers extends Subsystem {
       beforeAcquire: acquire == null
           ? null
           : () => awaitIngestTestGate(acquire, _stopping.future),
-      beforePluginComplete: gates.relayCompletion == null
+      beforeAckCommit: gates.relayCompletion == null
           ? null
           : (count) =>
                 gates.relayCompletion!.beforeComplete(count, _stopping.future),

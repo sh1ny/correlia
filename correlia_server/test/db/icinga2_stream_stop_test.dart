@@ -596,7 +596,7 @@ void main() {
           leaseClockForTest: () => leaseClock.elapsed,
           leaseScheduleForTest: leaseClock.schedule,
           onConsumerConnection: (connection) async => dedicated.add(connection),
-          beforeAdmissionCommit: (tx) async {
+          beforeCapacityLockForTest: (tx) async {
             await tx.execute(
               'SET LOCAL idle_in_transaction_session_timeout = 0',
             );
@@ -626,6 +626,12 @@ void main() {
           final deadline = timers.abortAdmissions(64);
           await Future.wait(dedicated.map((connection) => connection.closed));
           await stopped;
+          expect(
+            (await session.db.unsafeQuery(
+              'SELECT pending_rows FROM pipeline_pending',
+            )).single[0],
+            0,
+          );
           expect(deadline.isActive, isFalse);
         } finally {
           resume.complete();

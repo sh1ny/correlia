@@ -83,6 +83,7 @@ void main() {
 
       Future<void> start({
         Future<void> Function(pg.TxSession)? beforeCommit,
+        Future<void> Function(pg.TxSession)? beforeCapacityLock,
         Future<void> Function(pg.TxSession, StreamRawBatch)? beforeWrite,
         Future<void> Function()? beforeAdmit,
         void Function(StreamRawBatch, pg.ServerException)? writeError,
@@ -120,6 +121,7 @@ void main() {
           leaseScheduleForTest: leaseClock.schedule,
           backoffScheduleForTest: backoff.schedule,
           backoffRandomForTest: () => 0.5,
+          beforeCapacityLockForTest: beforeCapacityLock,
           beforeRawWriteForTest: beforeWrite,
           rawWriteErrorForTest: writeError,
           beforeAdmitForTest: beforeAdmit,
@@ -373,7 +375,7 @@ void main() {
         final entered = StreamController<Completer<void>>.broadcast();
         final releases = <Completer<void>>[];
         await start(
-          beforeCommit: (tx) async {
+          beforeCapacityLock: (tx) async {
             await tx.execute('SET LOCAL idle_in_transaction_session_timeout=0');
             final release = Completer<void>();
             releases.add(release);
@@ -388,6 +390,8 @@ void main() {
           await entered.close();
         });
         final socket = server.subscriptions.single;
+        // Hold the next admission before it reserves the shared inbox count,
+        // so the pipeline can drain the previous admission during the hold.
         final now = DateTime.now().toUtc();
         final baseline =
             '${jsonEncode(streamDbCheck(now.subtract(const Duration(hours: 2))))}\n';
