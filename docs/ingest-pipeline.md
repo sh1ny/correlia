@@ -208,10 +208,10 @@ cutover.
 The startup schema step attaches each populated heap to a new parent under the original name. It
 includes timestamps through the last populated UTC day, then uses daily UTC partitions and a
 default partition for timestamps outside prepared ranges. It does not rewrite existing payload tuples.
-Allow offline time to validate the attachments and backfill metadata. Existing delivered and dead
-entries without a matching terminal attempt receive the cutover time, not their original creation
-time. A plugin intent rejected as oversized before a new attempt gets the cutover time even if
-it previously retried.
+Allow offline time to validate the attachments and backfill metadata. For existing dead or
+delivered entries, the replay or retention window starts at cutover. The defaults are 14 days
+for dead entries and 7 days for delivered entries. The upgrade leaves attempt history unchanged.
+Deliveries that become terminal after cutover use the recorded transition time.
 
 The partition script has a one-hour execution timeout. Set
 `CORRELIA_PARTITION_CUTOVER_TIMEOUT_SECONDS` to a larger positive integer on the upgraded process if

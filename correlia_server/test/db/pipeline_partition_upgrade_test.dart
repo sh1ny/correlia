@@ -449,66 +449,207 @@ void main() {
   withServerpod(
     'terminal delivery times at cutover',
     (builder, _) {
-      test('oversized_plugin_does_not_inherit_an_old_retry_time', () async {
+      test('legacy_terminal_windows_start_at_cutover', () async {
         final session = builder.build();
         await _predecessor(session);
         await _seed(session, placeholderLiveWork: false);
-        await session.db.unsafeSimpleExecute('''
-          UPDATE outbox SET output_kind='plugin',definition_digest=repeat('a',64),
-            target_url=NULL,signing_key_ref=NULL,signing_key_commitment=NULL,
-            attempt_count=1,dead_reason='payload_too_large'
-          WHERE status='dead';
-          UPDATE outbox SET attempt_count=1,status='dead',dead_reason='http_permanent'
-          WHERE status='delivered';
-          INSERT INTO delivery_attempts ("outboxCreatedAt","deliveryId","attemptNumber","claimId",
-            "startedAt","finishedAt",outcome,"errorClass")
-          SELECT created_at,delivery_id,1,gen_random_uuid(),'2020-01-03 UTC','2020-01-03 UTC',
-            CASE WHEN output_kind='plugin' THEN 'retryable' ELSE 'permanent' END,
-            CASE WHEN output_kind='plugin' THEN 'plugin_connection_lost' ELSE 'http_permanent' END
-          FROM outbox;
-          INSERT INTO outbox (created_at,delivery_id,event_observed_at,event_id,event_disposition,
-            output_id,config_snapshot_id,target_url,signing_key_ref,signing_key_commitment,payload,status,attempt_count)
-          SELECT created_at,gen_random_uuid(),event_observed_at,event_id,event_disposition,
-            output_id,config_snapshot_id,target_url,signing_key_ref,signing_key_commitment,payload,'delivered',1
-          FROM outbox WHERE output_kind='webhook';
-          INSERT INTO delivery_attempts ("outboxCreatedAt","deliveryId","attemptNumber","claimId",
-            "startedAt","finishedAt",outcome)
-          SELECT created_at,delivery_id,1,gen_random_uuid(),'2020-01-03 UTC','2020-01-03 UTC','acknowledged'
-          FROM outbox WHERE status='delivered';
-        ''');
-        await applySchemaSteps(session, schemaSteps);
-        final times = await session.db.unsafeQuery('''
-          SELECT o.output_kind,f.failed_at FROM outbox o
-          JOIN pipeline_dead_letter f ON (f.work_at,f.work_id)=(o.created_at,o.delivery_id)
-          WHERE f.kind='delivery' ORDER BY o.output_kind
-        ''');
-        expect(
-          (times.last[0], times.last[1]),
-          ('webhook', DateTime.utc(2020, 1, 3)),
+        final snapshot = cfg.input(1);
+        final destination = snapshot.outputs.single as WebhookIngestOutput;
+        await seedSigningSecret(
+          session,
+          destination.signingKeyRef,
+          base64Url.decode(base64Url.normalize(cfg.token(2))),
         );
-        expect(times.first[0], 'plugin');
-        expect(times.first[1], isNot(DateTime.utc(2020, 1, 3)));
-        expect(
-          (await session.db.unsafeQuery(
-            "SELECT correlia_maintain('outbox','2020-01-10 UTC',100)",
-          )).single[0],
-          0,
+        await _activatePredecessor(session, snapshot);
+        await session.db.transaction((tx) async {
+          await session.db.unsafeSimpleExecute('''
+            SET LOCAL TIME ZONE 'America/New_York';
+            DELETE FROM pipeline_failures;
+            DELETE FROM raw_inbox WHERE status='failed';
+            UPDATE outbox SET output_kind='plugin',definition_digest=repeat('a',64),
+              target_url=NULL,signing_key_ref=NULL,signing_key_commitment=NULL,
+              attempt_count=1,dead_reason='payload_too_large'
+            WHERE status='dead';
+            INSERT INTO delivery_attempts ("outboxCreatedAt","deliveryId","attemptNumber","claimId",
+              "startedAt","finishedAt",outcome,"errorClass")
+            SELECT created_at AT TIME ZONE 'UTC',delivery_id,1,gen_random_uuid(),
+              '2020-01-03 12:00 UTC'::timestamptz,'2020-01-03 12:01 UTC'::timestamptz,
+              'retryable','plugin_connection_lost'
+            FROM outbox WHERE output_kind='plugin';
+          ''', transaction: tx);
+          await session.db.unsafeExecute(
+            '''
+            UPDATE outbox SET attempt_count=1,output_id=@output::uuid,config_snapshot_id=@pin,
+              target_url='http://127.0.0.1:9099/events',signing_key_ref=@ref,signing_key_commitment=@commitment
+            WHERE status='delivered'
+          ''',
+            parameters: QueryParameters.named({
+              'output': cfg.outputId,
+              'pin': snapshot.snapshotId,
+              'ref': destination.signingKeyRef,
+              'commitment': destination.signingKeyCommitment,
+            }),
+            transaction: tx,
+          );
+          await session.db.unsafeSimpleExecute('''
+            INSERT INTO outbox (created_at,delivery_id,event_observed_at,event_id,event_disposition,
+              output_id,config_snapshot_id,target_url,signing_key_ref,signing_key_commitment,
+              payload,status,attempt_count,dead_reason)
+            SELECT created_at,gen_random_uuid(),event_observed_at,event_id,event_disposition,
+              output_id,config_snapshot_id,target_url,signing_key_ref,signing_key_commitment,
+              payload,'dead',20,'interrupted'
+            FROM outbox CROSS JOIN generate_series(1,2) WHERE status='delivered';
+            INSERT INTO delivery_attempts ("outboxCreatedAt","deliveryId","attemptNumber","claimId",
+              "startedAt","finishedAt",outcome,"errorClass")
+            SELECT created_at AT TIME ZONE 'UTC',delivery_id,attempt_count,gen_random_uuid(),
+              '2020-01-03 12:00 UTC'::timestamptz,'2020-01-03 12:01 UTC'::timestamptz,
+              CASE WHEN status='dead' THEN 'interrupted' ELSE 'acknowledged' END,dead_reason
+            FROM outbox WHERE output_kind='webhook';
+          ''', transaction: tx);
+        });
+        Future<List<List<Object?>>> attempts() async => [
+          for (final row in await session.db.unsafeQuery('''
+            SELECT "deliveryId"::text,"outboxCreatedAt"::text,"startedAt"::text,"finishedAt"::text,
+              "claimId"::text,"attemptNumber",outcome,"errorClass"
+            FROM delivery_attempts ORDER BY "deliveryId","attemptNumber"
+          '''))
+            row.toList(),
+        ];
+
+        final history = await attempts();
+        expect(history.map((row) => row[3]).toSet(), {'2020-01-03 07:01:00'});
+        late DateTime cutover;
+        await applySchemaSteps(
+          session,
+          schemaSteps,
+          beforeStepForTest: (tx, step) async {
+            if (step.version == _cutoverVersion) {
+              final row = (await session.db.unsafeQuery(
+                'SELECT transaction_timestamp()',
+                transaction: tx,
+              )).single;
+              cutover = row[0]! as DateTime;
+            }
+          },
         );
+        expect(await attempts(), history);
+        Future<Object?> maintain(String lane, DateTime now) async =>
+            (await session.db.unsafeQuery(
+              'SELECT correlia_maintain(@lane,@now,100)',
+              parameters: QueryParameters.named({'lane': lane, 'now': now}),
+            )).single[0];
+
+        final deliveryEnd = cutover.add(const Duration(days: 7));
+        expect(await maintain('outbox', deliveryEnd), 0);
         expect(
-          (await session.db.unsafeQuery(
-            "SELECT correlia_maintain('outbox','2020-01-10 00:00:00.000001 UTC',100)",
-          )).single[0],
+          await maintain(
+            'outbox',
+            deliveryEnd.add(const Duration(microseconds: 1)),
+          ),
           1,
         );
-        await session.db.unsafeQuery(
-          "SELECT correlia_maintain('expiry',clock_timestamp(),100)",
+
+        final replayEnd = cutover.add(const Duration(days: 14));
+        var now = replayEnd.subtract(const Duration(microseconds: 1));
+        expect(await maintain('expiry', now), 0);
+        final operations = QueueOperations(
+          session,
+          secretStore: testSecretStore,
+          clock: () => now,
+          elapsedForTest: () => Duration.zero,
         );
+        final failures = (await operations.list(
+          QueueFailureFilter(
+            kind: QueueFailureKind.delivery,
+            scopeId: cfg.outputId,
+          ),
+        )).failures;
+        expect(failures.map((entry) => entry.failedAt), [cutover, cutover]);
         expect(
-          (await session.db.unsafeQuery('''
-          SELECT status FROM outbox ORDER BY output_kind
-        ''')).map((row) => row[0]),
-          ['dead', 'discarded'],
+          (await operations.replayOne(
+            QueueFailureKind.delivery,
+            failures.first.occurrence,
+            'operator',
+          )).queued,
+          1,
         );
+        now = replayEnd;
+        expect(
+          (await operations.replayOne(
+            QueueFailureKind.delivery,
+            failures.last.occurrence,
+            'operator',
+          )).items.single.outcome,
+          'expired',
+        );
+        expect(await maintain('expiry', now), 2);
+        expect(
+          (await session.db.unsafeQuery(
+            'SELECT status FROM outbox ORDER BY status',
+          )).map((row) => row[0]),
+          ['discarded', 'discarded', 'queued'],
+        );
+
+        final terminal = replayEnd.add(const Duration(days: 1));
+        addTearDown(
+          () => session.db.unsafeSimpleExecute(
+            'DROP SCHEMA IF EXISTS test_cutover_delivery_clock CASCADE',
+          ),
+        );
+        final relay = OutputRelayRepository(
+          session,
+          testSecretResolver(session).resolve,
+          beforeCompletionLockForTest: (tx) => session.db.unsafeSimpleExecute(
+            '''
+            CREATE SCHEMA test_cutover_delivery_clock;
+            CREATE FUNCTION test_cutover_delivery_clock.clock_timestamp()
+            RETURNS timestamptz LANGUAGE sql AS \$\$
+              SELECT CASE WHEN pg_trigger_depth()>0
+                THEN '${terminal.toIso8601String()}'::timestamptz
+                ELSE pg_catalog.clock_timestamp() END
+            \$\$;
+            SET LOCAL search_path=test_cutover_delivery_clock,pg_catalog,public
+            ''',
+            transaction: tx,
+          ),
+        );
+        final claim = (await relay.claim(cfg.outputId))!.claims.single;
+        expect(claim.deliveryId, failures.first.workId);
+        expect(
+          await relay.complete(
+            claim,
+            const DeliveryPermanent('http_permanent'),
+          ),
+          isTrue,
+        );
+        now = terminal;
+        final replacement = (await operations.list(
+          QueueFailureFilter(
+            kind: QueueFailureKind.delivery,
+            scopeId: cfg.outputId,
+          ),
+        )).failures.single;
+        expect(replacement.workId, claim.deliveryId);
+        expect(replacement.occurrence, isNot(failures.first.occurrence));
+        expect(replacement.failedAt, terminal);
+        expect(
+          (await session.db.unsafeQuery(
+            'SELECT EXISTS (SELECT FROM pipeline_legacy_delivery_terminal)',
+          )).single[0],
+          false,
+        );
+        final finalHistory = await attempts();
+        expect(finalHistory.where((row) => row[5] != 21), history);
+        expect(finalHistory.singleWhere((row) => row[5] == 21)[6], 'permanent');
+        final replacementEnd = terminal.add(const Duration(days: 14));
+        expect(
+          await maintain(
+            'expiry',
+            replacementEnd.subtract(const Duration(microseconds: 1)),
+          ),
+          0,
+        );
+        expect(await maintain('expiry', replacementEnd), 1);
       });
     },
     rollbackDatabase: RollbackDatabase.disabled,

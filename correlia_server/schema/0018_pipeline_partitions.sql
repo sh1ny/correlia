@@ -56,9 +56,9 @@ ALTER TABLE legacy_outbox
   ADD COLUMN terminal_at timestamptz,
   ADD COLUMN retry_base integer NOT NULL DEFAULT 0;
 
--- Preserve terminal time without writing a new tuple into the payload heap.
--- Oversized plugins can fail without a new attempt. Give those rows and
--- terminal rows without matching evidence the full window at cutover.
+-- Legacy attempt times lack a session time zone. Give every terminal intent
+-- its full window from cutover without rewriting payloads or attempt history.
+-- New terminal transitions record their exact time on the intent.
 CREATE TABLE pipeline_legacy_delivery_terminal (
   created_at timestamptz NOT NULL,
   delivery_id uuid NOT NULL,
@@ -67,17 +67,7 @@ CREATE TABLE pipeline_legacy_delivery_terminal (
   PRIMARY KEY (created_at,delivery_id)
 );
 INSERT INTO pipeline_legacy_delivery_terminal (created_at,delivery_id,delivered,terminal_at)
-SELECT o.created_at,o.delivery_id,o.status='delivered',COALESCE((
-  SELECT a."finishedAt" AT TIME ZONE 'UTC' FROM delivery_attempts a
-  WHERE a."outboxCreatedAt" = o.created_at AT TIME ZONE 'UTC'
-    AND a."deliveryId" = o.delivery_id AND a."finishedAt" IS NOT NULL
-    AND a."attemptNumber" = o.attempt_count
-    AND ((o.status = 'delivered' AND a.outcome = 'acknowledged')
-      OR (o.status = 'dead' AND o.dead_reason IS DISTINCT FROM 'payload_too_large'
-        AND a."errorClass" IS NOT DISTINCT FROM o.dead_reason
-        AND (a.outcome = 'permanent'
-          OR (o.attempt_count >= 20 AND a.outcome IN ('retryable', 'interrupted')))))
-), transaction_timestamp())
+SELECT o.created_at,o.delivery_id,o.status='delivered',transaction_timestamp()
 FROM legacy_outbox o WHERE o.status IN ('dead', 'delivered');
 CREATE INDEX pipeline_legacy_delivered_age ON pipeline_legacy_delivery_terminal
   (terminal_at,created_at,delivery_id) WHERE delivered;
