@@ -411,6 +411,31 @@ void main() {
     expect(result.finalLabelMap['team'], 'b');
   });
 
+  test('missing_field_under_not_in_the_simulator', () async {
+    final result = await _simulate(
+      _event(labels: {'alertname': 'Watchdog'}),
+      _document([
+        _rule(
+          'not-site',
+          [
+            _label('team', 'a'),
+          ],
+          when: {'not': _leaf('labels.site', 'equals', 'eu1')},
+        ),
+      ]),
+    );
+    final rule = result.trace.single;
+    expect(rule.outcome, 'matched');
+    expect(
+      rule.conditions.map((n) => (n.parentIndex, n.kind, n.field, n.outcome)),
+      [
+        (null, 'not', null, 'matched'),
+        (0, 'leaf', 'labels.site', 'no match: field missing'),
+      ],
+    );
+    expect(result.finalLabelMap['team'], 'a');
+  });
+
   test('a_false_leaf_names_the_operator_it_fails', () async {
     final event = _event();
     final summary = event.summary;

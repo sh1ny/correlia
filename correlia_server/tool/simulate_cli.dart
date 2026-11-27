@@ -289,9 +289,15 @@ void writeTrace(RuleSimulationResult result, StringSink sink) {
     for (final SimulatedLabel(:key, :value) in result.finalLabels)
       '$key=$value (${finalOrigins[key] ?? 'unknown origin'})',
   ]);
+  // The URL and the display text are JSON-quoted, as in the action detail: a
+  // URL may hold spaces and quotes, so each needs a clear boundary.
   _section(out, 'links', [
     for (final link in result.finalLinks)
-      '${link.relation} ${link.href}${link.text == null ? '' : ' "${link.text}"'}',
+      [
+        link.relation,
+        jsonEncode(link.href),
+        if (link.text case final text?) jsonEncode(text),
+      ].join(' '),
   ]);
   out.writeln('severity: ${result.finalSeverity}');
   _section(out, 'baseline routes', result.baselineRoutes);

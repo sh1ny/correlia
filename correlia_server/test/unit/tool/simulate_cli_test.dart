@@ -161,7 +161,7 @@ void main() {
         expect(text, contains('kind: alert'));
         expect(text, contains('noise class hint: flapping'));
         expect(text, contains('team=ops (rule:matched-rule)'));
-        expect(text, contains('runbook https://x.example/a'));
+        expect(text, contains('runbook "https://x.example/a"'));
         expect(text, contains('severity: critical'));
         expect(text, contains('out-b (hypothetical)'));
         expect(text, contains('note: a note'));
@@ -215,6 +215,33 @@ void main() {
           text,
           contains(r'team=x\nrule forged: matched\r\u{1b}[2J\u{7}\u{9b}'),
         );
+      },
+    );
+
+    test(
+      'a link URL ending in quoted text is told apart from display text',
+      () async {
+        final result = _result();
+        result.finalLinks = [
+          rpc.SimulatedLink(
+            href: 'https://x.example/a "Runbook"',
+            relation: 'runbook',
+          ),
+          rpc.SimulatedLink(
+            href: 'https://x.example/a',
+            relation: 'runbook',
+            text: 'Runbook',
+          ),
+        ];
+        final h = _Harness(result);
+        expect(await h.run(['--event-id', _id, '--observed-at', 'T']), 0);
+        final lines = h.out.toString().split('\n');
+        // The sink doubles each backslash that JSON quoting writes.
+        expect(
+          lines,
+          contains(r'  runbook "https://x.example/a \\"Runbook\\""'),
+        );
+        expect(lines, contains('  runbook "https://x.example/a" "Runbook"'));
       },
     );
 

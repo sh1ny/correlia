@@ -65,7 +65,7 @@
 | rule-simulator → Stored event keys and members | Members differ only in an excluded label | `correlia_server/test/db/rule_simulator_test.dart` | `members_differ_only_in_an_excluded_label` | green |
 | rule-simulator → Explain every rule and condition decision | RUL-2 missing field is visible | `correlia_server/test/unit/simulator/rule_simulation_test.dart` | `rul_2_a_missing_field_is_a_visible_non_match` | green |
 | rule-simulator → Explain every rule and condition decision | A false leaf names its operator | `correlia_server/test/unit/simulator/rule_simulation_test.dart` | `a_false_leaf_names_the_operator_it_fails` | green |
-| rule-simulator → Explain every rule and condition decision | Missing field under not | `correlia_server/test/unit/matcher/explain_test.dart` | `missing_field_under_not` | green |
+| rule-simulator → Explain every rule and condition decision | Missing field under not | `correlia_server/test/unit/matcher/explain_test.dart`, `correlia_server/test/unit/simulator/rule_simulation_test.dart` | `missing_field_under_not`, `missing_field_under_not_in_the_simulator` | green |
 | rule-simulator → Explain every rule and condition decision | Explicit null in a pasted event | `correlia_server/test/unit/simulator/rule_simulation_test.dart` | `explicit_null_in_a_pasted_event` | green |
 | rule-simulator → Explain every rule and condition decision | Short-circuited leaves are not evaluated | `correlia_server/test/unit/matcher/explain_test.dart` | `short_circuited_leaves_are_not_evaluated` | green |
 | rule-simulator → Explain every rule and condition decision | Regex leaf times out | `correlia_server/test/unit/simulator/rule_simulation_test.dart` | `regex_leaf_times_out` | green |
