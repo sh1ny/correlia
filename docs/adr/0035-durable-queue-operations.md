@@ -34,6 +34,8 @@ The first refusal or saturation in an episode produces durable ledger evidence. 
 
 Maintain live and pinned counts by output ID and by distinct nonsecret historical commitment. Check publication imports and startup from that metadata, never by scanning payload queues. Missing live webhook signing material still fails startup; missing plugin material remains a per-definition launch failure. Keep event reference counts by full event identity. Failure pages and maintenance select bounded candidates through indexed metadata.
 
+Startup prefills the bounded secret cache from active references and live commitment metadata. It does not read delivery rows or parse historical plugin configuration to find references.
+
 ### Retention and upgrade
 
 Defaults: 30 days for terminal raw receipts, 90 days for events and 7 days after delivery completion for delivered intents. Failed raw rows and dead deliveries stay replayable until the configured dead-letter window, then expire with ledger evidence. Never reclaim pending work or an event protected by a queued, delivering or dead intent. Delivery attempts follow their terminal intent through a resumable bounded reclamation queue.

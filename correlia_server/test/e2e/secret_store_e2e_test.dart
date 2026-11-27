@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:correlia_client/correlia_client.dart';
+import 'package:correlia_server/src/ingest/bootstrap.dart' show sha256Digest;
 import 'package:crypto/crypto.dart';
 import 'package:postgres/postgres.dart';
 import 'package:test/test.dart';
@@ -56,12 +57,19 @@ final class _Fixture {
   Future<ChildServer> start({
     bool configured = true,
     bool import = true,
+    String? role,
     Directory? plugins,
   }) async {
     final log = Directory('${files.path}/logs-${children.length}');
     final child = await ChildServer.startOnSharedCluster(
       serverDir: Directory.current,
       database: db,
+      args: [
+        '--mode',
+        'test',
+        '--apply-migrations',
+        if (role != null) ...['--process-role', role],
+      ],
       logs: log,
       environment: {
         if (configured) ...{
@@ -448,6 +456,70 @@ void main() {
         }
       });
     },
+    timeout: _timeout,
+  );
+
+  test(
+    'worker_startup_prefills_a_historical_plugin_from_metadata',
+    () => _withFixture((fixture, db) async {
+      const pluginReference = 'historical-plugin-key';
+      await _private(
+        fixture.secrets,
+        jsonEncode({'token': outputToken, pluginReference: outputKey}),
+      );
+      await fixture.config.writeAsString(
+        jsonEncode(
+          _config(
+            1,
+            output: {
+              'id': outputId,
+              'kind': 'plugin',
+              'plugin': 'retained-output',
+              'sha256': 'a' * 64,
+              'config': {'opaque': '\u0000'},
+              'secret_refs': {'token': pluginReference},
+            },
+          ),
+        ),
+      );
+      final original = await fixture.start(role: 'api');
+      await original.waitForReadyEvent();
+      expect(await original.closeStdin(), 0);
+
+      final snapshotText = await _activeJson(db);
+      final historical = jsonDecode(snapshotText) as Map<String, Object?>;
+      final outputs = historical['outputs']! as List<Object?>;
+      final digest = sha256Digest(outputs.single);
+      await db.execute(
+        Sql.named('''
+          INSERT INTO outbox (created_at,delivery_id,event_observed_at,event_id,event_disposition,
+            output_id,config_snapshot_id,output_kind,definition_digest,payload,status,claim_id,lease_until)
+          SELECT now(),gen_random_uuid(),now(),gen_random_uuid(),'accepted',
+            '$outputId',a."snapshotId",'plugin',@digest,decode('7b7d','hex'),'delivering',
+            gen_random_uuid(),now()+interval '1 day'
+          FROM ingest_active_config a CROSS JOIN generate_series(1,90)
+        '''),
+        parameters: {'digest': digest},
+      );
+      expect(
+        (await db.execute('''
+          SELECT live_count FROM pipeline_output_commitment
+          WHERE reference='$pluginReference' AND kind='plugin'
+        ''')).single[0],
+        90,
+      );
+
+      await fixture.config.writeAsString(jsonEncode(_config(2)));
+      final worker = await fixture.start(import: false, role: 'worker');
+      await worker.waitForReadyEvent();
+      expect(
+        (await db.execute('''
+          SELECT count(*) FROM outbox
+          WHERE output_id='$outputId' AND output_kind='plugin' AND status='delivering'
+        ''')).single[0],
+        90,
+      );
+    }),
     timeout: _timeout,
   );
 

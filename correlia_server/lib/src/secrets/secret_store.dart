@@ -217,21 +217,13 @@ final class SecretResolver {
   final _entries = <String, Uint8List>{};
   int _size = 0;
 
-  /// Prefills remaining capacity from the active references and live pins.
+  /// Prefills the bounded cache from active references and live commitments.
   Future<void> prefill(Session session, Iterable<String> active) async {
     final rows = await session.db.unsafeQuery(
       '''WITH candidates AS (
         SELECT value AS reference, true AS active FROM jsonb_array_elements_text(CAST(@active AS jsonb))
         UNION ALL
-        SELECT signing_key_ref, false FROM outbox
-        WHERE output_kind='webhook' AND status IN ('queued','delivering')
-        UNION ALL
-        SELECT entry.value->>'reference', false FROM outbox o
-        JOIN ingest_config_snapshot s ON s."snapshotId"=o.config_snapshot_id
-        CROSS JOIN LATERAL jsonb_array_elements(s."publicJson"::jsonb->'outputs') output
-        CROSS JOIN LATERAL jsonb_each(COALESCE(output->'secret_refs','{}'::jsonb)) entry
-        WHERE o.output_kind='plugin' AND o.status IN ('queued','delivering')
-          AND output->>'id'=o.output_id::text
+        SELECT reference, false FROM pipeline_output_commitment WHERE live_count>0
       ), wanted AS (
         SELECT reference, bool_or(active) AS active FROM candidates GROUP BY reference
       )
