@@ -123,6 +123,8 @@ Keep the last completed batch in `QueueStatus.maintenance`. Return active failur
 
 Allocate a PostgreSQL attempt number before each batch. After a rollback, record the failure only if a newer completed attempt for the same job has not already committed. The attempt fence also covers reservation errors; partition-specific retry records keep their own fence.
 
+Serialize outcome writes at the end of the maintenance transaction. Use the resulting completion order to choose the latest batch; `finishedAt` reports wall time and does not decide order.
+
 Rejected: make `maintenance` prefer an unresolved failure. That hides the actual last completed batch. Reversal cost: medium. Important: yes, the operator RPC contract. Chosen by: user (item 88).
 
 ### D16: Prove drained outbox partitions are empty without a heap scan

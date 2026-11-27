@@ -644,6 +644,61 @@ void main() {
         }
       });
 
+      test('last_maintenance_batch_uses_completion_order', () async {
+        await session.db.unsafeSimpleExecute(r'''
+          CREATE FUNCTION test_maintenance_wall_clock() RETURNS trigger LANGUAGE plpgsql AS $$
+          BEGIN
+            NEW.finished_at := CASE WHEN NEW.lane='expiry' THEN '2026-01-01 UTC'::timestamptz
+              ELSE '2026-01-02 UTC'::timestamptz END;
+            RETURN NEW;
+          END;
+          $$;
+          CREATE TRIGGER test_maintenance_wall_clock BEFORE INSERT OR UPDATE
+            ON pipeline_maintenance_outcome FOR EACH ROW EXECUTE FUNCTION test_maintenance_wall_clock()
+        ''');
+        addTearDown(
+          () => session.db.unsafeSimpleExecute('''
+            DROP TRIGGER test_maintenance_wall_clock ON pipeline_maintenance_outcome;
+            DROP FUNCTION test_maintenance_wall_clock()
+          '''),
+        );
+        final gate = ContentionGate();
+        final rolledBack = Completer<void>();
+        final older = gate.run(
+          () => MaintenanceRepository(
+            builder.build(),
+            beforeCommitForTest: (_) async => throw StateError('test rollback'),
+            beforeSweepFailureForTest: () async {
+              rolledBack.complete();
+              await gate.future;
+            },
+          ).sweep('expiry'),
+        );
+        try {
+          await Future.any([
+            rolledBack.future,
+            older.then<void>((_) => fail('Older failure was not parked')),
+          ]);
+          await MaintenanceRepository(session).sweep('events');
+          final ops = QueueOperations(session);
+          final first = (await ops.status()).maintenance!;
+          expect(
+            (first.lane, first.finishedAt),
+            ('events', DateTime.utc(2026, 1, 2)),
+          );
+
+          await gate.join();
+          await older;
+          final last = (await ops.status()).maintenance!;
+          expect(
+            (last.lane, last.outcome, last.finishedAt),
+            ('expiry', 'failed', DateTime.utc(2026)),
+          );
+        } finally {
+          await gate.join();
+        }
+      });
+
       test('failed_batch_reports_no_uncommitted_counts', () async {
         await _raw(session, 1, 'pending');
         await _failure(session, 1);

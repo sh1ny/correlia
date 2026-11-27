@@ -321,7 +321,7 @@ final class IngestConfigRepository {
           }
         }
         await session.db.unsafeQuery(
-          'SELECT correlia_publish_queue_policy(@snapshot::jsonb)',
+          'SELECT correlia_publish_queue_policy(correlia_queue_snapshot(@snapshot))',
           parameters: QueryParameters.named({'snapshot': publicJson}),
           transaction: transaction,
           timeoutInSeconds: 5,

@@ -329,6 +329,8 @@ Worker maintenance advances that cutoff even if no Icinga 2 target can load.
 Observation keys and silent Icinga 2 tombstones also respect the oldest pending or failed
 receipt. A maintenance failure rolls back the whole batch; its recorded outcome has no
 discarded or reclaimed count from that batch.
+The status RPC shows the last committed maintenance outcome even if the database clock moves
+backward. `finishedAt` still reports the database's wall time.
 
 ## Repair migrations
 

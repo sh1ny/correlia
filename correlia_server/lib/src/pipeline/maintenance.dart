@@ -128,6 +128,8 @@ final class MaintenanceRepository {
     transaction: tx,
   );
 
+  // Every caller records its outcome last. The transaction lock keeps
+  // completion numbers in commit order without blocking admission or delivery.
   Future<void> _outcome(
     Transaction tx,
     String lane,
@@ -136,10 +138,12 @@ final class MaintenanceRepository {
     int count,
   ) => session.db.unsafeExecute(
     '''
+        WITH ordered AS MATERIALIZED (SELECT pg_advisory_xact_lock(1129271902))
         INSERT INTO pipeline_maintenance_outcome AS prior (lane,attempt,outcome,finished_at,affected)
-        VALUES (@lane,@attempt,@outcome,clock_timestamp(),@count)
+        SELECT @lane,@attempt::bigint,@outcome,clock_timestamp(),@count::integer FROM ordered
         ON CONFLICT (lane) DO UPDATE SET attempt=excluded.attempt,outcome=excluded.outcome,
-          finished_at=excluded.finished_at,affected=excluded.affected
+          finished_at=excluded.finished_at,affected=excluded.affected,
+          completion_order=excluded.completion_order
         WHERE prior.attempt<excluded.attempt
       ''',
     parameters: QueryParameters.named({

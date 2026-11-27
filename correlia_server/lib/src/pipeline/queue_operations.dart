@@ -719,7 +719,7 @@ final class QueueOperations {
     final row = rows.first;
     final maintenance = await tx.query('''
       SELECT lane,outcome,finished_at,affected FROM pipeline_maintenance_outcome
-      ORDER BY finished_at DESC, attempt DESC
+      ORDER BY completion_order DESC
     ''');
     QueueMaintenanceStatus batch(DatabaseResultRow row) =>
         QueueMaintenanceStatus(
