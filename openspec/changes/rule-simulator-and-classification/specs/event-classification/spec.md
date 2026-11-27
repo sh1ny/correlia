@@ -17,7 +17,7 @@ Each event's canonical `kind` SHALL be set only by its source's decoder, per the
 
 #### Scenario: Icinga2 webhook kinds
 - **WHEN** golden Icinga2 webhook fixtures are normalized
-- **THEN** hard problems and recoveries are `alert`, soft problems and flapping changes are `state`, acknowledgements are `ack`, downtimes are `downtime` and comments are `comment`
+- **THEN** a `PROBLEM` or `RECOVERY` notification takes its kind from the state it samples: `OK` or `UP` is `alert`, a SOFT state other than `OK` or `UP` is `state`, and a HARD one is `alert`; flapping changes are `state`, acknowledgements are `ack`, downtimes are `downtime` and comments are `comment`
 
 #### Scenario: Icinga2 Event Streams kinds under each state policy
 - **WHEN** golden Event Streams fixtures are normalized under `hard_only` and under `soft_and_hard`
