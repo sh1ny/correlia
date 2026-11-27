@@ -8,7 +8,7 @@ import 'package:test/test.dart';
 
 import '../integration/test_tools/serverpod_test_tools.dart';
 import '../support/icinga2_pipeline.dart' show clearPipelineTables;
-import '../support/postgres_lock_witness.dart' show ContentionGate;
+import '../support/postgres_lock_witness.dart';
 import '../support/secret_fixture.dart';
 import 'ingest_config_test.dart' as fixture;
 import 'output_relay_test.dart' as delivery;
@@ -21,16 +21,20 @@ Future<void> _seed(
   String source,
   int count, {
   String code = 'invalid_json',
+  String failedAt = '2026-11-24 UTC',
+  Transaction? transaction,
 }) => session.db.unsafeSimpleExecute('''
       WITH inserted AS (
         INSERT INTO raw_inbox(observed_at,raw_id,source_id,body,body_sha256,content_type,status)
         SELECT '2026-11-10 UTC',gen_random_uuid(),'$source',decode('ff','hex'),'digest','application/json','failed'
         FROM generate_series(1,$count) RETURNING observed_at,raw_id,source_id
-      ) SELECT correlia_record_raw_failure(observed_at,raw_id,source_id,NULL,'$code',NULL,'2026-11-24 UTC')
+      ) SELECT correlia_record_raw_failure(observed_at,raw_id,source_id,NULL,'$code',NULL,'$failedAt')
         FROM inserted
-    ''');
+    ''', transaction: transaction);
 
 void main() {
+  final cluster = LockWitnessCluster();
+  tearDownAll(cluster.close);
   withServerpod(
     'dead letter selection and replay',
     (builder, _) {
@@ -147,6 +151,147 @@ void main() {
         },
       );
 
+      test('first_replay_page_fences_failure_commit_visibility', () async {
+        final writer = builder.build();
+        late final int visible;
+        final gate = ContentionGate();
+        final inserted = Completer<LockActor>();
+        final witness = await PostgresLockWitness.start(session);
+        addTearDown(witness.close);
+        final readers = ContentionGate();
+        late final Future<QueueFailurePage> capture;
+        final older = gate.run(
+          () => writer.db.transaction((tx) async {
+            final holder = await pooledLockActor(writer, tx);
+            await _seed(
+              writer,
+              fixture.sourceId,
+              1,
+              failedAt: '2026-11-24 06:00 UTC',
+              transaction: tx,
+            );
+            inserted.complete(holder);
+            await gate.future;
+          }),
+        );
+        try {
+          final holder = await Future.any([
+            inserted.future,
+            older.then<LockActor>(
+              (_) => fail('The first failure transaction did not park'),
+            ),
+          ]);
+          await _seed(session, fixture.sourceId, 1);
+          final row = (await session.db.unsafeQuery(
+            'SELECT occurrence_id FROM pipeline_dead_letter',
+          )).single;
+          visible = row[0]! as int;
+          final bounded = anyOf(
+            isA<DatabaseQueryException>().having(
+              (e) => e.code,
+              'SQLSTATE',
+              anyOf('55P03', '57014'),
+            ),
+            isA<TimeoutException>(),
+          );
+          await expectLater(
+            operations.replayBatch(filter(), 'operator', limit: 1),
+            throwsA(bounded),
+          );
+          await expectLater(
+            operations.list(filter(), limit: 1),
+            throwsA(bounded),
+          );
+          expect(
+            (await session.db.unsafeQuery(
+              "SELECT count(*) FROM raw_inbox WHERE status='pending'",
+            )).single[0],
+            0,
+          );
+
+          final reader = builder.build();
+          final waiting = Completer<LockActor>();
+          final listing = QueueOperations(
+            reader,
+            clock: () => _now,
+            startDeadlineForTest: () =>
+                () => Duration.zero,
+            beforePageCaptureForTest: (tx) async {
+              waiting.complete(
+                await pooledLockActor(
+                  reader,
+                  tx,
+                  waiter: SqlTimeouts.queueCapture,
+                ),
+              );
+            },
+          );
+          capture = readers.run(() => listing.list(filter(), limit: 1));
+          final waiter = await Future.any([
+            waiting.future,
+            capture.then<LockActor>(
+              (_) => fail('The first listing did not start capture'),
+            ),
+          ]);
+          await witness.blockedBy(
+            waiter,
+            holder,
+            capture,
+            statement: 'LOCK TABLE pipeline_dead_letter IN SHARE MODE',
+          );
+        } finally {
+          await gate.join();
+          await readers.join();
+        }
+        await older;
+        final listed = await capture;
+        expect(listed.failures.single.occurrence, visible);
+        expect(listed.continuation, isNotNull);
+        final nextListed = await operations.list(
+          filter(),
+          limit: 1,
+          cursor: listed.continuation,
+        );
+        expect(nextListed.failures.single.occurrence, lessThan(visible));
+        expect(nextListed.continuation, isNull);
+
+        // A new writer can commit after page selection, before any work lock.
+        final withWriter = repo(
+          session,
+          beforeWorkLock: () async {
+            await writer.db.transaction((tx) async {
+              await writer.db.unsafeSimpleExecute(
+                "SET LOCAL lock_timeout='2s'",
+                transaction: tx,
+              );
+              await _seed(writer, fixture.sourceId, 1, transaction: tx);
+            });
+          },
+        );
+        final first = await withWriter.replayBatch(
+          filter(),
+          'operator',
+          limit: 1,
+        );
+        expect(first.queued, 1);
+        expect(first.items.single.occurrence, visible);
+        expect(first.continuation, isNotNull);
+        final next = await operations.replayBatch(
+          filter(),
+          'operator',
+          limit: 1,
+          cursor: first.continuation,
+        );
+        expect(next.queued, 1);
+        expect(
+          next.items.single.occurrence,
+          lessThan(first.items.single.occurrence),
+        );
+        expect(next.continuation, isNull);
+        final later = (await operations.list(filter())).failures.single;
+        expect(later.occurrence, greaterThan(first.items.single.occurrence));
+      });
+
       test('sparse_filter_pages_use_matching_index', () async {
         await _seed(session, _other, 500);
         await _seed(session, fixture.sourceId, 500, code: 'body_bound');
@@ -230,16 +375,24 @@ void main() {
         final replay = QueueOperations(
           session,
           clock: () => _now,
-          elapsedForTest: () => elapsed,
+          startDeadlineForTest: () {
+            final origin = elapsed;
+            return () => elapsed - origin;
+          },
+          observePageQueryForTest: (_, _, _) async {
+            elapsed += const Duration(seconds: 2);
+          },
           beforeWorkLockForTest: () async {
-            elapsed = const Duration(seconds: 4);
+            expect(elapsed, const Duration(seconds: 2));
+            elapsed += const Duration(seconds: 2);
           },
           beforeCommitForTest: (tx) async {
             final staged = (await session.db.unsafeQuery('''
-              SELECT pending_rows,(SELECT count(*) FROM activity WHERE change_kind='dead_letter_replayed')
+              SELECT pending_rows,(SELECT count(*) FROM activity WHERE change_kind='dead_letter_replayed'),
+                current_setting('statement_timeout')
               FROM pipeline_pending
             ''', transaction: tx)).single;
-            expect(staged.toList(), [2, 1]);
+            expect(staged.toList(), [2, 1, '1s']);
             elapsed += const Duration(seconds: 1);
           },
         );
@@ -526,6 +679,8 @@ void main() {
       }
     },
     rollbackDatabase: RollbackDatabase.disabled,
+    ephemeralDatabase: false,
+    configOverride: cluster.override,
     testGroupTagsOverride: ['db'],
   );
 }

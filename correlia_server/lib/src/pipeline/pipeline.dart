@@ -1358,13 +1358,14 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
     await _lockRawPin(tx, deadline, raw);
     await _limits(tx, deadline);
     await session.db.unsafeQuery(
-      '''WITH failure AS (
+      '''WITH sampled AS MATERIALIZED (SELECT clock_timestamp() AS failed_at),
+failure AS (
   INSERT INTO pipeline_failures
     ("rawObservedAt","rawId","configSnapshotId","errorClass","fieldPath","createdAt")
-  VALUES (@observed::timestamptz AT TIME ZONE 'UTC',@raw::uuid,@pin,@code,@path,
-    @now::timestamptz AT TIME ZONE 'UTC') RETURNING id
-) SELECT correlia_record_raw_failure(@observed,@raw::uuid,@source::uuid,@pin,@code,@path,@now)
-FROM failure''',
+  SELECT @observed::timestamptz AT TIME ZONE 'UTC',@raw::uuid,@pin,@code,@path,
+    sampled.failed_at AT TIME ZONE 'UTC' FROM sampled RETURNING id
+) SELECT correlia_record_raw_failure(@observed,@raw::uuid,@source::uuid,@pin,@code,@path,sampled.failed_at)
+FROM failure CROSS JOIN sampled''',
       parameters: QueryParameters.named({
         'observed': raw.observed,
         'raw': raw.id,
@@ -1372,7 +1373,6 @@ FROM failure''',
         'pin': raw.pin,
         'code': code,
         'path': path,
-        'now': clock().toUtc(),
       }),
       transaction: tx,
       timeoutInSeconds: 5,

@@ -31,6 +31,9 @@ void main() {
       late Session session;
       late DateTime now;
       late QueueOperations ops;
+      QueueOperations operatorWithClock([DateTime Function()? clock]) =>
+          QueueOperations(session, clock: clock, secretStore: testSecretStore);
+
       setUp(() async {
         session = builder.build();
         await clearPipelineTables(session);
@@ -38,11 +41,7 @@ void main() {
         await session.db.unsafeExecute(
           "UPDATE pipeline_icinga2_replay_floor SET effective_floor='-infinity'",
         );
-        ops = QueueOperations(
-          session,
-          clock: () => now,
-          secretStore: testSecretStore,
-        );
+        ops = operatorWithClock(() => now);
       });
 
       PipelineRepository worker({
@@ -89,6 +88,7 @@ void main() {
         );
         expect(await worker().pinOne(), isTrue);
         expect(await worker().processOne(), isTrue);
+        ops = operatorWithClock();
         final failed = await failure();
         expect(failed.snapshotId, first.snapshotId);
         final second = await publishGenericConfig(
@@ -130,6 +130,7 @@ void main() {
         await admitGeneric(session, active, '{}', now);
         expect(await worker().pinOne(), isTrue);
         expect(await worker().processOne(), isTrue);
+        ops = operatorWithClock();
         final original = await failure();
         await publishGenericConfig(
           session,
@@ -182,6 +183,7 @@ void main() {
         );
         await paused.future;
         expect(await worker().processOne(), isTrue);
+        ops = operatorWithClock();
         final failed = await failure();
         expect((await replay(failed.occurrence)).queued, 1);
         await gate.join();
@@ -222,7 +224,9 @@ void main() {
         );
         expect(await worker().pinOne(), isTrue);
         expect(await worker().processOne(), isTrue);
+        ops = operatorWithClock();
         final old = await failure();
+        now = old.failedAt;
         final winner = builder.build();
         final competitor = builder.build();
         final witness = await PostgresLockWitness.start(session);
@@ -252,7 +256,8 @@ void main() {
           () => QueueOperations(
             competitor,
             clock: () => now,
-            elapsedForTest: () => Duration.zero,
+            startDeadlineForTest: () =>
+                () => Duration.zero,
             beforePendingLockForTest: (tx) async {
               final actor = await pooledLockActor(competitor, tx);
               await competitor.db.unsafeSimpleExecute(
@@ -321,7 +326,7 @@ void main() {
           (await session.db.unsafeQuery(
             "SELECT observed_at,queued_at FROM raw_inbox WHERE status='pending'",
           )).single.toList(),
-          [started, now],
+          [observed, now],
         );
       });
 
@@ -338,25 +343,15 @@ void main() {
                 {'source-token': cfg.token(1), 'key-v1': cfg.token(2)},
                 runMode: 'test',
               );
-          final admission = IngestAdmission(session);
-          for (final key in ['older-failure', 'younger-failure']) {
-            final receipt = DateTime.now().toUtc();
-            expect(
-              await admission.admit(
-                sourceId: cfg.sourceId,
-                kind: 'alertmanager',
-                credential: config.sources.single.credentials.single,
-                pathToken: false,
-                body: Uint8List.fromList(utf8.encode('{')),
-                contentType: 'application/json',
-                observedAt: receipt,
-                idempotencyKey: key,
-              ),
-              AdmissionOutcome.accepted,
-            );
+          for (var i = 0; i < 2; i++) {
             now = now.add(const Duration(seconds: 1));
-            expect(await worker().pinOne(), isTrue);
-            expect(await worker().processOne(), isTrue);
+            final row = await seedIcinga2(
+              session,
+              const <String, Object?>{},
+              now,
+              source: cfg.sourceId,
+            );
+            await markFailure(row, config.snapshotId);
           }
           final filter = QueueFailureFilter(kind: QueueFailureKind.raw);
           final original = (await ops.list(filter)).failures;

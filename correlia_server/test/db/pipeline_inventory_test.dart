@@ -410,7 +410,8 @@ void main() {
           final concurrent = QueueOperations(
             builder.build(),
             secretStore: testSecretStore,
-            elapsedForTest: () => Duration.zero,
+            startDeadlineForTest: () =>
+                () => Duration.zero,
             beforeConfigLockForTest: () async {
               workLocked.complete();
               await gate.future;

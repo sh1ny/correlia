@@ -365,7 +365,7 @@ void main() {
         await session.db.unsafeSimpleExecute('''
           UPDATE raw_inbox SET status='failed' WHERE raw_id='$legacy';
           INSERT INTO pipeline_failures ("rawObservedAt","rawId","errorClass","createdAt")
-          VALUES ('${observed.toIso8601String()}','$legacy','validation','${observed.toIso8601String()}')
+          VALUES ('${observed.toIso8601String()}','$legacy','validation',clock_timestamp() AT TIME ZONE 'UTC')
         ''');
         await session.db.unsafeQuery(
           'UPDATE raw_admission_cutoff SET cutoff=@cutoff',
@@ -389,7 +389,6 @@ void main() {
         }
         final operations = QueueOperations(
           session,
-          clock: () => now,
           secretStore: testSecretStore,
         );
         final failures = (await operations.list(
@@ -556,7 +555,8 @@ void main() {
           session,
           secretStore: testSecretStore,
           clock: () => now,
-          elapsedForTest: () => Duration.zero,
+          startDeadlineForTest: () =>
+              () => Duration.zero,
         );
         final failures = (await operations.list(
           QueueFailureFilter(

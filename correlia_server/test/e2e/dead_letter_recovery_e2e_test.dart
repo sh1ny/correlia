@@ -64,7 +64,7 @@ Future<File> _config(
         'revision': rev,
         if (pendingCap != null || discardOverflow)
           'pipeline_operations': {
-            if (pendingCap != null) 'pending_max_rows': pendingCap,
+            'pending_max_rows': ?pendingCap,
             if (discardOverflow)
               'output_budgets': {
                 _discardOutput: {'max_rows': 1},

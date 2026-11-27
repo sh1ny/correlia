@@ -3,8 +3,10 @@ import '../support/secret_fixture.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:correlia_server/src/generated/protocol.dart';
 import 'package:correlia_server/src/ingest/config_repository.dart';
 import 'package:correlia_server/src/pipeline/pipeline.dart';
+import 'package:correlia_server/src/pipeline/queue_operations.dart';
 import 'package:crypto/crypto.dart';
 import 'package:serverpod/serverpod.dart';
 import 'package:test/test.dart';
@@ -168,6 +170,39 @@ LANGUAGE plpgsql AS \$\$ BEGIN RAISE EXCEPTION 'test failure' USING ERRCODE='400
           'failed',
         );
       });
+
+      for (final year in [2000, 2100]) {
+        test('raw_failure_uses_database_time_$year', () async {
+          final session = builder.build();
+          await seed(session, [payload.alert(startsAt: 'invalid')]);
+          final repository = PipelineRepository(
+            session,
+            clock: () => DateTime.utc(year),
+            elapsedForTest: () => Duration.zero,
+          );
+          expect(await repository.pinOne(), isTrue);
+          expect(await repository.processOne(), isTrue);
+          final operations = QueueOperations(session);
+          final failure = (await operations.list(
+            QueueFailureFilter(kind: QueueFailureKind.raw),
+          )).failures.single;
+          expect(failure.errorClass, 'invalid_timestamp');
+          expect(
+            (await session.db.unsafeQuery('''
+              SELECT "createdAt" AT TIME ZONE 'UTC' FROM pipeline_failures
+            ''')).single[0],
+            failure.failedAt,
+          );
+          expect(
+            (await operations.replayOne(
+              QueueFailureKind.raw,
+              failure.occurrence,
+              'operator',
+            )).queued,
+            1,
+          );
+        });
+      }
 
       test('ord_5b_rebatching_and_expired_transport_window', () async {
         final session = builder.build();

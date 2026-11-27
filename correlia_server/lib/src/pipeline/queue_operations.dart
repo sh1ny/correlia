@@ -56,8 +56,13 @@ final class _QueueTransaction {
     );
   }
 
-  Future<void> execute(String sql, {QueryParameters? parameters}) async {
+  Future<void> execute(
+    String sql, {
+    QueryParameters? parameters,
+    Future<void> Function(Transaction)? beforeExecuteForTest,
+  }) async {
     await beforeStatement();
+    if (beforeExecuteForTest != null) await beforeExecuteForTest(tx);
     await _session.db.unsafeExecute(
       sql,
       parameters: parameters,
@@ -75,10 +80,11 @@ final class QueueOperations {
     this.clock,
     this.beforeWorkLockForTest,
     this.beforeConfigLockForTest,
-    this.elapsedForTest,
+    this.startDeadlineForTest,
     this.beforeCommitForTest,
     this.beforePendingLockForTest,
     this.beforeDeliveryKeysLockForTest,
+    this.beforePageCaptureForTest,
     this.observePageQueryForTest,
   });
 
@@ -92,8 +98,8 @@ final class QueueOperations {
   /// Test barrier after work locks, before the active policy lock.
   final Future<void> Function()? beforeConfigLockForTest;
 
-  /// Supplies fixture elapsed time instead of a stopwatch.
-  final Duration Function()? elapsedForTest;
+  /// Starts a fixture clock with an independent origin for each request.
+  final Duration Function() Function()? startDeadlineForTest;
 
   /// Observes staged work and audit rows before the deadline check at commit.
   final Future<void> Function(Transaction)? beforeCommitForTest;
@@ -104,6 +110,9 @@ final class QueueOperations {
   /// Observes the delivery replay transaction just before its final key locks.
   final Future<void> Function(Transaction)? beforeDeliveryKeysLockForTest;
 
+  /// Observes the first-page transaction before its directory lock.
+  final Future<void> Function(Transaction)? beforePageCaptureForTest;
+
   /// Inspects the same bound query and parameters that select a failure page.
   final Future<void> Function(Transaction, String, QueryParameters)?
   observePageQueryForTest;
@@ -113,11 +122,21 @@ final class QueueOperations {
       ((await tx.query('SELECT clock_timestamp()')).single[0]! as DateTime)
           .toUtc();
 
-  Future<T> _transaction<T>(Future<T> Function(_QueueTransaction) body) {
-    final stopwatch = elapsedForTest == null ? (Stopwatch()..start()) : null;
-    final elapsed = elapsedForTest ?? () => stopwatch!.elapsed;
+  Duration Function() _startDeadline() {
+    final injected = startDeadlineForTest;
+    if (injected != null) return injected();
+    final stopwatch = Stopwatch()..start();
+    return () => stopwatch.elapsed;
+  }
+
+  Future<T> _transaction<T>(
+    Future<T> Function(_QueueTransaction) body, {
+    Duration Function()? elapsed,
+    bool captureOnly = false,
+  }) {
+    final requestTime = elapsed ?? _startDeadline();
     return session.db.transaction((tx) async {
-      final operation = _QueueTransaction(session, tx, elapsed);
+      final operation = _QueueTransaction(session, tx, requestTime);
       operation.remaining();
       await session.db.unsafeSimpleExecute(
         "SET LOCAL lock_timeout='2s'; SET LOCAL statement_timeout='5s'",
@@ -125,7 +144,7 @@ final class QueueOperations {
         timeoutInSeconds: 5,
       );
       final result = await body(operation);
-      await beforeCommitForTest?.call(tx);
+      if (!captureOnly) await beforeCommitForTest?.call(tx);
       operation.remaining();
       return result;
     });
@@ -137,8 +156,7 @@ final class QueueOperations {
     int limit = _defaultPage,
     String? cursor,
   }) => _transaction((tx) async {
-    final now = await _now(tx);
-    final page = await _page(tx, filter, now, limit, cursor, replay: false);
+    final page = await _page(tx, filter, limit, cursor, replay: false);
     return QueueFailurePage(failures: page.failures, continuation: page.next);
   });
 
@@ -170,16 +188,37 @@ final class QueueOperations {
     String actor, {
     int limit = _defaultPage,
     String? cursor,
-  }) => _transaction((tx) async {
-    final now = await _now(tx);
-    final page = await _page(tx, filter, now, limit, cursor, replay: true);
-    return _replay(tx, filter.kind, page.failures, actor, now, page.next);
-  });
+  }) async {
+    final elapsed = _startDeadline();
+    // The initial metadata transaction must commit and release SHARE before
+    // replay takes work locks or removes any entry from the directory.
+    final captured = cursor == null
+        ? await _transaction(
+            (tx) => _page(tx, filter, limit, null, replay: true),
+            elapsed: elapsed,
+            captureOnly: true,
+          )
+        : null;
+    if (captured != null && captured.failures.isEmpty) {
+      return QueueReplayResult(queued: 0, refused: 0, items: const []);
+    }
+    return _transaction((tx) async {
+      final page =
+          captured ?? await _page(tx, filter, limit, cursor, replay: true);
+      return _replay(
+        tx,
+        filter.kind,
+        page.failures,
+        actor,
+        page.now,
+        page.next,
+      );
+    }, elapsed: elapsed);
+  }
 
-  Future<({List<QueueFailure> failures, String? next})> _page(
+  Future<({List<QueueFailure> failures, String? next, DateTime now})> _page(
     _QueueTransaction tx,
     QueueFailureFilter filter,
-    DateTime now,
     int limit,
     String? cursor, {
     required bool replay,
@@ -213,6 +252,15 @@ final class QueueOperations {
           ),
         )
         .toString();
+    if (cursor == null) {
+      // An INSERT holds ROW EXCLUSIVE from before its identity is allocated
+      // until commit. SHARE closes gaps from still-uncommitted smaller IDs.
+      await tx.execute(
+        'LOCK TABLE pipeline_dead_letter IN SHARE MODE',
+        beforeExecuteForTest: beforePageCaptureForTest,
+      );
+    }
+    final now = await _now(tx);
     var high = through != null && through.isBefore(now) ? through : now;
     DateTime? after;
     int? occurrence;
@@ -298,7 +346,7 @@ final class QueueOperations {
                 ),
               )
               .replaceAll('=', '');
-    return (failures: page, next: next);
+    return (failures: page, next: next, now: now);
   }
 
   static QueueFailure _failure(
