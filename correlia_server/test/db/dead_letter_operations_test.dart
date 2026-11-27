@@ -109,7 +109,12 @@ void main() {
           final first = await listing.list(range, limit: 1);
           expect(first.failures, hasLength(1));
           expect(first.continuation, isNotNull);
+          final replay = await listing.replayBatch(range, 'operator', limit: 1);
+          expect(replay.queued, 1);
+          expect(replay.continuation, isNotNull);
           now = _now.subtract(const Duration(days: 2));
+          // The new failure has an older timestamp but a newer occurrence ID.
+          await _seed(session, fixture.sourceId, 1);
           final second = await listing.list(
             range,
             limit: 1,
@@ -121,6 +126,24 @@ void main() {
           );
           expect(second.failures.single.failedAt, DateTime.utc(2026, 11, 24));
           expect(second.continuation, isNull);
+          final continued = await listing.replayBatch(
+            range,
+            'operator',
+            limit: 1,
+            cursor: replay.continuation,
+          );
+          expect(continued.queued, 1);
+          expect(
+            continued.items.single.occurrence,
+            second.failures.single.occurrence,
+          );
+          expect(continued.continuation, isNull);
+          now = _now;
+          final fresh = (await listing.list(range)).failures.single;
+          expect(
+            fresh.occurrence,
+            greaterThan(second.failures.single.occurrence),
+          );
         },
       );
 

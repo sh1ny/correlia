@@ -164,7 +164,7 @@ final class QueueOperations {
     return _replay(tx, kind, [_failure(row, kind, now)], actor, now, null);
   });
 
-  /// Replays one filtered page using the same fixed upper bound as its cursor.
+  /// Replays one filtered page within the continuation's time and ID bounds.
   Future<QueueReplayResult> replayBatch(
     QueueFailureFilter filter,
     String actor, {
@@ -216,7 +216,13 @@ final class QueueOperations {
     var high = through != null && through.isBefore(now) ? through : now;
     DateTime? after;
     int? occurrence;
-    if (cursor != null) {
+    final int highOccurrence;
+    if (cursor == null) {
+      final bound = (await tx.query(
+        'SELECT coalesce(max(occurrence_id),0) FROM pipeline_dead_letter',
+      )).single;
+      highOccurrence = bound[0]! as int;
+    } else {
       if (cursor.length > 256) _invalid('invalid_continuation');
       try {
         final decoded = jsonDecode(
@@ -225,9 +231,10 @@ final class QueueOperations {
         if (decoded case [
           final String key,
           final int highUs,
+          final int highId,
           final int afterUs,
           final int id,
-        ] when key == filterKey && id > 0) {
+        ] when key == filterKey && id > 0 && id <= highId) {
           final bound = DateTime.fromMicrosecondsSinceEpoch(
             highUs,
             isUtc: true,
@@ -241,6 +248,7 @@ final class QueueOperations {
             _invalid('invalid_continuation');
           }
           high = bound;
+          highOccurrence = highId;
           occurrence = id;
         } else {
           _invalid('invalid_continuation');
@@ -252,7 +260,7 @@ final class QueueOperations {
     final sql =
         '''
       SELECT $_failureColumns FROM pipeline_dead_letter
-      WHERE kind=@kind AND failed_at<=@high
+      WHERE kind=@kind AND failed_at<=@high AND occurrence_id<=@highOccurrence
         ${scope == null ? '' : 'AND scope_id=@scope::uuid'}
         ${error == null ? '' : 'AND error_class=@error'}
         ${lower == null ? '' : 'AND failed_at>=@lower'}
@@ -262,6 +270,7 @@ final class QueueOperations {
     final parameters = QueryParameters.named({
       'kind': filter.kind.name,
       'high': high,
+      'highOccurrence': highOccurrence,
       'limit': limit + 1,
       'scope': ?scope,
       'error': ?error,
@@ -282,6 +291,7 @@ final class QueueOperations {
                   jsonEncode([
                     filterKey,
                     high.microsecondsSinceEpoch,
+                    highOccurrence,
                     page.last.failedAt.microsecondsSinceEpoch,
                     page.last.occurrence,
                   ]),
