@@ -75,6 +75,10 @@ Correlia SHALL partition raw inbox and events by UTC receipt date, and outbox by
 - **WHEN** a database populated at the immediate predecessor of the partition cutover upgrades offline and an empty database starts on the same version
 - **THEN** both have the same partitioned parents, the populated database retains its original bytes, identity tuples, pins and outcomes, and workers can process pre-upgrade work and new work
 
+#### Scenario: Legacy delivery windows start at cutover
+- **WHEN** an offline upgrade finds pre-cutover dead or delivered intents, including attempts recorded in a non-UTC PostgreSQL session
+- **THEN** their configured replay or delivered retention window starts at the cutover transaction's timestamp, not at the legacy attempt time. The default windows are 14 days for dead intents and 7 days for delivered intents. The upgrade leaves attempt history unchanged. Later terminal transitions use their own recorded times.
+
 #### Scenario: Parent-targeted writes retain index and cutoff behavior
 - **WHEN** the upgraded database receives an insert across historical and daily raw children with one receipt below the admission cutoff
 - **THEN** the parent rejects the entire insert; its expected indexes cover both children, and the effective-time helper reads the new event parent row type

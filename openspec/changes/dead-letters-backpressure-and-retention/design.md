@@ -139,6 +139,12 @@ Attempt to lock the other active destinations' capacity rows in output ID order 
 
 Rejected: track each destination and retry contended ones after sending to the rest. That would retain routing state across attempts and require rules for destination changes while a notice is outstanding. Reversal cost: medium. Important: yes, the destinations that can receive an overflow notice. Chosen by: user (item 88, “Skip it, send to the rest.”).
 
+### D18: Start legacy delivery retention at cutover
+
+Start the replay window for legacy dead deliveries and the retention window for legacy delivered intents at the cutover transaction's timestamp. Keep every original attempt record. For deliveries that become terminal after cutover, use the recorded transition time. Legacy attempt timestamps have no stored session time zone, so reading them as UTC can shorten a window.
+
+Rejected: ask the operator for a legacy time zone. A single zone cannot represent past sessions that used different zones. The chosen policy can keep old intents for one extra window. Reversal cost: medium. Important: yes, changes legacy replay and reclamation eligibility. Chosen by: user (item 88, "Start the windows at upgrade.").
+
 ### Decision summary
 
 | # | Decision | Choice | Rejected | Reversal cost | Important | Chosen by |
@@ -163,6 +169,7 @@ Rejected: track each destination and retry contended ones after sending to the r
 | D15 | Active maintenance faults | Last batch plus one unresolved failure per job | Show a failure in place of the last batch | medium | yes | user |
 | D16 | Drained outbox partitions | Exact per-child, per-output counts; no heap scan at drop | Bounded scan with vacuum or offline repair | medium | yes | user |
 | D17 | Overflow fanout under capacity contention | One-shot routing skips unavailable capacity rows | Persist per-output progress and retry skipped lanes | medium | yes | user |
+| D18 | Legacy delivery retention origin | Start both legacy windows at offline cutover; keep attempt history | Infer a time zone for past sessions | medium | yes | user |
 
 ## Assumptions
 
@@ -356,7 +363,7 @@ Once replay holds the required capacity and commitment locks, it samples the clo
 
 Keep the existing table names at the partitioned parents. Preserve columns, defaults, constraints, indexes, exact composite keys, and stored payloads. Rename legacy indexes to a distinct legacy prefix before creating parent indexes with the operational names; attach equivalent child indexes. Recreate the row-type helper against the new parent and bind the raw cutoff trigger to statements targeting it. Check the raw pending and retained-work indexes, event subject expression index, and outbox definition index on each child in the migration test. Test a parent-targeted insert spanning historical and daily children in which one receipt fails the cutoff; the entire statement must roll back. Complete all three attachments, metadata backfills and initial gauges in the version transaction without replacing any existing payload tuple.
 
-New terminal intents store their terminal time on the outbox row. For a legacy dead or delivered intent, store only the full key and terminal metadata separately. Derive the time from the matching terminal attempt, or use the cutover time if none survives. Never infer past expiry solely from creation time. The dead-letter directory uses that same metadata for legacy dead intents. Retention merges indexed pages of legacy and new terminal work, applies one candidate cap, and rechecks the exact row under its lock. Remove legacy metadata with the corresponding delete or status transition. A raw failure from before the cutover carries its legacy marker in the directory until replay; replay copies the marker to the raw row as part of the existing status update.
+New terminal intents store their transition time on the outbox row. For a legacy dead or delivered intent, store only the full key and cutover timestamp separately, without changing its attempt history. Use this metadata for legacy dead-letter replay and expiry and legacy delivered-intent retention. Retention merges indexed pages of legacy and new terminal work, applies one candidate cap, and rechecks the exact row under its lock. Remove legacy metadata with the corresponding delete or status transition. A raw failure from before the cutover carries its legacy marker in the directory until replay; replay copies the marker to the raw row as part of the existing status update.
 
 The event-origin rule is an explicit exception to preserving legacy column nullability. Drop `NOT NULL` on `raw_observed_at` and `raw_id` on the old heap before attaching it; define the new parent with both columns nullable. Add `system_activity_id` on both and enforce the same exclusive-origin check before admitting writes: two non-null raw keys and a null system ID, or two null raw keys and a non-null system ID. Do not rewrite any sender payload to satisfy the rule. The cutover fixture routes a real overflow notice into the attached historical child and verifies the canonical reference, digest and byte count against its ledger evidence.
 

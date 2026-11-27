@@ -69,3 +69,9 @@ Pre-ship review 41 found that resetting only the count on direct child truncatio
 Codex approved D17. Notice routing skips locked destination capacity rows, not shared relation, registry or signing commitment locks. The same transaction writes at most one canonical event, its fitting intents and the handled marker. A rollback leaves the occurrence pending. Normal pipeline processing and replay keep strict capacity locking.
 
 The regression holds one capacity row through another destination's notice commit, releases the lock and checks that a second worker cannot send the same occurrence to the skipped destination. The ledger and status retain the overflow evidence.
+
+## Round 9: Legacy delivery windows at cutover
+
+Codex approved D18 after two required test changes. The fixture excludes raw failures so that the expiry batch measures only delivery failures. The regression writes matching terminal attempts with a non-UTC PostgreSQL session, then checks both windows from the cutover timestamp without changing the attempt history.
+
+The recheck confirmed that replay clears the legacy metadata. A normal permanent completion opens a distinct failure occurrence at the controlled transition time and keeps the old attempts. That occurrence remains replayable until its own expiry boundary.
