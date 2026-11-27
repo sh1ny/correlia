@@ -310,8 +310,9 @@ DECLARE
   lane record;
   budget jsonb;
   capacity pipeline_output_capacity;
+  was_active boolean;
   was_blocking boolean;
-  new_blocking boolean;
+  newly_enforcing boolean;
   previous_max_rows integer;
   previous_max_bytes bigint;
 BEGIN
@@ -334,10 +335,10 @@ BEGIN
   LOOP
     IF lane.enabled THEN
       budget := policy->'output_budgets'->(lane.id::text);
-      SELECT overflow_policy='block_ingest' AND (
+      SELECT active,overflow_policy='block_ingest' AND (
         used_rows>=max_rows OR used_bytes>=max_payload_bytes
         OR demand_rows>max_rows-used_rows OR demand_bytes>max_payload_bytes-used_bytes
-      ), max_rows,max_payload_bytes INTO was_blocking,previous_max_rows,previous_max_bytes
+      ), max_rows,max_payload_bytes INTO was_active,was_blocking,previous_max_rows,previous_max_bytes
       FROM pipeline_output_capacity WHERE output_id=lane.id FOR UPDATE;
       INSERT INTO pipeline_output_capacity
         (output_id,active,max_rows,max_payload_bytes,overflow_policy)
@@ -347,13 +348,15 @@ BEGIN
       ON CONFLICT (output_id) DO UPDATE SET active=true,
         max_rows=excluded.max_rows,max_payload_bytes=excluded.max_payload_bytes,
         overflow_policy=excluded.overflow_policy RETURNING * INTO capacity;
-      new_blocking := capacity.overflow_policy='block_ingest' AND was_blocking IS DISTINCT FROM true;
+      -- Cutover can seed a saturated lane before its first active budget.
+      newly_enforcing := was_active IS DISTINCT FROM true
+        OR (capacity.overflow_policy='block_ingest' AND was_blocking IS DISTINCT FROM true);
       IF capacity.overflow_activity_id IS NULL
         AND (
           (capacity.used_rows>=capacity.max_rows
-            AND (new_blocking OR capacity.max_rows<previous_max_rows))
+            AND (newly_enforcing OR capacity.max_rows<previous_max_rows))
           OR (capacity.used_bytes>=capacity.max_payload_bytes
-            AND (new_blocking OR capacity.max_payload_bytes<previous_max_bytes))
+            AND (newly_enforcing OR capacity.max_payload_bytes<previous_max_bytes))
         )
       THEN
         PERFORM correlia_mark_overflow(lane.id,'saturated',0,clock_timestamp());

@@ -5,6 +5,7 @@ import 'package:correlia_server/src/generated/protocol.dart';
 import 'package:correlia_server/src/ingest/admission.dart';
 import 'package:correlia_server/src/ingest/bootstrap.dart';
 import 'package:correlia_server/src/ingest/config_repository.dart';
+import 'package:correlia_server/src/output/overflow_notices.dart';
 import 'package:correlia_server/src/output/output_relay.dart';
 import 'package:correlia_server/src/pipeline/pipeline.dart';
 import 'package:correlia_server/src/pipeline/queue_operations.dart';
@@ -37,6 +38,31 @@ Future<void> _predecessor(Session session) => applySchemaSteps(session, [
   for (final step in schemaSteps)
     if (step.version <= _predecessorVersion) step,
 ]);
+
+Future<void> _activatePredecessor(
+  Session session,
+  IngestBootstrap snapshot,
+) => session.db.transaction((tx) async {
+  await session.db.unsafeSimpleExecute(
+    "SET LOCAL correlia.publisher_version='2'",
+    transaction: tx,
+  );
+  await session.db.unsafeExecute(
+    '''
+    INSERT INTO ingest_config_snapshot ("snapshotId",revision,"publicJson") VALUES (@pin,1,@json)
+    ''',
+    parameters: QueryParameters.named({
+      'pin': snapshot.snapshotId,
+      'json': snapshot.publicJson,
+    }),
+    transaction: tx,
+  );
+  await session.db.unsafeExecute(
+    'INSERT INTO ingest_active_config(singleton,"snapshotId") VALUES (1,@pin)',
+    parameters: QueryParameters.named({'pin': snapshot.snapshotId}),
+    transaction: tx,
+  );
+});
 
 Future<void> _seed(Session session, {bool placeholderLiveWork = true}) async {
   await session.db.unsafeSimpleExecute('''
@@ -108,29 +134,7 @@ void main() {
           base64Url.decode(base64Url.normalize(cfg.token(2))),
         );
         // Step 17 has these tables, but not the new publication queue helper.
-        await session.db.transaction((tx) async {
-          await session.db.unsafeSimpleExecute(
-            "SET LOCAL correlia.publisher_version='2'",
-            transaction: tx,
-          );
-          await session.db.unsafeExecute(
-            '''
-            INSERT INTO ingest_config_snapshot ("snapshotId",revision,"publicJson") VALUES (@pin,1,@json)
-          ''',
-            parameters: QueryParameters.named({
-              'pin': first.snapshotId,
-              'json': first.publicJson,
-            }),
-            transaction: tx,
-          );
-          await session.db.unsafeExecute(
-            '''
-            INSERT INTO ingest_active_config(singleton,"snapshotId") VALUES (1,@pin)
-          ''',
-            parameters: QueryParameters.named({'pin': first.snapshotId}),
-            transaction: tx,
-          );
-        });
+        await _activatePredecessor(session, first);
         await fixture.seed(session, [
           payload.alert(
             startsAt: oldReceipt.toIso8601String(),
@@ -247,6 +251,92 @@ void main() {
           [migratedRaw, first.snapshotId, 'ready'],
           [finished.last[0], active.snapshotId, 'ready'],
         ]);
+      });
+    },
+    rollbackDatabase: RollbackDatabase.disabled,
+    testGroupTagsOverride: ['db'],
+  );
+
+  withServerpod(
+    'pipeline cutover with a saturated output',
+    (builder, _) {
+      test('first_policy_reports_saturation_from_legacy_usage', () async {
+        final session = builder.build();
+        await _predecessor(session);
+        const healthy = '33333333-3333-4333-8333-333333333333';
+        final snapshot = IngestBootstrap.parse(
+          {
+            ...cfg.cutoverV2(1),
+            'outputs': [
+              for (final id in [cfg.outputId, healthy])
+                {
+                  'id': id,
+                  'kind': 'webhook',
+                  'url': 'http://127.0.0.1:9099/events',
+                  'signing_key_ref': 'key-v1',
+                },
+            ],
+            'pipeline_operations': {
+              'output_budgets': {
+                cfg.outputId: {'max_rows': 1},
+              },
+            },
+          },
+          {'source-token': cfg.token(1), 'key-v1': cfg.token(2)},
+          runMode: 'test',
+        );
+        await _activatePredecessor(session, snapshot);
+        final destination = snapshot.outputs.first as WebhookIngestOutput;
+        await session.db.unsafeExecute(
+          '''
+          INSERT INTO outbox(created_at,delivery_id,event_observed_at,event_id,event_disposition,
+            output_id,config_snapshot_id,target_url,signing_key_ref,signing_key_commitment,payload)
+          VALUES ('2020-01-01 UTC',gen_random_uuid(),'2020-01-01 UTC',gen_random_uuid(),
+            'ready',@output::uuid,@pin,'http://127.0.0.1:9099/events',@ref,@commitment,decode('00','hex'))
+          ''',
+          parameters: QueryParameters.named({
+            'output': cfg.outputId,
+            'pin': snapshot.snapshotId,
+            'ref': destination.signingKeyRef,
+            'commitment': destination.signingKeyCommitment,
+          }),
+        );
+        // Scale the seed cap to one real intent. First publication sees the
+        // same cap as the seed, not a lower cap, without a 500,000-row heap.
+        await session.db.unsafeSimpleExecute(r'''
+          CREATE FUNCTION test_cutover_seed_cap() RETURNS event_trigger LANGUAGE plpgsql AS $$
+          BEGIN
+            IF EXISTS (SELECT 1 FROM pg_event_trigger_ddl_commands()
+              WHERE objid=to_regclass('public.pipeline_output_capacity')) THEN
+              ALTER TABLE pipeline_output_capacity ALTER COLUMN max_rows SET DEFAULT 1;
+            END IF;
+          END
+          $$;
+          CREATE EVENT TRIGGER test_cutover_seed_cap ON ddl_command_end
+            WHEN TAG IN ('CREATE TABLE') EXECUTE FUNCTION test_cutover_seed_cap();
+        ''');
+        await applySchemaSteps(session, schemaSteps);
+        final status = await QueueOperations(session).status();
+        expect(status.pendingRows, 0);
+        final lane = status.outputs.singleWhere(
+          (o) => o.outputId == cfg.outputId,
+        );
+        expect(lane.usedRows, 1);
+        expect(lane.maxRows, 1);
+        expect(lane.overflowActivityId, isNotNull);
+        final ledger = (await session.db.unsafeQuery('''
+          SELECT id FROM activity WHERE change_kind='output_overflow'
+        ''')).single;
+        expect(lane.overflowActivityId, ledger[0]);
+        final notices = OverflowNotices(session);
+        expect(await notices.routeOne(), isTrue);
+        final routed = (await session.db.unsafeQuery('''
+          SELECT o.output_id::text FROM outbox o JOIN events e
+          ON (e.observed_at,e.event_id,e.disposition)=(o.event_observed_at,o.event_id,o.event_disposition)
+          WHERE e.system_activity_id IS NOT NULL
+        ''')).single;
+        expect(routed[0], healthy);
+        expect(await notices.routeOne(), isFalse);
       });
     },
     rollbackDatabase: RollbackDatabase.disabled,

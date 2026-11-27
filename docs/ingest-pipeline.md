@@ -199,10 +199,11 @@ row even though the worker is gone. The query reports `stale` without rewriting 
 ## Offline partition cutover
 
 Stop all old `api`, `worker` and `all` processes before starting the first upgraded process. Back up
-the database before the cutover. When upgrading from a release that already has matcher support,
-there is no need to drain pending inbox rows or queued output. Older releases still need to follow
-the [matcher upgrade procedure](adr/0033-offline-matcher-upgrade.md) first. Do not restart an older
-binary after the cutover.
+the database before the cutover. An installation already upgraded through schema step `0017`
+(the `classify` release) does not drain the inbox or outbox for partition step `0018`. Older
+installations must first complete the applicable [matcher upgrades](#upgrade-before-enabling-matcher-rules),
+including their drains on the old release. Do not restart an older binary after the partition
+cutover.
 
 The startup schema step attaches each populated heap to a new parent under the original name. It
 includes timestamps through the last populated UTC day, then uses daily UTC partitions and a

@@ -23,6 +23,8 @@ The versioned configuration stores nondefault queue policy. Omitted and explicit
 
 An output counts queued, delivering and dead rows plus their exact payload bytes. Default limits are 500,000 intents and 1 GiB per output. A full `discard_new` output drops new intents only; a full `block_ingest` output defers the accepted raw transaction without partial effects or spending its error budget. A configured blocking output must admit a maximum raw row into an empty queue. Limits never increase merely to fit a notice.
 
+Admission and output reservation read transactional pending-row counts, per-output row counts, and payload-byte totals. Neither check counts rows or sums payloads in the backlog.
+
 Changing a budget does not change the plugin definition digest. A retired output keeps its last
 budget while retained work or a pending configuration pin still needs that output.
 
