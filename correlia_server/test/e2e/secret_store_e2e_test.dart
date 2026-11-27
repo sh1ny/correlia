@@ -460,7 +460,7 @@ void main() {
   );
 
   test(
-    'worker_startup_prefills_a_historical_plugin_from_metadata',
+    'worker_starts_with_live_historical_plugin_metadata',
     () => _withFixture((fixture, db) async {
       const pluginReference = 'historical-plugin-key';
       await _private(

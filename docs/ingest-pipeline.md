@@ -296,8 +296,10 @@ intents. `block_ingest` defers an accepted raw row if all its intents for that o
 The row keeps its configuration pin and retry allowance. No partial state, event or delivery
 effects commit. The worker tries the row again when it becomes eligible. A rolled-back attempt
 cannot replace a newer attempt's recorded demand.
-A database timeout while writing outbox intents, including a wait for retention to release
-an outbox partition count, does not spend a processing attempt.
+A timeout acquiring an outbox lock, such as waiting for retention to release a
+partition count, does not spend a processing attempt. A timeout executing the
+insert rolls back the raw transaction and spends one attempt. The fifth failed
+attempt records a `processing_exhausted` dead letter.
 
 An output opens one overflow episode per period of saturation or refusal. The activity
 ledger records the episode before the worker tries to route a sanitized Correlia alert to

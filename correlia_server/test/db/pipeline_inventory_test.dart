@@ -1,10 +1,15 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:correlia_server/src/generated/protocol.dart';
 import 'package:correlia_server/src/ingest/bootstrap.dart';
 import 'package:correlia_server/src/ingest/config_repository.dart';
+import 'package:correlia_server/src/ingest/ingest_startup.dart';
 import 'package:correlia_server/src/pipeline/pipeline.dart';
 import 'package:correlia_server/src/pipeline/queue_operations.dart';
+import 'package:correlia_server/src/runtime/process_options.dart';
+import 'package:correlia_server/src/secrets/secret_store.dart';
 import 'package:serverpod/serverpod.dart';
 import 'package:test/test.dart';
 
@@ -305,6 +310,58 @@ void main() {
               'more intents for the same commitment are not more lookup work',
         );
         expect(shallow.$2, greaterThan(0));
+      });
+
+      test('worker_caches_live_historical_plugin_secret', () async {
+        const reference = 'plugin-token';
+        final plugin = pluginInput(1);
+        final commitment = plugin.outputs.single.commitments[reference]!;
+        await repository.publish(plugin);
+        await _pluginIntents(session, plugin, 90);
+
+        final files = await Directory.systemTemp.createTemp(
+          'correlia-prefill-',
+        );
+        addTearDown(() => files.delete(recursive: true));
+        final key = await File('${files.path}/key').writeAsString(token(0));
+        expect((await Process.run('chmod', ['0600', key.path])).exitCode, 0);
+        final config = await File('${files.path}/config.json').writeAsString(
+          jsonEncode(
+            _config(2)
+              ..['sources'] = <Object?>[]
+              ..['outputs'] = <Object?>[],
+          ),
+        );
+        final startup = IngestStartup(
+          pod: session.serverpod,
+          role: ProcessRole.worker,
+          runMode: 'test',
+          environment: {
+            'CORRELIA_INGEST_CONFIG': config.path,
+            'CORRELIA_SECRET_KEY_FILE': key.path,
+          },
+        );
+        addTearDown(startup.stop);
+        await startup.start();
+        expect(startup.bootstrap!.outputs, isEmpty);
+        await session.db.unsafeExecute(
+          'DELETE FROM secret_record WHERE reference=@reference',
+          parameters: QueryParameters.named({'reference': reference}),
+        );
+        await expectLater(
+          testSecretResolver(session).resolve(reference, commitment),
+          throwsA(
+            isA<SecretResolutionError>().having(
+              (error) => error.code,
+              'code',
+              'missing_secret',
+            ),
+          ),
+        );
+        expect(
+          await startup.resolver!.resolve(reference, commitment),
+          List<int>.filled(32, 7),
+        );
       });
 
       test(
