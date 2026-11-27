@@ -985,12 +985,21 @@ DELETE FROM correlia_schema_versions WHERE version = 17''');
         transaction: transaction,
       ),
     );
+    // Valid JSON whose matcher holds a number no JSON encoding can repeat.
+    await _asPublisher(
+      session,
+      (transaction) => session.db.unsafeExecute(
+        '''INSERT INTO ingest_config_snapshot ("snapshotId",revision,"publicJson")
+        VALUES ('unencodable', 1000003, '{"matcher": {"rules": [1e400]}}')''',
+        transaction: transaction,
+      ),
+    );
     final base = await _publish(session, 1, null, _matcher(_benign));
     await _rewindToBeforeStep15(session);
     final skipped = <String>[];
     // The upgrade fills every readable snapshot and skips the damaged one.
     await initializeSchema(session, onUnreadableSnapshot: skipped.add);
-    expect(skipped, ['unreadable']);
+    expect(skipped, ['unreadable', 'unencodable']);
     expect(await _count(session, 'matcher_content_digest'), 2);
     expect(await _count(session, 'matcher_content_digest_fill'), 1);
     expect(
@@ -999,7 +1008,7 @@ DELETE FROM correlia_schema_versions WHERE version = 17''');
     );
     // A later start does not read it again, and readable content restores.
     await initializeSchema(session, onUnreadableSnapshot: skipped.add);
-    expect(skipped, ['unreadable']);
+    expect(skipped, ['unreadable', 'unencodable']);
     final restored = await _publish(session, 2, base.snapshotId, legacy);
     expect(
       (await _repository(session).activeSnapshot())?['snapshotId'],

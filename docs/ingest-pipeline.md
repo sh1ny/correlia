@@ -614,7 +614,8 @@ The release that adds `classify` follows the same offline sequence (ADR 0033):
    an offline downgrade, before any `classify` snapshot, still counts as stored content. The fill waits at most 60 seconds for the lock; past that the process exits non-zero with
    `Schema step 15 failed: lock_timeout`, and the next start retries. The fill decodes snapshot text in the
    server, so a U+0000 escape in a stored plugin configuration cannot block it. A snapshot whose stored text is
-   not JSON gets no digest, so its matcher content counts as new; the fill goes on and writes the snapshot's ID,
+   not JSON, or whose matcher holds a value with no JSON encoding (such as the number `1e400`, which decodes
+   to infinity), gets no digest, so its matcher content counts as new; the fill goes on and writes the snapshot's ID,
    never its text, to standard error.
 4. Publication and startup then reject a non-`classify` write to `correlia.noise_class` only in matcher content
    that no stored snapshot has. Publication first runs the fill for any snapshot after the watermark.

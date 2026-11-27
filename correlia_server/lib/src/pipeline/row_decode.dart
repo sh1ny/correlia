@@ -161,10 +161,11 @@ typedef DecodedRow = ({DecodedBatch batch, String? syncId});
 /// Every decode of a raw row goes through the shared decode, which reads
 /// stream admission metadata.
 ///
-/// The caller passes the row's [sourceId] and body [digest], which it has
-/// already read with the row: the pipeline from its claim, the simulator with
-/// the body. This reads the pin's source settings and, for an Icinga2 Event
-/// Streams row, the origin, state policy and sync ID stored at admission. The
+/// The caller passes the row's [sourceId], body [digest] and body [bytes],
+/// which it has already read with the row: the pipeline from its claim, the
+/// simulator with the body. This reads the pin's source settings and, for an Icinga2 Event
+/// Streams row whose envelope parses, the origin, state policy and sync ID
+/// stored at admission. The
 /// admission metadata is joined to the snapshot the row was admitted under,
 /// not to [pin]. The reads need no row lock and no pipeline claim state, so a
 /// plain read-only transaction [tx] is enough. Throws a [StateError] when the
@@ -179,6 +180,7 @@ Future<DecodeInputs> readDecodeInputs(
   String pin, {
   required String sourceId,
   required String digest,
+  required Uint8List bytes,
 }) async {
   try {
     return await _readDecodeInputs(
@@ -188,6 +190,7 @@ Future<DecodeInputs> readDecodeInputs(
       pin,
       sourceId: sourceId,
       digest: digest,
+      bytes: bytes,
     );
   } on TypeError catch (error) {
     throw InvalidStoredSettings(pin, '$error');
@@ -220,6 +223,7 @@ Future<DecodeInputs> _readDecodeInputs(
   String pin, {
   required String sourceId,
   required String digest,
+  required Uint8List bytes,
 }) async {
   final snapshots = await session.db.unsafeQuery(
     'SELECT "publicJson" FROM ingest_config_snapshot WHERE "snapshotId"=@pin',
@@ -281,7 +285,10 @@ Future<DecodeInputs> _readDecodeInputs(
       source['mode'] == SourceMode.eventStreams.wire;
   StreamAdmission? admission;
   InvalidStoredSettings? admissionFailure;
-  if (stream) {
+  // A row whose envelope does not parse fails with that error in decodeRow,
+  // so its admission metadata is not read: an unavailable admission read
+  // must not turn the row's own format error into a retry.
+  if (stream && _streamEnvelopeParses(bytes)) {
     // The admission snapshot is read as text and decoded here: a U+0000
     // escape elsewhere in it cannot become jsonb, and a failed cast would hide
     // the row's own format error. When it is the pin itself, the document
@@ -354,6 +361,16 @@ Future<DecodeInputs> _readDecodeInputs(
     admission: admission,
     admissionFailure: admissionFailure,
   );
+}
+
+/// Whether [bytes] hold an Icinga2 stream envelope that [decodeRow] reads.
+bool _streamEnvelopeParses(Uint8List bytes) {
+  try {
+    IcingaStreamRow.parse(bytes);
+    return true;
+  } on EventValidationError {
+    return false;
+  }
 }
 
 /// Decodes [bytes] of a raw row into canonical events, purely over [inputs].

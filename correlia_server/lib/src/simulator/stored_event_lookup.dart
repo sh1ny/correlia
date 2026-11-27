@@ -130,6 +130,7 @@ WHERE observed_at=@observed AND raw_id=CAST(@raw AS uuid)''',
       pin,
       sourceId: raw.single[1]! as String,
       digest: raw.single[2]! as String,
+      bytes: _bytes(raw.single[0]),
     );
   } on BootstrapError {
     // The pin's decode settings no longer parse, such as a mapping in a

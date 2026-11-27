@@ -449,6 +449,7 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
           raw.pin,
           sourceId: raw.source,
           digest: raw.digest,
+          bytes: raw.bytes,
         );
         final snapshot = inputs.snapshot;
         if (inputs.rejection == DecodeRejection.sourceNotConfigured) {

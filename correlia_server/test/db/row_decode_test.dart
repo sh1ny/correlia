@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -133,6 +134,7 @@ VALUES (CAST(@raw AS uuid),@origin,CAST(@sync AS uuid),@snapshot)''',
           'SELECT source_id::text, body_sha256 FROM raw_inbox WHERE raw_id=CAST(@id AS uuid)',
           parameters: QueryParameters.named({'id': key.rawId}),
         )).single;
+        final bytes = await bytesOf(key);
         return session.db.transaction(
           (tx) => readDecodeInputs(
             session,
@@ -141,6 +143,7 @@ VALUES (CAST(@raw AS uuid),@origin,CAST(@sync AS uuid),@snapshot)''',
             pin,
             sourceId: row[0]! as String,
             digest: row[1]! as String,
+            bytes: bytes,
           ),
         );
       }
@@ -317,6 +320,53 @@ VALUES (CAST(@raw AS uuid),@origin,CAST(@sync AS uuid),@snapshot)''',
           ),
         );
       });
+
+      test(
+        'an_unavailable_admission_read_does_not_mask_the_format',
+        () async {
+          final pin = await publishStreamDb(session);
+          final body = webhook.body({
+            'format': 'correlia.icinga2.stream.v9',
+            'origin': 'stream',
+            'items': <Object?>[],
+          });
+          final key = await seed(icinga2DbSourceId, body, pin, admission: pin);
+          // Another transaction holds the admission table: a read of it would
+          // wait out its timeout and the worker would retry the row.
+          final lockSession = builder.build();
+          final acquired = Completer<void>();
+          final release = Completer<void>();
+          final lock = lockSession.db.transaction((tx) async {
+            await lockSession.db.unsafeSimpleExecute(
+              'LOCK TABLE icinga2_raw_origin IN ACCESS EXCLUSIVE MODE',
+              transaction: tx,
+            );
+            acquired.complete();
+            await release.future;
+          });
+          try {
+            await acquired.future;
+            final inputs = await read(
+              key,
+              pin,
+            ).timeout(const Duration(seconds: 2));
+            expect(inputs.admission, isNull);
+            expect(
+              () => decodeRow(inputs, body, processedAt: _firstProcessing),
+              throwsA(
+                isA<EventFieldError>().having(
+                  (e) => e.code,
+                  'code',
+                  'unsupported_format',
+                ),
+              ),
+            );
+          } finally {
+            release.complete();
+            await lock;
+          }
+        },
+      );
 
       test(
         'an_unreadable_admission_snapshot_does_not_mask_the_format',

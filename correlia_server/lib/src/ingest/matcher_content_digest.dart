@@ -56,16 +56,25 @@ Future<void> recordMatcherContent(
   Object? matcher,
 ) async {
   if (matcher == null) return;
-  await session.db.unsafeExecute(
-    '''INSERT INTO matcher_content_digest (digest, first_snapshot_id)
-    VALUES (@digest, @id) ON CONFLICT (digest) DO NOTHING''',
-    parameters: QueryParameters.named({
-      'digest': matcherContentDigest(matcher),
-      'id': snapshotId,
-    }),
-    transaction: transaction,
+  await _insertDigest(
+    session,
+    transaction,
+    snapshotId,
+    matcherContentDigest(matcher),
   );
 }
+
+Future<void> _insertDigest(
+  Session session,
+  Transaction transaction,
+  String snapshotId,
+  Uint8List digest,
+) => session.db.unsafeExecute(
+  '''INSERT INTO matcher_content_digest (digest, first_snapshot_id)
+    VALUES (@digest, @id) ON CONFLICT (digest) DO NOTHING''',
+  parameters: QueryParameters.named({'digest': digest, 'id': snapshotId}),
+  transaction: transaction,
+);
 
 /// Fills the digest table for snapshots it has not read yet.
 ///
@@ -127,12 +136,17 @@ Future<void> ensureMatcherDigestFill(
           ? document['matcher']
           : null;
       if (matcher == null) continue;
-      await recordMatcherContent(
-        session,
-        transaction,
-        row[1]! as String,
-        matcher,
-      );
+      // JSON text can hold a value that decodes but has no JSON encoding,
+      // such as the number 1e400, which decodes to infinity: such a snapshot
+      // is unreadable too. Database errors still propagate.
+      final Uint8List digest;
+      try {
+        digest = matcherContentDigest(matcher);
+      } on JsonUnsupportedObjectError {
+        (onUnreadable ?? _reportUnreadable)(row[1]! as String);
+        continue;
+      }
+      await _insertDigest(session, transaction, row[1]! as String, digest);
       await afterInsertForTest?.call(++inserted);
     }
     if (page.length < matcherFillPageSize) break;
