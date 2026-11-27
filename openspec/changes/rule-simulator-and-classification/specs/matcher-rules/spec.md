@@ -12,7 +12,7 @@ Matcher rules SHALL support a `classify` action that sets a noise class hint. It
 
 #### Scenario: New actions in one rule
 - **WHEN** one matching rule has a `set_label`, a `link` and a `classify` action
-- **THEN** the enriched event carries all three effects as one patch with origin `matcher`
+- **THEN** the enriched event carries all three effects as one patch: the `set_label` label and the `classify` hint have origin `matcher`, and the link is added in the same patch (a link has no origin)
 
 #### Scenario: A failing action discards the hint
 - **WHEN** a rule's `classify` action is staged and its `extract` action then times out
