@@ -28,6 +28,8 @@ import 'package:correlia_client/src/protocol/queue/queue_replay_result.dart'
     as _i99t5m3a;
 import 'package:correlia_client/src/protocol/queue/queue_status.dart'
     as _ihsacgcw;
+import 'package:correlia_client/src/protocol/rule_simulation_result.dart'
+    as _icgerf50;
 import 'package:http/http.dart' as _i85jenna;
 import 'package:serverpod_client/serverpod_client.dart' as _isc;
 import 'protocol.dart' as _il2as5qe;
@@ -176,6 +178,42 @@ class EndpointMappingPreview extends _isc.EndpointRef {
   );
 }
 
+/// Read-only simulation of one event against the active or a draft matcher.
+/// {@category Endpoint}
+class EndpointRuleSimulator extends _isc.EndpointRef {
+  EndpointRuleSimulator(_isc.EndpointCaller caller) : super(caller);
+
+  @override
+  String get name => 'ruleSimulator';
+
+  /// Shows every rule and condition decision for one event.
+  ///
+  /// The input is exactly one of [eventJson] (a CloudEvent JSON document) or
+  /// [eventId] with [observedAt] and an optional [disposition] (a stored
+  /// event). [draftMatcher] is an optional matcher section as JSON text; without
+  /// it the active snapshot's rules run. Input and lookup failures are a
+  /// [SimulationError] in the result. The console access policy throws, and an
+  /// infrastructure failure, such as a database timeout, reaches the caller as
+  /// an RPC error.
+  _ida.Future<_icgerf50.RuleSimulationResult> simulate({
+    String? eventJson,
+    String? eventId,
+    String? observedAt,
+    String? disposition,
+    String? draftMatcher,
+  }) => caller.callServerEndpoint<_icgerf50.RuleSimulationResult>(
+    'ruleSimulator',
+    'simulate',
+    {
+      'eventJson': eventJson,
+      'eventId': eventId,
+      'observedAt': observedAt,
+      'disposition': disposition,
+      'draftMatcher': draftMatcher,
+    },
+  );
+}
+
 class Client extends _isc.ServerpodClientShared {
   Client(
     String host, {
@@ -207,6 +245,7 @@ class Client extends _isc.ServerpodClientShared {
     deadLetter = EndpointDeadLetter(this);
     icinga2Stream = EndpointIcinga2Stream(this);
     mappingPreview = EndpointMappingPreview(this);
+    ruleSimulator = EndpointRuleSimulator(this);
   }
 
   late final EndpointAlertConsole alertConsole;
@@ -217,12 +256,15 @@ class Client extends _isc.ServerpodClientShared {
 
   late final EndpointMappingPreview mappingPreview;
 
+  late final EndpointRuleSimulator ruleSimulator;
+
   @override
   Map<String, _isc.EndpointRef> get endpointRefLookup => {
     'alertConsole': alertConsole,
     'deadLetter': deadLetter,
     'icinga2Stream': icinga2Stream,
     'mappingPreview': mappingPreview,
+    'ruleSimulator': ruleSimulator,
   };
 
   @override

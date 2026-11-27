@@ -30,6 +30,8 @@ import 'package:correlia_server/src/generated/queue/queue_replay_result.dart'
     as _itu880k2;
 import 'package:correlia_server/src/generated/queue/queue_status.dart'
     as _i2fnyk4d;
+import 'package:correlia_server/src/generated/rule_simulation_result.dart'
+    as _ilwqz2br;
 import 'package:serverpod/serverpod.dart' as _is;
 import 'package:serverpod_test/serverpod_test.dart' as _ist;
 import 'package:correlia_server/src/generated/protocol.dart';
@@ -172,6 +174,8 @@ class TestEndpoints {
   late final _Icinga2StreamEndpoint icinga2Stream;
 
   late final _MappingPreviewEndpoint mappingPreview;
+
+  late final _RuleSimulatorEndpoint ruleSimulator;
 }
 
 class _InternalTestEndpoints extends TestEndpoints
@@ -194,6 +198,10 @@ class _InternalTestEndpoints extends TestEndpoints
       serializationManager,
     );
     mappingPreview = _MappingPreviewEndpoint(
+      endpoints,
+      serializationManager,
+    );
+    ruleSimulator = _RuleSimulatorEndpoint(
       endpoints,
       serializationManager,
     );
@@ -540,6 +548,58 @@ class _MappingPreviewEndpoint {
                   _localCallContext.arguments,
                 )
                 as _ida.Future<_i53f9ie1.MappingPreviewResult>);
+        return _localReturnValue;
+      } finally {
+        await _localUniqueSession.close();
+      }
+    });
+  }
+}
+
+class _RuleSimulatorEndpoint {
+  _RuleSimulatorEndpoint(
+    this._endpointDispatch,
+    this._serializationManager,
+  );
+
+  final _is.EndpointDispatch _endpointDispatch;
+
+  final _is.SerializationManager _serializationManager;
+
+  _ida.Future<_ilwqz2br.RuleSimulationResult> simulate(
+    _ist.TestSessionBuilder sessionBuilder, {
+    String? eventJson,
+    String? eventId,
+    String? observedAt,
+    String? disposition,
+    String? draftMatcher,
+  }) async {
+    return _ist.callAwaitableFunctionAndHandleExceptions(() async {
+      var _localUniqueSession =
+          (sessionBuilder as _ist.InternalTestSessionBuilder).internalBuild(
+            endpoint: 'ruleSimulator',
+            method: 'simulate',
+          );
+      try {
+        var _localCallContext = await _endpointDispatch.getMethodCallContext(
+          createSessionCallback: (_) => _localUniqueSession,
+          endpointPath: 'ruleSimulator',
+          methodName: 'simulate',
+          parameters: _ist.testObjectToJson({
+            'eventJson': eventJson,
+            'eventId': eventId,
+            'observedAt': observedAt,
+            'disposition': disposition,
+            'draftMatcher': draftMatcher,
+          }),
+          serializationManager: _serializationManager,
+        );
+        var _localReturnValue =
+            await (_localCallContext.method.call(
+                  _localUniqueSession,
+                  _localCallContext.arguments,
+                )
+                as _ida.Future<_ilwqz2br.RuleSimulationResult>);
         return _localReturnValue;
       } finally {
         await _localUniqueSession.close();

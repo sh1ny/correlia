@@ -17,8 +17,7 @@ import '../ingest/bootstrap.dart'
         GenericPointer,
         GenericSourceKind,
         Icinga2SourceKind,
-        SourceKind,
-        sha256Digest;
+        SourceKind;
 import '../ingest/icinga2/decoder.dart';
 import '../ingest/source_decoder.dart';
 import '../matcher/matcher_document.dart';

@@ -22,7 +22,7 @@ TIER: FULL
 - Relay completion uses original claim, lease and attempt identity; recovery counts interrupted attempts (`correlia_server/lib/src/output/output_relay.dart:504-527,539-578`). Publication bounds candidate, pinned-route and live output IDs together at 64 (`correlia_server/schema/0013_matcher_pins.sql:4-29`, `correlia_server/lib/src/ingest/config_repository.dart:216-230`). Output definition JSON participates in the plugin digest (`correlia_server/lib/src/pipeline/pipeline.dart:472-487`).
 - `raw_inbox`, `events` and `outbox` start as regular SQL-owned tables with composite time keys (`correlia_server/schema/0001_ingest.sql:1-50`). Versioned SQL steps take a transaction advisory lock and commit their version with the changes (`correlia_server/lib/src/schema/schema_steps.dart:143-167`). The event-time function takes an `events` composite value (`correlia_server/schema/0004_icinga2.sql:10-17`). The raw cutoff uses a parent statement trigger with a transition table (`correlia_server/schema/0007_icinga2_reconcile.sql:38-54`). Both need explicit rebinding at cutover.
 - Existing preview RPC access is limited to local development and test (`correlia_server/lib/src/endpoints/mapping_preview_endpoint.dart:10-24`, `correlia_server/lib/src/console/console_access_policy.dart:6-17`). The operator RPC uses a separate machine-credential check. The runtime starts ingest workers only in worker and all roles (`correlia_server/lib/src/ingest/ingest_workers.dart:49-59`).
-- Change 6, `rule-simulator-and-classification`, runs in parallel. This change depends on merged change 4, not change 6. The offline cutover follows the schema versions already on `origin/main`, including Change 6's versions if it lands first.
+- Change 6, `rule-simulator-and-classification`, ran in parallel. This change depended on merged change 4, not change 6. Change 6 landed first with steps 0015–0017, so the rebased offline cutover uses 0018.
 - Manual Specwright branch gate, known issue `sh1ny/specwright#258`: the verified `sw` 0.39.1 interface-3 binary, the repo-local planning root, clean Orca feature branch and refreshed `origin/main` at `1bfa471` matched. `thanos-and-generic-webhook` was archived and this change name was not. The owner authorized keeping this already-created branch instead of switching the worktree to `main`.
 
 ## Decisions
@@ -174,20 +174,20 @@ Rejected: track each destination and retry contended ones after sending to the r
 
 - C1. Automatic retry keeps its immutable pin; only explicit replay of failed rows can replace it. Kind: invariant. Destination: spec: specs/dead-letter-operations/spec.md → Requirement: Current configuration for pipeline replay
 - C2. Delivery replay preserves the original definition and bytes, with new allowance but no reused attempt number. Kind: invariant. Destination: spec: specs/dead-letter-operations/spec.md → Requirement: Immutable delivery replay
-- C3. The operator API does not replace M4 human access or provide a raw-payload read path. Kind: deliberate gap. Destination: ADR 0034
+- C3. The operator API does not replace M4 human access or provide a raw-payload read path. Kind: deliberate gap. Destination: ADR 0035
 - C4. Expiry and its ledger discard count commit together. Kind: invariant. Destination: spec: specs/durable-pipeline/spec.md → Requirement: Atomic dead-letter expiry
-- C5. Drop or defer at the output cap without bypasses or recursive alerts; do not reinterpret budget fields as a new plugin definition. Kind: invariant. Destination: ADR 0034
+- C5. Drop or defer at the output cap without bypasses or recursive alerts; do not reinterpret budget fields as a new plugin definition. Kind: invariant. Destination: ADR 0035
 - C6. Keep ordering evidence during old replay, including the special pre-upgrade Icinga2 floor. Kind: invariant. Destination: spec: specs/durable-pipeline/spec.md → Requirement: Retention preserves retry and ordering evidence
-- C7. Do not copy the old payload tables or demand a drained database. Kind: rejected alternative. Destination: ADR 0034
-- C8. Keep the pressure/status API available for the M2 demo; no metrics endpoint or Flutter page in this change. Kind: deliberate gap. Destination: ADR 0034
-- C9. Operator credentials come from a protected digest file and rotate by restart, not through ingest configuration. Kind: invariant. Destination: ADR 0034
-- C10. Omitted and explicit-default policy values keep older snapshot hashes unchanged. Kind: invariant. Destination: ADR 0034
-- C11. Retired outputs keep their last budget policy while retained work or a pending pinned route needs it. Kind: invariant. Destination: ADR 0034
+- C7. Do not copy the old payload tables or demand a drained database. Kind: rejected alternative. Destination: ADR 0035
+- C8. Keep the pressure/status API available for the M2 demo; no metrics endpoint or Flutter page in this change. Kind: deliberate gap. Destination: ADR 0035
+- C9. Operator credentials come from a protected digest file and rotate by restart, not through ingest configuration. Kind: invariant. Destination: ADR 0035
+- C10. Omitted and explicit-default policy values keep older snapshot hashes unchanged. Kind: invariant. Destination: ADR 0035
+- C11. Retired outputs keep their last budget policy while retained work or a pending pinned route needs it. Kind: invariant. Destination: ADR 0035
 - C12. Retention never reclaims protected raw or event work. Kind: invariant. Destination: spec: specs/durable-pipeline/spec.md → Requirement: Retention preserves unfinished pipeline work
 - C13. Raw replay consumes the same pending-row allowance as new ingress when it moves to pending. Kind: invariant. Destination: spec: specs/dead-letter-operations/spec.md → Requirement: Bounded replay selection and audit
 - C14. Replay requires a compatible active binding and keeps the original Icinga2 origin, never changing source mode. Kind: invariant. Destination: spec: specs/dead-letter-operations/spec.md → Requirement: Current configuration for pipeline replay
-- C15. Capacity and filtered lookup work does not grow with the number of payload rows. Kind: invariant. Destination: ADR 0034
-- C16. Historical signing material is validated through distinct commitment metadata, not a payload-table scan. Kind: invariant. Destination: ADR 0034
+- C15. Capacity and filtered lookup work does not grow with the number of payload rows. Kind: invariant. Destination: ADR 0035
+- C16. Historical signing material is validated through distinct commitment metadata, not a payload-table scan. Kind: invariant. Destination: ADR 0035
 - C17. Default routing remains available if daily attachment times out; repair cannot shed work. Kind: invariant. Destination: spec: specs/durable-pipeline/spec.md → Requirement: Partitioned storage survives offline upgrade
 
 ## Diagrams (FULL)
@@ -412,4 +412,4 @@ Claim the notice, then take the event and outbox relation locks before locking t
 ## ADRs
 
 - In force: ADRs 0009 (machine identity), 0016 (staged pipeline), 0017 (ordering), 0021 (canonical v1), 0024 (retry identity), 0025 and 0027 (output fences), 0029 and 0030 (source admission), and 0032/0033 (versioned matcher and offline rollout).
-- During apply, add ADR 0034 or the next available number after rebase. Record the scoped operator boundary, shared pressure and retention policy, offline partition cutover and Correlia-origin overflow contract as refinements of ADR 0016, without editing accepted ADRs. Update `openspec/architecture.md` and its ADR index with the same commit.
+- ADR 0035 (`docs/adr/0035-durable-queue-operations.md`) records the scoped operator boundary, shared pressure and retention policy, offline partition cutover and Correlia-origin overflow contract as refinements of ADR 0016. It follows change 6's ADR 0034 in the architecture index.

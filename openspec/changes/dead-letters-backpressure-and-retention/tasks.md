@@ -145,7 +145,7 @@ Test paths are relative to `correlia_server/`. Green rows carry existing behavio
 
 ## 1. Record the architecture and migrate durable storage
 
-- [x] 1.1 Record ADR 0034 or the next free number and update `openspec/architecture.md` in the same group. Carry C3, C5, C7–C11, C15 and C16. Check the new ADR against D1–D13 and run strict OpenSpec validation.
+- [x] 1.1 Record ADR 0035 and update `openspec/architecture.md` in the same group. Carry C3, C5, C7–C11, C15 and C16. Check the new ADR against D1–D13 and run strict OpenSpec validation.
 - [x] 1.2 Verify A1 with embedded PostgreSQL on the immediately preceding SQL schema and on a fresh install. Write the partition cutover, catalog and interrupted-upgrade tests first and observe missing partition behavior. Assert composite keys and preserved bytes, trigger behavior across children and the effective-time function using the new row type.
 - [x] 1.3 Implement forward-only offline attachment and cutover metadata. Run `test/db/pipeline_partition_upgrade_test.dart`, `test/db/schema_step_test.dart` and the mapped cases in `test/e2e/icinga2_upgrade_e2e_test.dart`; update fixtures that name latest versions. Document the offline cutover and schema repair exclusions.
 

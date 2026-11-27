@@ -37,7 +37,7 @@ const defaultSchemaLockTimeout = Duration(seconds: 30);
 /// Maximum client wait for the offline partition script unless overridden.
 const defaultPartitionCutoverTimeoutSeconds = 3600;
 
-const _partitionCutoverVersion = 15;
+const _partitionCutoverVersion = 18;
 
 /// A sanitized schema initialization failure.
 final class SchemaStepException implements Exception {
@@ -110,7 +110,7 @@ List<SchemaStep> get schemaSteps => [
   ),
   SchemaStep(
     _partitionCutoverVersion,
-    File('schema/0015_pipeline_partitions.sql').readAsStringSync(),
+    File('schema/0018_pipeline_partitions.sql').readAsStringSync(),
   ),
 ];
 

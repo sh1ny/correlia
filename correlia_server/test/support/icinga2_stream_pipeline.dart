@@ -134,7 +134,6 @@ Future<String> seedStreamDb(
   List<Map<String, Object?>> values, {
   bool sync = false,
   DateTime? observed,
-  DateTime Function(int)? itemReceipt,
   String syncId = streamDbSyncId,
   String Function(Map<String, Object?>) encodeLine = jsonEncode,
   List<DateTime>? receipts,
@@ -149,9 +148,7 @@ Future<String> seedStreamDb(
     'items': [
       for (final (index, value) in values.indexed)
         {
-          'received':
-              (receipts?[index] ?? itemReceipt?.call(index) ?? receipt)
-                  .microsecondsSinceEpoch,
+          'received': (receipts?[index] ?? receipt).microsecondsSinceEpoch,
           'line': encodeLine(value),
         },
     ],

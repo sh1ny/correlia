@@ -13,6 +13,7 @@ import 'package:correlia_server/src/output/relay_subsystem.dart';
 import 'package:correlia_server/src/output/webhook_output.dart';
 import 'package:correlia_server/src/pipeline/pipeline.dart';
 import 'package:correlia_server/src/pipeline/queue_operations.dart';
+import 'package:correlia_server/src/simulator/rule_simulator.dart';
 import 'package:serverpod/serverpod.dart';
 import 'package:crypto/crypto.dart';
 import 'package:test/test.dart';
@@ -1508,6 +1509,16 @@ void main() {
         verifyEvidence((await noticePayload(_second)).single);
         expect(await raw.count(session, 'raw_inbox'), 1);
         expect(await raw.count(session, 'alerts'), 2);
+        final notice = (await session.db.unsafeQuery('''
+          SELECT observed_at,event_id::text FROM events WHERE system_activity_id IS NOT NULL
+        ''')).single;
+        final simulation = await RuleSimulator().simulate(
+          session,
+          eventId: notice[1]! as String,
+          observedAt: (notice[0]! as DateTime).toUtc().toIso8601String(),
+        );
+        expect(simulation.error?.code, 'raw_unavailable');
+        expect(simulation.trace, isEmpty);
       });
 
       test('notice_skips_locked_capacity_without_retrying_it', () async {
@@ -1923,7 +1934,7 @@ void main() {
           final session = builder.build();
           await applySchemaSteps(
             session,
-            schemaSteps.where((step) => step.version < 15).toList(),
+            schemaSteps.where((step) => step.version < 18).toList(),
           );
           const priorOutput = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
           await session.db.unsafeSimpleExecute('''

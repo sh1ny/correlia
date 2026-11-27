@@ -21,8 +21,8 @@ import 'ingest_config_test.dart' as cfg;
 import 'pipeline_test.dart' as fixture;
 
 const _parents = ['events', 'outbox', 'raw_inbox'];
-const _predecessorVersion = 14;
-const _cutoverVersion = 15;
+const _predecessorVersion = 17;
+const _cutoverVersion = 18;
 
 Future<List<Object?>> _partitionedParents(Session session) async => [
   for (final row in await session.db.unsafeQuery('''
@@ -107,7 +107,7 @@ void main() {
           destination.signingKeyRef,
           base64Url.decode(base64Url.normalize(cfg.token(2))),
         );
-        // Step 14 has these tables, but not the new publication queue helper.
+        // Step 17 has these tables, but not the new publication queue helper.
         await session.db.transaction((tx) async {
           await session.db.unsafeSimpleExecute(
             "SET LOCAL correlia.publisher_version='2'",

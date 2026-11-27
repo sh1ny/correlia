@@ -1,4 +1,4 @@
-# 0034: Durable queue operations
+# 0035: Durable queue operations
 
 - Status: Accepted
 - Refines: [0016](0016-durable-staged-pipeline.md), [0030](0030-pull-sources-leased-consumers.md)

@@ -533,9 +533,11 @@ void main() {
             ),
             streamDbCheck(now, host: 'old-evidence-received-later'),
           ],
-          itemReceipt: (index) => index == 0
-              ? now.subtract(const Duration(days: 3))
-              : now.add(Duration(seconds: 2 * index)),
+          receipts: [
+            now.subtract(const Duration(days: 3)),
+            for (var index = 1; index < 4; index++)
+              now.add(Duration(seconds: 2 * index)),
+          ],
         );
         await markFailure(id, pin, legacy: true);
         await session.db.unsafeExecute(
