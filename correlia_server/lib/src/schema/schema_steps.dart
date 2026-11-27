@@ -193,13 +193,16 @@ const matcherDigestStepVersion = 15;
 /// file is read, it fills the matcher content digests of snapshots stored
 /// before they existed. The fill waits [fillLockTimeout] for the publication
 /// lock and fails with [SchemaFailureClass.lockTimeout] past it; the next start
-/// retries.
+/// retries. A snapshot whose text is not JSON is skipped, and
+/// [onUnreadableSnapshot] receives its ID (by default it goes to standard
+/// error).
 ///
 /// The fixture hooks observe the real startup backfill and its contested writes.
 Future<void> initializeSchema(
   Session session, {
   Duration lockTimeout = defaultSchemaLockTimeout,
   Duration fillLockTimeout = defaultMatcherFillLockTimeout,
+  void Function(String snapshotId)? onUnreadableSnapshot,
   void Function(int rows)? onFillPageForTest,
   Future<void> Function(int inserted)? afterFillInsertForTest,
   Future<void> Function()? beforeFillCompletionForTest,
@@ -222,6 +225,7 @@ Future<void> initializeSchema(
     await runMatcherDigestFill(
       session,
       lockTimeout: fillLockTimeout,
+      onUnreadable: onUnreadableSnapshot,
       onPageForTest: onFillPageForTest,
       afterInsertForTest: afterFillInsertForTest,
       beforeCompletionForTest: beforeFillCompletionForTest,

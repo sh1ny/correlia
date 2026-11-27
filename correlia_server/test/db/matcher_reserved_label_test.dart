@@ -972,6 +972,41 @@ DELETE FROM correlia_schema_versions WHERE version = 17''');
     );
   });
 
+  _dbTest('upgrade_with_an_unreadable_inactive_snapshot', (builder) async {
+    final session = builder.build();
+    await initializeIngestSchema(session);
+    final legacy = _matcher([_write('legacy')]);
+    await _insertSnapshot(session, 'readable-history', 1000001, legacy);
+    await _asPublisher(
+      session,
+      (transaction) => session.db.unsafeExecute(
+        '''INSERT INTO ingest_config_snapshot ("snapshotId",revision,"publicJson")
+        VALUES ('unreadable', 1000002, '{"matcher": secret-text')''',
+        transaction: transaction,
+      ),
+    );
+    final base = await _publish(session, 1, null, _matcher(_benign));
+    await _rewindToBeforeStep15(session);
+    final skipped = <String>[];
+    // The upgrade fills every readable snapshot and skips the damaged one.
+    await initializeSchema(session, onUnreadableSnapshot: skipped.add);
+    expect(skipped, ['unreadable']);
+    expect(await _count(session, 'matcher_content_digest'), 2);
+    expect(await _count(session, 'matcher_content_digest_fill'), 1);
+    expect(
+      (await _repository(session).activeSnapshot())?['snapshotId'],
+      base.snapshotId,
+    );
+    // A later start does not read it again, and readable content restores.
+    await initializeSchema(session, onUnreadableSnapshot: skipped.add);
+    expect(skipped, ['unreadable']);
+    final restored = await _publish(session, 2, base.snapshotId, legacy);
+    expect(
+      (await _repository(session).activeSnapshot())?['snapshotId'],
+      restored.snapshotId,
+    );
+  });
+
   _dbTest('a_long_history_of_distinct_content_keeps_one_probe', (
     builder,
   ) async {

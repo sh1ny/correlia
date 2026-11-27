@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:serverpod/serverpod.dart';
@@ -80,11 +81,17 @@ Future<void> recordMatcherContent(
 /// PostgreSQL never parses the stored JSON: the text is decoded here, so a
 /// U+0000 escape in a plugin configuration cannot block the fill.
 ///
+/// A snapshot whose stored text is not JSON gets no digest, so its content
+/// counts as new, and the fill goes on: one damaged inactive snapshot cannot
+/// block every start. [onUnreadable] receives its snapshot ID, never its text;
+/// by default the ID is written to standard error.
+///
 /// The three `ForTest` hooks observe the page reads, each insert, and the
 /// moment before the watermark is written.
 Future<void> ensureMatcherDigestFill(
   Session session,
   Transaction transaction, {
+  void Function(String snapshotId)? onUnreadable,
   void Function(int rows)? onPageForTest,
   Future<void> Function(int inserted)? afterInsertForTest,
   Future<void> Function()? beforeCompletionForTest,
@@ -109,7 +116,13 @@ Future<void> ensureMatcherDigestFill(
     onPageForTest?.call(page.length);
     for (final row in page) {
       after = row[0]! as int;
-      final document = jsonDecode(row[2]! as String);
+      final Object? document;
+      try {
+        document = jsonDecode(row[2]! as String);
+      } on FormatException {
+        (onUnreadable ?? _reportUnreadable)(row[1]! as String);
+        continue;
+      }
       final matcher = document is Map<String, Object?>
           ? document['matcher']
           : null;
@@ -151,6 +164,7 @@ int matcherFillClientTimeoutSeconds(Duration lockTimeout) =>
 Future<void> runMatcherDigestFill(
   Session session, {
   Duration lockTimeout = defaultMatcherFillLockTimeout,
+  void Function(String snapshotId)? onUnreadable,
   void Function(int rows)? onPageForTest,
   Future<void> Function(int inserted)? afterInsertForTest,
   Future<void> Function()? beforeCompletionForTest,
@@ -167,8 +181,14 @@ Future<void> runMatcherDigestFill(
   await ensureMatcherDigestFill(
     session,
     transaction,
+    onUnreadable: onUnreadable,
     onPageForTest: onPageForTest,
     afterInsertForTest: afterInsertForTest,
     beforeCompletionForTest: beforeCompletionForTest,
   );
 });
+
+void _reportUnreadable(String snapshotId) => stderr.writeln(
+  'Matcher digest fill skipped snapshot $snapshotId: its stored JSON does '
+  'not read, so its matcher content counts as new.',
+);
