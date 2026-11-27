@@ -194,7 +194,9 @@ row even though the worker is gone. The query reports `stale` without rewriting 
 
 ## Repair migrations
 
-Serverpod's repair diff sees SQL-owned tables as extraneous and may propose destructive changes. Before applying any generated repair, inspect its entire SQL against the current schema and **remove all operations that drop or alter** `raw_inbox`, `events`, `outbox`, `activity`, `correlia_schema_versions`, their indexes, constraints and time-qualified references. Review related cascades as well. Preserve data and the version table; never force a destructive repair merely to silence drift. Inspect any other unmanaged exceptions individually. If the desired SQL-owned schema itself needs correction, write a new forward schema step, not an edit to an applied step or a generated definition. Review the resulting repair and schema step together on a populated copy before production use.
+Serverpod's repair diff sees SQL-owned tables as extraneous and may propose destructive changes. Before applying any generated repair, inspect its entire SQL against the current schema and **remove all operations that drop or alter** `raw_inbox`, `events`, `outbox`, `activity`, `correlia_schema_versions`, `matcher_content_digest` (primary key `digest`), `matcher_content_digest_fill` (primary key `singleton`), their indexes, constraints and time-qualified references. Review related cascades as well. Preserve data and the version table; never force a destructive repair merely to silence drift. Inspect any other unmanaged exceptions individually. If the desired SQL-owned schema itself needs correction, write a new forward schema step, not an edit to an applied step or a generated definition. Review the resulting repair and schema step together on a populated copy before production use.
+
+`matcher_content_digest` has the foreign key `matcher_content_digest_first_snapshot_fk` from `first_snapshot_id` to `ingest_config_snapshot."snapshotId"`, and `icinga2_raw_origin` has one from `admission_snapshot_id`. A repair that drops or recreates `ingest_config_snapshot` must keep both constraints or recreate them, with their data intact. Correlia never deletes a snapshot, and deleting one by hand is not supported. The two foreign keys cover only digests and stream admissions. Other rows name a snapshot with no constraint: the active pointer `ingest_active_config."snapshotId"`, the pin `raw_inbox.config_snapshot_id` of a row still waiting to be processed, and `config_snapshot_id` of retained `events` and `outbox` rows. With their snapshot gone, the worker cannot decode a waiting row and the rule simulator returns `raw_unavailable` for those events.
 
 ## Identity evidence
 
@@ -338,6 +340,29 @@ Rules read the original event, including when an earlier rule writes the same fi
 appear in retained events and their delivery payloads; live alert state uses the original severity.
 Matcher routes add to the source routes and follow the same delivery eligibility.
 
+A `classify` action sets a noise class hint. It has exactly `type` and `value`, and `value` is one of
+`heartbeat`, `informational`, `test`, `flapping` and `maintenance`:
+
+```yaml
+actions:
+  - {type: classify, value: heartbeat}
+```
+
+It writes the reserved label `correlia.noise_class` with origin `matcher`, follows the same patch,
+ordering and failure rules as the other actions (the later rule wins, and a rule that fails discards
+its hint with the rest of its patch), and leaves the document at language `matcher`, version `1`. A
+hint changes neither the event's `kind`, its identity, alert state nor delivery eligibility. A missing
+`value` or a value outside the set fails activation with a field error at
+`matcher.rules[i].actions[j].value` that lists the allowed values, and the active snapshot is unchanged.
+
+Only `classify` may write `correlia.noise_class` in new matcher content. A `set_label` or `extract`
+action whose `key` is that label fails activation with a field error at `matcher.rules[i].actions[j].key`
+(code `reserved_key:correlia.noise_class;use_classify_or_rename_the_label`); use `classify`, or rename the
+label. Content equal to the matcher of a snapshot that is still stored is not new: an exact restart with
+the same file, and a guarded rollback that republishes earlier matcher content at a higher revision, still
+succeed when that content writes the key with `set_label` or `extract`, and a row pinned to such a snapshot
+still runs it. A label named `kind` is an ordinary label; matcher rules never change an event's `kind`.
+
 If a rule times out, produces invalid metadata, or would exceed the batch fanout limit, Correlia
 discards that rule's whole patch and counts the failure against the pinned snapshot and rule.
 The existing activity feed reports one notice for each failing pair. Its detail includes the current
@@ -345,12 +370,258 @@ failure count. An event may also include a sanitized `pipeline.enrichment_errors
 Before the write reserve, Correlia stops optional evaluation and records `matcher_unattempted` on the
 raw outcome for rules that did not start. Correlia never publishes a replacement automatically.
 
+### Event kinds before matching
+
+The `kind` of an event is set by its decoder, before any rule runs; rules read it and never change it. The
+Icinga 2 webhook table in [Mapping](#mapping) gives the kind for each notification type. The other sources:
+
+| Source | Delivery | Kind |
+|---|---|---|
+| Alertmanager | each alert, firing or resolved | `alert` |
+| Generic webhook | each mapped alert | `alert` |
+| Icinga 2 Event Streams | `StateChange`, HARD or `soft_and_hard`, any state; SOFT recovery under `hard_only` | `alert` |
+| Icinga 2 Event Streams | `StateChange`, SOFT state other than `OK` or `UP` under `hard_only` | no event; a lag observation only |
+| Icinga 2 Event Streams | `AcknowledgementSet`, `AcknowledgementCleared` | `ack` |
+| Icinga 2 Event Streams | `DowntimeStarted`, `DowntimeRemoved` | `downtime` |
+| Icinga 2 Event Streams | `Flapping` | `state` |
+| Icinga 2 Event Streams | any other live stream type | rejected with `unsupported_type` at `type` |
+| Icinga 2 reconciliation (sync) | `Host` or `Service` object, HARD or `soft_and_hard`, any state; SOFT recovery under `hard_only` | `alert` |
+| Icinga 2 reconciliation (sync) | `Host` or `Service` object, SOFT state other than `OK` or `UP` under `hard_only` | no event |
+| Icinga 2 reconciliation (sync) | any other object type | rejected with `unsupported_type` at `type` |
+
+A `classify` action (see above) adds the noise class hint on top of the kind; it never replaces it.
+
+### Simulate rules against an event
+
+The rule simulator shows what the matcher rules would do to one event, rule by rule and condition by condition,
+and changes nothing. It is the `ruleSimulator.simulate` endpoint and follows the console access policy: outside
+the local console it throws the access error. Its calls write no session log.
+
+The request names the event in exactly one way:
+
+- `eventJson`: a CloudEvent JSON document, decoded and validated like a published event.
+- `eventId` and `observedAt`, with an optional `disposition` (`ready`, `late` or `future_dated`): an event the
+  pipeline stored. The simulator decodes the stored raw row again and picks the member the pipeline kept: the one
+  equal to the stored event in every field the matcher and the pipeline's diagnostics leave alone. When no member
+  is, or several differing members are, the result is `ambiguous_member`. Without a `disposition` a `ready` or
+  `late` row is preferred over a `future_dated` one.
+
+`draftMatcher` is optional text holding a `matcher` section as JSON (at most 64 KiB). Without it the rules of the
+active snapshot run. A draft is checked like a published one, including the reserved `correlia.noise_class` key,
+and is always new content. Nothing is published, stored or sent.
+
+The result carries:
+
+- `ruleSource` (`active` or `draft`), and the active snapshot's ID and revision when a snapshot is active. A draft
+  result carries them too, because that snapshot supplies the sources and outputs the draft runs against.
+  `noRulesActive` is true only for an active-rule simulation with no rules to run: no active matcher, or one with
+  no rules. A draft result always reports `false`, so the flag says nothing about the server's configuration.
+- `trace`: one entry per rule in order, with the outcome (`matched`, `not matched`, `failed` or `not attempted`),
+  a `failureCode` for a failed rule, and each condition's field, operator, outcome and any failure code. Each
+  action reports its effect: staged, skipped with the reason, failed with its rule's failure code, or not run. A
+  `route` to an output that the baseline or an earlier route already has is `skipped: route already present`.
+  A write that a later action of the same rule overwrites (a label key, or a second matching `map_severity`) is
+  `skipped: overwritten later in its rule`; a `location` action counts as overwritten only when every label it
+  staged is. When only some are, the action stays staged and its detail marks each overwritten label, as in
+  `site=eu1 (overwritten later in its rule), environment=prod`. A value that is empty, holds a comma, a parenthesis, a quote or a backslash, or starts or ends with white space is shown as a JSON string, as in `site="eu1 (old)"`, so it cannot read as the marker or as a separator. When a later action fails, the writes before it
+  that a later action had already overwritten still show this, and nothing of the rule is applied. A write in a later rule is a separate patch, so both rules' writes are applied. A `map_severity`
+  whose target equals the event's current severity is `skipped: severity already <value>`.
+- The final labels, label origins, links, severity and `eventKind`, plus `noiseClassHint` when a rule classified
+  the event. `finalLabelOrigins` gives every label its effective origin: a label with no recorded origin, as
+  Alertmanager leaves its source labels, shows `source`. `storedLabelOrigins` is the stored map as it is, so it
+  can leave such labels out. The four label fields are lists of `{key, value}` entries in label order, not JSON
+  objects: the generated client reads an object's `__className__` key as a model name, and `__className__` is a
+  valid label key.
+- `baselineRoutes` (the source's routes in the active snapshot) and `addedRoutes` from `route` actions. Added
+  routes are hypothetical: delivery eligibility is not evaluated. `sourceAbsent` is true when the event's source
+  is not in the active snapshot.
+- For a stored event, what the pipeline stored (`storedLabels`, `storedLabelOrigins`,
+  `storedEnrichmentErrors`, `storedSnapshotId`) next to the simulated result. The pipeline shares its regex and
+  time budgets across a whole raw row, while a simulation starts fresh budgets, so the result says so in
+  `storedBudgetNote`.
+
+An input or lookup failure is a typed `error` in the result with a `code` and the `field` it concerns. The endpoint
+throws for the access policy, and an infrastructure failure, such as a database timeout, reaches the caller as an
+RPC error.
+
+| Code | Field | Cause |
+|---|---|---|
+| `invalid_input` | `eventJson`, `eventId`, `observedAt` or `disposition` | Both or neither way of naming the event, a partial or malformed key, an unknown disposition, or an `observedAt` that is not an RFC 3339 timestamp with an offset |
+| `too_large` | `eventJson` or `draftMatcher` | Pasted event text over the wire bound of 256 KiB, or a draft over 64 KiB. Text within the bound whose canonical form is over it gets the event's own `event_too_large` error on `event` |
+| `invalid_unicode` | `eventJson` | The pasted event text holds a UTF-16 surrogate that is not part of a pair. It is refused before the text is encoded, so the value is never replaced with U+FFFD |
+| `invalid_json` | `draftMatcher` | The draft is not JSON |
+| an event validation code | the event field path | The pasted event fails validation |
+| a matcher validation code | the matcher field path | The draft fails the checks of publication, such as `reserved_key:correlia.noise_class;use_classify_or_rename_the_label` |
+| `event_not_found` | `eventId` | No stored event has that key |
+| `raw_unavailable` | `eventId` | The stored event's raw row is gone or cannot be decoded again, including when its processing snapshot is gone or its decode settings no longer parse or have the wrong shape (such as a source without its namespace, or a source enabled twice), or when a stream row's admission snapshot is not JSON or lists its source twice |
+| `ambiguous_member` | `eventId` | No member of the decoded raw row matches the stored event, or the raw row holds several differing events with that ID and the stored event does not tell which one was kept |
+
+#### Command line
+
+`correlia_server/tool/simulate.dart` calls the endpoint through the generated client against a running server
+(`--server <url>`, default `http://localhost:8080/`; the server must run as the local console). The URL must
+use `http` or `https` and have no query or fragment; anything else is a usage error. Run it from
+`correlia_server`:
+
+```sh
+# A stored event: its ID, its observed_at, and optionally --disposition
+mise exec -- dart run tool/simulate.dart --event-id <event-id> --observed-at <observed_at>
+
+# A pasted CloudEvent JSON file, optionally with a draft matcher section
+mise exec -- dart run tool/simulate.dart --event event.json --draft draft-matcher.json
+```
+
+It prints the rule source and snapshot, then each rule with its outcome, the condition tree (each leaf with its
+field, operator, outcome and reason), each action's effect, and the final kind, labels with origins, links,
+severity, routes (added ones marked hypothetical) and notes; for a stored event it adds the stored labels, errors
+and snapshot. `--json` prints the result document instead. The `--observed-at` text goes to the simulator as typed,
+so a timestamp it rejects comes back as its `invalid_input` error for `observedAt`. A simulator error prints
+`error: <code>` and `field: <field>` on stderr, plus `output: <id>` when a draft routes to an unknown output, and
+exits 1; a usage error prints the usage and exits 64. The readable output writes a newline, carriage return and
+tab as `\n`, `\r` and `\t`, every other control character as `\u{hex}`, and a backslash as `\\`, so a value
+holding the text `\n` reads apart from one holding a newline. `--json` writes DEL and the C1 control characters as
+`\u00XX` escapes, so the document decodes to the same values and cannot drive a terminal.
+
+#### Documented examples
+
+The examples below are run by `test/unit/simulator/rul1_docs_test.dart` (blocks marked `yaml rul1-example`), which
+simulates each documented event against the documented rules and compares the per-rule outcomes, in rule order,
+and the final labels. Each event is an alert with the labels shown. Changing a block without changing the behavior
+it documents fails that test.
+
+**Rule priority.** Rules run in order and read the original event: a condition does not see a label that an
+earlier rule wrote. When two rules that match write the same label, the later rule wins; a rule that does not match
+leaves the label alone.
+
+```yaml rul1-example
+name: priority
+event:
+  labels: {alertname: DiskFull, team: storage}
+matcher:
+  language: matcher
+  version: 1
+  rules:
+    - id: default-owner
+      when: {field: labels.alertname, op: exists}
+      actions:
+        - {type: set_label, key: owner, value: on-call}
+    - id: storage-owner
+      when: {field: labels.team, op: equals, value: storage}
+      actions:
+        - {type: set_label, key: owner, value: storage-team}
+    - id: network-owner
+      when: {field: labels.team, op: equals, value: network}
+      actions:
+        - {type: set_label, key: owner, value: network-team}
+    - id: owned-already
+      when: {field: labels.owner, op: exists}
+      actions:
+        - {type: set_label, key: reassigned, value: "true"}
+expect:
+  rules:
+    - default-owner: matched
+    - storage-owner: matched
+    - network-owner: not matched
+    - owned-already: not matched
+  labels: {alertname: DiskFull, team: storage, owner: storage-team}
+```
+
+**Labels.** `set_label` writes a fixed value. `tag` sets the label `tags.<key>` to `"true"`. `extract` copies a capture group of a regular expression applied to
+a field; the first match is used, and the pattern dialect has no anchors. Here the pattern matches both `api-12`
+and `pod-7`, and `node` takes the first.
+
+```yaml rul1-example
+name: labels
+event:
+  labels: {alertname: HighLatency, instance: "api-12.pod-7.example.org:9100"}
+matcher:
+  language: matcher
+  version: 1
+  rules:
+    - id: tag-and-extract
+      when: {field: labels.alertname, op: equals, value: HighLatency}
+      actions:
+        - {type: set_label, key: tier, value: frontend}
+        - {type: tag, key: latency}
+        - {type: extract, field: labels.instance, pattern: "([a-z]+-[0-9]+)", group: 1, key: node}
+expect:
+  rules:
+    - tag-and-extract: matched
+  labels:
+    alertname: HighLatency
+    instance: "api-12.pod-7.example.org:9100"
+    tier: frontend
+    tags.latency: "true"
+    node: api-12
+```
+
+**Topology.** A `location` action looks up the value of a field in an ordered table and sets `site` and
+`environment` from the first entry that matches by `hostname` or `cidr`. When no entry matches, the rule still
+matches and the labels stay as they were. Here both the `10.20.0.0/24` entry and the `10.0.0.0/8` entry
+below it match, and the first sets the labels.
+
+```yaml rul1-example
+name: topology
+event:
+  labels: {alertname: HostDown, hostname: 10.20.0.2}
+matcher:
+  language: matcher
+  version: 1
+  rules:
+    - id: site-of-host
+      when: {field: labels.hostname, op: exists}
+      actions:
+        - type: location
+          field: labels.hostname
+          entries:
+            - {hostname: 10.20.0.1, site: fra1, environment: production}
+            - {cidr: 10.20.0.0/24, site: ams2, environment: production}
+            - {cidr: 10.0.0.0/8, site: lab1, environment: staging}
+expect:
+  rules:
+    - site-of-host: matched
+  labels:
+    alertname: HostDown
+    hostname: 10.20.0.2
+    site: ams2
+    environment: production
+```
+
 ### Upgrade before enabling matcher rules
 
 Live upgrades and mixed-version operation are not supported. Stop admitting new input and manually
 drain pending inbox work and the outbox on the old release. Then stop all Correlia processes and
 their supervisors before upgrading. Verify all roles start on the new release before resuming
 input or publishing matcher rules. Do not edit pins or discard queued deliveries to drain the outbox.
+
+The release that adds `classify` follows the same offline sequence (ADR 0033):
+
+1. Drain pending inbox work and the outbox on the old release, then stop every process of every role.
+2. Start the new release. Schema step `0015` (`schema/0015_matcher_content_digest.sql`) creates
+   `matcher_content_digest` (primary key `digest`, the SHA-256 of a snapshot's canonical matcher JSON) and
+   `matcher_content_digest_fill` (primary key `singleton`, one row). Step `0016`
+   (`schema/0016_matcher_digest_watermark.sql`) adds `filled_through` to that row: the snapshot table id
+   through which the fill has read. Step `0017` (`schema/0017_matcher_digest_snapshot_fk.sql`) adds the
+   foreign key `matcher_content_digest_first_snapshot_fk` from `first_snapshot_id` to the snapshot ID. It
+   first deletes digest rows whose snapshot no longer exists and, if it deleted any, resets `filled_through`
+   to 0, so the fill in the next step records again the content of every surviving snapshot.
+3. Right after the schema steps and before it reads the configuration file, the process fills
+   `matcher_content_digest` for every snapshot after `filled_through` (every stored snapshot on the first
+   start). It reads snapshots in keyset pages of 100 by table id, in one transaction under the publication
+   advisory lock, and writes the new `filled_through` last, so a crash leaves no partial fill and the next start
+   redoes it. A second starter waits on the lock and then finds nothing left to read. Every later start and
+   publication reads only the snapshots after the watermark, so a snapshot that the old release published during
+   an offline downgrade, before any `classify` snapshot, still counts as stored content. The fill waits at most 60 seconds for the lock; past that the process exits non-zero with
+   `Schema step 15 failed: lock_timeout`, and the next start retries. The fill decodes snapshot text in the
+   server, so a U+0000 escape in a stored plugin configuration cannot block it. A snapshot whose stored text is
+   not JSON, or whose matcher holds a value with no JSON encoding (such as the number `1e400`, which decodes
+   to infinity), gets no digest, so its matcher content counts as new; the fill goes on and writes the snapshot's ID,
+   never its text, to standard error.
+4. Publication and startup then reject a non-`classify` write to `correlia.noise_class` only in matcher content
+   that no stored snapshot has. Publication first runs the fill for any snapshot after the watermark.
+
+Do not return to the old release after a snapshot that uses `classify` is published: the old binary rejects an
+unknown action when it reads that snapshot.
 
 ## Alertmanager sender setup and admission
 
@@ -525,7 +796,7 @@ state it carries.
 | `PROBLEM` or `RECOVERY`, HARD `DOWN` or `UNREACHABLE` or `CRITICAL` | `alert` | `firing` | `critical` |
 | `PROBLEM` or `RECOVERY`, HARD `WARNING` | `alert` | `firing` | `warning` |
 | `PROBLEM` or `RECOVERY`, HARD `UNKNOWN` | `alert` | `firing` | `unknown` |
-| `PROBLEM` or `RECOVERY`, SOFT non-OK state | `state` | `info` | `info` |
+| `PROBLEM` or `RECOVERY`, SOFT state other than `OK` or `UP` | `state` | `info` | `info` |
 | `ACKNOWLEDGEMENT` | `ack` | `info` | `info` |
 | `DOWNTIMESTART`, `DOWNTIMEEND`, `DOWNTIMECANCELLED` | `downtime` | `info` | `info` |
 | `FLAPPINGSTART`, `FLAPPINGEND` | `state` | `info` | `info` |

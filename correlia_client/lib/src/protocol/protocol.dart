@@ -12,8 +12,10 @@
 
 // ignore_for_file: no_leading_underscores_for_library_prefixes
 import 'package:serverpod_client/serverpod_client.dart' as _isc;
+import 'action_trace.dart' as _ikn0wxo5;
 import 'alert_snapshot.dart' as _iz3t21fy;
 import 'alert_view.dart' as _i897ft9c;
+import 'condition_trace.dart' as _i0ehnxud;
 import 'console_access_denied_exception.dart' as _i25sduw2;
 import 'feed_entry.dart' as _iywqxrq6;
 import 'feed_page.dart' as _ijrqdfur;
@@ -26,8 +28,16 @@ import 'mapping_preview_event.dart' as _i20s3xik;
 import 'mapping_preview_result.dart' as _ines6tzx;
 import 'mapping_preview_validation_error.dart' as _i2ozkwub;
 import 'matcher_failure_view.dart' as _ik186lp1;
+import 'rule_simulation_result.dart' as _i2oitrdy;
+import 'rule_trace.dart' as _ingcfw9t;
+import 'simulated_label.dart' as _i3ntsck3;
+import 'simulated_link.dart' as _ieclo1rh;
+import 'simulation_error.dart' as _izi5l5xj;
+import 'stored_enrichment_error.dart' as _iy99nx4o;
+export 'action_trace.dart';
 export 'alert_snapshot.dart';
 export 'alert_view.dart';
+export 'condition_trace.dart';
 export 'console_access_denied_exception.dart';
 export 'feed_entry.dart';
 export 'feed_page.dart';
@@ -40,6 +50,12 @@ export 'mapping_preview_event.dart';
 export 'mapping_preview_result.dart';
 export 'mapping_preview_validation_error.dart';
 export 'matcher_failure_view.dart';
+export 'rule_simulation_result.dart';
+export 'rule_trace.dart';
+export 'simulated_label.dart';
+export 'simulated_link.dart';
+export 'simulation_error.dart';
+export 'stored_enrichment_error.dart';
 export 'client.dart';
 
 class Protocol extends _isc.SerializationManager
@@ -55,8 +71,10 @@ class Protocol extends _isc.SerializationManager
       _isc.ProtocolDeserialization.cached(
         this,
         types: const [
+          _isc.getType<_ikn0wxo5.ActionTrace>,
           _isc.getType<_iz3t21fy.AlertSnapshot>,
           _isc.getType<_i897ft9c.AlertView>,
+          _isc.getType<_i0ehnxud.ConditionTrace>,
           _isc.getType<_i25sduw2.ConsoleAccessDeniedException>,
           _isc.getType<_iywqxrq6.FeedEntry>,
           _isc.getType<_ijrqdfur.FeedPage>,
@@ -69,8 +87,16 @@ class Protocol extends _isc.SerializationManager
           _isc.getType<_ines6tzx.MappingPreviewResult>,
           _isc.getType<_i2ozkwub.MappingPreviewValidationError>,
           _isc.getType<_ik186lp1.MatcherFailureView>,
+          _isc.getType<_i2oitrdy.RuleSimulationResult>,
+          _isc.getType<_ingcfw9t.RuleTrace>,
+          _isc.getType<_i3ntsck3.SimulatedLabel>,
+          _isc.getType<_ieclo1rh.SimulatedLink>,
+          _isc.getType<_izi5l5xj.SimulationError>,
+          _isc.getType<_iy99nx4o.StoredEnrichmentError>,
+          _isc.getType<_ikn0wxo5.ActionTrace?>,
           _isc.getType<_iz3t21fy.AlertSnapshot?>,
           _isc.getType<_i897ft9c.AlertView?>,
+          _isc.getType<_i0ehnxud.ConditionTrace?>,
           _isc.getType<_i25sduw2.ConsoleAccessDeniedException?>,
           _isc.getType<_iywqxrq6.FeedEntry?>,
           _isc.getType<_ijrqdfur.FeedPage?>,
@@ -83,16 +109,33 @@ class Protocol extends _isc.SerializationManager
           _isc.getType<_ines6tzx.MappingPreviewResult?>,
           _isc.getType<_i2ozkwub.MappingPreviewValidationError?>,
           _isc.getType<_ik186lp1.MatcherFailureView?>,
+          _isc.getType<_i2oitrdy.RuleSimulationResult?>,
+          _isc.getType<_ingcfw9t.RuleTrace?>,
+          _isc.getType<_i3ntsck3.SimulatedLabel?>,
+          _isc.getType<_ieclo1rh.SimulatedLink?>,
+          _isc.getType<_izi5l5xj.SimulationError?>,
+          _isc.getType<_iy99nx4o.StoredEnrichmentError?>,
           _isc.getType<List<_i897ft9c.AlertView>>,
           _isc.getType<List<_iywqxrq6.FeedEntry>>,
           _isc.getType<Map<String, int>>,
           _isc.getType<List<_i20s3xik.MappingPreviewEvent>>,
           _isc.getType<List<_ibaui0zg.MappingPreviewDiagnostic>>,
+          _isc.getType<List<_ingcfw9t.RuleTrace>>,
+          _isc.getType<List<_i3ntsck3.SimulatedLabel>>,
+          _isc.getType<List<_ieclo1rh.SimulatedLink>>,
+          _isc.getType<List<String>>,
+          _isc.getType<List<_i3ntsck3.SimulatedLabel>?>,
+          _isc.getType<List<_iy99nx4o.StoredEnrichmentError>>,
+          _isc.getType<List<_iy99nx4o.StoredEnrichmentError>?>,
+          _isc.getType<List<_i0ehnxud.ConditionTrace>>,
+          _isc.getType<List<_ikn0wxo5.ActionTrace>>,
         ],
         modules: const [],
         classNames: const [
+          'ActionTrace',
           'AlertSnapshot',
           'AlertView',
+          'ConditionTrace',
           'ConsoleAccessDeniedException',
           'FeedEntry',
           'FeedPage',
@@ -105,6 +148,12 @@ class Protocol extends _isc.SerializationManager
           'MappingPreviewResult',
           'MappingPreviewValidationError',
           'MatcherFailureView',
+          'RuleSimulationResult',
+          'RuleTrace',
+          'SimulatedLabel',
+          'SimulatedLink',
+          'SimulationError',
+          'StoredEnrichmentError',
         ],
       );
 
@@ -132,11 +181,17 @@ class Protocol extends _isc.SerializationManager
       }
     }
 
+    if (t == _ikn0wxo5.ActionTrace) {
+      return _ikn0wxo5.ActionTrace.fromJson(data) as T;
+    }
     if (t == _iz3t21fy.AlertSnapshot) {
       return _iz3t21fy.AlertSnapshot.fromJson(data) as T;
     }
     if (t == _i897ft9c.AlertView) {
       return _i897ft9c.AlertView.fromJson(data) as T;
+    }
+    if (t == _i0ehnxud.ConditionTrace) {
+      return _i0ehnxud.ConditionTrace.fromJson(data) as T;
     }
     if (t == _i25sduw2.ConsoleAccessDeniedException) {
       return _i25sduw2.ConsoleAccessDeniedException.fromJson(data) as T;
@@ -174,12 +229,37 @@ class Protocol extends _isc.SerializationManager
     if (t == _ik186lp1.MatcherFailureView) {
       return _ik186lp1.MatcherFailureView.fromJson(data) as T;
     }
+    if (t == _i2oitrdy.RuleSimulationResult) {
+      return _i2oitrdy.RuleSimulationResult.fromJson(data) as T;
+    }
+    if (t == _ingcfw9t.RuleTrace) {
+      return _ingcfw9t.RuleTrace.fromJson(data) as T;
+    }
+    if (t == _i3ntsck3.SimulatedLabel) {
+      return _i3ntsck3.SimulatedLabel.fromJson(data) as T;
+    }
+    if (t == _ieclo1rh.SimulatedLink) {
+      return _ieclo1rh.SimulatedLink.fromJson(data) as T;
+    }
+    if (t == _izi5l5xj.SimulationError) {
+      return _izi5l5xj.SimulationError.fromJson(data) as T;
+    }
+    if (t == _iy99nx4o.StoredEnrichmentError) {
+      return _iy99nx4o.StoredEnrichmentError.fromJson(data) as T;
+    }
+    if (t == _isc.getType<_ikn0wxo5.ActionTrace?>()) {
+      return (data != null ? _ikn0wxo5.ActionTrace.fromJson(data) : null) as T;
+    }
     if (t == _isc.getType<_iz3t21fy.AlertSnapshot?>()) {
       return (data != null ? _iz3t21fy.AlertSnapshot.fromJson(data) : null)
           as T;
     }
     if (t == _isc.getType<_i897ft9c.AlertView?>()) {
       return (data != null ? _i897ft9c.AlertView.fromJson(data) : null) as T;
+    }
+    if (t == _isc.getType<_i0ehnxud.ConditionTrace?>()) {
+      return (data != null ? _i0ehnxud.ConditionTrace.fromJson(data) : null)
+          as T;
     }
     if (t == _isc.getType<_i25sduw2.ConsoleAccessDeniedException?>()) {
       return (data != null
@@ -242,6 +322,33 @@ class Protocol extends _isc.SerializationManager
       return (data != null ? _ik186lp1.MatcherFailureView.fromJson(data) : null)
           as T;
     }
+    if (t == _isc.getType<_i2oitrdy.RuleSimulationResult?>()) {
+      return (data != null
+              ? _i2oitrdy.RuleSimulationResult.fromJson(data)
+              : null)
+          as T;
+    }
+    if (t == _isc.getType<_ingcfw9t.RuleTrace?>()) {
+      return (data != null ? _ingcfw9t.RuleTrace.fromJson(data) : null) as T;
+    }
+    if (t == _isc.getType<_i3ntsck3.SimulatedLabel?>()) {
+      return (data != null ? _i3ntsck3.SimulatedLabel.fromJson(data) : null)
+          as T;
+    }
+    if (t == _isc.getType<_ieclo1rh.SimulatedLink?>()) {
+      return (data != null ? _ieclo1rh.SimulatedLink.fromJson(data) : null)
+          as T;
+    }
+    if (t == _isc.getType<_izi5l5xj.SimulationError?>()) {
+      return (data != null ? _izi5l5xj.SimulationError.fromJson(data) : null)
+          as T;
+    }
+    if (t == _isc.getType<_iy99nx4o.StoredEnrichmentError?>()) {
+      return (data != null
+              ? _iy99nx4o.StoredEnrichmentError.fromJson(data)
+              : null)
+          as T;
+    }
     if (t == List<_i897ft9c.AlertView>) {
       return (data as List)
               .map((e) => deserialize<_i897ft9c.AlertView>(e))
@@ -272,13 +379,70 @@ class Protocol extends _isc.SerializationManager
               .toList()
           as T;
     }
+    if (t == List<_ingcfw9t.RuleTrace>) {
+      return (data as List)
+              .map((e) => deserialize<_ingcfw9t.RuleTrace>(e))
+              .toList()
+          as T;
+    }
+    if (t == List<_i3ntsck3.SimulatedLabel>) {
+      return (data as List)
+              .map((e) => deserialize<_i3ntsck3.SimulatedLabel>(e))
+              .toList()
+          as T;
+    }
+    if (t == List<_ieclo1rh.SimulatedLink>) {
+      return (data as List)
+              .map((e) => deserialize<_ieclo1rh.SimulatedLink>(e))
+              .toList()
+          as T;
+    }
+    if (t == List<String>) {
+      return (data as List).map((e) => deserialize<String>(e)).toList() as T;
+    }
+    if (t == _isc.getType<List<_i3ntsck3.SimulatedLabel>?>()) {
+      return (data != null
+              ? (data as List)
+                    .map((e) => deserialize<_i3ntsck3.SimulatedLabel>(e))
+                    .toList()
+              : null)
+          as T;
+    }
+    if (t == List<_iy99nx4o.StoredEnrichmentError>) {
+      return (data as List)
+              .map((e) => deserialize<_iy99nx4o.StoredEnrichmentError>(e))
+              .toList()
+          as T;
+    }
+    if (t == _isc.getType<List<_iy99nx4o.StoredEnrichmentError>?>()) {
+      return (data != null
+              ? (data as List)
+                    .map((e) => deserialize<_iy99nx4o.StoredEnrichmentError>(e))
+                    .toList()
+              : null)
+          as T;
+    }
+    if (t == List<_i0ehnxud.ConditionTrace>) {
+      return (data as List)
+              .map((e) => deserialize<_i0ehnxud.ConditionTrace>(e))
+              .toList()
+          as T;
+    }
+    if (t == List<_ikn0wxo5.ActionTrace>) {
+      return (data as List)
+              .map((e) => deserialize<_ikn0wxo5.ActionTrace>(e))
+              .toList()
+          as T;
+    }
     return super.deserialize<T>(data, t);
   }
 
   static String? getClassNameForType(Type type) {
     return switch (type) {
+      _ikn0wxo5.ActionTrace => 'ActionTrace',
       _iz3t21fy.AlertSnapshot => 'AlertSnapshot',
       _i897ft9c.AlertView => 'AlertView',
+      _i0ehnxud.ConditionTrace => 'ConditionTrace',
       _i25sduw2.ConsoleAccessDeniedException => 'ConsoleAccessDeniedException',
       _iywqxrq6.FeedEntry => 'FeedEntry',
       _ijrqdfur.FeedPage => 'FeedPage',
@@ -292,6 +456,12 @@ class Protocol extends _isc.SerializationManager
       _i2ozkwub.MappingPreviewValidationError =>
         'MappingPreviewValidationError',
       _ik186lp1.MatcherFailureView => 'MatcherFailureView',
+      _i2oitrdy.RuleSimulationResult => 'RuleSimulationResult',
+      _ingcfw9t.RuleTrace => 'RuleTrace',
+      _i3ntsck3.SimulatedLabel => 'SimulatedLabel',
+      _ieclo1rh.SimulatedLink => 'SimulatedLink',
+      _izi5l5xj.SimulationError => 'SimulationError',
+      _iy99nx4o.StoredEnrichmentError => 'StoredEnrichmentError',
       _ => null,
     };
   }
@@ -306,10 +476,14 @@ class Protocol extends _isc.SerializationManager
     }
 
     switch (data) {
+      case _ikn0wxo5.ActionTrace():
+        return 'ActionTrace';
       case _iz3t21fy.AlertSnapshot():
         return 'AlertSnapshot';
       case _i897ft9c.AlertView():
         return 'AlertView';
+      case _i0ehnxud.ConditionTrace():
+        return 'ConditionTrace';
       case _i25sduw2.ConsoleAccessDeniedException():
         return 'ConsoleAccessDeniedException';
       case _iywqxrq6.FeedEntry():
@@ -334,6 +508,18 @@ class Protocol extends _isc.SerializationManager
         return 'MappingPreviewValidationError';
       case _ik186lp1.MatcherFailureView():
         return 'MatcherFailureView';
+      case _i2oitrdy.RuleSimulationResult():
+        return 'RuleSimulationResult';
+      case _ingcfw9t.RuleTrace():
+        return 'RuleTrace';
+      case _i3ntsck3.SimulatedLabel():
+        return 'SimulatedLabel';
+      case _ieclo1rh.SimulatedLink():
+        return 'SimulatedLink';
+      case _izi5l5xj.SimulationError():
+        return 'SimulationError';
+      case _iy99nx4o.StoredEnrichmentError():
+        return 'StoredEnrichmentError';
     }
     return null;
   }
@@ -344,11 +530,17 @@ class Protocol extends _isc.SerializationManager
     if (dataClassName is! String) {
       return super.deserializeByClassName(data);
     }
+    if (dataClassName == 'ActionTrace') {
+      return deserialize<_ikn0wxo5.ActionTrace>(data['data']);
+    }
     if (dataClassName == 'AlertSnapshot') {
       return deserialize<_iz3t21fy.AlertSnapshot>(data['data']);
     }
     if (dataClassName == 'AlertView') {
       return deserialize<_i897ft9c.AlertView>(data['data']);
+    }
+    if (dataClassName == 'ConditionTrace') {
+      return deserialize<_i0ehnxud.ConditionTrace>(data['data']);
     }
     if (dataClassName == 'ConsoleAccessDeniedException') {
       return deserialize<_i25sduw2.ConsoleAccessDeniedException>(data['data']);
@@ -385,6 +577,24 @@ class Protocol extends _isc.SerializationManager
     }
     if (dataClassName == 'MatcherFailureView') {
       return deserialize<_ik186lp1.MatcherFailureView>(data['data']);
+    }
+    if (dataClassName == 'RuleSimulationResult') {
+      return deserialize<_i2oitrdy.RuleSimulationResult>(data['data']);
+    }
+    if (dataClassName == 'RuleTrace') {
+      return deserialize<_ingcfw9t.RuleTrace>(data['data']);
+    }
+    if (dataClassName == 'SimulatedLabel') {
+      return deserialize<_i3ntsck3.SimulatedLabel>(data['data']);
+    }
+    if (dataClassName == 'SimulatedLink') {
+      return deserialize<_ieclo1rh.SimulatedLink>(data['data']);
+    }
+    if (dataClassName == 'SimulationError') {
+      return deserialize<_izi5l5xj.SimulationError>(data['data']);
+    }
+    if (dataClassName == 'StoredEnrichmentError') {
+      return deserialize<_iy99nx4o.StoredEnrichmentError>(data['data']);
     }
     return super.deserializeByClassName(data);
   }

@@ -133,6 +133,7 @@ Future<String> seedStreamDb(
   DateTime? observed,
   String syncId = streamDbSyncId,
   String Function(Map<String, Object?>) encodeLine = jsonEncode,
+  List<DateTime>? receipts,
 }) async {
   final receipt = observed ?? streamDbNow;
   final origin = sync ? 'sync' : 'stream';
@@ -142,8 +143,11 @@ Future<String> seedStreamDb(
     'connection': 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
     if (sync) 'sync': syncId,
     'items': [
-      for (final value in values)
-        {'received': receipt.microsecondsSinceEpoch, 'line': encodeLine(value)},
+      for (final (index, value) in values.indexed)
+        {
+          'received': (receipts?[index] ?? receipt).microsecondsSinceEpoch,
+          'line': encodeLine(value),
+        },
     ],
   }, receipt);
   await session.db.unsafeExecute(

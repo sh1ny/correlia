@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:io';
 
 import '../event/canonical_event.dart';
 import '../event/validation.dart';
 import 'matcher_regex.dart';
+import 'matcher_regex_worker.dart';
 
 /// The regex operation supplied by the bounded pipeline evaluator.
 typedef MatcherRegexTest = Future<bool> Function(String pattern, String input);
@@ -84,7 +86,31 @@ sealed class MatcherCondition {
   /// Pipeline callers supply [regexTest] so user regex runs outside the
   /// pipeline isolate. The synchronous default is used by parity tests.
   Future<bool> matches(CanonicalEvent event, {MatcherRegexTest? regexTest}) =>
-      _matches(event, regexTest ?? _localRegex);
+      _eval(event, regexTest ?? _localRegex, null);
+
+  /// Evaluates like [matches] and records what each node did.
+  ///
+  /// The flow is the one [matches] uses: an `all` stops at its first false
+  /// child and an `any` at its first true child, and the rest stay
+  /// [LeafOutcome.notEvaluated]. A regex failure stops evaluation at once; it
+  /// is reported in [ConditionExplanation.failureCode] instead of thrown, so
+  /// the partial trace survives. Other errors propagate.
+  Future<ConditionExplanation> explain(
+    CanonicalEvent event, {
+    MatcherRegexTest? regexTest,
+  }) async {
+    final trace = _newTrace();
+    try {
+      final result = await _eval(event, regexTest ?? _localRegex, trace);
+      return ConditionExplanation._(trace, result, null);
+    } on MatcherRegexUnavailable catch (error) {
+      return ConditionExplanation._(trace, null, error.code);
+    }
+  }
+
+  /// The condition tree with every node [LeafOutcome.notEvaluated], for a
+  /// rule that was attempted but stopped before its condition ran.
+  ConditionTrace unevaluated() => _newTrace();
 
   /// Compiles a predicate over the fixed `event.data` stored projection.
   ({String expression, Map<String, Object?> parameters}) compileSql() {
@@ -98,8 +124,132 @@ sealed class MatcherCondition {
     return (expression: _sql(bind), parameters: parameters);
   }
 
-  Future<bool> _matches(CanonicalEvent event, MatcherRegexTest regex);
+  /// The one evaluation. A null [trace] is the no-op sink: nothing is built.
+  Future<bool> _eval(
+    CanonicalEvent event,
+    MatcherRegexTest regex,
+    ConditionTrace? trace,
+  );
+  ConditionTrace _newTrace();
   String _sql(String Function(Object) bind);
+}
+
+/// The kind of one node in a [ConditionTrace].
+enum TraceKind { all, any, not, leaf }
+
+/// What an evaluated or skipped leaf did.
+enum LeafOutcome {
+  /// The operator accepted the value.
+  matched('matched'),
+
+  /// The field was present and the operator rejected it. A trace names the
+  /// operator after this label, as in `no match: value fails not_equals`.
+  valueFails('no match: value fails'),
+
+  /// The field was absent from the event.
+  fieldMissing('no match: field missing'),
+
+  /// Regex work failed; see [LeafTrace.failureCode].
+  failed('failed'),
+
+  /// Short-circuiting skipped the leaf.
+  notEvaluated('not evaluated');
+
+  const LeafOutcome(this.label);
+
+  /// The operator-facing wording.
+  final String label;
+}
+
+/// One node of an explained condition tree.
+sealed class ConditionTrace {
+  ConditionTrace._();
+
+  /// The node kind.
+  TraceKind get kind;
+
+  /// Child nodes in condition order; empty for a leaf.
+  List<ConditionTrace> get children;
+
+  /// The node's truth value, or null when it was skipped or a failure
+  /// stopped evaluation before it finished.
+  bool? get result;
+}
+
+/// An `all`, `any` or `not` node.
+final class CompositeTrace extends ConditionTrace {
+  CompositeTrace._(this.kind, this.children) : super._();
+
+  @override
+  final TraceKind kind;
+
+  @override
+  final List<ConditionTrace> children;
+
+  @override
+  bool? get result => _result;
+  bool? _result;
+}
+
+/// A leaf comparison.
+final class LeafTrace extends ConditionTrace {
+  LeafTrace._(this.field, this.operator, this._outcome) : super._();
+
+  /// The dotted field path, such as `labels.site`.
+  final String field;
+
+  /// The operator name, such as `equals`.
+  final String operator;
+
+  @override
+  TraceKind get kind => TraceKind.leaf;
+
+  @override
+  List<ConditionTrace> get children => const [];
+
+  /// What the leaf did.
+  LeafOutcome get outcome => _outcome;
+  LeafOutcome _outcome;
+
+  /// The regex failure code (`regex_timeout`, `regex_budget`, ...) when
+  /// [outcome] is [LeafOutcome.failed].
+  String? get failureCode => _failureCode;
+  String? _failureCode;
+
+  @override
+  bool? get result => switch (_outcome) {
+    LeafOutcome.matched => true,
+    LeafOutcome.valueFails || LeafOutcome.fieldMissing => false,
+    LeafOutcome.failed || LeafOutcome.notEvaluated => null,
+  };
+}
+
+/// The result of [MatcherCondition.explain].
+final class ConditionExplanation {
+  ConditionExplanation._(this.trace, this.matched, this.failureCode);
+
+  /// The explained tree.
+  final ConditionTrace trace;
+
+  /// Whether the condition matched; null when a failure stopped it.
+  final bool? matched;
+
+  /// The regex failure code that stopped evaluation, if any.
+  final String? failureCode;
+}
+
+ConditionTrace? _child(ConditionTrace? trace, int index) =>
+    trace?.children[index];
+
+void _finish(ConditionTrace? trace, bool result, [LeafOutcome? outcome]) {
+  switch (trace) {
+    case CompositeTrace():
+      trace._result = result;
+    case LeafTrace():
+      trace._outcome = outcome!;
+    case null:
+      break;
+  }
 }
 
 /// An addressable text field for lookup and extraction actions.
@@ -148,8 +298,19 @@ final class _Not extends MatcherCondition {
   final MatcherCondition child;
 
   @override
-  Future<bool> _matches(CanonicalEvent event, MatcherRegexTest regex) async =>
-      !(await child._matches(event, regex));
+  ConditionTrace _newTrace() =>
+      CompositeTrace._(TraceKind.not, [child._newTrace()]);
+
+  @override
+  Future<bool> _eval(
+    CanonicalEvent event,
+    MatcherRegexTest regex,
+    ConditionTrace? trace,
+  ) async {
+    final result = !(await child._eval(event, regex, _child(trace, 0)));
+    _finish(trace, result);
+    return result;
+  }
 
   @override
   String _sql(String Function(Object) bind) => '(NOT ${child._sql(bind)})';
@@ -161,12 +322,31 @@ final class _Many extends MatcherCondition {
   final List<MatcherCondition> children;
 
   @override
-  Future<bool> _matches(CanonicalEvent event, MatcherRegexTest regex) async {
-    for (final child in children) {
-      final result = await child._matches(event, regex);
-      if (result != all) return result;
+  ConditionTrace _newTrace() => CompositeTrace._(
+    all ? TraceKind.all : TraceKind.any,
+    [for (final child in children) child._newTrace()],
+  );
+
+  @override
+  Future<bool> _eval(
+    CanonicalEvent event,
+    MatcherRegexTest regex,
+    ConditionTrace? trace,
+  ) async {
+    var result = all;
+    for (var i = 0; i < children.length; i++) {
+      final childResult = await children[i]._eval(
+        event,
+        regex,
+        _child(trace, i),
+      );
+      if (childResult != all) {
+        result = childResult;
+        break;
+      }
     }
-    return all;
+    _finish(trace, result);
+    return result;
   }
 
   @override
@@ -181,9 +361,41 @@ final class _Leaf extends MatcherCondition {
   final Object? operand;
 
   @override
-  Future<bool> _matches(CanonicalEvent event, MatcherRegexTest regex) async {
+  ConditionTrace _newTrace() =>
+      LeafTrace._(field.fullPath, op, LeafOutcome.notEvaluated);
+
+  @override
+  Future<bool> _eval(
+    CanonicalEvent event,
+    MatcherRegexTest regex,
+    ConditionTrace? trace,
+  ) async {
     final value = field.read(event);
-    if (value == null) return false;
+    if (value == null) {
+      _finish(trace, false, LeafOutcome.fieldMissing);
+      return false;
+    }
+    final bool result;
+    try {
+      // Only a regex leaf waits; the other operators answer synchronously.
+      final test = _test(value, regex);
+      result = test is Future<bool> ? await test : test;
+    } on MatcherRegexUnavailable catch (error) {
+      if (trace is LeafTrace) {
+        trace._outcome = LeafOutcome.failed;
+        trace._failureCode = error.code;
+      }
+      rethrow;
+    }
+    _finish(
+      trace,
+      result,
+      result ? LeafOutcome.matched : LeafOutcome.valueFails,
+    );
+    return result;
+  }
+
+  FutureOr<bool> _test(String value, MatcherRegexTest regex) {
     return switch (op) {
       'exists' => true,
       'equals' => value == operand,
@@ -277,6 +489,9 @@ final class _Field {
   }
 
   String? read(CanonicalEvent event) => fromEvent(event, key);
+
+  /// The dotted path an operator addressed, such as `labels.site`.
+  String get fullPath => key == null ? path : '$path.$key';
 
   String sql(String Function(Object) bind) {
     final parts = path.split('.');

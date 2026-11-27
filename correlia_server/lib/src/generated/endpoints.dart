@@ -14,6 +14,7 @@ import 'package:serverpod/serverpod.dart' as _is;
 import '../endpoints/alert_console_endpoint.dart' as _izj6k6t1;
 import '../endpoints/icinga2_stream_endpoint.dart' as _i11286m8;
 import '../endpoints/mapping_preview_endpoint.dart' as _idbsfgu3;
+import '../endpoints/rule_simulator_endpoint.dart' as _if0vnxqm;
 
 class Endpoints extends _is.EndpointDispatch {
   @override
@@ -35,6 +36,12 @@ class Endpoints extends _is.EndpointDispatch {
         ..initialize(
           server,
           'mappingPreview',
+          null,
+        ),
+      'ruleSimulator': _if0vnxqm.RuleSimulatorEndpoint()
+        ..initialize(
+          server,
+          'ruleSimulator',
           null,
         ),
     };
@@ -156,6 +163,57 @@ class Endpoints extends _is.EndpointDispatch {
                         params['sourceId'],
                         params['sample'],
                         draftMapping: params['draftMapping'],
+                      ),
+        ),
+      },
+    );
+    connectors['ruleSimulator'] = _is.EndpointConnector(
+      name: 'ruleSimulator',
+      endpoint: endpoints['ruleSimulator']!,
+      methodConnectors: {
+        'simulate': _is.MethodConnector(
+          name: 'simulate',
+          params: {
+            'eventJson': _is.ParameterDescription(
+              name: 'eventJson',
+              type: _is.getType<String?>(),
+              nullable: true,
+            ),
+            'eventId': _is.ParameterDescription(
+              name: 'eventId',
+              type: _is.getType<String?>(),
+              nullable: true,
+            ),
+            'observedAt': _is.ParameterDescription(
+              name: 'observedAt',
+              type: _is.getType<String?>(),
+              nullable: true,
+            ),
+            'disposition': _is.ParameterDescription(
+              name: 'disposition',
+              type: _is.getType<String?>(),
+              nullable: true,
+            ),
+            'draftMatcher': _is.ParameterDescription(
+              name: 'draftMatcher',
+              type: _is.getType<String?>(),
+              nullable: true,
+            ),
+          },
+          call:
+              (
+                _is.Session session,
+                Map<String, dynamic> params,
+              ) async =>
+                  (endpoints['ruleSimulator']
+                          as _if0vnxqm.RuleSimulatorEndpoint)
+                      .simulate(
+                        session,
+                        eventJson: params['eventJson'],
+                        eventId: params['eventId'],
+                        observedAt: params['observedAt'],
+                        disposition: params['disposition'],
+                        draftMatcher: params['draftMatcher'],
                       ),
         ),
       },

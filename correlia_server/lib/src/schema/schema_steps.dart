@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:serverpod/serverpod.dart';
 
+import '../ingest/matcher_content_digest.dart';
 import '../secrets/reuse_backfill.dart';
 
 /// A forward-only, independently committed schema step.
@@ -90,6 +91,18 @@ List<SchemaStep> get schemaSteps => [
   SchemaStep(12, File('schema/0012_matcher_data.sql').readAsStringSync()),
   SchemaStep(13, File('schema/0013_matcher_pins.sql').readAsStringSync()),
   SchemaStep(14, File('schema/0014_matcher_failures.sql').readAsStringSync()),
+  SchemaStep(
+    15,
+    File('schema/0015_matcher_content_digest.sql').readAsStringSync(),
+  ),
+  SchemaStep(
+    16,
+    File('schema/0016_matcher_digest_watermark.sql').readAsStringSync(),
+  ),
+  SchemaStep(
+    17,
+    File('schema/0017_matcher_digest_snapshot_fk.sql').readAsStringSync(),
+  ),
 ];
 
 /// Installs the publisher-version trigger and backfill boundaries in one
@@ -171,12 +184,28 @@ Future<void> applySchemaSteps(
   }
 }
 
+/// The schema step that created the matcher content digest tables.
+const matcherDigestStepVersion = 15;
+
 /// Initializes the installed SQL-owned schema.
+///
+/// Right after the steps and the secret backfill, and before any configuration
+/// file is read, it fills the matcher content digests of snapshots stored
+/// before they existed. The fill waits [fillLockTimeout] for the publication
+/// lock and fails with [SchemaFailureClass.lockTimeout] past it; the next start
+/// retries. A snapshot whose text is not JSON is skipped, and
+/// [onUnreadableSnapshot] receives its ID (by default it goes to standard
+/// error).
 ///
 /// The fixture hooks observe the real startup backfill and its contested writes.
 Future<void> initializeSchema(
   Session session, {
   Duration lockTimeout = defaultSchemaLockTimeout,
+  Duration fillLockTimeout = defaultMatcherFillLockTimeout,
+  void Function(String snapshotId)? onUnreadableSnapshot,
+  void Function(int rows)? onFillPageForTest,
+  Future<void> Function(int inserted)? afterFillInsertForTest,
+  Future<void> Function()? beforeFillCompletionForTest,
   Future<void> Function(Transaction, bool)? beforeBackfillWriteForTest,
   int? backfillWriteTimeoutInSecondsForTest,
 }) async {
@@ -192,4 +221,16 @@ Future<void> initializeSchema(
     beforeWriteForTest: beforeBackfillWriteForTest,
     writeTimeoutInSecondsForTest: backfillWriteTimeoutInSecondsForTest,
   );
+  try {
+    await runMatcherDigestFill(
+      session,
+      lockTimeout: fillLockTimeout,
+      onUnreadable: onUnreadableSnapshot,
+      onPageForTest: onFillPageForTest,
+      afterInsertForTest: afterFillInsertForTest,
+      beforeCompletionForTest: beforeFillCompletionForTest,
+    );
+  } catch (error) {
+    throw SchemaStepException(matcherDigestStepVersion, _classify(error));
+  }
 }

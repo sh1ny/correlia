@@ -5,7 +5,9 @@ import 'package:serverpod/serverpod.dart';
 
 import '../secrets/commitments.dart';
 import '../secrets/secret_store.dart';
+import '../matcher/matcher_document.dart' show reservedKeyCode;
 import 'bootstrap.dart';
+import 'matcher_content_digest.dart';
 import 'secret_reuse.dart';
 
 /// A rejected activation containing only public snapshot identities and revisions.
@@ -139,7 +141,7 @@ final class IngestConfigRepository {
     try {
       return await session.db.transaction((transaction) async {
         await session.db.unsafeQuery(
-          'SELECT pg_advisory_xact_lock(1129271884)',
+          'SELECT pg_advisory_xact_lock($publicationLockKey)',
           transaction: transaction,
           timeoutInSeconds: 5,
         );
@@ -155,8 +157,23 @@ final class IngestConfigRepository {
           "SET LOCAL correlia.publisher_version = '2'",
           transaction: transaction,
         );
+        // Startup has normally filled the digests already; a publication first
+        // records any snapshot after the fill's watermark, under the lock it
+        // holds.
+        await ensureMatcherDigestFill(session, transaction);
         await _store.checkKey(session, transaction);
         final input = await prepare(transaction);
+        // Only content that no stored snapshot has may be new. An exact restart
+        // and a restore of earlier content are not new and pass the probe.
+        if (input.matcher.writesReservedKey case final field?) {
+          if (!await matcherContentIsStored(
+            session,
+            transaction,
+            input.matcher.snapshotJson,
+          )) {
+            throw BootstrapError('config', field, reservedKeyCode);
+          }
+        }
         final active = await _activeSnapshot(transaction, lock: true);
         if (active?['snapshotId'] != input.snapshotId) {
           final old = active == null
@@ -237,6 +254,12 @@ final class IngestConfigRepository {
             'json': input.publicJson,
           }),
           transaction: transaction,
+        );
+        await recordMatcherContent(
+          session,
+          transaction,
+          input.snapshotId,
+          input.matcher.rules.isEmpty ? null : input.matcher.snapshotJson,
         );
         // The plugin scheme wins when a new reference is shared with a webhook.
         // Existing M1 entries remain immutable and are checked by their own scheme.

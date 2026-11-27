@@ -159,6 +159,7 @@ Future<void> runSecretOutputTest(
   await initializeIngestSchema(session);
   await session.db.unsafeSimpleExecute(
     'DELETE FROM delivery_attempts; DELETE FROM outbox; '
+    'DELETE FROM matcher_content_digest; '
     'DELETE FROM ingest_active_config; DELETE FROM ingest_config_snapshot; '
     'DELETE FROM ingest_secret_commitment; DELETE FROM secret_record;',
   );

@@ -61,20 +61,43 @@ simulator, and failures are visible and replayable. M2 retires the risk that rea
    - parameterized rule filters only (SEC-2); activation rejects unknown outputs (DUR-5).
 
    Needs 1.
-6. `rule-simulator-and-query-enricher`:
+6. `rule-simulator-and-classification` (query enrichment split out by the owner, 2026-11-25, after five
+   design-review rounds):
    - the rule simulator API over a sample or a stored event, against the active or a draft rule set
      (RUL-1, RUL-2);
-   - the Prometheus/Thanos query enricher with per-rule deadlines;
-   - event classification (kind and noise class hints).
+   - event classification (kind and noise class hints);
+   - a simulator command line.
+
+   The end-to-end demo moved to its own change (owner, 2026-11-25, after ten design-review rounds), and
+   then to the end of the milestone (owner, 2026-11-25), so that it tests all of M2.
 
    Needs 5.
-7. `dead-letters-backpressure-and-retention`:
+7. `query-enrichment`:
+   - the Prometheus/Thanos query enricher with per-rule deadlines, evaluated outside the processing
+     transaction. Change 6's design ("Handed to query-enrichment") lists the decisions already taken and
+     the open review findings.
+
+   Needs 6.
+8. `dead-letters-backpressure-and-retention`:
    - the dead-letter list and replay API, in bulk by filter, replaying with the configuration active at
      replay time (DUR-4, DUR-13);
    - inbox lag bounds with 429/503 and `Retry-After` (DUR-9); output storage budgets (DUR-11);
    - raw inbox and event partitioning, drop by age, expiry to `discarded` (DUR-10, DUR-12).
 
    Needs 4.
+9. `enrichment-demo` (moved to the end of M2 by the owner, 2026-11-25, so that one run tests all of M2's
+   functionality):
+   - a fully simulated end-to-end demo (`mise run demo:enrichment`): it starts NATS and the dev server,
+     sends fake alerts from each M2 webhook source, compares the delivered events with an expected
+     table, and the owner checks the console;
+   - its expected table covers every M2 capability: each webhook source, matcher rules and
+     classification, the simulator command line, query enrichment, and dead letters, replay and
+     backpressure;
+   - the process lifecycle it needs: per-run folders and locks, shutdown on parent death and on Ctrl-C.
+     Change 6's design ("Handed to enrichment-demo") lists the decisions already taken and the open
+     review findings.
+
+   Needs 6, 7 and 8.
 
 ## Next: M3 - Correlation and incidents
 

@@ -18,12 +18,8 @@ import '../ingest/bootstrap.dart'
         GenericSourceKind,
         Icinga2SourceKind,
         SourceKind,
-        SourceMode,
-        StreamStateTypePolicy,
         sha256Digest;
-import '../ingest/generic_decoder.dart';
 import '../ingest/icinga2/decoder.dart';
-import '../ingest/icinga2/stream/decoder.dart';
 import '../ingest/source_decoder.dart';
 import '../matcher/matcher_document.dart';
 import '../matcher/matcher_evaluation.dart';
@@ -33,10 +29,13 @@ import '../runtime/subsystem.dart';
 import '../state/alert_state_service.dart';
 import '../state/ordering_key.dart';
 import '../state/transition.dart';
+import 'row_decode.dart';
 
 /// Monotonic processing budget for a claimed raw row.
 const pipelineRowDeadline = Duration(seconds: 10);
-const _fanoutLimit = 16 * 1024 * 1024;
+
+/// The most bytes one raw row's retained events and their copies may take.
+const pipelineFanoutLimit = 16 * 1024 * 1024;
 
 /// The maximum source clock lead used by alert-state ordering.
 const skewAllowance = Duration(minutes: 5);
@@ -241,10 +240,13 @@ final class _PluginOutput extends _Output {
 }
 
 final class _Prepared {
-  const _Prepared(this.event, this.disposition, this.payload);
+  const _Prepared(this.event, this.disposition, this.payload, this.position);
   final CanonicalEvent event;
   final EvidenceDisposition disposition;
   final Uint8List payload;
+
+  /// The event's position in its decoded batch.
+  final int position;
 }
 
 typedef _Retained = ({
@@ -440,24 +442,21 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
         claimed = raw;
         if (afterClaim case final hook?) await hook();
         await _limits(tx, deadline);
-        final snapshots = await session.db.unsafeQuery(
-          'SELECT "publicJson" FROM ingest_config_snapshot WHERE "snapshotId"=@pin',
-          parameters: QueryParameters.named({'pin': raw.pin}),
-          transaction: tx,
-          timeoutInSeconds: 5,
+        final inputs = await readDecodeInputs(
+          session,
+          tx,
+          RawKey(raw.observed, raw.id),
+          raw.pin,
+          sourceId: raw.source,
+          digest: raw.digest,
+          bytes: raw.bytes,
         );
-        final snapshot =
-            jsonDecode(snapshots.single[0] as String) as Map<String, Object?>;
-        final sources = (snapshot['sources'] as List<Object?>)
-            .cast<Map<String, Object?>>();
-        final matches = sources.where(
-          (source) => source['id'] == raw.source && source['enabled'] == true,
-        );
-        if (matches.isEmpty) {
+        final snapshot = inputs.snapshot;
+        if (inputs.rejection == DecodeRejection.sourceNotConfigured) {
           await _fail(tx, deadline, raw, 'source_not_configured', null);
           return true;
         }
-        final source = matches.single;
+        final source = inputs.source!;
         final outputIds = (source['output_ids'] as List<Object?>)
             .cast<String>()
             .toSet();
@@ -488,46 +487,30 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
               },
         };
         final outputs = [for (final id in outputIds) registry[id]!];
-        final kind = _kindOf(snapshot, source);
-        final mapping = kind is GenericSourceKind
-            ? GenericMapping.fromSnapshot(snapshot, source['mapping'])
-            : null;
-        if (kind is GenericSourceKind && mapping == null) {
+        final mapping = inputs.mapping;
+        if (inputs.rejection == DecodeRejection.unsupportedMapping) {
           await _fail(tx, deadline, raw, 'unsupported_mapping', null);
           return true;
         }
-        final decoder = _decoderFor(kind, mapping);
-        if (kind == null || decoder == null) {
+        if (inputs.rejection == DecodeRejection.unsupportedKind ||
+            (inputs.kind is Icinga2SourceKind && icinga2Decoder == null)) {
           await _fail(tx, deadline, raw, 'unsupported_kind', null);
           return true;
         }
-        final stream =
-            kind is Icinga2SourceKind &&
-            source['mode'] == SourceMode.eventStreams.wire;
+        final kind = inputs.kind!;
+        final stream = inputs.stream;
         late final DecodedBatch batch;
         String? syncId;
         final prepared = <_Prepared>[];
         try {
-          final request = DecodeRequest(
-            bytes: raw.bytes,
-            sourceInstance: raw.source,
-            namespace: source['namespace'] as String,
-            excludedLabels:
-                (source['excluded_identity_labels'] as List<Object?>)
-                    .cast<String>(),
-            rawRef: 'raw:${raw.observed.toUtc().toIso8601String()}/${raw.id}',
-            rawSha256: raw.digest,
-            observedAt: _timestamp(raw.observed),
+          final decoded = decodeRow(
+            inputs,
+            raw.bytes,
             processedAt: _timestamp(clock()),
-            configVersion: raw.pin,
+            icinga2Decoder: icinga2Decoder ?? decodeIcinga2Request,
           );
-          if (stream) {
-            final decoded = await _decodeStream(request, raw, tx);
-            batch = decoded.batch;
-            syncId = decoded.syncId;
-          } else {
-            batch = decoder(request);
-          }
+          batch = decoded.batch;
+          syncId = decoded.syncId;
           deadline.check();
           for (final event in batch.events) {
             deadline.check();
@@ -542,7 +525,7 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
                   : raw.observed,
             );
             final data = CloudEvent(event: event).toJsonBytes();
-            prepared.add(_Prepared(event, disposition, data));
+            prepared.add(_Prepared(event, disposition, data, prepared.length));
           }
         } on EventValidationError catch (error) {
           await _fail(
@@ -564,7 +547,12 @@ ORDER BY observed_at,raw_id FOR UPDATE SKIP LOCKED LIMIT 1''',
           );
           return true;
         }
-        prepared.sort((a, b) => a.event.eventId.compareTo(b.event.eventId));
+        // `List.sort` is not stable, so equal event IDs are ordered by input
+        // position: the same-ID check below then admits the earliest member.
+        prepared.sort((a, b) {
+          final byId = a.event.eventId.compareTo(b.event.eventId);
+          return byId != 0 ? byId : a.position.compareTo(b.position);
+        });
         var committed = 0,
             duplicates = 0,
             quarantines = 0,
@@ -780,7 +768,7 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
             aggregate +=
                 item.payload.length *
                 (1 + (effect.routes ? outputs.length : 0));
-            if (aggregate > (fanoutLimitForTest ?? _fanoutLimit)) {
+            if (aggregate > (fanoutLimitForTest ?? pipelineFanoutLimit)) {
               throw const EventFieldError('alerts', 'batch_bound');
             }
             retained.add(effect);
@@ -793,7 +781,8 @@ ON CONFLICT (observed_at,event_id,disposition) DO NOTHING RETURNING event_id''',
               matcher,
               regex.newRow(remaining),
               remaining,
-              availableBytes: (fanoutLimitForTest ?? _fanoutLimit) - aggregate,
+              availableBytes:
+                  (fanoutLimitForTest ?? pipelineFanoutLimit) - aggregate,
             );
           }
           for (final effect in retained) {
@@ -1029,64 +1018,6 @@ VALUES (@created,CAST(@delivery AS uuid),@observed,CAST(@event AS uuid),@disposi
     } finally {
       ownedRegex?.close();
     }
-  }
-
-  /// The pinned source's kind, or `null` when it has none.
-  ///
-  /// A format version 1 snapshot carries no kind and defines Alertmanager. In
-  /// a version 2 snapshot a missing or unknown kind is none.
-  SourceKind? _kindOf(
-    Map<String, Object?> snapshot,
-    Map<String, Object?> source,
-  ) => switch (snapshot['format_version']) {
-    1 => SourceKind.alertmanager,
-    _ => SourceKind.named(source['kind']),
-  };
-
-  /// The decoder for the resolved kind and its pinned mapping, if required.
-  KindDecoder? _decoderFor(SourceKind? kind, GenericMapping? mapping) =>
-      switch (kind) {
-        null => null,
-        GenericSourceKind() => (request) => decodeGeneric(request, mapping!),
-        AlertmanagerSourceKind() => decodeAlertmanagerRequest,
-        Icinga2SourceKind() => icinga2Decoder,
-      };
-
-  Future<({DecodedBatch batch, String? syncId})> _decodeStream(
-    DecodeRequest request,
-    _Raw raw,
-    Transaction tx,
-  ) async {
-    final envelope = IcingaStreamRow.parse(request.bytes);
-    final admitted = await session.db.unsafeQuery(
-      '''SELECT o.origin, source->>'state_type_policy', o.sync_id::text
-        FROM icinga2_raw_origin o
-        JOIN ingest_config_snapshot c ON c."snapshotId"=o.admission_snapshot_id
-        CROSS JOIN LATERAL jsonb_array_elements(c."publicJson"::jsonb->'sources') source
-        WHERE o.raw_id=CAST(@raw AS uuid) AND source->>'id'=@source''',
-      parameters: QueryParameters.named({'raw': raw.id, 'source': raw.source}),
-      transaction: tx,
-      timeoutInSeconds: 5,
-    );
-    if (admitted.isEmpty) {
-      throw const EventFieldError('origin', 'missing_origin');
-    }
-    final metadata = admitted.single;
-    final policy = switch (metadata[1]) {
-      'hard_only' => StreamStateTypePolicy.hardOnly,
-      'soft_and_hard' => StreamStateTypePolicy.softAndHard,
-      _ => throw const EventFieldError(
-        'state_type_policy',
-        'invalid_state_type_policy',
-      ),
-    };
-    final origin = metadata[0] == 'sync'
-        ? IcingaStreamOrigin.sync
-        : IcingaStreamOrigin.stream;
-    return (
-      batch: envelope.decode(request, origin, policy),
-      syncId: metadata[2] as String?,
-    );
   }
 
   Future<void> _fail(
