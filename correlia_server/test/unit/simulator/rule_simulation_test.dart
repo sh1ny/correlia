@@ -1114,6 +1114,26 @@ void main() {
     expect(result.notes.join(' '), contains('source'));
   });
 
+  test('a_link_action_detail_names_its_display_text', () async {
+    Map<String, Object?> link([String? text]) => {
+      'type': 'link',
+      'href': 'https://example.com/runbook',
+      'relation': 'runbook',
+      'text': ?text,
+    };
+    final result = await _simulate(
+      _event(),
+      _document([
+        _rule('links', [link(), link('Runbook, "night"'), link('Day')]),
+      ]),
+    );
+    expect(result.trace.single.actions.map((a) => a.detail), [
+      'runbook https://example.com/runbook',
+      'runbook https://example.com/runbook "Runbook, \\"night\\""',
+      'runbook https://example.com/runbook "Day"',
+    ]);
+  });
+
   test('actions_record_their_effect_and_the_final_event', () async {
     final result = await _simulate(
       _event(),

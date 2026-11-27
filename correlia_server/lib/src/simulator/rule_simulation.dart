@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../event/canonical_event.dart';
 import '../event/cloud_event.dart';
 import '../event/validation.dart';
@@ -472,7 +474,16 @@ ActionTrace _actionTrace(
         ].join(', '),
       },
     ),
-    MatcherLink(:final link) => ('link', '${link.relation} ${link.href}'),
+    // The display text is JSON-quoted, so links that differ only in it, or
+    // text holding spaces or quotes, read apart.
+    MatcherLink(:final link) => (
+      'link',
+      [
+        link.relation,
+        link.href,
+        if (link.text case final text?) jsonEncode(text),
+      ].join(' '),
+    ),
     MatcherExtract(:final key) => (
       'extract',
       switch (effect) {
