@@ -30,6 +30,9 @@ List<Map<String, Object?>> _examples() {
   return found;
 }
 
+/// [pattern] compiled with the flags the regex worker uses.
+RegExp _regex(String pattern) => RegExp(pattern, unicode: true, dotAll: true);
+
 CanonicalEvent _event(Map<String, Object?> documented) {
   final data = eventFixture()['data']! as Map<String, Object?>;
   data['labels'] = documented['labels'];
@@ -49,10 +52,17 @@ void main() {
       final name = example['name'];
       final event = _event(example['event']! as Map<String, Object?>);
       final document = MatcherDocument.parse(example['matcher'], _outputs);
-      final result = await simulateWithFreshBudgets(
+      // The real regex semantics run in process, and the time left is fixed:
+      // scheduler delay cannot fail the examples. Deadlines have their own
+      // budget tests.
+      final result = await simulateRules(
         event: event,
         document: document,
         context: SimulationContext(ruleSource: SimulationRuleSource.draft),
+        regexTest: (pattern, input) async => _regex(pattern).hasMatch(input),
+        capture: (pattern, input, group) async =>
+            _regex(pattern).firstMatch(input)?.group(group),
+        optionalRemaining: () => const Duration(seconds: 8),
       );
       final expected = example['expect']! as Map<String, Object?>;
       expect(result.error, isNull, reason: '$name');

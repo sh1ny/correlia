@@ -384,7 +384,10 @@ Icinga 2 webhook table in [Mapping](#mapping) gives the kind for each notificati
 | Icinga 2 Event Streams | `AcknowledgementSet`, `AcknowledgementCleared` | `ack` |
 | Icinga 2 Event Streams | `DowntimeStarted`, `DowntimeRemoved` | `downtime` |
 | Icinga 2 Event Streams | `Flapping` | `state` |
-| Icinga 2 Event Streams | any other stream type | rejected with `unsupported_type` at `type` |
+| Icinga 2 Event Streams | any other live stream type | rejected with `unsupported_type` at `type` |
+| Icinga 2 reconciliation (sync) | `Host` or `Service` object, HARD or `soft_and_hard`, any state; SOFT recovery under `hard_only` | `alert` |
+| Icinga 2 reconciliation (sync) | `Host` or `Service` object, SOFT non-OK under `hard_only` | no event |
+| Icinga 2 reconciliation (sync) | any other object type | rejected with `unsupported_type` at `type` |
 
 A `classify` action (see above) adds the noise class hint on top of the kind; it never replaces it.
 
