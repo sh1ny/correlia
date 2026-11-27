@@ -202,6 +202,83 @@ void main() {
     });
   }, timeout: timeout);
 
+  test('malformed_replay_continuations_do_not_requeue_or_audit', () async {
+    await withOutputProcess((db, env, _, children) async {
+      final file = await operatorCredentials(env['TEST_GATE_PATH']!);
+      final api = await ChildServer.startOnSharedCluster(
+        serverDir: Directory.current,
+        database: db,
+        args: ['--mode', 'test', '--apply-migrations', '--process-role', 'api'],
+        environment: {
+          ...env,
+          'CORRELIA_DEAD_LETTER_CREDENTIALS_FILE': file.path,
+        },
+      );
+      children.add(api);
+      await api.waitForReadyEvent();
+      final pg = await outputConnection(db);
+      final client = operatorClient(api);
+      try {
+        await pg.execute('''
+          WITH raw AS (
+            INSERT INTO raw_inbox(observed_at,raw_id,source_id,body,body_sha256,content_type,status)
+            SELECT now(),gen_random_uuid(),'$outputSource',decode('ff','hex'),'digest','application/json','failed'
+            FROM generate_series(1,3) RETURNING observed_at,raw_id,source_id
+          ) SELECT correlia_record_raw_failure(observed_at,raw_id,source_id,NULL,'invalid_json',NULL,now())
+          FROM raw
+        ''');
+        final filter = QueueFailureFilter(kind: QueueFailureKind.raw);
+        final first = await client.deadLetter.replayBatch(filter, limit: 1);
+        expect(first.queued, 1);
+        final cursor = first.continuation!;
+        final cursorBytes = base64Url.decode(base64Url.normalize(cursor));
+        final parts = jsonDecode(utf8.decode(cursorBytes)) as List<Object?>;
+        String encode(List<Object?> data) =>
+            base64Url.encode(utf8.encode(jsonEncode(data))).replaceAll('=', '');
+        final reversedTime = [...parts]..[1] = (parts[3]! as int) - 1;
+        final reversedId = [...parts]..[2] = (parts[4]! as int) - 1;
+        final firstByte = cursor.codeUnitAt(0).toRadixString(16);
+        for (final malformed in [
+          '%$firstByte${cursor.substring(1)}',
+          encode(reversedTime),
+          encode(reversedId),
+          encode(parts.take(4).toList()),
+        ]) {
+          await expectLater(
+            client.deadLetter.replayBatch(
+              filter,
+              limit: 1,
+              continuation: malformed,
+            ),
+            throwsA(
+              isA<QueueOperatorException>().having(
+                (error) => error.code,
+                'code',
+                'invalid_continuation',
+              ),
+            ),
+          );
+        }
+        final counts = (await pg.execute('''
+          SELECT (SELECT count(*) FROM raw_inbox WHERE status='pending'),
+            (SELECT count(*) FROM activity WHERE change_kind='dead_letter_replayed')
+        ''')).single;
+        expect(counts.toList(), [1, 1]);
+        expect(
+          (await client.deadLetter.replayBatch(
+            filter,
+            limit: 1,
+            continuation: cursor,
+          )).queued,
+          1,
+        );
+      } finally {
+        client.close();
+        await pg.close();
+      }
+    });
+  }, timeout: timeout);
+
   test('fileless_api_replays_with_the_configured_encryption_key', () async {
     await withOutputProcess((db, env, _, children) async {
       final publisher = await ChildServer.startOnSharedCluster(

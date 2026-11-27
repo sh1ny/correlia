@@ -13,6 +13,7 @@ const _defaultPage = 50;
 const _maxPage = 100;
 final _uuid = RegExp(r'^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$');
 final _code = RegExp(r'^[a-z][a-z0-9_.-]{0,63}$');
+final _nonCursorChar = RegExp(r'[^A-Za-z0-9_-]');
 const _failureColumns =
     'occurrence_id,scope_id::text,work_at,work_id::text,failed_at,error_class,snapshot_id,field_path';
 
@@ -259,6 +260,10 @@ final class QueueOperations {
         'LOCK TABLE pipeline_dead_letter IN SHARE MODE',
         beforeExecuteForTest: beforePageCaptureForTest,
       );
+    } else if (cursor.isEmpty ||
+        cursor.length > 256 ||
+        _nonCursorChar.hasMatch(cursor)) {
+      _invalid('invalid_continuation');
     }
     final now = await _now(tx);
     var high = through != null && through.isBefore(now) ? through : now;
@@ -271,7 +276,6 @@ final class QueueOperations {
       )).single;
       highOccurrence = bound[0]! as int;
     } else {
-      if (cursor.length > 256) _invalid('invalid_continuation');
       try {
         final decoded = jsonDecode(
           utf8.decode(base64Url.decode(base64Url.normalize(cursor))),

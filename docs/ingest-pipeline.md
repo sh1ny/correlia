@@ -1217,14 +1217,18 @@ Status shows blocking outputs first, up to 64 lanes. `outputsTruncated` indicate
 lanes are omitted. A failed partition attachment reports `prepare_partition` with zero
 affected rows and keeps its retry record. A successful attachment reports one affected partition.
 
-Supply a limit from 1 to 100 for `list` and `replayBatch`. Pass the continuation to the same
-method with the same filters. The first page briefly locks the failure directory to capture
+Supply a limit from 1 to 100 for `list` and `replayBatch`. Pass the continuation unchanged to
+the same method with the same filters. The first page briefly locks the failure directory to capture
 committed occurrences, then releases that lock before replay takes any work locks. The
 continuation keeps the first page's upper time and occurrence ID bounds even if the clock moves
 back. Start a new listing to include failures committed after capture or revisit refused items.
 If capture times out, replay requeues nothing. No reply includes raw bodies, delivery
 payloads, destinations or signing references. Successful replay records the verified machine
 ID and queued count in `activity`.
+
+Continuations are unsigned and do not grant access. A dedicated credential already lets its
+holder start a selection and replay any eligible failure. The RPC rejects malformed
+continuations with `invalid_continuation` before selecting work.
 
 Plugin dead letters use the `plugin_failure` category for listing and filters. The API does
 not return plugin-supplied error text.
