@@ -38,6 +38,10 @@ An authorized caller SHALL be able to page pipeline failures and delivery dead l
 - **WHEN** matching failures are sparse among many failures with a different scope or error class
 - **THEN** successive pages return matching occurrences in order without traversing the unrelated backlog
 
+#### Scenario: Listing captures committed occurrences
+- **WHEN** a machine starts a listing while a lower-ID failure is still uncommitted and a higher-ID failure is already visible
+- **THEN** the first page captures the bounds only after competing directory writers finish. Later pages cannot include failures that commit after capture, even if their wall-clock timestamps are earlier than the bound. Capture waits within the request deadline and returns no page on timeout.
+
 ### Requirement: Bounded replay selection and audit
 
 An authorized caller SHALL replay one named occurrence or one bounded batch by explicit filter. Replay SHALL recheck status and expiry and take a shared pending slot for each raw row it requeues. It SHALL report queued, refused and continuation results. The count queued and verified actor SHALL commit with the successful changes.
@@ -45,6 +49,10 @@ An authorized caller SHALL replay one named occurrence or one bounded batch by e
 #### Scenario: Bulk replay by filter
 - **WHEN** a machine replays a filter matching more than one batch of pipeline failures or dead deliveries
 - **THEN** only matching occurrences are considered in each batch, the reply identifies how many were queued and refused, and the machine can use the continuation without repeating prior occurrences
+
+#### Scenario: Replay uses the captured failure set
+- **WHEN** a machine starts bulk replay while another transaction has not yet committed its failure
+- **THEN** the first page captures only committed failures and releases the directory lock before replaying work. Later pages exclude failures committed after capture. Replay still checks that each occurrence is active and unexpired. If capture cannot finish within the request deadline, it requeues nothing.
 
 #### Scenario: Replay exhausts its request deadline
 - **WHEN** a replay page spends its five-second database budget across statements

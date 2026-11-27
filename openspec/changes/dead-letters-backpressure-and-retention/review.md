@@ -75,3 +75,9 @@ The regression holds one capacity row through another destination's notice commi
 Codex approved D18 after two required test changes. The fixture excludes raw failures so that the expiry batch measures only delivery failures. The regression writes matching terminal attempts with a non-UTC PostgreSQL session, then checks both windows from the cutover timestamp without changing the attempt history.
 
 The recheck confirmed that replay clears the legacy metadata. A normal permanent completion opens a distinct failure occurrence at the controlled transition time and keeps the old attempts. That occurrence remains replayable until its own expiry boundary.
+
+## Round 10: Capture committed failure occurrences
+
+Codex approved D19 after two required test changes. A PostgreSQL lock witness shows that a first page waits behind the lower-ID failure writer, then includes the writer's occurrence exactly once after commit. A post-capture failure commits before replay takes its work locks and stays outside the continuation. A capture that times out requeues nothing.
+
+The final recheck confirmed that the deadline fixture starts a new clock origin on each call. A reset between capture and replay would leave three seconds for the ledger statement instead of the one second the test requires. The last injected second rolls back both the requeue and its audit entry.

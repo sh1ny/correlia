@@ -147,6 +147,12 @@ Start the replay window for legacy dead deliveries and the retention window for 
 
 Rejected: ask the operator for a legacy time zone. A single zone cannot represent past sessions that used different zones. The chosen policy can keep old intents for one extra window. Reversal cost: medium. Important: yes, changes legacy replay and reclamation eligibility. Chosen by: user (item 88, "Start the windows at upgrade.").
 
+### D19: Capture the failure set on the first page
+
+Capture the first list or replay page in a short transaction that takes `SHARE` on the compact failure directory. PostgreSQL grants that lock only after directory writers finish, so no uncommitted occurrence can sit below the captured ID bound. Read the database time, the highest visible occurrence ID and one indexed page, then commit. Release the lock before replay takes any work locks. Later pages enforce both bounds and still recheck the occurrence, current state and expiry. Do not hold a transaction between requests or scan a payload table. The capture and replay share one request deadline; exhaustion returns without replaying any work.
+
+Rejected: use the highest visible ID without a capture lock. PostgreSQL can commit a lower-ID failure after a higher one, so it could enter a later page. Reversal cost: medium. Important: yes, defines which failures a batch can replay. Chosen by: user (item 88, "No, snapshot at the first page.").
+
 ### Decision summary
 
 | # | Decision | Choice | Rejected | Reversal cost | Important | Chosen by |
@@ -172,6 +178,7 @@ Rejected: ask the operator for a legacy time zone. A single zone cannot represen
 | D16 | Drained outbox partitions | Exact per-child, per-output counts; no heap scan at drop | Bounded scan with vacuum or offline repair | medium | yes | user |
 | D17 | Overflow fanout under capacity contention | One-shot routing skips unavailable capacity rows | Persist per-output progress and retry skipped lanes | medium | yes | user |
 | D18 | Legacy delivery retention origin | Start both legacy windows at offline cutover; keep attempt history | Infer a time zone for past sessions | medium | yes | user |
+| D19 | Continuation membership | First page captures committed failures under a directory-only lock | Live time-and-ID pagination | medium | yes | user |
 
 ## Assumptions
 
@@ -353,7 +360,9 @@ Build historical-secret evidence from the same pin-to-intent transitions. Pinnin
 
 Require one failure kind per filter. The directory stores kind, occurrence, scope ID, error class, failure time and full work key. Each raw or delivery failure gets a distinct monotonic occurrence. Add or remove the directory entry in the same transaction as the owning transition. Backfill at cutover. Use indexes for kind alone, kind plus scope, kind plus error, and kind plus both, each ending in failure time and occurrence. Keep sanitized raw details with the directory so listing does not touch payload tables. Sparse filters need no residual scan.
 
-Validate the bounded cursor against kind and filter. The first page fixes the upper failure-time bound and the highest visible occurrence ID. Later pages enforce both, so a new ID cannot enter the batch even if its failure timestamp moves backward. Bulk mutation selects a page, locks work rows in composite key order and rechecks occurrence, status and expiry. Apply successful changes in page order. The DB operations share one five-second monotonic budget. Cap each statement at the remaining budget and check it again before commit. A timeout rolls back the page and does not advance its continuation. Report queued and refused outcomes. Single replay identifies one occurrence, so retry cannot replay a later failure of the same work.
+Record raw failure history and its active directory entry with one PostgreSQL timestamp. The replay window does not depend on the worker's wall clock.
+
+Validate the bounded cursor against kind and filter. The first page captures the upper failure time and highest committed occurrence ID under a short directory-only `SHARE` lock. This excludes later commits even when the clock moves backward or failure transactions commit out of ID order. Release the lock before starting the replay transaction. Bulk mutation locks work rows in composite key order and rechecks occurrence, status and expiry. Apply successful changes in page order. Capture and mutation share one five-second monotonic budget. Cap each statement at the remaining budget and check it again before commit. A timeout leaves the page untouched and does not advance its continuation. Report queued and refused outcomes. Single replay identifies one occurrence, so retry cannot replay a later failure of the same work.
 
 Raw replay locks the active snapshot in shared mode after locking rows and counts slots under the raw count lock. Refused occurrences are not removed, re-pinned or audited as successes. On success, advance `processing_epoch`. The worker carries its claimed epoch and matches it along with raw key, pin and pending status in the later error-recording transaction. Key local backoff hints by epoch too. This prevents a stale error from spending the fresh allowance even when the pin has not changed (`correlia_server/lib/src/pipeline/pipeline.dart:1025-1028,1160-1187`). Canonical generation remains 0.
 
