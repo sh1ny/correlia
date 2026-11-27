@@ -63,3 +63,9 @@ The review accepted the regression that parks an expiry failure after rollback, 
 Codex accepted D16 after requiring a fresh count snapshot after the partition locks, transactional resets for parent and child truncation, and proof that unrelated outputs can write and reclaim rows while one count is busy. The rechecks confirmed the `READ COMMITTED` guard, both reset scopes and their rollback, and the test-map entries for those cases.
 
 Pre-ship review 41 found that resetting only the count on direct child truncation left queue metadata behind. The guard now refuses direct truncation of nonempty children and requires `READ COMMITTED`. Truncation through the parent still resets queue metadata and counts in one transaction.
+
+## Round 8: Overflow fanout under contention
+
+Codex approved D17. Notice routing skips locked destination capacity rows, not shared relation, registry or signing commitment locks. The same transaction writes at most one canonical event, its fitting intents and the handled marker. A rollback leaves the occurrence pending. Normal pipeline processing and replay keep strict capacity locking.
+
+The regression holds one capacity row through another destination's notice commit, releases the lock and checks that a second worker cannot send the same occurrence to the skipped destination. The ledger and status retain the overflow evidence.

@@ -78,7 +78,7 @@ Each output SHALL have one count and payload-byte budget for queued, delivering 
 
 ### Requirement: Output overflow notice does not recurse
 
-Each overflow episode SHALL raise one durable Correlia alert and attempt to route a sanitized canonical Correlia-origin event to other active outputs that have capacity. This SHALL NOT create sender work, mutate alert state, exceed other output budgets, or raise another overflow alert. The operator RPC and activity ledger SHALL remain authoritative if every destination is unavailable.
+Each overflow episode SHALL record one durable Correlia alert and attempt to route one sanitized canonical Correlia-origin event to other active outputs with room and lockable capacity. Routing SHALL skip locked destinations without retrying them after commit and SHALL NOT create sender work, mutate alert state, bypass limits, or raise another overflow alert. The operator RPC and activity ledger SHALL remain authoritative if no destination can accept the notice.
 
 #### Scenario: Alert reaches a healthy output
 - **WHEN** one output enters overflow while another active output has capacity
@@ -95,6 +95,10 @@ Each overflow episode SHALL raise one durable Correlia alert and attempt to rout
 #### Scenario: All other outputs are full
 - **WHEN** no other active output has room for an overflow notice
 - **THEN** the episode remains visible in operator status and the ledger, no extra intents are enqueued, and no recursive overflow notices appear
+
+#### Scenario: A contended destination does not stop overflow fanout
+- **WHEN** an overflow notice can fit on two other active outputs but one has its capacity row locked
+- **THEN** the routing transaction commits one event and one intent for the available output, marks the occurrence handled, and creates no intent for the contended output even after its lock releases; the episode remains visible in operator status and in the ledger
 
 #### Scenario: Notice uses a blocking output's last slot
 - **WHEN** an overflow notice fits exactly into the last available capacity of a different output configured to block ingest

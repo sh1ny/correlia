@@ -133,6 +133,12 @@ Maintenance prelocks the affected counts with `SKIP LOCKED` before deleting term
 
 Rejected: keep the bounded heap scan and rely on vacuum or offline repair to free disk space. The scan can time out on dead tuples even after the last row is gone. Reversal cost: medium. Important: yes, online retention and write concurrency. Chosen by: user (item 88).
 
+### D17: Skip contended destinations in overflow fanout
+
+Attempt to lock the other active destinations' capacity rows in output ID order with `FOR UPDATE SKIP LOCKED`. An output whose capacity cannot be locked is unavailable for this notice, just like a full output. Check capacity only under its lock. Commit at most one canonical notice event and its intents to all fitting destinations with acquired locks in the same transaction as marking the occurrence handled. The ledger and status remain authoritative, including when no destination can take the notice. Do not schedule later delivery to skipped destinations. A failed transaction still rolls back the whole unhandled occurrence.
+
+Rejected: track each destination and retry contended ones after sending to the rest. That would retain routing state across attempts and require rules for destination changes while a notice is outstanding. Reversal cost: medium. Important: yes, the destinations that can receive an overflow notice. Chosen by: user (item 88, “Skip it, send to the rest.”).
+
 ### Decision summary
 
 | # | Decision | Choice | Rejected | Reversal cost | Important | Chosen by |
@@ -156,6 +162,7 @@ Rejected: keep the bounded heap scan and rely on vacuum or offline repair to fre
 | D14 | Offline cutover execution deadline | Partition-only setting, default one hour | Fixed one-hour client deadline | medium | yes | user |
 | D15 | Active maintenance faults | Last batch plus one unresolved failure per job | Show a failure in place of the last batch | medium | yes | user |
 | D16 | Drained outbox partitions | Exact per-child, per-output counts; no heap scan at drop | Bounded scan with vacuum or offline repair | medium | yes | user |
+| D17 | Overflow fanout under capacity contention | One-shot routing skips unavailable capacity rows | Persist per-output progress and retry skipped lanes | medium | yes | user |
 
 ## Assumptions
 
@@ -323,6 +330,7 @@ Only `block_ingest` records deferred demand. A policy switch or enough free spac
 A publication that lowers either policy's quota to current usage or below opens the overflow episode in that transaction. It needs no pending raw row. Repeating publication while the episode remains open does not enqueue another notice. The relay uses separate sessions for notice routing, expired lease recovery and discovery. A poll starts at most one transaction of each maintenance job without waiting for it before discovering deliveries.
 
 Expired-lease recovery rotates by output ID using an index on delivering intents. It advances the process-local cursor when it locks a candidate, even if finalizing the lease times out. It wraps after the last eligible output. The candidate and its attempt remain unchanged after rollback and can be recovered on a later turn or by another worker.
+Recovery reads the database clock after acquiring the claim and uses that sample for the attempt finish and, when requeuing, the start of its full retry delay.
 
 Lock raw or existing delivery rows first, then any needed active publication and ordered output capacity locks, then ordered event-reference keys, then sync progress if affected, then the raw count row if needed. A new sync admission does not lock existing raw rows. After its lease and source fences it locks open `icinga2_sync_progress` before the raw counter and keeps that progress lock through commit. Pipeline success and failure update progress before releasing raw count. Replay touches no progress. A transition that touches both capacity and pinned-route counts locks the union of affected output IDs in sorted order once.
 
